@@ -22,28 +22,61 @@ export interface DeciderRunSender { send(name: string, data: object, opts: { sin
 /**
  * Queue `runId`'s job with the library's singleton key, never a key of its
  * own: one run per library at a time. Null when pg-boss kept a job already
- * queued for the library instead (see queuedDeciderRun).
+ * queued for the library instead (see deciderRunJobWaiting).
  */
 export async function sendDeciderRun(boss: DeciderRunSender, libraryId: string, runId: string): Promise<string | null> {
   return boss.send('decider.run', { runId }, { singletonKey: deciderRunSingletonKey(libraryId) });
 }
 
-/**
- * The run whose decider.run job is queued (waiting or to retry) for the
- * library, or null when none is. A send that pg-boss swallowed is fine only
- * when this is the run it was for.
- */
-export async function queuedDeciderRun(sql: Sql, libraryId: string): Promise<string | null> {
+const missingOk = async <T>(read: () => Promise<T>, fallback: T): Promise<T> => {
   try {
-    const [row] = await sql<Array<{ run_id: string | null }>>`
-      select data->>'runId' as run_id from pgboss.job
-       where name = 'decider.run' and singleton_key = ${deciderRunSingletonKey(libraryId)} and state::text in ('created', 'retry')
-       limit 1`;
-    return row?.run_id ?? null;
+    return await read();
   } catch (err) {
-    if ((err as { code?: string }).code === '42P01') return null;
+    // no pg-boss (or no module tables) in this database: no job waits
+    if ((err as { code?: string }).code === '42P01') return fallback;
     throw err;
   }
+};
+
+/**
+ * Whether `runId`'s own decider.run job waits (queued or to retry) for the
+ * library. A send that pg-boss swallowed is fine only then.
+ */
+export async function deciderRunJobWaiting(sql: Sql, libraryId: string, runId: string): Promise<boolean> {
+  return missingOk(async () => {
+    const [row] = await sql<Array<{ waiting: boolean }>>`
+      select exists (
+        select 1 from pgboss.job
+         where name = 'decider.run' and singleton_key = ${deciderRunSingletonKey(libraryId)}
+           and state::text in ('created', 'retry') and data->>'runId' = ${runId}) as waiting`;
+    return row?.waiting === true;
+  }, false);
+}
+
+/**
+ * Waiting decider.run jobs of the library whose run can no longer go on
+ * (cancelled, ended, or gone): they hold the library's one waiting slot
+ * for nothing. Their job ids.
+ */
+export async function staleDeciderRunJobs(sql: Sql, libraryId: string): Promise<string[]> {
+  return missingOk(async () => {
+    const rows = await sql<Array<{ id: string }>>`
+      select j.id::text as id from pgboss.job j
+       where j.name = 'decider.run' and j.singleton_key = ${deciderRunSingletonKey(libraryId)} and j.state::text in ('created', 'retry')
+         and not exists (select 1 from decider_runs r
+                          where r.id::text = j.data->>'runId' and r.state in ('queued', 'running', 'paused'))`;
+    return rows.map((r) => r.id);
+  }, []);
+}
+
+/** The ids of `runId`'s decider.run jobs that wait (queued or to retry). */
+export async function waitingDeciderRunJobs(sql: Sql, runId: string): Promise<string[]> {
+  return missingOk(async () => {
+    const rows = await sql<Array<{ id: string }>>`
+      select id::text as id from pgboss.job
+       where name = 'decider.run' and data->>'runId' = ${runId} and state::text in ('created', 'retry')`;
+    return rows.map((r) => r.id);
+  }, []);
 }
 
 /**

@@ -36,7 +36,7 @@ describe('jevDecider', () => {
     const { f, bodies } = fakeFetch({ is_A: { type: 'noul', noul: 0.97 }, is_B: { type: 'noul', noul: 0.02 } });
     const d = jevDecider({ apiKey: 'test-key', baseUrl: 'http://fake.invalid', fetchImpl: f, maxRetries: 0 });
     expect(d).toMatchObject({ id: 'jev', specHash: jevSpecHash() });
-    const a = await d.ask({ album, groups, request }, { model: 'jev-latest' });
+    const a = await d.ask({ album, groups, payload: request }, { model: 'jev-latest' });
     expect(bodies).toHaveLength(1);
     // the request it was given, as it is
     expect(bodies[0]).toEqual(JSON.parse(JSON.stringify(request)));
@@ -48,14 +48,22 @@ describe('jevDecider', () => {
 
   it('a group left unanswered is left out, so the answer is no answer', async () => {
     const { f } = fakeFetch({ is_A: { type: 'noul', noul: 0.99 }, is_B: { type: 'noul' } });
-    const a = await jevDecider({ apiKey: 'test-key', baseUrl: 'http://fake.invalid', fetchImpl: f, maxRetries: 0 }).ask({ album, groups, request }, { model: 'jev-latest' });
+    const a = await jevDecider({ apiKey: 'test-key', baseUrl: 'http://fake.invalid', fetchImpl: f, maxRetries: 0 }).ask({ album, groups, payload: request }, { model: 'jev-latest' });
     expect(a.probabilities).toEqual({ A: 0.99 });
     expect(decideFromProbabilities(a.probabilities, JEV_SPEC, { labels: groups.map((g) => g.label) })).toMatchObject({ kind: 'none', reason: 'invalid_answer' });
   });
 
+  it('builds with the shared Jev builder', () => {
+    const d = jevDecider({ apiKey: 'test-key', baseUrl: 'http://fake.invalid', maxRetries: 0 });
+    const cands = [cand('r1', ['Ilta', 'Aamu'], 0.05), cand('r2', ['Ilta', 'Aamu', 'Lisä'], 0.2)].map((c) => ({ ...c, acoustidCoverage: null }));
+    const built = d.build(album, cands, { model: 'jev-latest' });
+    expect(built.payload).toEqual(request);
+    expect(built.labels).toEqual(['A', 'B']);
+  });
+
   it('refuses a request built for another model, sending nothing', async () => {
     const { f, bodies } = fakeFetch({ is_A: { type: 'noul', noul: 0.99 } });
-    await expect(jevDecider({ apiKey: 'test-key', baseUrl: 'http://fake.invalid', fetchImpl: f, maxRetries: 0 }).ask({ album, groups, request }, { model: 'jev-2026-09-15' }))
+    await expect(jevDecider({ apiKey: 'test-key', baseUrl: 'http://fake.invalid', fetchImpl: f, maxRetries: 0 }).ask({ album, groups, payload: request }, { model: 'jev-2026-09-15' }))
       .rejects.toThrow(/another model/);
     expect(bodies).toHaveLength(0);
   });

@@ -147,6 +147,8 @@ export interface RunView {
   outcomes: Record<string, number>;
   /** what the run's calls cost, in `currency` (the library settings' currency) */
   spent: number;
+  /** what its calls cost in any other currency (after the currency was changed); usually empty */
+  spentOther: Array<{ currency: string; amount: number }>;
   currency: string;
   /** albums × the library's mean cost per answered call in `currency`; null before any call */
   projected: number | null;

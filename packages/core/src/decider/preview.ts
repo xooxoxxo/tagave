@@ -1,9 +1,10 @@
 /**
- * One album's Jev request, from its stored evidence. The one place a request
- * is made: decider.run sends what this returns, and the payload preview the
- * owner must see before the first run shows what this returns, so what the
- * owner approved is byte for byte what goes out for the same album and
- * model.
+ * One album's Jev request, from its stored evidence. The one place a Jev
+ * request is made: decider.run sends what the Jev decider's build returns
+ * (jevPayloadFor, this), and the payload preview the owner must see before
+ * the first run shows what this returns, with the options both take from
+ * requestOptions, so what the owner approved is byte for byte what goes out
+ * for the same album and model.
  *
  * The candidates are the album's sendable ones (never excluded, never a
  * linked app's suggestion), each release once at its best distance, in
@@ -17,6 +18,9 @@ import { evidenceHash } from '../matching/evidence.js';
 import { groupTracklists, type GroupingCandidate, type TracklistGroup } from './grouping.js';
 import { buildJevRequest, NotSendableError, requestBytes, type JevRequest } from './jevPayload.js';
 import { JEV_SPEC } from './jevSpec.js';
+import type { DeciderRequest, RequestOptions } from './types.js';
+
+export type { RequestOptions } from './types.js';
 
 /**
  * At most this many tracklist groups go into one request: the best eight by
@@ -50,14 +54,15 @@ export interface AlbumRequest {
   candidates: Array<EvidenceCandidate & { evidence: CandidateEvidence }>;
 }
 
-export interface RequestOptions {
-  model: string;
-  /** an album of the weak population: only its best few candidates go */
-  weak?: boolean;
-  /** a sendable candidate of the album has no evidence yet (the loader leaves such candidates out) */
-  partial?: boolean;
-  /** the library's limit on a request's size; null or missing: none */
-  maxRequestBytes?: number | null;
+/**
+ * The options one album's request is made with, for a run of `population`
+ * (or the preview of what that run sends): the run and the preview both
+ * take them from here, so they cannot drift apart.
+ */
+export function requestOptions(
+  population: string, config: { model: string; maxRequestBytes: number | null }, ev: { partial: boolean },
+): RequestOptions {
+  return { model: config.model, weak: population === 'weak', partial: ev.partial, maxRequestBytes: config.maxRequestBytes };
 }
 
 const byDistance = <T extends { releaseId: string; distance: number }>(a: T, b: T): number =>
@@ -83,4 +88,10 @@ export function requestForAlbum<C extends EvidenceCandidate>(album: AlbumEvidenc
 /** The hash a decision is pinned to: the album's evidence and its sendable candidates. */
 export function hashOf(ev: { album: AlbumEvidence; candidates: EvidenceCandidate[] }): string {
   return evidenceHash(ev.album, ev.candidates);
+}
+
+/** requestForAlbum as a decider's build: the Jev request is the payload. */
+export function jevPayloadFor<C extends EvidenceCandidate>(album: AlbumEvidence, candidates: C[], opts: RequestOptions): DeciderRequest<C> {
+  const { request, ...rest } = requestForAlbum(album, candidates, opts);
+  return { payload: request, ...rest };
 }

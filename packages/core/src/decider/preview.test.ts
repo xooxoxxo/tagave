@@ -3,7 +3,7 @@ import { buildAlbumEvidence, evidenceHash, type CandidateEvidence, type Evidence
 import { buildJevRequest, NotSendableError, requestBytes } from './jevPayload.js';
 import { groupTracklists } from './grouping.js';
 import { JEV_SPEC } from './jevSpec.js';
-import { MAX_EDITIONS_PER_GROUP, MAX_GROUPS, WEAK_TOP_CANDIDATES, hashOf, requestForAlbum } from './preview.js';
+import { MAX_EDITIONS_PER_GROUP, MAX_GROUPS, WEAK_TOP_CANDIDATES, hashOf, jevPayloadFor, requestForAlbum, requestOptions } from './preview.js';
 
 const album = (titleSource: 'tag' | 'folder' = 'tag') => buildAlbumEvidence({
   artist: 'Ensemble Nord', title: 'Lichtung', titleSource, year: 1999, yearSource: 'tag', discsKnown: false, discCount: null,
@@ -76,5 +76,20 @@ describe('requestForAlbum', () => {
   it('hashOf is the evidence hash of the album and its candidates', () => {
     const cands = [cand('a', 0.05), cand('b', 0.06)];
     expect(hashOf({ album: album(), candidates: cands })).toBe(evidenceHash(album(), cands));
+  });
+
+  it('requestOptions: the options a run of a population (and its preview) builds with', () => {
+    const config = { model: 'jev-latest', maxRequestBytes: 4096 };
+    expect(requestOptions('needs_review', config, { partial: false })).toEqual({ model: 'jev-latest', weak: false, partial: false, maxRequestBytes: 4096 });
+    expect(requestOptions('weak', { model: 'm', maxRequestBytes: null }, { partial: true })).toEqual({ model: 'm', weak: true, partial: true, maxRequestBytes: null });
+  });
+
+  it('jevPayloadFor is requestForAlbum with the request as the payload', () => {
+    const cands = [cand('a', 0.05), cand('c', 0.2, ['Morgenrot', 'Unter Eis', 'Bonus'])];
+    const r = requestForAlbum(album(), cands, { model: 'm' });
+    const p = jevPayloadFor(album(), cands, { model: 'm' });
+    expect(p.payload).toEqual(r.request);
+    expect(p).toMatchObject({ bytes: r.bytes, labels: r.labels });
+    expect(p.groups).toEqual(r.groups);
   });
 });

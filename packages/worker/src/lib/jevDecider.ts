@@ -1,21 +1,23 @@
 /**
  * Jev as a Decider: one System One call per album, one yes/no question per
- * tracklist group. The request sent is the one it is given, made by
- * requestForAlbum (the payload preview shows the same), never rebuilt here.
- * A group whose answer is missing or not a number is left out of the
- * probabilities, so the decision reads the answer as invalid (no pick)
- * rather than as a "no".
+ * tracklist group. build makes the request with jevPayloadFor (the payload
+ * preview shows the same request); ask sends the payload it is given as it
+ * is, never rebuilt. A group whose answer is missing or not a number is
+ * left out of the probabilities, so the decision reads the answer as
+ * invalid (no pick) rather than as a "no".
  */
-import { jevSpecHash, questionName, requestBytes, type Decider } from '@tagave/core';
+import { jevPayloadFor, jevSpecHash, questionName, requestBytes, type Decider, type JevRequest } from '@tagave/core';
 import { systemOne, type JevClientOptions } from './jevClient.js';
 
 export function jevDecider(client: JevClientOptions): Decider {
   return {
     id: 'jev',
     specHash: jevSpecHash(),
+    build: jevPayloadFor,
     async ask(input, { model }) {
-      const req = input.request;
-      if (req.model !== model) throw new Error('jev request: built for another model');
+      // made by build above
+      const req = input.payload as JevRequest;
+      if (req?.model !== model) throw new Error('jev request: built for another model');
       const res = await systemOne(client, req);
       const probabilities: Record<string, number> = {};
       for (const g of input.groups) {

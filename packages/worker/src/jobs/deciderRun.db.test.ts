@@ -15,9 +15,9 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import pino from 'pino';
 import {
-  DEFAULT_TOKENS_PER_BYTE, makeDb, monthSpend, pauseStaleRuns, runMigrations, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
+  DEFAULT_TOKENS_PER_BYTE, makeDb, markPayloadSeen, monthSpend, pauseStaleRuns, runMigrations, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
 } from '@tagave/db';
-import { buildAlbumEvidence, buildCandidateEvidence, jevSpecHash, requestForAlbum, sealSecret, type Decider, type DeciderInput } from '@tagave/core';
+import { buildAlbumEvidence, buildCandidateEvidence, jevPayloadFor, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type Decider, type DeciderInput } from '@tagave/core';
 import { ledgerEntries } from '@tagave/core/facets';
 import { autotaggerConfigPatchSchema, type Population } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
@@ -35,7 +35,7 @@ function fakeDecider(
 ): Decider & { calls: DeciderInput[] } {
   const calls: DeciderInput[] = [];
   return {
-    id: 'jev', specHash: jevSpecHash(), calls,
+    id: 'jev', specHash: jevSpecHash(), calls, build: jevPayloadFor,
     async ask(input) {
       calls.push(input);
       const a = await answer(input);
@@ -186,6 +186,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     await setAutotaggerEnabled(client, true);
     // the whole config, so no limit set by one test leaks into the next
     await setAutotaggerConfig(client, lib, { monthlyCap: 10, maxRequestBytes: null, currency: 'USD' });
+    // the owner has seen the payload in both libraries
+    for (const id of [lib, lib2]) await markPayloadSeen(client, id, owner);
     await client`insert into decider_prices (decider_id, model, per_million_input, currency) values ('jev', '*', 1, 'USD')
                  on conflict (decider_id, model) do update set per_million_input = 1, currency = 'USD'`;
     await client`delete from decider_prices where model <> '*'`;
@@ -573,13 +575,46 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     const run = await newRun();
     await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k' });
     // the first call asks for the configured model; the rest, the dated model it pinned
-    expect(d.calls[0]!.request.model).toBe('jev-latest');
+    const model = (c: DeciderInput) => (c.payload as { model: string }).model;
+    expect(model(d.calls[0]!)).toBe('jev-latest');
+    const config = { model: '', maxRequestBytes: null };
     const sent = d.calls.find((c) => c.album.title === 'Kuunvalo')!;
     const ev = (await loadEvidence(client, albumA))!;
-    const shown = requestForAlbum(ev.album, ev.candidates, { model: sent.request.model, partial: ev.partial, maxRequestBytes: null });
-    expect(sent.request).toEqual(shown.request);
-    expect(JSON.stringify(sent.request)).toBe(JSON.stringify(shown.request));
+    // the preview's own call: the Jev builder, with the run's options
+    const shown = requestForAlbum(ev.album, ev.candidates, requestOptions('needs_review', { ...config, model: model(sent) }, ev));
+    expect(sent.payload).toEqual(shown.request);
+    expect(JSON.stringify(sent.payload)).toBe(JSON.stringify(shown.request));
     expect((await client`select request_bytes from decider_decisions where run_id = ${run} and local_album_id = ${albumA}`)[0].request_bytes).toBe(shown.bytes);
+
+    // a weak album: its best five candidates, as its preview shows
+    const w = fakeDecider(() => ({ A: 0.2 }));
+    await deciderRunJob(ctx, { runId: await newRun('weak') }, { decider: w, apiKey: 'k' });
+    const weakSent = w.calls.find((c) => c.album.title === 'Schwach')!;
+    const weakEv = (await loadEvidence(client, weakAlbum))!;
+    const weakShown = requestForAlbum(weakEv.album, weakEv.candidates, requestOptions('weak', { ...config, model: model(weakSent) }, weakEv));
+    expect(JSON.stringify(weakSent.payload)).toBe(JSON.stringify(weakShown.request));
+    expect(Object.keys(weakShown.request.questions)).toHaveLength(5);
+  });
+
+  it('asks nothing before the owner has seen the payload', async () => {
+    await client`update decider_library_settings set config = config - 'payloadSeenAt' - 'payloadSeenBy' where library_id = ${lib}`;
+    const d = fakeDecider(() => ({ A: 1 }));
+    const run = await newRun();
+    const s = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k' });
+    expect(s).toMatchObject({ state: 'paused', pauseReason: 'payload_not_seen' });
+    expect(d.calls).toHaveLength(0);
+    expect((await client`select state, pause_reason from decider_runs where id = ${run}`)[0]).toEqual({ state: 'paused', pause_reason: 'payload_not_seen' });
+  });
+
+  it('a run paused from elsewhere mid-run reports itself paused, not cancelled', async () => {
+    const run = await newRun();
+    const d = fakeDecider(async () => {
+      await client`update decider_runs set state = 'paused', pause_reason = 'stopped' where id = ${run}`;
+      return { A: 0.99 };
+    });
+    const s = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', checkEvery: 1000 });
+    expect(s).toMatchObject({ state: 'paused', pauseReason: 'stopped' });
+    expect(d.calls).toHaveLength(1);
   });
 
   it('a run whose question spec changed is paused, asking nothing', async () => {

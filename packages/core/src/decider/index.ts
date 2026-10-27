@@ -7,6 +7,6 @@ export { buildJevRequest, requestBytes, questionName, NotSendableError } from '.
 export type { NotSendableReason, JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack } from './jevPayload.js';
 export { pickEdition } from './pickEdition.js';
 export type { EditionChoice } from './pickEdition.js';
-export type { Decider, DeciderInput, DeciderAnswer } from './types.js';
-export { requestForAlbum, hashOf, MAX_GROUPS, MAX_EDITIONS_PER_GROUP, WEAK_TOP_CANDIDATES } from './preview.js';
-export type { AlbumRequest, RequestOptions } from './preview.js';
+export type { Decider, DeciderInput, DeciderAnswer, DeciderRequest, RequestOptions } from './types.js';
+export { requestForAlbum, requestOptions, jevPayloadFor, hashOf, MAX_GROUPS, MAX_EDITIONS_PER_GROUP, WEAK_TOP_CANDIDATES } from './preview.js';
+export type { AlbumRequest } from './preview.js';

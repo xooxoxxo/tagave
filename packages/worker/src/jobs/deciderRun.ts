@@ -9,7 +9,8 @@
  * The first answer pins the run to the dated model it names; an answer
  * under another model pauses the run (model_changed). The run pauses, with a
  * reason the page shows, when the question spec changed since it started,
- * the module is off, there is no key, cap or price, a price is in another
+ * the module is off, the owner has not seen the payload, there is no key,
+ * cap or price, a price is in another
  * currency than the cap, the cap is reached or the key is refused. A pause
  * or a crash resumes where it stopped: albums already decided in the run are
  * skipped, and a stored answer is never paid for twice. A call that got no
@@ -34,8 +35,8 @@
  * either way the run carries on.
  */
 import {
-  JEV_SPEC, NotSendableError, decideFromProbabilities, evidenceHash, hashOf, jevSpecHash, pickEdition, requestForAlbum, rulesFromStored,
-  type AlbumRequest, type Decider, type DeciderAnswer, type EvidenceCandidate, type TracklistGroup,
+  JEV_SPEC, NotSendableError, decideFromProbabilities, evidenceHash, hashOf, jevSpecHash, pickEdition, requestOptions, rulesFromStored,
+  type Decider, type DeciderAnswer, type DeciderRequest, type EvidenceCandidate, type TracklistGroup,
 } from '@tagave/core';
 import {
   autotaggerConfig, autotaggerEnabled, checkBudget, costOf, deciderRunSingletonKey, fetchAutoAcceptRulesRow, pauseStaleRuns, priceFor,
@@ -92,7 +93,7 @@ export interface RunSummary { state: 'done' | 'paused' | 'cancelled' | 'running'
 
 type PauseReason =
   | 'spec_changed' | 'module_off' | 'no_key' | 'no_cap' | 'no_price' | 'currency_mismatch' | 'cap_reached' | 'key_refused' | 'model_changed'
-  | 'stopped';
+  | 'stopped' | 'payload_not_seen';
 
 interface RunRow {
   id: string; library_id: string; decider_id: string; population: Population; state: string; model_requested: string;
@@ -188,6 +189,8 @@ async function runLocked(ctx: WorkerContext, data: DeciderRunJobData, deps: RunD
   const apiKey = deps.apiKey ?? (await libraryTypesafeKey(ctx, run.library_id));
   if (!apiKey) return pause('no_key', 'no TypeSafe key');
   const config = await autotaggerConfig(ctx.sql, run.library_id);
+  // nothing goes out before the owner has seen what goes out (the api checks it too)
+  if (!config.payloadSeenAt) return pause('payload_not_seen', 'payload not seen');
   // the measurement enforces its own spend limit; every other run needs the owner's cap
   if (config.monthlyCap === null && run.population !== 'measure') return pause('no_cap', 'no monthly cap');
   const decider = deps.decider ?? jevDecider({ apiKey, baseUrl: typesafeBaseUrl(), maxRetries: RUN_MAX_RETRIES });
@@ -252,6 +255,17 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
   const tpb = deps.tokensPerByte ?? (await tokensPerByte(ctx.sql, run.library_id));
   const checkEvery = Math.max(1, deps.checkEvery ?? CHECK_EVERY);
   const count = (o: string) => { summary.decided[o] = (summary.decided[o] ?? 0) + 1; };
+  /** The run as it now is when it is no longer running (cancelled, or paused from elsewhere); null while it runs. */
+  const stoppedMeanwhile = async (): Promise<RunSummary | null> => {
+    const [st] = await ctx.sql<Array<{ state: string; pause_reason: string | null }>>`select state, pause_reason from decider_runs where id = ${run.id}`;
+    if (st?.state === 'running') return null;
+    if (st?.state === 'paused') {
+      await progress('completed', `paused: ${st.pause_reason ?? 'stopped'}`);
+      return { ...summary, state: 'paused', pauseReason: st.pause_reason };
+    }
+    await progress('cancelled');
+    return { ...summary, state: 'cancelled' };
+  };
 
   for (let i = 0; i < todo.length; i++) {
     const albumId = todo[i]!;
@@ -267,11 +281,8 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
       return { ...summary, state: 'running' };
     }
     if (i > 0 && i % checkEvery === 0) {
-      const [st] = await ctx.sql<Array<{ state: string }>>`select state from decider_runs where id = ${run.id}`;
-      if (st?.state !== 'running') {
-        await progress('cancelled');
-        return { ...summary, state: 'cancelled' };
-      }
+      const stopped = await stoppedMeanwhile();
+      if (stopped) return stopped;
       if (!(await autotaggerEnabled(ctx.sql))) return pause('module_off', 'autotagger off');
       await progress('running');
     }
@@ -294,13 +305,11 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
 
     if (!ev) { await record(ctx.sql, { outcome: 'no_candidates', reason: 'no_evidence' }); continue; }
     const model = version ?? run.model_requested;
-    // the request, made exactly as the payload preview makes it
-    let built: AlbumRequest & { candidates: LoadedEvidence['candidates'] };
+    // the decider's request, with the options the payload preview uses
+    let built: DeciderRequest<LoadedEvidence['candidates'][number]>;
     try {
       hash = hashOf(ev);
-      built = requestForAlbum(ev.album, ev.candidates, {
-        model, weak: run.population === 'weak', partial: ev.partial, maxRequestBytes: config.maxRequestBytes,
-      });
+      built = decider.build(ev.album, ev.candidates, requestOptions(run.population, { model, maxRequestBytes: config.maxRequestBytes }, ev));
     } catch (err) {
       if (err instanceof NotSendableError) {
         // the set is not whole, or there is nothing to send: no hash to pin
@@ -318,7 +327,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
       await record(ctx.sql, { outcome: 'error', reason: 'invalid_evidence' });
       continue;
     }
-    const { groups, sent, labels, candidates: cands, request } = built;
+    const { groups, sent, labels, candidates: cands, payload } = built;
     bytes = built.bytes;
 
     // A stored call is keyed on exactly what was sent (the shown candidates),
@@ -344,12 +353,9 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     } else {
       const price = await priceFor(ctx.sql, decider.id, model);
       const estTokens = Math.ceil(bytes * tpb);
-      // cancelled (or paused) meanwhile: nothing more is paid for
-      const [now] = await ctx.sql<Array<{ state: string }>>`select state from decider_runs where id = ${run.id}`;
-      if (now?.state !== 'running') {
-        await progress('cancelled');
-        return { ...summary, state: 'cancelled' };
-      }
+      // cancelled or paused meanwhile: nothing more is paid for
+      const stopped = await stoppedMeanwhile();
+      if (stopped) return stopped;
       const estimate = price ? costOf(estTokens, price) : 0;
       const verdict = await checkBudget(ctx.sql, {
         libraryId: run.library_id, cap: config.monthlyCap, currency: config.currency, price, estimate,
@@ -361,7 +367,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
         return pause('cap_reached', `spent ${verdict.spent.toFixed(4)} of ${verdict.cap} ${config.currency}`);
       }
       try {
-        answer = await decider.ask({ album: ev.album, groups: sent, request }, { model });
+        answer = await decider.ask({ album: ev.album, groups: sent, payload }, { model });
       } catch (err) {
         if (err instanceof JevKeyRefused) return pause('key_refused', `key refused${err.status ? ` (HTTP ${err.status})` : ''}`);
         if (err instanceof JevRejected) {

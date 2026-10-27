@@ -40,11 +40,11 @@ import type postgres from 'postgres';
 import {
   AUTOTAGGER_MODULE_ID, AUTOTAGGER_TABLES, AutotaggerStillOnError, UnknownModuleError, albumPopulation, autotaggerConfig, autotaggerEnabled, checkBudget,
   clearTypesafeKey, deciderRunSingletonKey, loadEvidence, loadEvidenceMany, markPayloadSeen, meanCallCost, monthSpendByCurrency, populationAlbumIds, priceFor,
-  queuedDeciderRun, removeAutotaggerData, runSpendByCurrency, sendDeciderRun, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint,
+  deciderRunJobWaiting, removeAutotaggerData, staleDeciderRunJobs, waitingDeciderRunJobs, runSpendByCurrency, sendDeciderRun, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint,
   typesafeKeyHintOf, type AutotaggerConfig, type LoadedEvidence,
 } from '@tagave/db';
 import {
-  NotSendableError, jevSpecHash, requestForAlbum, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
+  NotSendableError, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
 } from '@tagave/core';
 import {
   AUTOTAGGER_DECIDER_ID, DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, autotaggerKeySchema, autotaggerModuleSchema, deciderLabel, deciderPriceSchema,
@@ -164,11 +164,13 @@ const RESUMABLE_STATES = ['paused', 'failed'];
 type Loaded = LoadedEvidence<AlbumEvidence, CandidateEvidence>;
 type Tx = postgres.TransactionSql;
 
-/** One album's request, exactly as its run would make it (same builder, same options). */
+/**
+ * One album's Jev request, exactly as its run would make it: the Jev
+ * builder the Jev decider builds with, and the options the run takes from
+ * requestOptions too.
+ */
 function requestFor(ev: Loaded, config: AutotaggerConfig, population: Population): AlbumRequest {
-  return requestForAlbum(ev.album, ev.candidates, {
-    model: config.model, weak: population === 'weak', partial: ev.partial, maxRequestBytes: config.maxRequestBytes,
-  });
+  return requestForAlbum(ev.album, ev.candidates, requestOptions(population, config, ev));
 }
 
 function previewOf(ev: Loaded, built: AlbumRequest): PayloadPreview {
@@ -272,6 +274,7 @@ async function runViews(libraryId: string, rows: RunRow[]): Promise<RunView[]> {
       outcomes: o,
       // only the settings' currency: amounts in different currencies are never added
       spent: spend.get(r.id)?.find((s) => s.currency === config.currency)?.amount ?? 0,
+      spentOther: spend.get(r.id)?.filter((s) => s.currency !== config.currency) ?? [],
       currency: config.currency,
       projected: mean === null ? null : Math.round(albums * mean * 1e6) / 1e6,
     });
@@ -320,22 +323,38 @@ async function lockLibraryRuns(tx: Tx, libraryId: string): Promise<void> {
 }
 
 /**
- * Queue the run's job. pg-boss keeps one waiting job per library: when it
- * keeps another instead of this one, that is fine only if the waiting job
- * is this run's; otherwise nothing would ever work the run, so `undo` puts
- * it back and the caller gets a 503.
+ * Queue the run's job. pg-boss keeps one waiting job per library. When it
+ * keeps another instead of this one: fine if the waiting job is this run's;
+ * a waiting job of a run that can no longer go on (cancelled or ended) is
+ * cancelled and the send tried again; otherwise nothing would ever work
+ * the run, so `undo` puts it back and the caller gets a 503.
  */
 async function queueRun(libraryId: string, runId: string, undo: () => Promise<unknown>, log: FastifyRequest['log']): Promise<void> {
-  let job: string | null = null;
   try {
-    job = await sendDeciderRun(await getBoss(), libraryId, runId);
+    const boss = await getBoss();
+    if (await sendDeciderRun(boss, libraryId, runId)) return;
+    if (await deciderRunJobWaiting(sql(), libraryId, runId)) return;
+    const stale = await staleDeciderRunJobs(sql(), libraryId);
+    if (stale.length > 0) {
+      await boss.cancel('decider.run', stale);
+      if (await sendDeciderRun(boss, libraryId, runId)) return;
+    }
   } catch (err) {
     log.error({ err, event: 'autotagger.run_not_queued', libraryId, runId }, 'decider run not queued');
   }
-  if (job) return;
-  if ((await queuedDeciderRun(sql(), libraryId)) === runId) return;
   await undo();
   throw new ApiError(503, 'Service Unavailable', 'Run not queued; retry');
+}
+
+/** The run's state, or a 404 when the library has no such run (a cheap check before any work). */
+async function runStateOf(libraryId: string, runId: string): Promise<string> {
+  if (!UUID.test(runId)) throw new ApiError(404, 'Not Found', 'Run not found');
+  const [row] = await orMissing(
+    () => sql()<Array<{ state: string }>>`select state from decider_runs where id = ${runId} and library_id = ${libraryId}`,
+    [] as Array<{ state: string }>,
+  );
+  if (!row) throw new ApiError(404, 'Not Found', 'Run not found');
+  return row.state;
 }
 
 export async function createAutotaggerRoutes(fastify: FastifyInstance) {
@@ -531,7 +550,7 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     sameSite(request);
     const { libraryId, runId } = request.params as { libraryId: string; runId: string };
     await assertLibrary(libraryId);
-    await runView(libraryId, runId);
+    await runStateOf(libraryId, runId);
     await on();
     const prior = await whileOn(async (tx) => {
       await lockLibraryRuns(tx, libraryId);
@@ -559,12 +578,22 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     sameSite(request);
     const { libraryId, runId } = request.params as { libraryId: string; runId: string };
     await assertLibrary(libraryId);
-    const before = await runView(libraryId, runId);
+    const before = await runStateOf(libraryId, runId);
     // the run's job sees it before its next paid call and stops; off or not, a run can be cancelled
     const moved = await sql()`
       update decider_runs set state = 'cancelled', finished_at = now()
        where id = ${runId} and library_id = ${libraryId} and state = any(${ACTIVE_STATES}::text[])`;
-    if (moved.count === 0) throw new ApiError(409, 'Conflict', `Run is ${before.state}`);
+    if (moved.count === 0) throw new ApiError(409, 'Conflict', `Run is ${before}`);
+    // its job still waiting would hold the library's one waiting slot: cancelled with it
+    const waiting = await waitingDeciderRunJobs(sql(), runId);
+    if (waiting.length > 0) {
+      try {
+        await (await getBoss()).cancel('decider.run', waiting);
+      } catch (err) {
+        // the next start cancels it (a waiting job of a run that ended)
+        request.log.warn({ err, event: 'autotagger.run_job_not_cancelled', libraryId, runId }, 'waiting decider run job not cancelled');
+      }
+    }
     request.log.info({ event: 'autotagger.run_cancelled', libraryId, runId, userId: request.user?.id ?? null }, 'decider run cancelled');
     return runView(libraryId, runId);
   });

@@ -21,7 +21,8 @@ import {
 import type { AuthHandle } from '@tagave/auth';
 
 const bossSend = vi.fn(async (..._args: unknown[]): Promise<string | null> => 'job');
-vi.mock('../boss.js', () => ({ getBoss: async () => ({ send: bossSend }) }));
+const bossCancel = vi.fn(async (..._args: unknown[]): Promise<unknown> => undefined);
+vi.mock('../boss.js', () => ({ getBoss: async () => ({ send: bossSend, cancel: bossCancel }) }));
 
 const { registerApiRoutes } = await import('../app.js');
 const { initAuth } = await import('../middleware/auth.js');
@@ -108,7 +109,7 @@ describe.skipIf(!adminUrl)('autotagger runs and payload preview (integration, sc
     await syncInstalledModules(sql, ledgerEntries());
     // the columns of pg-boss's job table the routes read (this database has no pg-boss)
     await sql`create schema if not exists pgboss`;
-    await sql`create table if not exists pgboss.job (name text not null, singleton_key text, state text not null, data jsonb)`;
+    await sql`create table if not exists pgboss.job (id uuid primary key default gen_random_uuid(), name text not null, singleton_key text, state text not null, data jsonb)`;
     owner = await createTestUser(handle, { role: 'owner', name: 'Ada' });
     editor = await createTestUser(handle, { role: 'editor' });
     const [l] = await sql<Array<{ id: string }>>`insert into libraries (owner_user_id, name, settings) values (${owner.userId}, 'Music', '{}'::jsonb) returning id::text as id`;
@@ -147,9 +148,25 @@ describe.skipIf(!adminUrl)('autotagger runs and payload preview (integration, sc
     await admin.end({ timeout: 2 });
   });
 
+  /** pg-boss's stately send on the stand-in job table: one waiting job per key, else null. */
+  const statelySend = async (...args: unknown[]): Promise<string | null> => {
+    const [name, data, opts] = args as [string, object, { singletonKey: string }];
+    const [waiting] = await sql`select 1 as x from pgboss.job where name = ${name} and singleton_key = ${opts.singletonKey} and state in ('created', 'retry')`;
+    if (waiting) return null;
+    const [job] = await sql<Array<{ id: string }>>`
+      insert into pgboss.job (name, singleton_key, state, data) values (${name}, ${opts.singletonKey}, 'created', ${JSON.stringify(data)}::text::jsonb) returning id::text as id`;
+    return job!.id;
+  };
+
   beforeEach(async () => {
     bossSend.mockReset();
     bossSend.mockImplementation(async () => 'job');
+    bossCancel.mockReset();
+    bossCancel.mockImplementation(async (...args: unknown[]) => {
+      const ids = args[1] as string[];
+      await sql`update pgboss.job set state = 'cancelled' where id = any(${ids}::uuid[])`;
+    });
+    await sql`delete from pgboss.job`;
     await setAutotaggerEnabled(sql, true);
   });
 
@@ -246,7 +263,7 @@ describe.skipIf(!adminUrl)('autotagger runs and payload preview (integration, sc
     expect(r.statusCode).toBe(202);
     expect(bossSend).toHaveBeenCalledWith('decider.run', { runId: r.json().id }, { singletonKey: `decider.run:${lib}` });
     expect(r.json()).toMatchObject({
-      population: 'needs_review', state: 'queued', pauseReason: null, modelLabel: 'Jev', albums: 2, outcomes: {}, spent: 0, currency: 'USD', projected: null,
+      population: 'needs_review', state: 'queued', pauseReason: null, modelLabel: 'Jev', albums: 2, outcomes: {}, spent: 0, spentOther: [], currency: 'USD', projected: null,
     });
     expect((await post(runs(), { population: 'weak' })).statusCode).toBe(409);
     const [row] = await sql<Array<{ started_by_user_id: string; model_requested: string }>>`
@@ -300,6 +317,8 @@ describe.skipIf(!adminUrl)('autotagger runs and payload preview (integration, sc
     const view = list.json().items[0];
     expect(view).toMatchObject({
       id: started.id, state: 'running', modelLabel: 'Jev 2026-09', albums: 2, outcomes: { pick: 1 }, spent: 0.002, currency: 'USD',
+      // never added to the USD figure, never hidden either
+      spentOther: [{ currency: 'EUR', amount: 7 }],
     });
     expect(view.projected).toBeCloseTo(0.004, 6);
     expect(view.startedBy).toBe('Ada');
@@ -361,5 +380,38 @@ describe.skipIf(!adminUrl)('autotagger runs and payload preview (integration, sc
     expect(await runState(started.id)).toBe('paused');
     await sql`delete from pgboss.job where singleton_key = ${`decider.run:${lib}`}`;
     await post(`${runs()}/${started.id}/cancel`, {});
+  });
+
+  it('a paused run can be cancelled', async () => {
+    await ready();
+    const started = (await post(runs(), { population: 'needs_review' })).json();
+    await sql`update decider_runs set state = 'paused', pause_reason = 'cap_reached' where id = ${started.id}`;
+    const r = await post(`${runs()}/${started.id}/cancel`, {});
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ id: started.id, state: 'cancelled' });
+  });
+
+  it('a run cancelled while queued takes its waiting job with it, so the next start is queued', async () => {
+    await ready();
+    bossSend.mockImplementation(statelySend);
+    const first = await post(runs(), { population: 'needs_review' });
+    expect(first.statusCode).toBe(202);
+    expect((await post(`${runs()}/${first.json().id}/cancel`, {})).statusCode).toBe(200);
+    expect(bossCancel).toHaveBeenCalledTimes(1);
+    const [job] = await sql<Array<{ state: string }>>`select state from pgboss.job where data->>'runId' = ${first.json().id}`;
+    expect(job!.state).toBe('cancelled');
+    const second = await post(runs(), { population: 'needs_review' });
+    expect(second.statusCode).toBe(202);
+
+    // the cancel could not reach pg-boss: the job of the ended run is cancelled by the next start
+    bossCancel.mockImplementationOnce(async () => { throw new Error('connection refused'); });
+    expect((await post(`${runs()}/${second.json().id}/cancel`, {})).statusCode).toBe(200);
+    const [left] = await sql<Array<{ state: string }>>`select state from pgboss.job where data->>'runId' = ${second.json().id}`;
+    expect(left!.state).toBe('created');
+    const third = await post(runs(), { population: 'needs_review' });
+    expect(third.statusCode).toBe(202);
+    const states = await sql<Array<{ run: string; state: string }>>`select data->>'runId' as run, state from pgboss.job where state = 'created'`;
+    expect(states).toEqual([{ run: third.json().id, state: 'created' }]);
+    await post(`${runs()}/${third.json().id}/cancel`, {});
   });
 });
