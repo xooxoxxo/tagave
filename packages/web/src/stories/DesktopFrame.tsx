@@ -1,19 +1,19 @@
 /**
- * The app's desktop frame for the persistent-bar previews (rr55,
- * branch-local): Layout's own classes, the real AccountCompartment at the
- * sidebar's foot, a page, and the bar under it. Like PlayerBar, it tells the
- * page how tall the bar is (--player-bar-h on <html>), so the account row
- * shares the bar's top edge. Static: no router state, no queries.
+ * The app's desktop frame for stories: Layout's own classes, the real
+ * AccountCompartment at the sidebar's foot, a page, and the player bar's
+ * row under it. Like PlayerBar, it tells the page how tall the bar is
+ * (--player-bar-h on <html>), so the account row shares the bar's top edge.
+ * Static: no router state, no queries.
  */
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { BrandMark } from '../../../components/BrandMark';
-import { AccountCompartment } from '../../../components/AccountCompartment';
-import layout from '../../../components/Layout.module.css';
-import bar from '../../../components/PlayerBar.module.css';
+import { BrandMark } from '../components/BrandMark';
+import { AccountCompartment } from '../components/AccountCompartment';
+import layout from '../components/Layout.module.css';
+import bar from '../components/PlayerBar.module.css';
 
 const noop = () => undefined;
 
-export function Shell({ children, dock, compartmentOpen = false }: { children: ReactNode; dock: ReactNode; compartmentOpen?: boolean }) {
+export function DesktopFrame({ children, dock, empty = false, compartmentOpen = false }: { children: ReactNode; dock: ReactNode; empty?: boolean; compartmentOpen?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -67,7 +67,7 @@ export function Shell({ children, dock, compartmentOpen = false }: { children: R
         <main id="main-content" tabIndex={-1} className={layout.main}>
           <div className={layout.page}>{children}</div>
         </main>
-        <div ref={ref} className={bar.dock} data-player-bar="">{dock}</div>
+        <div ref={ref} className={bar.dock} data-player-bar="" data-empty={empty ? '' : undefined}>{dock}</div>
       </div>
     </div>
   );
