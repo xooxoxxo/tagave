@@ -14,7 +14,8 @@ import { makeDb } from '@tagave/db';
 import type { WorkerContext } from './context.js';
 import { walkRoot } from './walk.js';
 import { placeHolds, releaseReadyHolds } from './clusterHold.js';
-import { repointSidecarImages } from './moveEffects.js';
+import { refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
+import type { MergeDone } from './fileMerge.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('sidecar covers follow moves (db)', () => {
   let ctx: WorkerContext; let sql: any; let base: string;
@@ -307,4 +308,64 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('covers outside the audio folder
       expect(await sql`select 1 from sidecar_files where scan_root_id = ${l.rootA}`).toHaveLength(0);
     });
   }
+});
+
+describe.skipIf(!process.env.TEST_DATABASE_URL)('player after a move (db)', () => {
+  let ctx: WorkerContext; let sql: any;
+  const sent: Array<{ name: string; data: any }> = [];
+  const userId = randomUUID(); const libraryId = randomUUID(); const rootId = randomUUID();
+  const fileId = randomUUID(); let trackId: string;
+  const merge = (): MergeDone => ({ kind: 'merged', oldId: fileId, libraryId, from: { scanRootId: rootId, relPath: 'Old/1.flac' }, to: { scanRootId: rootId, relPath: 'New/1.flac' }, reparse: false, removedAlbumIds: [] });
+
+  beforeAll(async () => {
+    const made = await makeDb(process.env.TEST_DATABASE_URL!);
+    sql = made.client;
+    ctx = { db: made.db, sql: made.client, boss: { send: async (name: string, data: any) => { sent.push({ name, data }); return randomUUID(); } } as any, logger: pino({ level: 'silent' }) };
+    await sql`insert into users (id, email, password_hash) values (${userId}, ${`pl-${userId}@test.com`}, 'x')`;
+    await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'PL', ${userId}, '{}')`;
+    await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, '/mnt/music', 'pl')`;
+    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${fileId}, ${libraryId}, ${rootId}, 'New/1.flac')`;
+    [{ id: trackId }] = await sql`insert into local_tracks (audio_file_id) values (${fileId}) returning id`;
+  });
+
+  afterAll(async () => {
+    await sql`delete from player_scan_requests where library_id = ${libraryId}`;
+    await sql`delete from scan_roots where id = ${rootId}`;
+    await sql`delete from libraries where id = ${libraryId}`;
+    await sql`delete from users where id = ${userId}`;
+    await sql.end({ timeout: 5 });
+  });
+
+  it('with no map rows (module off or never mapped) nothing player-side happens', async () => {
+    expect(await refreshPlayerAfterMoves(ctx, [merge()])).toBe(false);
+    expect(sent).toEqual([]);
+    expect(await sql`select 1 from player_scan_requests where library_id = ${libraryId}`).toHaveLength(0);
+  });
+
+  it('with map rows: they are dropped (stale) and the old and new folders are rescanned', async () => {
+    await sql`insert into player_track_map (local_track_id, server_key, song_id, matched_by) values (${trackId}, 'bundled', 'old-song', 'path')`;
+    expect(await refreshPlayerAfterMoves(ctx, [merge()])).toBe(true);
+    expect(await sql`select 1 from player_track_map where local_track_id = ${trackId}`).toHaveLength(0);
+    const folders = (await sql`select folder from player_scan_requests where library_id = ${libraryId} order by folder`).map((r: any) => r.folder);
+    expect(folders).toEqual(['New', 'Old']);
+    expect(sent.map((s) => s.name)).toEqual(['player.scan']);
+  });
+
+  it('a multi-disc album move asks for the album folders, not one folder per disc', async () => {
+    await sql`delete from player_scan_requests where library_id = ${libraryId}`;
+    sent.length = 0;
+    const discs = ['CD1', 'CD2'].map((d) => ({ d, id: randomUUID() }));
+    const merges: MergeDone[] = [];
+    for (const { d, id } of discs) {
+      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${id}, ${libraryId}, ${rootId}, ${`Artist/Album (2001)/${d}/1.flac`})`;
+      const [{ id: tid }] = await sql`insert into local_tracks (audio_file_id) values (${id}) returning id`;
+      await sql`insert into player_track_map (local_track_id, server_key, song_id, matched_by) values (${tid}, 'bundled', ${`song-${d}`}, 'path')`;
+      merges.push({ kind: 'merged', oldId: id, libraryId, from: { scanRootId: rootId, relPath: `Artist/Album/${d}/1.flac` }, to: { scanRootId: rootId, relPath: `Artist/Album (2001)/${d}/1.flac` }, reparse: false, removedAlbumIds: [] });
+    }
+    expect(await refreshPlayerAfterMoves(ctx, merges)).toBe(true);
+    const folders = (await sql`select folder from player_scan_requests where library_id = ${libraryId} order by folder`).map((r: any) => r.folder);
+    expect(folders).toEqual(['Artist/Album', 'Artist/Album (2001)']);
+    expect(await sql`select 1 from player_track_map p join local_tracks lt on lt.id = p.local_track_id where lt.audio_file_id = any(${discs.map((x) => x.id)}::uuid[])`).toHaveLength(0);
+    expect(sent.map((s) => s.name)).toEqual(['player.scan']);
+  });
 });

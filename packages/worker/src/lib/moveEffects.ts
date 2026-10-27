@@ -1,9 +1,11 @@
 /**
- * What a merge drags along (move-safe scanning §1): sidecar covers (this
- * task), the player's song map (Task 14).
+ * What a merge drags along (move-safe scanning §1): sidecar covers and the
+ * player's song map.
  */
 import type { WorkerContext } from './context.js';
+import type { MergeDone } from './fileMerge.js';
 import { normKey, relDirname } from './helpers.js';
+import { requestPlayerRescan, type WrittenFile } from './playerScan.js';
 import type { MoveRecord } from './reconcile.js';
 
 /** A folder that moved as a whole: everything under fromBase now lies under toBase. */
@@ -203,4 +205,74 @@ export async function repointSidecarImages(ctx: Pick<WorkerContext, 'sql'>, move
     moved += r.length;
   }
   return moved;
+}
+
+const baseName = (relPath: string) => relPath.slice(relPath.lastIndexOf('/') + 1);
+
+/**
+ * The folder pair the player re-reads for each merge: the file's own two
+ * folders, except that sibling folders moving together under one parent
+ * (Album/CD1 and Album/CD2 -> Album (2001)/CD1 and /CD2) are asked for once,
+ * as the parent pair, since the player scans a folder with its subfolders.
+ * A parent that is a root's top stays split: '' would be a full scan.
+ */
+function playerFolderPairs(merges: MergeDone[]): BasePair[] {
+  const own = merges.map((m): MoveRecord => ({
+    fromRootId: m.from.scanRootId, fromDir: relDirname(m.from.relPath), toRootId: m.to.scanRootId, toDir: relDirname(m.to.relPath), files: 1,
+  }));
+  const ownKey = (r: MoveRecord) => `${r.fromRootId}\n${r.fromDir}\n${r.toRootId}\n${r.toDir}`;
+  const parentOf = (r: MoveRecord) => {
+    const up = moveBaseLevels(r)[1];
+    return up && up.fromBase !== '' && up.toBase !== '' ? up : undefined;
+  };
+  const siblings = new Map<string, Set<string>>();
+  for (const r of own) {
+    const up = parentOf(r);
+    if (!up) continue;
+    const set = siblings.get(pairKey(up)) ?? new Set<string>();
+    set.add(ownKey(r)); siblings.set(pairKey(up), set);
+  }
+  return own.map((r) => {
+    const up = parentOf(r);
+    if (up && siblings.get(pairKey(up))!.size > 1) return up;
+    return { fromRootId: r.fromRootId, fromBase: r.fromDir, toRootId: r.toRootId, toBase: r.toDir };
+  });
+}
+
+/**
+ * Ruling 10. The worker never holds the player's address, so "the module is
+ * on" is read from the module's own table: tracks the player mapped. Those
+ * map rows name songs at the old path; they are dropped (the app re-matches
+ * on the next play, so play never hits a dead song id) and the player is
+ * asked to re-read the old and the new folder. No map rows: nothing happens.
+ * Returns true when the player was asked.
+ */
+export async function refreshPlayerAfterMoves(ctx: Pick<WorkerContext, 'db' | 'sql' | 'boss' | 'logger'>, merges: MergeDone[]): Promise<boolean> {
+  if (merges.length === 0) return false;
+  const fileIds = [...new Set(merges.map((m) => m.oldId))];
+  let roots: Map<string, string>;
+  try {
+    const mapped = await ctx.sql`
+      select 1 from player_track_map p join local_tracks lt on lt.id = p.local_track_id
+       where lt.audio_file_id = any(${fileIds}::uuid[]) limit 1`;
+    if (mapped.length === 0) return false;
+    const rootIds = [...new Set(merges.flatMap((m) => [m.from.scanRootId, m.to.scanRootId]))];
+    roots = new Map((await ctx.sql`select id, path from scan_roots where id = any(${rootIds}::uuid[])`).map((r) => [r['id'] as string, r['path'] as string]));
+  } catch (error) {
+    // the merges are committed; a failed probe must not fail the reconcile (the next play re-matches)
+    ctx.logger.warn({ error: String(error) }, 'files.reconcile: could not check the player map after moves');
+    return false;
+  }
+  const pairs = playerFolderPairs(merges);
+  // requestPlayerRescan scans the folder each file is in: each file is placed in its chosen folder
+  const files: WrittenFile[] = [];
+  merges.forEach((m, i) => {
+    const p = pairs[i]!;
+    files.push(
+      { libraryId: m.libraryId, fileId: m.oldId, scanRootPath: roots.get(p.fromRootId) ?? '', relPath: join(p.fromBase, baseName(m.from.relPath)) },
+      { libraryId: m.libraryId, fileId: m.oldId, scanRootPath: roots.get(p.toRootId) ?? '', relPath: join(p.toBase, baseName(m.to.relPath)) },
+    );
+  });
+  await requestPlayerRescan(ctx, files);
+  return true;
 }

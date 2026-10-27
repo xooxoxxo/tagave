@@ -12,7 +12,7 @@ import type { MatchFile } from './reconcileMatch.js';
 const mergeFilePair = vi.fn();
 vi.mock('./fileMerge.js', () => ({ mergeFilePair: (...args: unknown[]) => mergeFilePair(...args) }));
 const repointSidecarImages = vi.fn(async () => 0);
-vi.mock('./moveEffects.js', () => ({ repointSidecarImages: (...args: unknown[]) => repointSidecarImages(...(args as [])) }));
+vi.mock('./moveEffects.js', () => ({ repointSidecarImages: (...args: unknown[]) => repointSidecarImages(...(args as [])), refreshPlayerAfterMoves: async () => false }));
 const { runMerges, sqlDirname, earliestLastSeen, withLibraryLock, rowsInDirs } = await import('./reconcile.js');
 
 const t0 = new Date('2026-01-01T00:00:00Z');

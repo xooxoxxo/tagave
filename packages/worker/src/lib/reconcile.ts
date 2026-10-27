@@ -16,7 +16,7 @@ export { sqlDirname } from './helpers.js';
 import { isUnderFailedPath } from './scanFinish.js';
 import { mergeFilePair, type MergeDone, type MergeOutcome, type MergeRequest } from './fileMerge.js';
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
-import { repointSidecarImages } from './moveEffects.js';
+import { refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 
 export const RECONCILE_LOCK_PREFIX = 'files.reconcile:';
@@ -234,6 +234,8 @@ export async function runMerges(
   // The old rows are known gone from their folders (unseen or missing), so they do
   // not make a folder look still occupied.
   if (out.moves.length > 0) await repointSidecarImages(ctx, out.moves, olds.map((o) => o.id));
+  // The player's song ids of moved files are stale (new path); only when it mapped them (Ruling 10).
+  await refreshPlayerAfterMoves(ctx, out.outcomes);
   return out;
 }
 
