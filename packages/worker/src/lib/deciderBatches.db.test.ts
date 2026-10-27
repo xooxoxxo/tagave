@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { eq, getTableColumns } from 'drizzle-orm';
 import {
   BATCH_CANNOT_UNDO, batchCounts, createBatch, deciderBatches, deciderBatchItems, getBatch, itemsWithStatus,
-  libraries, localAlbums, makeDb, setBatchState, users, type BatchItemInput,
+  libraries, localAlbums, makeDb, sendDeciderAccept, setBatchState, transitionBatch, users, type BatchItemInput,
 } from '@tagave/db';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
@@ -41,7 +41,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
 
   it('creates a queued batch whose items read back pending, in insertion order', async () => {
     const a = randomUUID(); const b = randomUUID(); const c = randomUUID();
-    const id = await createBatch(client, { ...base, runId: randomUUID(), band: 'high', items: [item(a), item(b, { probability: null, source: null, evidenceHash: null, expectLastIdentifyAt: null }), item(c)] });
+    const id = await createBatch(client, { ...base, runId: randomUUID(), band: 'high', items: [item(a), item(b, { probability: null, source: null }), item(c)] });
     const batch = await getBatch(client, id);
     expect(batch).toMatchObject({ id, libraryId, deciderId: 'jev', deciderVersion: 'jev-2026-09-15', decidedKind: 'model', band: 'high', acceptFrom: ['needs_review'], state: 'queued', startedByUserId: userId, acceptedAt: null, undoneAt: null });
     expect(batch!.createdAt).toBeInstanceOf(Date);
@@ -49,8 +49,45 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
     expect(items.map((i) => i.localAlbumId)).toEqual([a, b, c]);
     expect(items[0]).toMatchObject({ batchId: id, distance: 0.0312, probability: 0.9871, source: 'mb_search', evidenceHash: 'a'.repeat(64), status: 'pending', skipReason: null, matchId: null, priorState: null, acceptedAt: null });
     expect(items[0]!.expectLastIdentifyAt?.toISOString()).toBe('2026-10-01T12:00:00.000Z');
-    expect(items[1]).toMatchObject({ probability: null, source: null, evidenceHash: null, expectLastIdentifyAt: null });
+    expect(items[1]).toMatchObject({ probability: null, source: null });
     expect((await itemsWithStatus(client, id, 'pending', 2)).map((i) => i.localAlbumId)).toEqual([a, b]);
+  });
+
+  it('refuses a model batch with an item not pinned to its evidence or identify time, and keeps nothing', async () => {
+    const before = (await client`select count(*)::int as n from decider_batches where library_id = ${libraryId}`)[0].n;
+    await expect(createBatch(client, { ...base, items: [item(randomUUID()), item(randomUUID(), { evidenceHash: null })] })).rejects.toBeInstanceOf(RangeError);
+    await expect(createBatch(client, { ...base, items: [item(randomUUID(), { expectLastIdentifyAt: null })] })).rejects.toThrow(/item 1/);
+    expect((await client`select count(*)::int as n from decider_batches where library_id = ${libraryId}`)[0].n).toBe(before);
+  });
+
+  it('lets a rule batch leave the evidence hash and identify time empty', async () => {
+    const a = randomUUID();
+    const id = await createBatch(client, { ...base, decidedKind: 'rule', deciderId: 'rules', deciderVersion: null, items: [item(a, { evidenceHash: null, expectLastIdentifyAt: null, probability: null })] });
+    expect((await itemsWithStatus(client, id, 'pending', 1))[0]).toMatchObject({ localAlbumId: a, evidenceHash: null, expectLastIdentifyAt: null });
+  });
+
+  it('moves a batch only from the states it is asked to move it from', async () => {
+    const id = await createBatch(client, { ...base, items: [item(randomUUID())] });
+    expect(await transitionBatch(client, id, ['accepting'], 'accepted')).toBe(false);
+    expect((await getBatch(client, id))!).toMatchObject({ state: 'queued', acceptedAt: null });
+    expect(await transitionBatch(client, id, ['queued', 'accepting'], 'accepting')).toBe(true);
+    expect(await transitionBatch(client, id, ['accepting'], 'accepted', { message: '1 accepted, 0 skipped' })).toBe(true);
+    const [row] = await client`select state, message, accepted_at from decider_batches where id = ${id}`;
+    expect(row).toMatchObject({ state: 'accepted', message: '1 accepted, 0 skipped' });
+    expect(row.accepted_at).not.toBeNull();
+    expect(await transitionBatch(client, randomUUID(), ['queued'], 'accepting')).toBe(false);
+  });
+
+  it('queues every run of one batch under the batch key, with no throttle window', async () => {
+    const calls: unknown[][] = [];
+    const boss = { send: async (...a: unknown[]) => { calls.push(a); return 'job'; } };
+    const id = randomUUID();
+    await sendDeciderAccept(boss, id);
+    await sendDeciderAccept(boss, id, 'undo');
+    expect(calls).toEqual([
+      ['decider.accept', { batchId: id, mode: 'accept' }, { singletonKey: `decider:${id}` }],
+      ['decider.accept', { batchId: id, mode: 'undo' }, { singletonKey: `decider:${id}` }],
+    ]);
   });
 
   it('keeps a larger batch in insertion order, by position', async () => {

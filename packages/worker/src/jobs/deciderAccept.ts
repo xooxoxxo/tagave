@@ -14,7 +14,7 @@
  * the last run stopped and accepts nothing twice.
  */
 import {
-  acceptInTx, assertAcceptInput, batchCounts, getBatch, itemsWithStatus, setBatchState,
+  acceptInTx, assertAcceptInput, batchCounts, getBatch, itemsWithStatus, transitionBatch,
   type AcceptInput, type BatchItemRow, type BatchRow,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
@@ -26,8 +26,11 @@ export interface DeciderAcceptJobData { batchId: string; mode?: 'accept' | 'undo
 export interface BatchRunResult { accepted: number; undone: number; skipped: Record<string, number>; left: Record<string, number> }
 export const ACCEPT_CHUNK = 50;
 
-export async function deciderAcceptJob(ctx: WorkerContext, data: DeciderAcceptJobData): Promise<BatchRunResult> {
-  return data.mode === 'undo' ? runUndoBatch(ctx, data.batchId) : runAcceptBatch(ctx, data.batchId);
+/** lastAttempt: no retry follows if this run fails (default true: a direct call has none) */
+export interface BatchAttempt { lastAttempt?: boolean }
+
+export async function deciderAcceptJob(ctx: WorkerContext, data: DeciderAcceptJobData, attempt: BatchAttempt = {}): Promise<BatchRunResult> {
+  return data.mode === 'undo' ? runUndoBatch(ctx, data.batchId) : runAcceptBatch(ctx, data.batchId, attempt);
 }
 
 type Outcome = { status: 'accepted'; matchId: string } | { status: 'skipped'; reason: string } | { status: 'done' };
@@ -88,43 +91,84 @@ async function acceptItem(ctx: WorkerContext, batch: BatchRow, item: BatchItemRo
 
 const sum = (r: Record<string, number>): number => Object.values(r).reduce((a, b) => a + b, 0);
 
-export async function runAcceptBatch(ctx: WorkerContext, batchId: string): Promise<BatchRunResult> {
-  const batch = await getBatch(ctx.sql, batchId);
+/**
+ * Accepts what is still pending in the batch. A failed run marks its own
+ * activity row failed; the batch stays accepting while a retry follows (the
+ * retry resumes at the first pending item) and fails on the last attempt.
+ * Every batch state change is conditional: when someone else moved the
+ * batch meanwhile (an undo was asked for), the run stops after the chunk in
+ * hand and leaves the batch, and the gaps recompute, alone.
+ */
+export async function runAcceptBatch(ctx: WorkerContext, batchId: string, attempt: BatchAttempt = {}): Promise<BatchRunResult> {
   const result: BatchRunResult = { accepted: 0, undone: 0, skipped: {}, left: {} };
-  if (!batch || (batch.state !== 'queued' && batch.state !== 'accepting')) return result;
-  await setBatchState(ctx.sql, batchId, 'accepting');
+  const batch = await getBatch(ctx.sql, batchId);
+  if (!batch || !(await transitionBatch(ctx.sql, batchId, ['queued', 'accepting'], 'accepting'))) return result;
   const total = (await batchCounts(ctx.sql, batchId)).pending;
   const progress = { libraryId: batch.libraryId, type: 'decider.accept', subjectType: 'batch', subjectId: batchId };
+  const done = () => result.accepted + sum(result.skipped);
   let runId: string | null = null;
-  for (;;) {
-    const chunk = await itemsWithStatus(ctx.sql, batchId, 'pending', ACCEPT_CHUNK);
-    if (chunk.length === 0) break;
-    // An input acceptInTx would refuse is a bug in whatever built the batch:
-    // the batch fails before this chunk touches anything, and says why.
-    for (const item of chunk) {
+  let failureRecorded = false;
+  try {
+    let movedOn = false;
+    for (;;) {
+      const [now] = await ctx.sql<Array<{ state: string }>>`select state from decider_batches where id = ${batchId}`;
+      if (now?.state !== 'accepting') { movedOn = true; break; }
+      const chunk = await itemsWithStatus(ctx.sql, batchId, 'pending', ACCEPT_CHUNK);
+      if (chunk.length === 0) break;
+      // An input acceptInTx would refuse is a bug in whatever built the batch:
+      // the batch fails before this chunk touches anything, and says why.
+      for (const item of chunk) {
+        try {
+          assertAcceptInput(acceptInput(batch, item));
+        } catch (err) {
+          if (!(err instanceof RangeError)) throw err;
+          const message = `Item ${item.id} cannot be accepted: ${err.message}`;
+          failureRecorded = true;
+          await transitionBatch(ctx.sql, batchId, ['accepting'], 'failed', { message });
+          await reportProgress(ctx, runId, { ...progress, state: 'failed', done: done(), total, error: message });
+          throw err;
+        }
+      }
+      let acceptedHere = 0;
+      for (const item of chunk) {
+        const o = await acceptItem(ctx, batch, item);
+        if (o.status === 'accepted') acceptedHere += 1;
+        else if (o.status === 'skipped') result.skipped[o.reason] = (result.skipped[o.reason] ?? 0) + 1;
+      }
+      result.accepted += acceptedHere;
+      if (acceptedHere > 0) await notifyQueueChanged(ctx, batch.libraryId, null, 'matched');
+      runId = await reportProgress(ctx, runId, { ...progress, state: 'running', done: done(), total });
+    }
+    if (movedOn) {
+      await reportProgress(ctx, runId, { ...progress, state: 'cancelled', done: done(), total, message: 'Stopped: the batch was moved on' });
+      return result;
+    }
+    // the whole batch's counts, so a run that resumed another still says what the batch did
+    const counts = await batchCounts(ctx.sql, batchId);
+    // before the state change: a crash between the two still leaves the
+    // recompute queued (it is keyed per library, so a repeat is harmless)
+    if (counts.accepted > 0) {
+      await ctx.boss.send('gaps.recompute', { libraryId: batch.libraryId }, { singletonKey: `gaps:${batch.libraryId}` });
+    }
+    const message = `${counts.accepted} accepted, ${counts.skipped} skipped`;
+    const finished = await transitionBatch(ctx.sql, batchId, ['accepting'], 'accepted', { message });
+    await reportProgress(ctx, runId, finished
+      ? { ...progress, state: 'completed', done: done(), total, message }
+      : { ...progress, state: 'cancelled', done: done(), total, message: 'Stopped: the batch was moved on' });
+    return result;
+  } catch (err) {
+    if (!failureRecorded) {
+      const message = (err as Error).message;
+      // best effort: the error that stopped the run is the one to rethrow
       try {
-        assertAcceptInput(acceptInput(batch, item));
-      } catch (err) {
-        if (!(err instanceof RangeError)) throw err;
-        const message = `Item ${item.id} cannot be accepted: ${err.message}`;
-        await setBatchState(ctx.sql, batchId, 'failed', { message });
-        await reportProgress(ctx, runId, { ...progress, state: 'failed', done: result.accepted + sum(result.skipped), total, error: message });
-        throw err;
+        await reportProgress(ctx, runId, { ...progress, state: 'failed', done: done(), total, error: message });
+        if (attempt.lastAttempt ?? true) {
+          await transitionBatch(ctx.sql, batchId, ['accepting'], 'failed', { message: `Accept stopped: ${message}` });
+        }
+      } catch (recordErr) {
+        ctx.logger.error({ batchId, err: (recordErr as Error).message }, 'decider.accept could not record its failure');
       }
     }
-    for (const item of chunk) {
-      const o = await acceptItem(ctx, batch, item);
-      if (o.status === 'accepted') result.accepted += 1;
-      else if (o.status === 'skipped') result.skipped[o.reason] = (result.skipped[o.reason] ?? 0) + 1;
-    }
-    await notifyQueueChanged(ctx, batch.libraryId, null, 'matched');
-    runId = await reportProgress(ctx, runId, { ...progress, state: 'running', done: result.accepted + sum(result.skipped), total });
+    throw err;
   }
-  await ctx.boss.send('gaps.recompute', { libraryId: batch.libraryId }, { singletonKey: `gaps:${batch.libraryId}` });
-  // the whole batch's counts, so a run that resumed another still says what the batch did
-  const counts = await batchCounts(ctx.sql, batchId);
-  const message = `${counts.accepted} accepted, ${counts.skipped} skipped`;
-  await setBatchState(ctx.sql, batchId, 'accepted', { message });
-  await reportProgress(ctx, runId, { ...progress, state: 'completed', done: result.accepted + sum(result.skipped), total, message });
-  return result;
 }

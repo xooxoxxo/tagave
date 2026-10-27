@@ -7,15 +7,30 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import {
-  createBatch, getBatch, libraries, releaseGroups, releases, users, makeDb, type BatchItemInput,
+  createBatch, getBatch, libraries, releaseGroups, users, makeDb, type BatchItemInput,
 } from '@tagave/db';
 import { JOB_EVENTS_CHANNEL } from '@tagave/shared/job';
 import type { WorkerContext } from '../lib/context.js';
 import { currentEvidenceHash } from '../lib/evidenceStore.js';
 import { ACCEPT_CHUNK, deciderAcceptJob, runAcceptBatch } from './deciderAccept.js';
+
+// Reading a chunk can be made to do something first (move the batch, fail).
+const hooks = vi.hoisted(() => ({ afterFetch: null as null | (() => Promise<void>) }));
+vi.mock('@tagave/db', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@tagave/db')>();
+  return {
+    ...real,
+    itemsWithStatus: async (...args: Parameters<typeof real.itemsWithStatus>) => {
+      const rows = await real.itemsWithStatus(...args);
+      const hook = hooks.afterFetch;
+      if (hook) await hook();
+      return rows;
+    },
+  };
+});
 
 const albumEvidence = (title: string) => ({
   v: 1, artist: 'Batch Artist', title, discsKnown: true, discCount: 1,
@@ -100,13 +115,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept (db)', () => {
 
   beforeEach(async () => {
     send.mockClear();
+    hooks.afterFetch = null;
     albums = await freshAlbums(9);
   });
 
   afterAll(async () => {
     for (const u of unlisteners) await u();
     await db.delete(libraries).where(eq(libraries.id, lib)); // cascades albums, matches, batches
-    for (let i = 0; i < madeReleases.length; i += 200) await db.delete(releases).where(inArray(releases.id, madeReleases.slice(i, i + 200)));
+    await client`delete from releases where id = any(${madeReleases}::uuid[])`;
     await db.delete(releaseGroups).where(eq(releaseGroups.id, rgId));
     await db.delete(users).where(eq(users.id, owner));
     await client.end({ timeout: 5 });
@@ -181,7 +197,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept (db)', () => {
   });
 
   it('skips an album whose chosen release was deleted', async () => {
-    const b = await modelBatch([albums[4]!], { evidenceHash: null });
+    const b = await createBatch(client, {
+      libraryId: lib, deciderId: 'rules', deciderVersion: null, decidedKind: 'rule', startedByUserId: owner,
+      items: [{ albumId: albums[4]!, releaseId: releaseOf[albums[4]!]!, distance: 0.1, source: 'mb_search', probability: null,
+        evidenceHash: null, expectLastIdentifyAt: null, reason: 'auto-accept: distance 0.1000 (musicbrainz)' }],
+    });
     await client`delete from match_candidates where local_album_id = ${albums[4]!}`;
     await client`delete from releases where id = ${releaseOf[albums[4]!]!}`;
     expect((await runAcceptBatch(ctx, b)).skipped).toEqual({ release_gone: 1 });
@@ -241,10 +261,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept (db)', () => {
     const [m] = await client`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, reason, decided_kind)
                              values (${lib}, ${albums[0]!}, ${other}, 0.2, 'auto', 'system', 'earlier pick', 'system') returning id`;
     await client`update local_albums set release_id = ${other}, release_group_id = ${rgId}, identified_at = '2026-10-01T12:00:00.123Z' where id = ${albums[0]!}`;
+    const [li] = await client`select last_identify_at from local_albums where id = ${albums[0]!}`;
+    const lastIdentify = new Date(li.last_identify_at).toISOString();
     const b = await createBatch(client, {
       libraryId: lib, deciderId: 'jev', deciderVersion: 'jev-2026-09-15', decidedKind: 'model', startedByUserId: owner,
       items: [{ albumId: albums[0]!, releaseId: releaseOf[albums[0]!]!, distance: 0.1, source: 'mb_search', probability: 0.99,
-        evidenceHash: null, expectLastIdentifyAt: null, reason: 'model accept: test' }],
+        evidenceHash: await currentEvidenceHash(client, albums[0]!), expectLastIdentifyAt: lastIdentify, reason: 'model accept: test' }],
     });
     expect((await runAcceptBatch(ctx, b)).accepted).toBe(1);
     const [it] = await client`select prior_release_id, prior_release_group_id, prior_identified_at, prior_match_id, prior_match_status, prior_match_reason
@@ -263,6 +285,60 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept (db)', () => {
     expect((await client`select 1 from album_matches where batch_id = ${b}`)).toHaveLength(0);
     // a retry of the failed batch does nothing
     expect((await runAcceptBatch(ctx, b)).accepted).toBe(0);
+  });
+
+  it('a failure with a retry to come leaves the batch accepting, and the retry carries on', async () => {
+    const b = await modelBatch(albums.slice(0, 2));
+    hooks.afterFetch = async () => { hooks.afterFetch = null; throw new Error('connection lost'); };
+    await expect(runAcceptBatch(ctx, b, { lastAttempt: false })).rejects.toThrow('connection lost');
+    expect((await getBatch(client, b))!.state).toBe('accepting');
+    const [failed] = await client`select state, error from job_runs where type = 'decider.accept' and subject_id = ${b}`;
+    expect(failed).toMatchObject({ state: 'failed', error: 'connection lost' });
+    const r = await deciderAcceptJob(ctx, { batchId: b }, { lastAttempt: false });
+    expect(r.accepted).toBe(2);
+    expect((await getBatch(client, b))!.state).toBe('accepted');
+  });
+
+  it('a failure on the last attempt fails the batch with the error', async () => {
+    const b = await modelBatch(albums.slice(0, 2));
+    hooks.afterFetch = async () => { throw new Error('deadlock detected'); };
+    await expect(deciderAcceptJob(ctx, { batchId: b }, { lastAttempt: true })).rejects.toThrow('deadlock detected');
+    const [row] = await client`select state, message from decider_batches where id = ${b}`;
+    expect(row).toMatchObject({ state: 'failed', message: 'Accept stopped: deadlock detected' });
+    expect((await client`select state from job_runs where type = 'decider.accept' and subject_id = ${b}`)[0].state).toBe('failed');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('stops after the chunk in hand when the batch is moved on mid-run, and leaves it be', async () => {
+    const more = await freshAlbums(ACCEPT_CHUNK + 1 - albums.length);
+    const b = await modelBatch([...albums, ...more]);
+    hooks.afterFetch = async () => { hooks.afterFetch = null; await client`update decider_batches set state = 'undoing' where id = ${b}`; };
+    const r = await runAcceptBatch(ctx, b);
+    expect(r.accepted).toBe(ACCEPT_CHUNK);
+    const batch = await getBatch(client, b);
+    expect(batch).toMatchObject({ state: 'undoing', acceptedAt: null });
+    expect(send).not.toHaveBeenCalled();
+    expect((await client`select count(*)::int as n from decider_batch_items where batch_id = ${b} and status = 'pending'`)[0].n).toBe(1);
+  });
+
+  it('sends no queue notice for a chunk that accepted nothing, and no gaps recompute for a batch that accepted nothing', async () => {
+    const b = await modelBatch([albums[0]!]);
+    await client`update local_albums set state = 'matched' where id = ${albums[0]!}`;
+    const notices = await queueNotices();
+    expect((await runAcceptBatch(ctx, b)).skipped).toEqual({ state: 1 });
+    await new Promise((res) => setTimeout(res, 200));
+    expect(notices.filter((n) => n['libraryId'] === lib)).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
+    expect((await getBatch(client, b))!.state).toBe('accepted');
+  });
+
+  it('recomputes gaps after a resumed run when only the earlier run accepted', async () => {
+    const b = await modelBatch(albums.slice(0, 2));
+    await runAcceptBatch(ctx, b);
+    send.mockClear();
+    await client`update decider_batches set state = 'accepting' where id = ${b}`;
+    await runAcceptBatch(ctx, b);
+    expect(send.mock.calls.filter((c) => c[0] === 'gaps.recompute')).toHaveLength(1);
   });
 
   it('does nothing for a batch that is not waiting', async () => {

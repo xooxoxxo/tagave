@@ -60,6 +60,12 @@ const toText = (v: number | string | null): string | null => (v == null ? null :
  */
 export async function createBatch(sql: Sql, input: CreateBatchInput): Promise<string> {
   const items = input.items;
+  // A model's decision is pinned to the evidence it saw and to the identify
+  // run it followed; without both, the accept could not tell that either moved.
+  if (input.decidedKind === 'model') {
+    const unpinned = items.findIndex((i) => i.evidenceHash == null || i.expectLastIdentifyAt == null);
+    if (unpinned >= 0) throw new RangeError(`a model batch item needs an evidence hash and an identify time (item ${unpinned + 1})`);
+  }
   const run = async (tx: Sql): Promise<string> => {
     const [b] = await tx<Array<{ id: string }>>`
       insert into decider_batches (library_id, decider_id, decider_version, decided_kind, run_id, band, accept_from, started_by_user_id)
@@ -124,6 +130,41 @@ export async function setBatchState(sql: Sql, batchId: string, state: BatchState
            undone_at = case when ${state}::text = 'undone' then now() else undone_at end,
            message = case when ${hasMessage}::boolean then ${extra.message ?? null}::text else message end
      where id = ${batchId}`;
+}
+
+/**
+ * Moves a batch to `to` only while it is in one of `from` (stamps and
+ * message as setBatchState). False when the batch was elsewhere or gone:
+ * someone else moved it, and the caller leaves it be.
+ */
+export async function transitionBatch(
+  sql: Sql, batchId: string, from: readonly BatchState[], to: BatchState, extra: { message?: string } = {},
+): Promise<boolean> {
+  const hasMessage = extra.message !== undefined;
+  const rows = await sql`
+    update decider_batches
+       set state = ${to},
+           accepted_at = case when ${to}::text = 'accepted' then now() else accepted_at end,
+           undone_at = case when ${to}::text = 'undone' then now() else undone_at end,
+           message = case when ${hasMessage}::boolean then ${extra.message ?? null}::text else message end
+     where id = ${batchId} and state = any(${[...from]}::text[])
+     returning id`;
+  return rows.length > 0;
+}
+
+/** What sending a job needs (a PgBoss instance fits). */
+export interface JobSender {
+  send(name: string, data: object, options: { singletonKey: string }): Promise<string | null>;
+}
+
+/**
+ * The one way to queue decider.accept: every run of a batch, accept or
+ * undo, carries the batch's key, so under the queue's stately policy two
+ * runs of one batch never work at once. No throttle window: a send must
+ * never be swallowed by an earlier completed run.
+ */
+export async function sendDeciderAccept(boss: JobSender, batchId: string, mode: 'accept' | 'undo' = 'accept'): Promise<string | null> {
+  return boss.send('decider.accept', { batchId, mode }, { singletonKey: `decider:${batchId}` });
 }
 
 /** Up to `limit` items of a batch with this status, in the order they were added. */

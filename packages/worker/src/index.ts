@@ -337,7 +337,9 @@ async function main() {
   // with identify.album, database-only, one batch at a time.
   if (wants('identify.album')) {
     await boss.work<DeciderAcceptJobData>('decider.accept', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await deciderAcceptJob(ctx, job.data);
+      // the batch fails only when no retry follows; until then a retry resumes it
+      const retryLimit = LONG_JOB_QUEUES['decider.accept']!.retryLimit;
+      for (const job of jobs) await deciderAcceptJob(ctx, job.data, { lastAttempt: job.retryCount >= retryLimit });
     });
   }
   // Music Connections pulls from linked apps (Settings › Connections), on the
