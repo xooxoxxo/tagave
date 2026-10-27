@@ -95,6 +95,7 @@ describe('systemOne', () => {
     const err = await systemOne({ apiKey: 'k', baseUrl: 'http://fake', fetchImpl: fetchImpl as any, sleep, maxRetries: 2 }, body).catch((e) => e);
     expect(err).toBeInstanceOf(JevUnavailable);
     expect(err.status).toBe(503);
+    expect(err.attempts).toBe(3);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(sleep).toHaveBeenCalledTimes(2);
   });
@@ -190,6 +191,7 @@ describe('systemOne', () => {
     const err = await systemOne({ apiKey: KEY, baseUrl: 'http://fake', fetchImpl: fetchImpl as any, sleep, maxRetries: 1, timeoutMs: 30 }, body).catch((e) => e);
     expect(err).toBeInstanceOf(JevUnavailable);
     expect(err.message).toMatch(/timed out/);
+    expect(err.attempts).toBe(2);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(Date.now() - started).toBeLessThan(2000);
     const signal = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].signal!;
@@ -216,6 +218,7 @@ describe('systemOne', () => {
     expect(err).toBeInstanceOf(JevUnavailable);
     expect(err.status).toBe(200);
     expect(err.message).toBe('TypeSafe is unavailable: malformed answer');
+    expect(err.attempts).toBe(1);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
   });

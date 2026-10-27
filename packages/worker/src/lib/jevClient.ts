@@ -33,10 +33,14 @@ export class JevKeyRefused extends Error {
   override readonly name = 'JevKeyRefused';
   constructor(readonly status: number) { super(`TypeSafe refused the key (${status})`); }
 }
-/** No usable answer: retries ran out, a timeout, a dropped connection or a malformed answer. */
+/**
+ * No usable answer: retries ran out, a timeout, a dropped connection or a
+ * malformed answer. `attempts` is how many requests were actually sent (unset
+ * when not known), so a caller can count each one that may have been billed.
+ */
 export class JevUnavailable extends Error {
   override readonly name = 'JevUnavailable';
-  constructor(readonly status: number | null, why: string) { super(`TypeSafe is unavailable: ${why}`); }
+  constructor(readonly status: number | null, why: string, readonly attempts?: number) { super(`TypeSafe is unavailable: ${why}`); }
 }
 
 export interface JevClientOptions { apiKey: string; baseUrl?: string; fetchImpl?: typeof fetch; maxRetries?: number; sleep?: (ms: number) => Promise<void>; timeoutMs?: number }
@@ -158,15 +162,15 @@ export async function systemOne(opts: JevClientOptions, body: JevRequest): Promi
         headers = r.headers;
       } else if (r.status < 200 || r.status >= 300) {
         // another 4xx (or an odd status): retrying will not change the answer
-        throw new JevUnavailable(r.status, `HTTP ${r.status}`);
+        throw new JevUnavailable(r.status, `HTTP ${r.status}`, attempt + 1);
       } else {
         const answer = parseAnswer(r.text);
         if (answer) return answer;
         // the call may already be billed: asking again could double or triple the cost
-        throw new JevUnavailable(r.status, 'malformed answer');
+        throw new JevUnavailable(r.status, 'malformed answer', attempt + 1);
       }
     }
     if (attempt < max) await sleep(retryDelay(headers, attempt));
   }
-  throw new JevUnavailable(last.status, last.why);
+  throw new JevUnavailable(last.status, last.why, max + 1);
 }

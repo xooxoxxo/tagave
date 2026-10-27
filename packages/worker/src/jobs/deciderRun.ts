@@ -281,15 +281,13 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
   for (let i = 0; i < todo.length; i++) {
     const albumId = todo[i]!;
     prog.done = doneBefore + i;
-    if (deps.signal?.aborted) {
-      // pg-boss gave the job up (expired or stopping): a retry or the stale-run sweep picks the run up
-      ctx.logger.warn({ run: run.id }, 'decider run job aborted; run left running');
-      return { ...summary, state: 'running' };
-    }
-    if (i > 0 && outOfTime()) {
+    // pg-boss gave the job up (expired, or the worker is stopping), or its
+    // time is up: the rest of the run is queued and the run stays running
+    const aborted = deps.signal?.aborted === true;
+    if (aborted || (i > 0 && outOfTime())) {
       const next = await ctx.boss.send('decider.run', { runId: run.id }, { singletonKey: deciderRunSingletonKey(run.library_id) });
       if (!next) return pause('stopped', 'stopped: not queued again');
-      ctx.logger.info({ run: run.id, next }, 'decider run time budget used; the rest is queued');
+      ctx.logger.info({ run: run.id, next, aborted }, 'decider run job stopped; the rest is queued');
       await progress('running');
       return { ...summary, state: 'running' };
     }
@@ -406,13 +404,17 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
           continue;
         }
         if (err instanceof JevUnavailable && maybeBilled(err)) {
-          // no answer, but it may be on the bill: kept at the estimate so the
-          // cap counts it, never reused as an answer
+          // No answer, but each request sent may be on the bill: kept at the
+          // estimate times the requests (every attempt the client may make,
+          // when it does not say), so the cap overstates, never understates.
+          // Never reused as an answer.
+          const sentTimes = Math.max(1, err.attempts ?? RUN_MAX_RETRIES + 1);
+          const tokens = estTokens * sentTimes;
           await ctx.sql`
             insert into decider_calls (library_id, local_album_id, run_id, evidence_hash, spec_hash, decider_id, decider_version,
                                        request_bytes, input_tokens, cost, currency, answers, possibly_billed)
             values (${run.library_id}, ${albumId}, ${run.id}, ${callHash}, ${run.spec_hash}, ${decider.id}, ${model},
-                    ${bytes}, ${estTokens}, ${estimate}, ${price?.currency ?? config.currency}, null, true)`;
+                    ${bytes * sentTimes}, ${tokens}, ${price ? costOf(tokens, price) : 0}, ${price?.currency ?? config.currency}, null, true)`;
         }
         throw err; // pg-boss retries; the run resumes after the albums already decided
       }

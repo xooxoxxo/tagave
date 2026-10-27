@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import pino from 'pino';
 import {
-  makeDb, monthSpend, pauseStaleRuns, runMigrations, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
+  DEFAULT_TOKENS_PER_BYTE, makeDb, monthSpend, pauseStaleRuns, runMigrations, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
 } from '@tagave/db';
 import { buildAlbumEvidence, buildCandidateEvidence, jevSpecHash, sealSecret, type Decider, type DeciderInput } from '@tagave/core';
 import { ledgerEntries } from '@tagave/core/facets';
@@ -24,7 +24,7 @@ import type { WorkerContext } from '../lib/context.js';
 import { currentEvidenceHash, upsertAlbumEvidence } from '../lib/evidenceStore.js';
 import { JevKeyRefused, JevRejected, JevUnavailable } from '../lib/jevClient.js';
 import { populationAlbumIds } from '../lib/deciderPopulation.js';
-import { DECIDER_RUN_LOCK_NAMESPACE, deciderRunJob } from './deciderRun.js';
+import { DECIDER_RUN_LOCK_NAMESPACE, RUN_MAX_RETRIES, deciderRunJob } from './deciderRun.js';
 
 const SECRET = 'test-app-secret-0123456789abcdef01234567';
 const parse = (raw: unknown) => autotaggerConfigPatchSchema.parse(raw);
@@ -289,13 +289,28 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     // the album that failed is asked again on the retry, and only then
     expect(titles.filter((t) => t === titles[1])).toHaveLength(2);
     expect((await client`select count(*)::int as n from decider_calls where run_id = ${run} and not possibly_billed`)[0].n).toBe(titles.length - 1);
-    // the failed call may have been billed: kept at its estimate, with no answer, and counted in the spend
-    const maybe = await client`select cost::text, answers, decider_version from decider_calls where run_id = ${run} and possibly_billed`;
+    // the failed call may have been billed, once per request the client sent
+    // (it does not say here: every attempt a run allows): kept at the estimate
+    // times that, with no answer, and counted in the spend
+    const maybe = await client`select cost::text, input_tokens, request_bytes, answers, decider_version from decider_calls where run_id = ${run} and possibly_billed`;
     expect(maybe).toHaveLength(1);
     expect(maybe[0]).toMatchObject({ answers: null, decider_version: 'jev-2026-09-15' });
     expect(Number(maybe[0].cost)).toBeGreaterThan(0);
+    const [one] = await client`select request_bytes from decider_decisions where run_id = ${run} and local_album_id = (
+                                 select local_album_id from decider_calls where run_id = ${run} and possibly_billed)`;
+    expect(maybe[0].request_bytes).toBe(one.request_bytes * (RUN_MAX_RETRIES + 1));
+    expect(maybe[0].input_tokens).toBe(Math.ceil(one.request_bytes * DEFAULT_TOKENS_PER_BYTE) * (RUN_MAX_RETRIES + 1));
+    expect(Number(maybe[0].cost)).toBeCloseTo(maybe[0].input_tokens / 1e6, 6);
     const answered = (await client`select sum(cost)::float8 as c from decider_calls where run_id = ${run} and not possibly_billed`)[0].c;
     expect(await monthSpend(client, lib, 'USD')).toBeCloseTo(answered + Number(maybe[0].cost), 6);
+  });
+
+  it('a possibly billed call counts every request the client says it sent', async () => {
+    const d = fakeDecider(() => new JevUnavailable(null, 'timed out', 3));
+    const run = await newRun();
+    await expect(deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', tokensPerByte: 1e-9 })).rejects.toBeInstanceOf(JevUnavailable);
+    // each estimate is one token at 1 per million
+    expect((await client`select input_tokens, cost::text from decider_calls where run_id = ${run} and possibly_billed`)).toEqual([{ input_tokens: 3, cost: '0.000003' }]);
   });
 
   it('a call rejected for a reason that cannot be billed (another 4xx) leaves no possibly billed row', async () => {
@@ -356,14 +371,25 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     expect(await deciderRunJob(ctx, { runId: r2 }, { decider: d, apiKey: 'k', clock, timeBudgetMs: 500 })).toMatchObject({ state: 'paused', pauseReason: 'stopped' });
   });
 
-  it('a job pg-boss has aborted stops before its next album and leaves the run running', async () => {
+  it('a job pg-boss has aborted stops before its next album, queues the rest and leaves the run running', async () => {
     const run = await newRun();
     const ac = new AbortController();
-    ac.abort();
-    const d = fakeDecider(() => ({ A: 0.99 }));
+    // aborted mid-run (the worker is stopping): the album being asked finishes, the next is not started
+    const d = fakeDecider(() => { ac.abort(); return { A: 0.99 }; });
     expect((await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', signal: ac.signal })).state).toBe('running');
-    expect(d.calls).toHaveLength(0);
+    expect(d.calls).toHaveLength(1);
+    expect(send).toHaveBeenCalledWith('decider.run', { runId: run }, { singletonKey: `decider.run:${lib}` });
     expect((await client`select state from decider_runs where id = ${run}`)[0].state).toBe('running');
+    // the queued job finishes it, asking nothing twice
+    expect((await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k' })).state).toBe('done');
+    expect(new Set(d.calls.map((c) => c.album.title)).size).toBe(d.calls.length);
+    // when the rest cannot be queued, the run is paused as stopped
+    send.mockImplementation(async () => null);
+    const r2 = await newRun();
+    const done = new AbortController();
+    done.abort();
+    expect(await deciderRunJob(ctx, { runId: r2 }, { decider: d, apiKey: 'k', signal: done.signal })).toMatchObject({ state: 'paused', pauseReason: 'stopped' });
+    expect((await client`select state, pause_reason from decider_runs where id = ${r2}`)[0]).toEqual({ state: 'paused', pause_reason: 'stopped' });
   });
 
   it('a run left running with no job and no progress is paused as stopped, and resumes', async () => {
