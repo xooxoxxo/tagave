@@ -15,7 +15,11 @@ export interface DisplayPrefs {
   shortAlbumArt: boolean;
   /** The artist page: 'name' (the name first, notes in a column beside the albums) or 'albums' (laid out like an album page). */
   artistLayout: 'name' | 'albums';
-  /** While a cover plays, the accent, the canvas and the player bar take its colours. */
+  /**
+   * The old Adaptive colours switch, from before themes: now only which
+   * theme applies until the person picks one (on: Adaptive, off: Classic;
+   * themes/themeChoice.ts). Settings no longer shows it.
+   */
   adaptiveColour: boolean;
   /** A soft glow along the player's seek bar that moves with the music. */
   eqGlow: boolean;

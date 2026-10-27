@@ -9,6 +9,8 @@
     <meta name="color-scheme" content="light dark" />
     <!-- Apply the saved theme before first paint so a dark choice never flashes light. Mirrors src/theme.ts. -->
     <script>try{var t=localStorage.getItem('tagave-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+    <!-- And the colour theme's cached tokens for that mode (src/themes/themeChoice.ts), again when the OS mode changes. -->
+    <script>try{(function(){var r=document.documentElement,q=matchMedia('(prefers-color-scheme: dark)');function p(){var c;try{c=JSON.parse(localStorage.getItem('tagave-theme-tokens')||'null')}catch(e){}if(!c||!c.light||!c.dark)return;var m=r.getAttribute('data-theme'),s=(m?m==='dark':q.matches)?c.dark:c.light;for(var k in s)r.style.setProperty(k,s[k]);r.setAttribute('data-themed','')}p();q.addEventListener('change',p)})()}catch(e){}</script>
     <title>tagave – Music Archive Catalog</title>
   </head>
   <body>

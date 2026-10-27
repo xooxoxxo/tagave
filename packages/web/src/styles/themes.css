@@ -1,0 +1,16 @@
+/*
+ * Colour themes (Settings › Appearance; src/themes). A generated theme
+ * (Moody, Mono, Custom) writes every colour token inline on <html> and sets
+ * data-themed; its player bar goes to --th-bar*, handed here to the --ad-bar*
+ * names the bar, the phone's mini bar and the account strip read (their
+ * selectors match data-themed as well as data-adaptive). Adaptive colour
+ * owns the --ad-* while it is on, so this applies only without it.
+ */
+:root[data-themed]:not([data-adaptive]) {
+  --ad-bar: var(--th-bar);
+  --ad-bar-ink: var(--th-bar-ink);
+  --ad-bar-ink-2: var(--th-bar-ink-2);
+  --ad-bar-line: var(--th-bar-line);
+  --ad-bar-accent: var(--th-bar-accent);
+  --ad-bar-danger: var(--th-bar-danger);
+}

@@ -190,13 +190,14 @@
 }
 @media (forced-colors: active) {
   .wash { display: none; }
-  .mini, :global(html[data-adaptive]) .mini { border-top: 1px solid CanvasText; background: Canvas; }
+  .mini, :global(html:is([data-adaptive], [data-themed])) .mini { border-top: 1px solid CanvasText; background: Canvas; }
   .miniProgress { background: Highlight; width: var(--fill, 0%); }
 }
 
-/* Adaptive colour: the mini bar is the player bar's surface, with its inks
-   and accent (PlayerBar.module.css, guarded in adaptive/scheme.test.ts). */
-:global(html[data-adaptive]) .mini {
+/* Adaptive colour and a generated theme: the mini bar is the player bar's
+   surface, with its inks and accent (PlayerBar.module.css, guarded in
+   adaptive/scheme.test.ts and themes/engine.test.ts). */
+:global(html:is([data-adaptive], [data-themed])) .mini {
   --ink: var(--ad-bar-ink);
   --ink-2: var(--ad-bar-ink-2);
   --ink-3: var(--ad-bar-ink-2);
@@ -215,5 +216,5 @@
   .wash { transition: none; }
 }
 @media (forced-colors: active) {
-  :global(html[data-adaptive]) .mini { background: Canvas; }
+  :global(html:is([data-adaptive], [data-themed])) .mini { background: Canvas; }
 }
