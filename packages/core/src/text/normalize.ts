@@ -1,25 +1,39 @@
 /**
  * Text normalization and string distance functions for album matching.
- * Following spec §12.5: Unicode NFC, case folding, punctuation stripping,
+ * Following spec §12.5: Unicode NFKC, case folding, punctuation stripping,
  * leading-article insensitivity, Jaro-Winkler and token-set ratio distances.
+ *
+ * Letters, digits and combining marks are kept in every script, so Japanese,
+ * Chinese, Cyrillic or accented Latin titles are compared rather than
+ * deleted. Accents are not folded: "é" stays "é" (a Japanese voiced mark is a
+ * combining mark too, and folding it would make different words equal).
+ * NFKC folds full-width and other compatibility forms ("Ｍ" → "M").
  */
 
+/** Unicode compatibility composition + lowercase: the shared first step. */
+function fold(s: string): string {
+  return s.normalize('NFKC').toLowerCase();
+}
+
+/** Emoji variation selectors and the keycap mark carry no text. */
+const EMOJI_MARKS = /[\uFE00-\uFE0F\u20E3\u{E0100}-\u{E01EF}]/gu;
+/** A combining mark with no letter or digit to sit on (left behind by a stripped symbol). */
+const ORPHAN_MARKS = /(^|[^\p{L}\p{N}\p{M}])\p{M}+/gu;
+/** Anything that is not a letter, digit, combining mark or space. */
+const NON_TEXT = /[^\p{L}\p{N}\p{M}\s]/gu;
+
 /**
- * Normalize a string for comparison: NFC + lowercase + punctuation removal + leading article removal.
+ * Normalize a string for comparison: NFKC + lowercase + punctuation removal + leading article removal.
  * Matches spec §12.5 normalization rules.
  */
 export function normalizeString(s: string): string {
   if (!s) return '';
 
-  // Unicode NFC normalization (canonical composed form)
-  let normalized = s.normalize('NFC');
+  // Unicode NFKC (compatibility composed form) and lowercase
+  let normalized = fold(s);
 
-  // Lowercase
-  normalized = normalized.toLowerCase();
-
-  // Remove punctuation and extra whitespace
-  // Keep only alphanumeric, spaces, and a few allowed characters
-  normalized = normalized.replace(/[^\w\s]/gu, '').trim();
+  // Remove punctuation, symbols and emoji; keep letters, digits and marks in every script
+  normalized = normalized.replace(EMOJI_MARKS, '').replace(ORPHAN_MARKS, '$1').replace(NON_TEXT, '').trim();
 
   // Collapse multiple spaces into one
   normalized = normalized.replace(/\s+/g, ' ');
@@ -52,8 +66,8 @@ export function compareStrings(a: string, b: string): boolean {
  * Algorithm: https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance
  */
 export function jaroWinklerDistance(a: string, b: string): number {
-  const s1 = a.normalize('NFC').toLowerCase();
-  const s2 = b.normalize('NFC').toLowerCase();
+  const s1 = fold(a);
+  const s2 = fold(b);
 
   if (s1 === s2) return 1;
   if (!s1 || !s2) return 0;
@@ -115,9 +129,8 @@ export function jaroWinklerDistance(a: string, b: string): number {
  * Returns a value between 0 and 1.
  */
 export function tokenSetRatio(a: string, b: string): number {
-  const normalize = (s: string) => s.normalize('NFC').toLowerCase();
-  const s1 = normalize(a);
-  const s2 = normalize(b);
+  const s1 = fold(a);
+  const s2 = fold(b);
 
   if (s1 === s2) return 1;
 
