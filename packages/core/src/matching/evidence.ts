@@ -80,12 +80,12 @@ export function buildCandidateEvidence(remote: RemoteInput, score: Pick<ReleaseS
   const align: AlignTriple[] = [];
   const unmatchedLocal: number[] = [];
   for (const a of score.alignment) {
+    if (!(Number.isInteger(a.localIndex) && a.localIndex >= 0 && a.localIndex < localTrackCount)) {
+      throw new RangeError(`evidence: local track index ${a.localIndex} outside 0..${localTrackCount - 1}`);
+    }
     if (a.canonicalIndex === null) {
       unmatchedLocal.push(a.localIndex);
       continue;
-    }
-    if (!(Number.isInteger(a.localIndex) && a.localIndex >= 0 && a.localIndex < localTrackCount)) {
-      throw new RangeError(`evidence: local track index ${a.localIndex} outside 0..${localTrackCount - 1}`);
     }
     if (!(Number.isInteger(a.canonicalIndex) && a.canonicalIndex >= 0 && a.canonicalIndex < remoteCount)) {
       throw new RangeError(`evidence: remote track index ${a.canonicalIndex} outside 0..${remoteCount - 1}`);

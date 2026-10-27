@@ -102,6 +102,11 @@ describe('candidate evidence guards', () => {
     expect(() => buildCandidateEvidence(r, s(), 2)).toThrow(/local track index 2/);
     expect(() => buildCandidateEvidence({ ...r, tracks: r.tracks.slice(0, 2) }, s(), 3)).toThrow(/remote track index 2/);
   });
+  it('throws when an unmatched local index is outside the local tracklist', () => {
+    const unmatched = { alignment: [{ localIndex: 3, canonicalIndex: null, distance: 1, title: { local: 'x' }, duration: { local: 1 } }], missingRemote: [] };
+    expect(() => buildCandidateEvidence(r, unmatched, 3)).toThrow(/local track index 3/);
+    expect(buildCandidateEvidence(r, { ...unmatched, alignment: [{ ...unmatched.alignment[0]!, localIndex: 2 }] }, 3).unmatchedLocal).toEqual([2]);
+  });
   it('throws when a capped candidate comes with an alignment', () => {
     expect(() => buildCandidateEvidence(r, s(), MAX_ALIGN_TRACKS + 1)).toThrow(/cap/);
   });
