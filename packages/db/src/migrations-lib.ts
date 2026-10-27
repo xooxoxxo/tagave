@@ -80,8 +80,8 @@ export async function listMigrationChain(dir: string = MIGRATIONS_DIR): Promise<
   return out;
 }
 
-/** The file behind an entry of listMigrationChain. */
-async function migrationPath(dir: string, entry: string): Promise<string> {
+/** The file behind an entry of listMigrationChain (under `dir`). */
+export async function migrationFilePath(dir: string, entry: string): Promise<string> {
   const { module, name } = parseMigrationEntry(entry);
   if (module === CORE_MIGRATIONS) return path.join(dir, name);
   const d = (await chainDirs(dir)).get(module);
@@ -451,7 +451,7 @@ export async function runMigrations(
       if (module !== CORE_MIGRATIONS && !(await ledgerHasModules(conn))) {
         throw new Error(`cannot record ${file}: the migration ledger has no module column (core migration 0066 has not run)`);
       }
-      const body = await fs.readFile(await migrationPath(dir, file), 'utf-8');
+      const body = await fs.readFile(await migrationFilePath(dir, file), 'utf-8');
       log(`applying ${file}...`);
       // One transaction per file, on the connection that holds the lock
       // (a reserved connection has no .begin()).
