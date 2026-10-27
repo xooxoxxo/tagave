@@ -2,7 +2,7 @@
  * Album grid facets and saved views (spec BRW-1).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AlbumFacets, AlbumsQuery, CreateSavedView, SavedView } from '@tagave/shared';
+import type { AlbumFilterCounts, AlbumsQuery, CreateSavedView, SavedView } from '@tagave/shared';
 import { api } from '../services/api';
 import { apiSearchParams } from '../pages/albumsSearch';
 
@@ -11,11 +11,11 @@ export function facetParams(query: AlbumsQuery): URLSearchParams {
   return apiSearchParams(filters);
 }
 
-export function useAlbumFacets(libraryId: string | undefined, query: AlbumsQuery) {
+export function useAlbumFilterCounts(libraryId: string | undefined, query: AlbumsQuery) {
   const params = facetParams(query).toString();
   return useQuery({
     queryKey: ['album-facets', libraryId, params],
-    queryFn: () => api.get<AlbumFacets>(`/libraries/${libraryId}/albums/facets?${params}`),
+    queryFn: () => api.get<AlbumFilterCounts>(`/libraries/${libraryId}/albums/facets?${params}`),
     enabled: !!libraryId,
     staleTime: 1000 * 60 * 2,
     placeholderData: (prev) => prev,

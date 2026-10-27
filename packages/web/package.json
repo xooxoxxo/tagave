@@ -14,7 +14,8 @@
     "storybook": "10.6.1",
     "build-storybook": "storybook build -o storybook-static --quiet",
     "test-storybook": "playwright test -c storybook-tests/playwright.config.ts",
-    "test-storybook:docker": "sh storybook-tests/docker.sh"
+    "test-storybook:docker": "sh storybook-tests/docker.sh",
+    "test-pwa": "playwright test -c pwa-tests/playwright.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",

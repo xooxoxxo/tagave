@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-  createFacets, createRegistry, defineCast, defineFacet, defineModule, registry, relayOf, scopeArgs,
-  MODULES, FACETS, ALBUM_CRITIC_SCORES,
+  createFacets, createRegistry, defineApp, defineCast, defineFacet, defineModule, ledgerEntries, moduleContext, registry, relayOf, scopeArgs, versionMeets,
+  APPS, MODULES, FACETS, ALBUM_CRITIC_SCORES, CORE_API, MUSIC_APP,
   type FacetContext, type FacetReader, type ModuleContext,
 } from './index.js';
 
-const on: ModuleContext = { settings: { mcEnabled: true }, playerUrl: null };
-const off: ModuleContext = { settings: { mcEnabled: false }, playerUrl: null };
+const on: ModuleContext = moduleContext({ mc: true });
+const off: ModuleContext = moduleContext({ mc: false });
 
 const rating1 = defineFacet({ name: 'album.rating', version: '1.2', scope: 'person', cardinality: 'one', schema: z.object({ rating: z.number() }) });
 const provider = (version: string, id = 'library', enabled = true) =>
@@ -173,5 +173,61 @@ describe('facets.get', () => {
     ]])) } });
     const got = await facets.get(ctx, { kind: 'album', id: 'rg' }, 'album.rating@1');
     expect(got.pick?.source.label).toBe('you');
+  });
+});
+
+describe('manifest v2: apps, compatibility, the module ledger', () => {
+  const rating = defineFacet({ name: 'album.rating', version: '1.0', scope: 'person', cardinality: 'one', schema: z.object({}) });
+  const books = (version = '1.0.0', builtIn = false) => defineApp({ id: 'books', version, builtIn, fileTypes: ['epub'] });
+  const ext = defineModule({ id: 'opds', version: '1.0.0', compatibleWith: [{ app: 'books', range: '^1.1' }], provides: [], consumes: [] });
+
+  it('reads a module’s switch from the ledger by default; an id with no row is off', () => {
+    const m = defineModule({ id: 'decider', version: '1.0.0', provides: [], consumes: [] });
+    expect(m).toMatchObject({ kind: 'in-process', coreApi: `^${CORE_API}`, compatibleWith: [], defaultEnabled: false, migrations: null, settingsKeys: [] });
+    expect(m.enabled(moduleContext({ decider: true }))).toBe(true);
+    expect(m.enabled(moduleContext({}))).toBe(false);
+    expect(moduleContext({ mc: true }).enabled('listen-links')).toBe(false);
+  });
+
+  it('refuses a manifest built for another core API major, and a migrations folder of another id', () => {
+    expect(() => defineModule({ id: 'x', version: '1.0.0', coreApi: '^2.0', provides: [], consumes: [] })).toThrow(/core API/);
+    expect(() => defineApp({ id: 'x', version: '1.0.0', coreApi: '^0.9', fileTypes: [] })).toThrow(/core API/);
+    expect(() => defineModule({ id: 'x', version: '1.0.0', migrations: 'modules/y', provides: [], consumes: [] })).toThrow(/modules\/x/);
+    expect(() => defineApp({ id: 'x', version: '1', fileTypes: [] })).toThrow(/semver/);
+    expect(versionMeets('1.4.2', '^1.2')).toBe(true);
+    expect(versionMeets('1.1.0', '^1.2')).toBe(false);
+    expect(versionMeets('2.0.0', '^1.0')).toBe(false);
+  });
+
+  it('a module whose app is missing, off or out of range cannot be on, and says why', () => {
+    const withApp = (a?: ReturnType<typeof books>) => createRegistry({ facets: [rating], modules: [ext], apps: a ? [a] : [] });
+    const on = moduleContext({ opds: true, books: true });
+    expect(withApp().isEnabled('opds', on)).toBe(false);
+    expect(withApp().canTurnOn('opds', on)).toEqual({ ok: false, reason: 'opds needs the books app, which this install does not have' });
+    expect(withApp().problems()).toEqual(['opds works with the books app, which no app defines']);
+    expect(withApp(books('1.0.0')).canTurnOn('opds', on)).toEqual({ ok: false, reason: 'opds needs books ^1.1, and this is books 1.0.0' });
+    expect(withApp(books('1.2.0')).canTurnOn('opds', moduleContext({ opds: true }))).toEqual({ ok: false, reason: 'opds needs the books app turned on' });
+    expect(withApp(books('1.2.0')).isEnabled('opds', moduleContext({ opds: true }))).toBe(false);
+    expect(withApp(books('1.2.0')).state(moduleContext({ opds: true })).modules[0]!.refused).toEqual(['opds needs the books app turned on']);
+    expect(withApp(books('1.2.0')).isEnabled('opds', on)).toBe(true);
+    expect(withApp(books('1.2.0', true)).isEnabled('opds', moduleContext({ opds: true }))).toBe(true);
+    expect(() => createRegistry({ facets: [], modules: [defineModule({ id: 'books', version: '1.0.0', provides: [], consumes: [] })], apps: [books()] })).toThrow(/twice/);
+  });
+
+  it('tagave: music is the one app, built in, claiming audio; every module works with it', () => {
+    expect(APPS.map((a) => a.id)).toEqual(['music']);
+    expect(MUSIC_APP).toMatchObject({ builtIn: true, fileTypes: ['audio'], grouping: { queue: 'cluster.dir' } });
+    expect(registry.appEnabled('music', moduleContext({}))).toBe(true);
+    for (const m of MODULES.filter((x) => !x.builtIn)) expect(m.compatibleWith, m.id).toEqual([{ app: 'music', range: '^1.0' }]);
+    expect(registry.state(moduleContext({})).modules.flatMap((m) => m.refused)).toEqual([]);
+  });
+
+  it('the ledger rows a boot syncs: the app and every in-process module at its default (the player is the updater’s)', () => {
+    expect(ledgerEntries()).toEqual([
+      { id: 'music', kind: 'app', version: '1.0.0', defaultEnabled: true },
+      { id: 'mc', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
+      { id: 'listen-links', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
+      { id: 'playlists', kind: 'in-process', version: '1.0.0', defaultEnabled: true },
+    ]);
   });
 });

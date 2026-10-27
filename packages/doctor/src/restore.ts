@@ -171,7 +171,11 @@ async function ledgerOf(url: string): Promise<{ count: number | null; latest: st
   try {
     const t = await sql`select to_regclass('public._migrations') as t`;
     if (!t[0]?.['t']) return { count: null, latest: null };
-    const rows = await sql<Array<{ count: number; latest: string | null }>>`select count(*)::int as count, max(name) as latest from _migrations`;
+    // every row counts; the latest is the core chain's (a module's rows, in
+    // the ledger's (module, name) shape since 0066, have their own numbering)
+    const rows = await sql<Array<{ count: number; latest: string | null }>>`
+      select count(*)::int as count, max(name) filter (where coalesce(to_jsonb(m)->>'module', 'core') = 'core') as latest
+        from _migrations m`;
     return { count: rows[0]?.count ?? 0, latest: rows[0]?.latest ?? null };
   } finally {
     await sql.end({ timeout: 2 });

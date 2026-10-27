@@ -5,8 +5,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { TagWriter } from '../providers/types.js';
 import { coreTagsDigest } from './audioMetadata.js';
 import {
-  FILE_TYPE_HANDLERS, audioHandler, extOf, fileTypeHandler, handlerForName, handlerIdsOf,
+  FILE_TYPE_HANDLERS, audioHandler, claimedHandlerIds, extOf, fileTypeHandler, handlerForName, handlerIdsOf,
 } from './handlers.js';
+import { APPS } from '../facets/manifests.js';
 
 /** A FLAC with STREAMINFO (2 s, 44.1 kHz stereo 16 bit) and a Vorbis comment block; no audio frames. */
 function flac(comments: Record<string, string>): Buffer {
@@ -56,9 +57,18 @@ describe('file-type handler registry', () => {
     expect(fileTypeHandler(null)).toBeNull();
   });
 
-  it('lists the handlers each app claims', () => {
+  it('lists the handlers each app claims, from its manifest', () => {
     expect(handlerIdsOf('music')).toEqual(['audio']);
     expect(handlerIdsOf('books')).toEqual([]);
+    // every file type an app claims is a handler this build carries
+    for (const a of APPS) for (const id of a.fileTypes) expect(fileTypeHandler(id), `${a.id} claims ${id}`).not.toBeNull();
+  });
+
+  it('claims for the walk only what apps that are on claim (a built-in app always is)', () => {
+    expect([...claimedHandlerIds(() => false)]).toEqual(['audio']);
+    expect(handlerForName('a.flac', claimedHandlerIds(() => false))).toBe(audioHandler);
+    expect(handlerForName('a.flac', new Set())).toBeNull();
+    expect(handlerForName('a.flac')).toBe(audioHandler);
   });
 
   it('gives each audio extension a MIME type', () => {

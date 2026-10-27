@@ -1,6 +1,6 @@
 import { PgBoss } from 'pg-boss';
 import pino from 'pino';
-import { listMigrationFiles, makeDb } from '@tagave/db';
+import { listMigrationChain, makeDb } from '@tagave/db';
 import { readBuildInfo, WORKER_QUEUES } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
@@ -14,6 +14,7 @@ import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
 import { filesBackfillDigestJob, type FilesBackfillDigestJobData } from './jobs/filesBackfillDigest.js';
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
 import { clusterRepairDiscsJob, type ClusterRepairDiscsJobData } from './jobs/clusterRepairDiscs.js';
+import { clusterBackfillLooseJob, type ClusterBackfillLooseJobData } from './jobs/clusterBackfillLoose.js';
 import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbum.js';
 import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySweep.js';
 import { enrichReleaseJob, type EnrichReleaseJobData } from './jobs/enrichRelease.js';
@@ -22,7 +23,7 @@ import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetc
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { artThumbJob, artThumbSweepJob, type ArtThumbJobData, type ArtThumbSweepJobData } from './jobs/artThumb.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
-import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefresh.js';
+import { filterCountsRefreshJob, type FilterCountsRefreshJobData } from './jobs/filterCountsRefresh.js';
 import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
@@ -82,6 +83,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   // enqueued at every boot: at most one queued behind a running one; two runs
   // at once would still be safe (null check and tags_digest guard in the update)
   'files.backfillDigest': 'stately',
+  // enqueued at every boot like files.backfillDigest: one queued behind a running one
+  'cluster.backfillLoose': 'stately',
   'artists.resolve': 'stately',
   'artists.enrich': 'stately',
   'artists.refresh': 'stately',
@@ -116,6 +119,8 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   'art.thumbSweep': { expireInSeconds: 2 * 3600, retryLimit: 0 },
   // a first run over a whole library; the next boot resumes where it stopped
   'files.backfillDigest': { expireInSeconds: 3600, retryLimit: 0 },
+  // bounded per run; the next boot sends what is left
+  'cluster.backfillLoose': { expireInSeconds: 3600, retryLimit: 0 },
 };
 
 /**
@@ -138,7 +143,7 @@ async function main() {
   // Version skew (split installs update hosts separately): wait for the app
   // to apply migrations this worker needs; refuse a database a newer app
   // migrated. Before pg-boss starts, so nothing is claimed meanwhile.
-  const migrationFiles = await listMigrationFiles();
+  const migrationFiles = await listMigrationChain();
   const allowSkew = /^(1|true|yes|on)$/i.test(tagaveEnv('ALLOW_SCHEMA_SKEW') ?? '');
   await waitForCompatibleSchema(client, {
     version: build.version,
@@ -238,9 +243,18 @@ async function main() {
     await boss.send('files.backfillDigest', {}, { singletonKey: 'files.backfillDigest' });
   }
 
-  if (wants('cluster.dir')) await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 6 }, async (jobs) => {
-    await Promise.all(jobs.map((job) => clusterDirJob(ctx, job.data)));
-  });
+  if (wants('cluster.dir')) {
+    await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 6 }, async (jobs) => {
+      await Promise.all(jobs.map((job) => clusterDirJob(ctx, job.data)));
+    });
+    // folders of loose files clustered before untagged files formed albums (QA Q-05)
+    await boss.work<ClusterBackfillLooseJobData>('cluster.backfillLoose', { batchSize: 1 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) results.push(await clusterBackfillLooseJob(ctx, job.data ?? {}));
+      return results.length === 1 ? results[0] : results;
+    });
+    await boss.send('cluster.backfillLoose', {}, { singletonKey: 'cluster.backfillLoose' });
+  }
 
   // Run by hand after the disc-aware clustering ships: sweeps the library for
   // the multi-disc layouts, re-clusters them and re-identifies what changed.
@@ -482,8 +496,8 @@ async function main() {
   }
 
   if (wants('facets.refresh')) {
-    await boss.work<FacetsRefreshJobData>('facets.refresh', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await facetsRefreshJob(ctx, job.data);
+    await boss.work<FilterCountsRefreshJobData>('facets.refresh', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await filterCountsRefreshJob(ctx, job.data);
     });
     // Every minute; a no-op unless albums, gaps or the collection changed since
     // the last build (XO-363). The boot send fills an empty table right away.

@@ -2,7 +2,7 @@ import { fetchArtistRows } from '@tagave/db';
 import { artistListPositions } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 
-export interface FacetsRefreshJobData {
+export interface FilterCountsRefreshJobData {
   /** one library, or every library when absent (the every-minute schedule) */
   libraryId?: string;
   /** rebuild even when nothing changed since the last build */
@@ -13,23 +13,23 @@ export interface FacetsRefreshJobData {
 const MAX_AGE_MS = 10 * 60_000;
 
 /**
- * XO-363: rebuilds album_facets for a library inside one transaction (readers
+ * XO-363 (job facets.refresh): rebuilds album_filter_counts for a library inside one transaction (readers
  * see the old rows or the new rows, never a mix). The row shapes mirror the
  * live facet queries in api/routes/albums.ts exactly — the API's smoke
  * compares the two — so keep them in step when a dimension changes.
  */
-export async function facetsRefreshJob(ctx: WorkerContext, data: FacetsRefreshJobData): Promise<void> {
+export async function filterCountsRefreshJob(ctx: WorkerContext, data: FilterCountsRefreshJobData): Promise<void> {
   const libraries = data.libraryId
     ? [data.libraryId]
     : ((await ctx.sql`select id from libraries`) as unknown as Array<{ id: string }>).map((r) => r.id);
   for (const libraryId of libraries) {
-    const result = await refreshLibraryFacets(ctx, libraryId, data.force ?? false);
+    const result = await refreshFilterCounts(ctx, libraryId, data.force ?? false);
     if (result.skipped) ctx.logger.debug({ libraryId }, 'facets.refresh: up to date');
     else ctx.logger.info({ libraryId, albums: result.albums, artists: result.artists, ms: result.ms }, 'facets.refresh: rebuilt');
   }
 }
 
-export async function refreshLibraryFacets(
+export async function refreshFilterCounts(
   ctx: WorkerContext,
   libraryId: string,
   force: boolean,
@@ -40,7 +40,7 @@ export async function refreshLibraryFacets(
            (select greatest(max(first_seen_at), max(resolved_at)) from gaps where library_id = ${libraryId}) as gaps_changed,
            (select greatest(max(created_at), max(removed_at), max(mapped_at)) from collection_items where library_id = ${libraryId}) as collection_changed
     from (select 1) x
-    left join facet_state fs on fs.library_id = ${libraryId}`) as unknown as Array<{
+    left join filter_rail_state fs on fs.library_id = ${libraryId}`) as unknown as Array<{
     computed_at: Date | string | null; dirty_at: Date | string | null; artists_at: Date | string | null;
     albums_changed: Date | string | null; gaps_changed: Date | string | null; collection_changed: Date | string | null;
   }>;
@@ -59,9 +59,9 @@ export async function refreshLibraryFacets(
   const started = Date.now();
   let albums = 0;
   await ctx.sql.begin(async (tx) => {
-    await tx`delete from album_facets where library_id = ${libraryId}`;
+    await tx`delete from album_filter_counts where library_id = ${libraryId}`;
     const inserted = await tx`
-      insert into album_facets (album_id, library_id, release_group_id, state, format, containers, decade, labels, genres, gap_kinds, owned, decided)
+      insert into album_filter_counts (album_id, library_id, release_group_id, state, format, containers, decade, labels, genres, gap_kinds, owned, decided)
       select la.id, la.library_id, la.release_group_id, la.state,
              case when f.has_lossless and not coalesce(f.has_lossy, false) then 'lossless'
                   when f.has_lossless then 'mixed'
@@ -106,7 +106,7 @@ export async function refreshLibraryFacets(
       returning 1`;
     albums = inserted.length;
     await tx`
-      insert into facet_state (library_id, computed_at, album_count, duration_ms)
+      insert into filter_rail_state (library_id, computed_at, album_count, duration_ms)
       values (${libraryId}, now(), ${albums}, ${Date.now() - started})
       on conflict (library_id) do update
         set computed_at = excluded.computed_at, album_count = excluded.album_count, duration_ms = excluded.duration_ms`;
@@ -145,7 +145,7 @@ export async function refreshArtistList(ctx: WorkerContext, libraryId: string): 
       await tx`insert into artist_list ${tx(rows.slice(i, i + 1000))}`;
     }
     await tx`
-      insert into facet_state (library_id, artists_at) values (${libraryId}, now())
+      insert into filter_rail_state (library_id, artists_at) values (${libraryId}, now())
       on conflict (library_id) do update set artists_at = excluded.artists_at`;
   });
   return rows.length;

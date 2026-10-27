@@ -15,8 +15,8 @@ import {
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
-import { albumQueryParts, bustFacetCache } from './albums.js';
-import { markFacetsDirty } from '../lib/facetSummary.js';
+import { albumQueryParts, bustFilterCountsCache } from './albums.js';
+import { markFilterCountsDirty } from '../lib/filterCounts.js';
 
 const CHUNK = 500;
 const QUEUES: Partial<Record<BulkAlbumAction, string>> = { identify: 'identify.album', fetch_art: 'art.fetch' };
@@ -91,8 +91,8 @@ export async function createBulkRoutes(fastify: FastifyInstance) {
           where name = ${queue} and singleton_key in ${keys}
             and state = 'created' and priority < ${BULK_JOB_PRIORITY}`);
       }
-      bustFacetCache(libraryId);
-      await markFacetsDirty(db, libraryId);
+      bustFilterCountsCache(libraryId);
+      await markFilterCountsDirty(db, libraryId);
       reply.send(result);
       return;
     }
@@ -131,8 +131,8 @@ export async function createBulkRoutes(fastify: FastifyInstance) {
     // The grid refetches facet counts right after a bulk action; the 15 s
     // facet cache would otherwise hand back the pre-action counts, and the
     // facet summary (XO-363) must be marked stale until the worker rebuilds it.
-    bustFacetCache(libraryId);
-    await markFacetsDirty(db, libraryId);
+    bustFilterCountsCache(libraryId);
+    await markFilterCountsDirty(db, libraryId);
     reply.send(result);
   });
 }

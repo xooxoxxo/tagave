@@ -10,7 +10,7 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { containsPattern, textMatches } from '../lib/textMatch.js';
-import { markFacetsDirty } from '../lib/facetSummary.js';
+import { markFilterCountsDirty } from '../lib/filterCounts.js';
 import { parseMatchInput } from '../lib/matchInput.js';
 import {
   addPhysicalItem, copyFormat, linkFields, linkForDiscogsRelease, type AddPhysicalResult, type PhysicalLink,
@@ -388,7 +388,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
       await db.update(collectionItems)
         .set({ localAlbumId: null, mappingState: 'manual', mappingSource: NOT_IN_LIBRARY, mappedAt: new Date() })
         .where(eq(collectionItems.id, id));
-      await markFacetsDirty(db, item.libraryId);
+      await markFilterCountsDirty(db, item.libraryId);
       reply.send({ ok: true, mappingState: 'manual', mappingSource: NOT_IN_LIBRARY });
       return;
     }
@@ -403,7 +403,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
         localAlbumId: album.id, mappingSource: 'owner',
       }))
       .where(eq(collectionItems.id, id));
-    await markFacetsDirty(db, item.libraryId);
+    await markFilterCountsDirty(db, item.libraryId);
     reply.send({ ok: true, mappingState: 'manual', localAlbumId: album.id });
   });
 
@@ -452,7 +452,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
     await db.update(collectionItems)
       .set(linkFields({ releaseId: link.releaseId, releaseGroupId: link.releaseGroupId, localAlbumId: album?.id ?? null, mappingSource: 'owner' }))
       .where(eq(collectionItems.id, id));
-    await markFacetsDirty(db, item.libraryId);
+    await markFilterCountsDirty(db, item.libraryId);
     reply.status(200).send({ ok: true, localAlbumId: album?.id ?? null });
   });
 
@@ -465,7 +465,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
     await db.update(collectionItems)
       .set({ releaseId: null, releaseGroupId: null, localAlbumId: null, mappingState: 'unmapped', mappingSource: null, mappedAt: null })
       .where(eq(collectionItems.id, id));
-    await markFacetsDirty(db, item.libraryId);
+    await markFilterCountsDirty(db, item.libraryId);
     reply.status(200).send({ ok: true });
   });
 
@@ -496,7 +496,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
             mappingSource: body.mappingSource ?? null, mappedAt: mappedAt && !Number.isNaN(mappedAt.getTime()) ? mappedAt : null,
           })
       .where(eq(collectionItems.id, id));
-    await markFacetsDirty(db, item.libraryId);
+    await markFilterCountsDirty(db, item.libraryId);
     reply.send({ ok: true });
   });
 
@@ -614,7 +614,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
       ...(body.rating ? { rating: body.rating } : {}),
     });
     if (result.kind === 'created') await queuePush(lib, result.itemId);
-    if (result.kind === 'created' || result.kind === 'linked_existing') await markFacetsDirty(db, lib);
+    if (result.kind === 'created' || result.kind === 'linked_existing') await markFilterCountsDirty(db, lib);
     sendAddResult(reply, result);
   });
 
@@ -644,7 +644,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
       ...(body.rating ? { rating: body.rating } : {}),
     });
     if (result.kind === 'created') await queuePush(lib, result.itemId);
-    if (result.kind === 'created' || result.kind === 'linked_existing') await markFacetsDirty(db, lib);
+    if (result.kind === 'created' || result.kind === 'linked_existing') await markFilterCountsDirty(db, lib);
     sendAddResult(reply, result);
   });
 
@@ -661,7 +661,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
     } else {
       await db.delete(collectionItems).where(eq(collectionItems.id, id));
     }
-    await markFacetsDirty(db, item.libraryId);
+    await markFilterCountsDirty(db, item.libraryId);
     reply.status(202).send({ ok: true });
   });
 

@@ -3,7 +3,10 @@
  * never an environment variable name or a raw length readout.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { checkAppSecret } from './checks.js';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { checkAppSecret, getMigrationFiles } from './checks.js';
 
 const saved = process.env.APP_SECRET;
 
@@ -38,5 +41,24 @@ describe('checkAppSecret wording', () => {
     const check = await checkAppSecret();
     expect(check.status).toBe('warn');
     expect(check.detail).not.toMatch(/</);
+  });
+});
+
+describe('the migrations this build carries', () => {
+  it('lists the core chain, then each module\u2019s; fails loudly on a bad folder or none at all', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-chk-migs-'));
+    try {
+      await expect(getMigrationFiles(dir)).rejects.toThrow(/no migration files/);
+      await writeFile(join(dir, '0001_a.sql'), '');
+      await mkdir(join(dir, 'modules', 'decider'), { recursive: true });
+      await writeFile(join(dir, 'modules', 'decider', '0001_d.sql'), '');
+      expect(await getMigrationFiles(dir)).toEqual(['0001_a.sql', 'decider/0001_d.sql']);
+      await mkdir(join(dir, 'modules', 'Not_An_Id'));
+      await expect(getMigrationFiles(dir)).rejects.toThrow(/not a module id/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+    // this build's own
+    expect((await getMigrationFiles()).length).toBeGreaterThan(60);
   });
 });
