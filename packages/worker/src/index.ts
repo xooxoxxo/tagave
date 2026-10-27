@@ -35,6 +35,7 @@ import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAut
 import { addEditionJob, type AddEditionJobData } from './jobs/addEdition.js';
 import { evidenceBackfillJob, type EvidenceBackfillJobData } from './jobs/evidenceBackfill.js';
 import { deciderAcceptJob, type DeciderAcceptJobData } from './jobs/deciderAccept.js';
+import { deciderRunJob, type DeciderRunJobData } from './jobs/deciderRun.js';
 import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
@@ -344,6 +345,13 @@ async function main() {
       // the batch fails only when no retry follows; until then a retry resumes it
       const retryLimit = LONG_JOB_QUEUES['decider.accept']!.retryLimit;
       for (const job of jobs) await deciderAcceptJob(ctx, job.data, { lastAttempt: job.retryCount >= retryLimit });
+    });
+    // Decider runs (owner-started only): one per library at a time, so the
+    // monthly cap check before each call sees every earlier call's cost.
+    await boss.work<DeciderRunJobData>('decider.run', { batchSize: 1 }, async (jobs) => {
+      // the run fails only when no retry follows; until then a retry resumes it
+      const retryLimit = LONG_JOB_QUEUES['decider.run']!.retryLimit;
+      for (const job of jobs) await deciderRunJob(ctx, job.data, { lastAttempt: job.retryCount >= retryLimit });
     });
     // A batch whose run died with the last worker (job expired after its last
     // retry) reads failed from boot on; enrich.sweep repeats this nightly.
