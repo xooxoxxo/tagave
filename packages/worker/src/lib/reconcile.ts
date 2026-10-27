@@ -238,6 +238,10 @@ export async function runMerges(
   const plan = planPairs(tier, olds, freshs);
   const out = emptyReconcile();
   out.possibleMoves = plan.possibleMoves.length;
+  if (plan.possibleMoves.length) {
+    ctx.logger.info({ tier, possibleMoves: plan.possibleMoves.map((m) => ({ reason: m.reason, files: m.oldIds.length })) },
+      'files.reconcile: possible moves left alone');
+  }
   const oldById = new Map(olds.map((o) => [o.id, o]));
   const moves = new Map<string, MoveRecord>();
   const dirs = new Map<string, DirRef>();

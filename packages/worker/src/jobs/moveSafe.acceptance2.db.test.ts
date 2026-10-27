@@ -133,6 +133,12 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
       expect(t).toEqual(before.tracks.find((b) => b.id === t.id));
     }
     expect(after.albums.find((a) => a.id === oldAlbum)).toEqual(before.albums.find((a) => a.id === oldAlbum));
+    // owner rows are untouched; only the moved tracks' player map rows may go (rebuilt by the app)
+    const { playerMap: mapBefore, ...ownerBefore } = before.owner;
+    const { playerMap: mapAfter, ...ownerAfter } = after.owner;
+    expect(ownerAfter).toEqual(ownerBefore);
+    const mapIds = (rows: unknown) => (rows as Array<{ local_track_id: string }>).map((r) => r.local_track_id);
+    for (const id of mapIds(mapAfter)) expect(mapIds(mapBefore)).toContain(id);
   });
 
   it('deluxe replacing standard: a new album, not a move', async () => {
@@ -141,6 +147,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     await lab.scan(0);
     const oldAlbum = (await lab.albumIdOf(0, 'Artist/Album/01 - Song 1.flac'))!;
     const before = await lab.snapshot();
+    const info = vi.spyOn(lab.ctx.logger, 'info');
     await rename(abs(lab, 'Artist/Album'), abs(lab, 'Artist/Album (Deluxe)'));
     for (const n of [4, 5]) await writeFlac(abs(lab, `Artist/Album (Deluxe)/0${n} - Bonus ${n}.flac`), { title: `Bonus ${n}`, artist: 'Artist', album: 'Album', track: n, seconds: 90 });
     await lab.scan(0);
@@ -149,6 +156,12 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     const s = await lastScan(lab);
     expect(s.stats).toMatchObject({ merged: 0 });
     expect(s.stats.possibleMoves).toBeGreaterThanOrEqual(1);
+    // refused by the edition guard: the new folder also holds new files
+    const reasons = info.mock.calls
+      .filter((c) => c[1] === 'files.reconcile: possible moves left alone')
+      .flatMap((c) => (c[0] as { possibleMoves: Array<{ reason: string }> }).possibleMoves.map((m) => m.reason));
+    expect(reasons).toContain('edition');
+    info.mockRestore();
     // the old rows are untouched apart from going missing; the old album keeps its tracks
     const after = await lab.snapshot();
     const oldIds = new Set(before.files.map((x) => x.id));
@@ -337,6 +350,10 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     expect(after.tracks).toEqual(before.tracks);
     expect((await l.sql`select count(*)::int as n from local_tracks lt join audio_files af on af.id = lt.audio_file_id
                          where af.library_id = ${l.libraryId} and lt.cue_start_ms is null`)[0].n).toBe(3);
+    // the key itself: a second row for the same plain file (cue_start_ms null) is refused
+    const t = before.tracks[0]!;
+    await expect(l.sql`insert into local_tracks (local_album_id, audio_file_id, track_no) values (${t.albumId}, ${t.fileId}, 1)`)
+      .rejects.toMatchObject({ code: '23505' });
   });
 
   /*
