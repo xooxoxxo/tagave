@@ -140,6 +140,19 @@ export async function requestUndo(sql: Sql, batchId: string, userId: string | nu
   return rows.length > 0;
 }
 
+/**
+ * An undo asked again while the batch is still undoing (its run was not
+ * queued the first time): stamps the new time, so the stale check sees the
+ * batch as moving. False when the batch is no longer undoing.
+ */
+export async function renewUndo(sql: Sql, batchId: string): Promise<boolean> {
+  const rows = await sql`
+    update decider_batches set undo_requested_at = now()
+     where id = ${batchId} and state = 'undoing'
+     returning id`;
+  return rows.length > 0;
+}
+
 /** Moves a batch to `state`; accepted stamps accepted_at, undone stamps undone_at. `message` replaces the batch's message when given. */
 export async function setBatchState(sql: Sql, batchId: string, state: BatchState, extra: { message?: string } = {}): Promise<void> {
   const hasMessage = extra.message !== undefined;
@@ -269,18 +282,20 @@ export async function liveDeciderJobs(sql: Sql, batchId: string): Promise<Array<
  * come back: pg-boss expired its job (or the worker died) after its last
  * retry, so the run's own catch never marked the batch. A batch is stale
  * when nothing moved in it for longer than one run may take and no
- * decider.accept job for it is queued, waiting or running. The message
- * starts like a run's own failure ("Accept stopped:" / "Undo stopped:").
- * Returns the batches it failed.
+ * decider.accept job for it is queued, waiting or running. One statement
+ * checks both and fails the batch, so a run queued meanwhile (an undo asked
+ * again) keeps its batch. The message starts like a run's own failure
+ * ("Accept stopped:" / "Undo stopped:"). Returns the batches it failed.
  */
 export async function failStaleBatches(
   sql: Sql, opts: { libraryId?: string; olderThanSeconds?: number } = {},
 ): Promise<string[]> {
   const seconds = opts.olderThanSeconds ?? DECIDER_ACCEPT_EXPIRE_SECONDS;
   const lib = opts.libraryId ?? null;
-  const stale = await sql<Array<{ id: string; state: BatchState }>>`
-    select b.id, b.state
-      from decider_batches b
+  const rows = await sql<Array<{ id: string }>>`
+    update decider_batches b
+       set state = 'failed',
+           message = case when b.state = 'undoing' then 'Undo stopped: no progress' else 'Accept stopped: no progress' end
      where b.state in ('queued', 'accepting', 'undoing')
        and (${lib}::uuid is null or b.library_id = ${lib}::uuid)
        and greatest(b.created_at, b.undo_requested_at,
@@ -289,11 +304,7 @@ export async function failStaleBatches(
        and not exists (
              select 1 from pgboss.job j
               where j.name = 'decider.accept' and j.singleton_key = 'decider:' || b.id::text
-                and j.state::text in ('created', 'retry', 'active'))`;
-  const failed: string[] = [];
-  for (const b of stale) {
-    const message = b.state === 'undoing' ? 'Undo stopped: no progress' : 'Accept stopped: no progress';
-    if (await transitionBatch(sql, b.id, [b.state], 'failed', { message })) failed.push(b.id);
-  }
-  return failed;
+                and j.state::text in ('created', 'retry', 'active'))
+    returning b.id`;
+  return rows.map((r) => r.id);
 }

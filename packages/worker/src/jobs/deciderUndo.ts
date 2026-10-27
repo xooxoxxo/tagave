@@ -24,6 +24,7 @@
 import type postgres from 'postgres';
 import { batchCounts, getBatch, itemsWithStatus, transitionBatch, type BatchItemRow, type LeftReason } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { failureReason } from '../lib/batchFailure.js';
 import { artRefreshKey } from './artFetch.js';
 import { notifyQueueChanged, reportProgress } from './progress.js';
 import { ACCEPT_CHUNK, type BatchAttempt, type BatchRunResult } from './deciderAccept.js';
@@ -198,7 +199,9 @@ export async function runUndoBatch(ctx: WorkerContext, batchId: string, attempt:
     try {
       await reportProgress(ctx, runId, { ...progress, state: 'failed', done: done(), total, error: message });
       if (attempt.lastAttempt ?? true) {
-        await transitionBatch(ctx.sql, batchId, ['undoing'], 'failed', { message: `Undo stopped: ${message}` });
+        // the batch shows a label; the raw error, which can hold SQL, goes to the log
+        ctx.logger.error({ batchId, err: message }, 'decider.accept undo stopped');
+        await transitionBatch(ctx.sql, batchId, ['undoing'], 'failed', { message: `Undo stopped: ${failureReason(err)}` });
       }
     } catch (recordErr) {
       ctx.logger.error({ batchId, err: recordErr instanceof Error ? recordErr.message : String(recordErr) }, 'decider.accept could not record an undo failure');

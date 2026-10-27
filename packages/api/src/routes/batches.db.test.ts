@@ -240,6 +240,29 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('accept batch routes', () => {
     expect(await get(`/api/v1/libraries/${lib}/batches/${b}`)).toMatchObject({ failedDuring: 'accept' });
   });
 
+  it('the list and the view fail a batch whose run died, so it never reads accepting for hours', async () => {
+    const b = await acceptedRuleBatch();
+    await client`update decider_batches set state = 'accepting', created_at = now() - interval '7 hours' where id = ${b}`;
+    await client`update decider_batch_items set accepted_at = now() - interval '7 hours' where batch_id = ${b}`;
+    const listed = (await get(`/api/v1/libraries/${lib}/batches`)).items.find((x: any) => x.id === b);
+    expect(listed).toMatchObject({ state: 'failed', failedDuring: 'accept', message: 'Accept stopped: no progress' });
+    const u = await acceptedRuleBatch();
+    await client`update decider_batches set state = 'undoing', created_at = now() - interval '9 hours', undo_requested_at = now() - interval '7 hours' where id = ${u}`;
+    await client`update decider_batch_items set accepted_at = now() - interval '9 hours' where batch_id = ${u}`;
+    expect(await get(`/api/v1/libraries/${lib}/batches/${u}`)).toMatchObject({ state: 'failed', failedDuring: 'undo', message: 'Undo stopped: no progress' });
+  });
+
+  it('an undo asked again renews its time, so the stale check leaves it to the run just queued', async () => {
+    const b = await acceptedRuleBatch();
+    await client`update decider_batches set state = 'undoing', created_at = now() - interval '9 hours', undo_requested_at = now() - interval '7 hours' where id = ${b}`;
+    await client`update decider_batch_items set accepted_at = now() - interval '9 hours' where batch_id = ${b}`;
+    expect((await post(`/api/v1/libraries/${lib}/batches/${b}/undo`, {})).statusCode).toBe(202);
+    const after = (await getBatch(client, b))!;
+    expect(after.state).toBe('undoing');
+    expect(Date.now() - after.undoRequestedAt!.getTime()).toBeLessThan(60_000);
+    expect((await get(`/api/v1/libraries/${lib}/batches/${b}`)).state).toBe('undoing');
+  });
+
   it('drain faster doubles the pace and halves the nights', async () => {
     const r = await put(`/api/v1/libraries/${lib}/enrich-pace`, { limit: 800 });
     expect(r.statusCode).toBe(200);

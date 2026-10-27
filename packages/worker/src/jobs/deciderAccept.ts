@@ -18,6 +18,7 @@ import {
   type AcceptInput, type BatchItemRow, type BatchRow,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { failureReason } from '../lib/batchFailure.js';
 import { notifyQueueChanged, reportProgress } from './progress.js';
 import { currentEvidenceHash } from '../lib/evidenceStore.js';
 import { runUndoBatch } from './deciderUndo.js';
@@ -164,7 +165,9 @@ export async function runAcceptBatch(ctx: WorkerContext, batchId: string, attemp
       try {
         await reportProgress(ctx, runId, { ...progress, state: 'failed', done: done(), total, error: message });
         if (attempt.lastAttempt ?? true) {
-          await transitionBatch(ctx.sql, batchId, ['accepting'], 'failed', { message: `Accept stopped: ${message}` });
+          // the batch shows a label; the raw error, which can hold SQL, goes to the log
+          ctx.logger.error({ batchId, err: message }, 'decider.accept stopped');
+          await transitionBatch(ctx.sql, batchId, ['accepting'], 'failed', { message: `Accept stopped: ${failureReason(err)}` });
         }
       } catch (recordErr) {
         ctx.logger.error({ batchId, err: (recordErr as Error).message }, 'decider.accept could not record its failure');

@@ -364,11 +364,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept undo (db)', () =
     expect((await getBatch(client, b))!.state).toBe('undone');
   });
 
-  it('a failure on the last attempt fails the batch with the error, and a later undo resumes it', async () => {
+  it('a failure on the last attempt fails the batch with a label for the error, and a later undo resumes it', async () => {
     const b = await acceptedBatch([a3, a4]);
     hooks.afterFetch = async () => { throw 'deadlock detected'; };
     await expect(deciderAcceptJob(ctx, { batchId: b, mode: 'undo' }, { lastAttempt: true })).rejects.toBe('deadlock detected');
-    expect((await getBatch(client, b))!).toMatchObject({ state: 'failed', message: 'Undo stopped: deadlock detected' });
+    expect((await getBatch(client, b))!).toMatchObject({ state: 'failed', message: 'Undo stopped: unexpected error' });
     expect(send).not.toHaveBeenCalled();
     hooks.afterFetch = null;
     expect((await runUndoBatch(ctx, b)).undone).toBe(2);

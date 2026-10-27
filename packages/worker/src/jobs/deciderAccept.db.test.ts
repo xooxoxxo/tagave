@@ -299,12 +299,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept (db)', () => {
     expect((await getBatch(client, b))!.state).toBe('accepted');
   });
 
-  it('a failure on the last attempt fails the batch with the error', async () => {
+  it('a failure on the last attempt fails the batch with a label for the error', async () => {
     const b = await modelBatch(albums.slice(0, 2));
-    hooks.afterFetch = async () => { throw new Error('deadlock detected'); };
+    hooks.afterFetch = async () => { throw Object.assign(new Error('deadlock detected'), { code: '40P01' }); };
     await expect(deciderAcceptJob(ctx, { batchId: b }, { lastAttempt: true })).rejects.toThrow('deadlock detected');
     const [row] = await client`select state, message from decider_batches where id = ${b}`;
-    expect(row).toMatchObject({ state: 'failed', message: 'Accept stopped: deadlock detected' });
+    expect(row).toMatchObject({ state: 'failed', message: 'Accept stopped: database error' });
     expect((await client`select state from job_runs where type = 'decider.accept' and subject_id = ${b}`)[0].state).toBe('failed');
     expect(send).not.toHaveBeenCalled();
   });

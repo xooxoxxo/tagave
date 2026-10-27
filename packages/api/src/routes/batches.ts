@@ -9,7 +9,8 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
-  BATCH_CANNOT_UNDO, ENRICH_PACES, batchDrainEstimates, drainEstimate, getBatch, isEnrichPace, liveDeciderJobs, requestUndo,
+  BATCH_CANNOT_UNDO, ENRICH_PACES, batchDrainEstimates, drainEstimate, failStaleBatches, getBatch, isEnrichPace, liveDeciderJobs,
+  renewUndo, requestUndo,
   sendDeciderAccept, type BatchRow,
 } from '@tagave/db';
 import {
@@ -113,10 +114,25 @@ async function itemsOf(batchId: string, status: 'skipped' | 'left'): Promise<Bat
 }
 
 /**
+ * Batches whose run died without marking them read failed before they are
+ * listed, not accepting or undoing for hours until the nightly check. One
+ * update over the library's active batches; a failure here only logs.
+ */
+async function settleStale(request: FastifyRequest, libraryId: string): Promise<void> {
+  try {
+    await failStaleBatches(getSql(), { libraryId });
+  } catch (err) {
+    request.log.warn({ libraryId, err: err instanceof Error ? err.message : String(err) }, 'stale accept batch check failed');
+  }
+}
+
+/**
  * Queues the undo run. Under the queue's stately policy a send comes back
  * empty when a run of this batch is already queued: fine when that run is
- * an undo; a queued accept would find the batch undoing and stop, so it is
- * cancelled and the undo queued in its place. False when nothing got queued.
+ * an undo. A queued accept is cancelled and the undo queued in its place
+ * (pg-boss also cancels one that just went active; that run's
+ * compare-and-set on queued/accepting fails once the batch is undoing, so
+ * it stops without accepting anything). False when nothing got queued.
  */
 async function queueUndo(batchId: string): Promise<boolean> {
   const boss = await getBoss();
@@ -134,6 +150,7 @@ export async function createBatchRoutes(fastify: FastifyInstance) {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
     await assertLibrary(libraryId);
+    await settleStale(request, libraryId);
     const rows = await listedRows(libraryId);
     const ids = rows.map((r) => r.id);
     const counts = await countsFor(ids);
@@ -144,7 +161,9 @@ export async function createBatchRoutes(fastify: FastifyInstance) {
   fastify.get('/libraries/:libraryId/batches/:batchId', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId, batchId } = request.params as { libraryId: string; batchId: string };
-    await batchOf(libraryId, batchId);
+    await assertLibrary(libraryId);
+    if (!UUID.test(batchId)) throw new ApiError(404, 'Not Found', 'Batch not found');
+    await settleStale(request, libraryId);
     const [row] = await listedRows(libraryId, batchId);
     if (!row) throw new ApiError(404, 'Not Found', 'Batch not found');
     const counts = (await countsFor([batchId])).get(batchId);
@@ -164,9 +183,11 @@ export async function createBatchRoutes(fastify: FastifyInstance) {
     const batch = await batchOf(libraryId, batchId);
     // a model's decisions are the install's; the owner's rules are library care
     if (batch.decidedKind === 'model' && !callerCan(request, 'system.manage')) throw new ApiError(403, 'Forbidden', NOT_AVAILABLE);
-    if (batch.state === 'undoing') {
-      // asked before and not queued then: queue it now (a queued one stays the one)
-    } else if (!(await requestUndo(getSql(), batchId, request.user.id))) {
+    // asked before and maybe not queued then: renew the time and queue it
+    // (a run already queued stays the one); else ask for the undo now
+    const asked = (batch.state === 'undoing' && (await renewUndo(getSql(), batchId)))
+      || (await requestUndo(getSql(), batchId, request.user.id));
+    if (!asked) {
       throw new ApiError(409, 'Conflict', 'Batch cannot be undone now');
     }
     if (!(await queueUndo(batchId))) throw new ApiError(503, 'Service Unavailable', 'Undo not queued');

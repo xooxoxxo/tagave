@@ -18,8 +18,13 @@ export async function enrichSweepJob(ctx: WorkerContext, data: EnrichSweepJobDat
   // Rides the nightly schedule: accept batches whose decider.accept job ended
   // without marking them (expired after its last retry) read failed, not
   // forever accepting or undoing.
-  const stale = await failStaleBatches(ctx.sql, data.libraryId ? { libraryId: data.libraryId } : {});
-  if (stale.length > 0) ctx.logger.warn({ batches: stale }, 'accept batches with no run left marked failed');
+  // A failure here only logs: the bridging below must still run.
+  try {
+    const stale = await failStaleBatches(ctx.sql, data.libraryId ? { libraryId: data.libraryId } : {});
+    if (stale.length > 0) ctx.logger.warn({ batches: stale }, 'accept batches with no run left marked failed');
+  } catch (err) {
+    ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale accept batch check failed');
+  }
   const libraries = data.libraryId
     ? [data.libraryId]
     : ((await ctx.sql`select id from libraries`) as unknown as Array<{ id: string }>).map((r) => r.id);
