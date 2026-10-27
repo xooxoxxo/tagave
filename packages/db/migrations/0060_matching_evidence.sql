@@ -34,14 +34,21 @@ alter table local_albums add column if not exists title_source varchar(10)
   check (title_source is null or title_source in ('tag', 'filename', 'folder', 'none'));
 
 -- Backfill, careful side first: a value counts as from the tags only when
--- the file's tags carry it. A cue album's year (its sheet's date, or else
+-- the file's tags carry it. A title or album tag counts the way clusterDir's
+-- tagsOf reads it: a string, or an array whose first element is a string,
+-- with something besides whitespace in it; a number or a blank first
+-- element is no tag. A cue album's year (its sheet's date, or else
 -- the folder) is not known here and is marked folder until it is clustered
 -- again.
 update local_tracks lt
    set title_source = case
          when lt.origin = 'cue' and lt.title_guess ~ '^Track [0-9]+$' then 'none'
          when lt.origin = 'cue' then 'tag'
-         when nullif(btrim(coalesce(f.tags_raw->'common'->>'title', '')), '') is not null then 'tag'
+         when coalesce(case jsonb_typeof(f.tags_raw->'common'->'title')
+                         when 'string' then f.tags_raw->'common'->>'title'
+                         when 'array' then case when jsonb_typeof(f.tags_raw->'common'->'title'->0) = 'string'
+                                                then f.tags_raw->'common'->'title'->>0 end
+                       end, '') ~ '[^[:space:]]' then 'tag'
          else 'filename' end
   from files f
  where f.id = lt.audio_file_id and lt.title_source is null;
@@ -67,7 +74,11 @@ update local_albums la
     select lt.local_album_id,
            count(*) as n,
            count(*) filter (where lt.origin = 'cue'
-                               or nullif(btrim(f.tags_raw->'common'->>'album'), '') is not null) as album_tagged,
+                               or coalesce(case jsonb_typeof(f.tags_raw->'common'->'album')
+                                             when 'string' then f.tags_raw->'common'->>'album'
+                                             when 'array' then case when jsonb_typeof(f.tags_raw->'common'->'album'->0) = 'string'
+                                                                    then f.tags_raw->'common'->'album'->>0 end
+                                           end, '') ~ '[^[:space:]]') as album_tagged,
            bool_or(lt.origin = 'file'
                    -- the cast sits inside a case: and/or give no evaluation order,
                    -- so a non-numeric year must never reach it

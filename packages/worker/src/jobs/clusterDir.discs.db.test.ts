@@ -5,8 +5,11 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { eq } from 'drizzle-orm';
-import { files, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
+import { files, libraries, localAlbums, localTracks, scanRoots, sidecarFiles, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob } from './clusterDir.js';
@@ -478,5 +481,31 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
     expect(rows).toHaveLength(1);
     const [album] = await client`select title_guess, title_source, year_guess, year_source from local_albums where id = ${rows[0]!.id}`;
     expect(album).toMatchObject({ title_guess: 'Waldklang', title_source: 'folder', year_guess: 2004, year_source: 'tag' });
+  });
+
+  it('a cue track without a title of its own is marked as having none', async () => {
+    const dir = 'K/Kammerton/Nachtstueck';
+    const root = await mkdtemp(path.join(tmpdir(), 'clusterdir-cue-'));
+    try {
+      await mkdir(path.join(root, dir), { recursive: true });
+      await writeFile(path.join(root, dir, 'Nachtstueck.cue'), [
+        'PERFORMER "Kammerton"', 'TITLE "Nachtstueck"', 'FILE "Nachtstueck.flac" WAVE',
+        '  TRACK 01 AUDIO', '    TITLE "Erster Satz"', '    INDEX 01 00:00:00',
+        '  TRACK 02 AUDIO', '    INDEX 01 01:30:00', '',
+      ].join('\r\n'));
+      await client`update scan_roots set path = ${root} where id = ${rootId}`;
+      await addFile(`${dir}/Nachtstueck.flac`, { album: 'Nachtstueck', artist: 'Kammerton' });
+      await db.insert(sidecarFiles).values({ libraryId, scanRootId: rootId, relPath: `${dir}/Nachtstueck.cue`, kind: 'cue' });
+      await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
+      const rows = await albums();
+      expect(rows).toHaveLength(1);
+      const tracks = await client`select title_guess, title_source from local_tracks where local_album_id = ${rows[0]!.id} order by track_no`;
+      expect(tracks.map((t: any) => t['title_source'])).toEqual(['tag', 'none']);
+      expect(tracks[0]['title_guess']).toBe('Erster Satz');
+    } finally {
+      await db.delete(sidecarFiles).where(eq(sidecarFiles.scanRootId, rootId));
+      await client`update scan_roots set path = '/tmp/tagave-discs-root' where id = ${rootId}`;
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

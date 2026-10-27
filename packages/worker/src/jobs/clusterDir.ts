@@ -463,6 +463,8 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
           ? stripDiscToken(sample.tags.album)
           : sample.virtual?.sheet.title ?? null,
       // Every tagged group was keyed on an album tag or a cue sheet title.
+      // Untagged files folded into the folder's lone tagged album take 'tag'
+      // too: the album's title still comes from that tagged group.
       titleSource: g.untagged ? 'folder' : 'tag',
       artistGuess: g.various
         ? VARIOUS_ARTISTS
