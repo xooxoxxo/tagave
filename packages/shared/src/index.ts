@@ -74,6 +74,8 @@ export {
   type AlbumSummary,
   matchInfoSchema,
   type MatchInfo,
+  decidedKindSchema,
+  type DecidedKind,
   localTrackSchema,
   type LocalTrack,
   localFileSchema,

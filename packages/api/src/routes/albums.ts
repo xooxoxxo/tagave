@@ -1106,7 +1106,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         return;
       }
       const boss = await getBoss();
-      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, requestedBy: IDENTIFY_REQUESTED_BY_OWNER, ...pinnedJobData(parsed.target) }, {
+      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, requestedBy: IDENTIFY_REQUESTED_BY_OWNER, requestedByUserId: request.user.id, ...pinnedJobData(parsed.target) }, {
         singletonKey: IDENTIFY_SINGLETON(albumId),
         priority: IDENTIFY_PRIORITY.manual,
       });
@@ -1364,6 +1364,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           releaseGroupOnly: true,
           reason: (match.reason ? `${match.reason}; ` : '') + 'any edition (owner)',
           decidedBy: 'user',
+          decidedKind: 'user',
+          decidedByUserId: request.user.id,
         })
         .where(eq(albumMatches.id, match.id));
 

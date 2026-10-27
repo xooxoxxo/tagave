@@ -143,4 +143,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
     expect(runs[0]).toMatchObject({ state: 'completed' });
     expect(runs[0].progress).toMatchObject({ done: 1, total: 2, message: '1/2 needs_review albums accepted by the auto-accept rules' });
   });
+
+  it('rule accepts are kind rule, and the decision they replace keeps its reason', async () => {
+    await setRules({});
+    const id = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    const old = await release();
+    await db.insert(albumMatches).values({ libraryId, localAlbumId: id, releaseId: old, distance: '0.0500', status: 'auto', decidedBy: 'system', reason: 'auto-accept: distance 0.0500 (musicbrainz)', decidedKind: 'system' });
+    await acceptByRules(ctx, libraryId, { requireEnabled: true });
+    const rows = await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id));
+    expect(rows.find((r: any) => r.status === 'rejected')?.reason).toBe('auto-accept: distance 0.0500 (musicbrainz)');
+    expect(rows.find((r: any) => r.status === 'auto')?.decidedKind).toBe('rule');
+  });
 });

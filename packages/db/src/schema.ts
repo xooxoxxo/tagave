@@ -954,9 +954,21 @@ export const albumMatches = pgTable(
     source: varchar({ length: 50 }),
     decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** 0069: who or what decided: user | system | rule | model | unknown (decided_by stays for older readers) */
+    decidedKind: varchar('decided_kind', { length: 10 }).notNull().default('unknown'),
+    /** 0069: the person, when known */
+    decidedByUserId: uuid('decided_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** 0069: which decider, and which dated version of it */
+    deciderId: varchar('decider_id', { length: 40 }),
+    deciderVersion: varchar('decider_version', { length: 80 }),
+    /** 0069: the decider's probability for the chosen tracklist (0..1) */
+    probability: numeric({ precision: 5, scale: 4 }),
+    /** 0069: the accept batch; no foreign key */
+    batchId: uuid('batch_id'),
   },
   (table) => ({
     libraryIdx: index('idx_album_matches_library').on(table.libraryId),
+    batchIdx: index('idx_album_matches_batch').on(table.batchId).where(sql`batch_id is not null`),
     albumIdx: index('idx_album_matches_album').on(table.localAlbumId),
     liveIdx: uniqueIndex('idx_album_matches_live')
       .on(table.localAlbumId)

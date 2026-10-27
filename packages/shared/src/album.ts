@@ -80,6 +80,14 @@ export const albumSummarySchema = z.object({
 export type AlbumSummary = z.infer<typeof albumSummarySchema>;
 
 /**
+ * Who or what decided an album match: a person, the matcher's own
+ * thresholds, the owner's auto-accept rules, a decision model, or unknown
+ * (an older row whose reason was replaced when it was superseded).
+ */
+export const decidedKindSchema = z.enum(['user', 'system', 'rule', 'model', 'unknown']);
+export type DecidedKind = z.infer<typeof decidedKindSchema>;
+
+/**
  * Match info for an album
  */
 export const matchInfoSchema = z.object({

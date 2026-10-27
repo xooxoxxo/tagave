@@ -87,9 +87,10 @@ export async function acceptCandidate(ctx: WorkerContext, a: {
       .where(and(eq(localAlbums.id, a.albumId), eq(localAlbums.state, 'needs_review')))
       .returning({ id: localAlbums.id });
     if (moved.length === 0) return false;
-    // §11.5: at most one live match per album.
+    // §11.5: at most one live match per album; the superseded one keeps
+    // its reason.
     await tx.update(albumMatches)
-      .set({ status: 'rejected', reason: 'superseded by auto-accept rules' })
+      .set({ status: 'rejected' })
       .where(and(eq(albumMatches.localAlbumId, a.albumId), inArray(albumMatches.status, ['auto', 'confirmed'])));
     await tx.insert(albumMatches).values({
       libraryId: a.libraryId,
@@ -100,6 +101,7 @@ export async function acceptCandidate(ctx: WorkerContext, a: {
       decidedBy: 'system',
       reason: a.reason,
       source: a.source,
+      decidedKind: 'rule',
     });
     return true;
   });

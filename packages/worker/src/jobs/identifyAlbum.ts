@@ -28,6 +28,8 @@ export interface IdentifyAlbumJobData {
   force?: boolean;
   /** 'owner' when the owner asked: the outcome is recorded (identify_runs) */
   requestedBy?: string;
+  /** the person who typed a pinned id: the match is theirs */
+  requestedByUserId?: string;
   /** IDN-6 manual entry: match this MB release MBID, bypassing search and
    * thresholds; decided_by=user */
   pinnedMbid?: string;
@@ -609,9 +611,9 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     // One live match per album: a re-identification (manual entry, or a
     // fingerprint-backed run on an album the sweep matched meanwhile)
     // supersedes the previous decision instead of tripping the unique index.
+    // The earlier decision keeps its reason: it says why that one was made.
     await ctx.sql`
-      update album_matches set status = 'rejected',
-        reason = ${status === 'confirmed' ? 'superseded by manual entry' : 'superseded by re-identification'}
+      update album_matches set status = 'rejected'
       where local_album_id = ${album.id} and status in ('auto', 'confirmed')`;
     await ctx.db.insert(albumMatches).values({
       libraryId: album.libraryId,
@@ -622,6 +624,8 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
       decidedBy,
       reason,
       source,
+      decidedKind: decidedBy === 'user' ? 'user' : 'system',
+      decidedByUserId: decidedBy === 'user' ? data.requestedByUserId ?? null : null,
     });
     const rgRow = await ctx.db
       .select({ rgId: releases.releaseGroupId })

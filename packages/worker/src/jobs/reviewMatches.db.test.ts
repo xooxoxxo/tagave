@@ -244,4 +244,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches through the work
     expect(await addEditionJob(ctx, { localAlbumId: randomUUID(), target: { source: 'discogs', kind: 'release', id: 99 } }))
       .toMatchObject({ ok: false });
   });
+
+  it('a pinned id is the person\'s match, and the decision it replaced keeps its reason', async () => {
+    const first = mbRelease();
+    catalogue.set(first.id, first);
+    const id = await album();
+    expect(await identifyAlbumJob(ctx, { localAlbumId: id })).toMatchObject({ outcome: 'matched' });
+    const [before] = await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id));
+    expect(before).toMatchObject({ status: 'auto', decidedKind: 'system', decidedByUserId: null });
+    expect(before.reason).toMatch(/^auto-accept: /);
+
+    const pinned = mbRelease({ title: 'Hook Album (Deluxe)' });
+    catalogue.set(pinned.id, pinned);
+    await identifyAlbumJob(ctx, { localAlbumId: id, pinnedMbid: pinned.id, requestedBy: 'owner', requestedByUserId: userId });
+    const rows = await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id));
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r: any) => r.id === before.id)).toMatchObject({ status: 'rejected', reason: before.reason });
+    expect(rows.find((r: any) => r.id !== before.id)).toMatchObject({
+      status: 'confirmed', decidedBy: 'user', decidedKind: 'user', decidedByUserId: userId, reason: 'manual MBID entry',
+    });
+  });
 });

@@ -63,7 +63,7 @@ export async function queueAutoAcceptJob(ctx: WorkerContext, data: QueueAutoAcce
     const kind = pick >= 0 ? 'chip-rule auto-accept (queue sweep)' : 'first-candidate auto-accept (queue sweep)';
 
     await ctx.sql`
-      update album_matches set status = 'rejected', reason = 'superseded by chip-rule auto-accept'
+      update album_matches set status = 'rejected'
       where local_album_id = ${a.id} and status in ('auto', 'confirmed')`;
     await ctx.db.insert(albumMatches).values({
       libraryId: data.libraryId,
@@ -72,6 +72,7 @@ export async function queueAutoAcceptJob(ctx: WorkerContext, data: QueueAutoAcce
       distance: chosen.dist.toFixed(4),
       status: 'auto',
       decidedBy: 'system',
+      decidedKind: 'system',
       reason: `${kind}: ${cc.greens} green, ${cc.yellows} yellow, ${cc.reds} red (distance ${chosen.dist.toFixed(4)})`,
     });
     const rgRow = await ctx.db

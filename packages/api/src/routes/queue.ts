@@ -204,9 +204,10 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
       .where(eq(releases.id, cand.releaseId))
       .limit(1);
 
-    // §11.5: at most one live match; flip any prior live row to rejected first.
+    // §11.5: at most one live match; flip any prior live row to rejected
+    // first. It keeps its reason: it says why that decision was made.
     await db.execute(sql`
-      update album_matches set status = 'rejected', reason = 'superseded by user decision'
+      update album_matches set status = 'rejected'
       where local_album_id = ${albumId} and status in ('auto', 'confirmed')`);
     await db.insert(albumMatches).values({
       libraryId: album.libraryId,
@@ -216,6 +217,8 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
       status: 'confirmed',
       decidedBy: 'user',
       reason: 'accepted in review queue',
+      decidedKind: 'user',
+      decidedByUserId: request.user.id,
     });
     await db
       .update(localAlbums)

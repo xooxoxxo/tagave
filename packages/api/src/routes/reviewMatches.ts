@@ -64,16 +64,19 @@ async function viewFor(libraryId: string): Promise<AutoAcceptView> {
   const db = getDb();
   const row = await fetchAutoAcceptRulesRow(db, libraryId);
   const prefix = `${AUTO_ACCEPT_REASON_PREFIX}%`;
+  // Live accepts only: a superseded or undone row keeps its reason.
   const recent = await db.execute(sql`
     select am.local_album_id, am.distance, am.decided_at, la.title_guess, la.artist_guess
       from album_matches am
       join local_albums la on la.id = am.local_album_id
      where am.library_id = ${libraryId} and am.decided_by = 'system' and am.reason like ${prefix}
+       and am.status in ('auto', 'confirmed')
      order by am.decided_at desc
      limit ${RECENT_LIMIT}`) as unknown as Array<Record<string, unknown>>;
   const [total] = await db.execute(sql`
     select count(*)::int as n from album_matches
-     where library_id = ${libraryId} and decided_by = 'system' and reason like ${prefix}`) as unknown as [{ n: number }];
+     where library_id = ${libraryId} and decided_by = 'system' and reason like ${prefix}
+       and status in ('auto', 'confirmed')`) as unknown as [{ n: number }];
   return {
     rules: rulesFromStored(row),
     updatedAt: row?.updatedAt ?? null,
