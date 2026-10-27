@@ -122,7 +122,8 @@ export async function createReviewMatchesRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     await assertLibrary(request.user.id, libraryId);
     const boss = await getBoss();
-    const jobId = await boss.send('queue.autoaccept', { libraryId, mode: 'rules' });
+    // one waiting rules run per library: Run again and this collapse into it
+    const jobId = await boss.send('queue.autoaccept', { libraryId, mode: 'rules' }, { singletonKey: `autoaccept:${libraryId}` });
     reply.status(202).send({ ok: true, jobId: jobId ?? null });
   });
 
