@@ -233,9 +233,20 @@ export async function runMerges(
   // (Tier 1: finishWalk drops after this; Tier 2: the old sidecar waited, Ruling 9).
   // The old rows are known gone from their folders (unseen or missing), so they do
   // not make a folder look still occupied.
-  if (out.moves.length > 0) await repointSidecarImages(ctx, out.moves, olds.map((o) => o.id));
+  // Each effect runs on its own: the merges are committed, so one failing must not skip the other.
+  if (out.moves.length > 0) {
+    try {
+      await repointSidecarImages(ctx, out.moves, olds.map((o) => o.id));
+    } catch (error) {
+      ctx.logger.warn({ tier, error: String(error) }, 'files.reconcile: could not re-point sidecar covers after moves');
+    }
+  }
   // The player's song ids of moved files are stale (new path); only when it mapped them (Ruling 10).
-  await refreshPlayerAfterMoves(ctx, out.outcomes);
+  try {
+    await refreshPlayerAfterMoves(ctx, out.outcomes);
+  } catch (error) {
+    ctx.logger.warn({ tier, error: String(error) }, 'files.reconcile: could not refresh the player after moves');
+  }
   return out;
 }
 

@@ -12,7 +12,11 @@ import type { MatchFile } from './reconcileMatch.js';
 const mergeFilePair = vi.fn();
 vi.mock('./fileMerge.js', () => ({ mergeFilePair: (...args: unknown[]) => mergeFilePair(...args) }));
 const repointSidecarImages = vi.fn(async () => 0);
-vi.mock('./moveEffects.js', () => ({ repointSidecarImages: (...args: unknown[]) => repointSidecarImages(...(args as [])), refreshPlayerAfterMoves: async () => false }));
+const refreshPlayerAfterMoves = vi.fn(async () => false);
+vi.mock('./moveEffects.js', () => ({
+  repointSidecarImages: (...args: unknown[]) => repointSidecarImages(...(args as [])),
+  refreshPlayerAfterMoves: (...args: unknown[]) => refreshPlayerAfterMoves(...(args as [])),
+}));
 const { runMerges, sqlDirname, earliestLastSeen, withLibraryLock, rowsInDirs } = await import('./reconcile.js');
 
 const t0 = new Date('2026-01-01T00:00:00Z');
@@ -33,7 +37,11 @@ describe('runMerges', () => {
     return { kind: 'merged', oldId, libraryId: 'l', from: { scanRootId: 'r', relPath: `${k}/x.flac` }, to: { scanRootId: 'r', relPath: `${k}2/x.flac` }, reparse, removedAlbumIds: [] };
   };
 
-  beforeEach(() => { mergeFilePair.mockReset(); warn.mockReset(); repointSidecarImages.mockClear(); });
+  beforeEach(() => {
+    mergeFilePair.mockReset(); warn.mockReset();
+    repointSidecarImages.mockReset(); repointSidecarImages.mockImplementation(async () => 0);
+    refreshPlayerAfterMoves.mockReset(); refreshPlayerAfterMoves.mockImplementation(async () => false);
+  });
 
   it('retries a deadlock once, skips what keeps failing, merges the rest', async () => {
     const calls = new Map<string, number>();
@@ -57,6 +65,29 @@ describe('runMerges', () => {
     // the merged folders' sidecar covers follow, once, with this run's moves
     expect(repointSidecarImages).toHaveBeenCalledTimes(1);
     expect((repointSidecarImages.mock.calls[0] as unknown[])[1]).toEqual(r.moves);
+    // the player is offered this run's outcomes, once
+    expect(refreshPlayerAfterMoves).toHaveBeenCalledTimes(1);
+    expect((refreshPlayerAfterMoves.mock.calls[0] as unknown[])[1]).toBe(r.outcomes);
+  });
+
+  it('a failing move effect logs a warning, keeps the result and does not skip the other effect', async () => {
+    mergeFilePair.mockImplementation(async (_ctx: unknown, req: { oldId: string }) => done(req.oldId));
+    const clean = await runMerges(ctx, 1, olds, freshs, t1, false);
+    expect(warn).not.toHaveBeenCalled();
+
+    refreshPlayerAfterMoves.mockImplementation(async () => { throw new Error('player probe down'); });
+    const r1 = await runMerges(ctx, 1, olds, freshs, t1, false);
+    expect(r1).toEqual(clean);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0].error).toContain('player probe down');
+
+    warn.mockReset(); refreshPlayerAfterMoves.mockReset(); refreshPlayerAfterMoves.mockImplementation(async () => false);
+    repointSidecarImages.mockImplementation(async () => { throw new Error('sidecar update failed'); });
+    const r2 = await runMerges(ctx, 1, olds, freshs, t1, false);
+    expect(r2).toEqual(clean);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0].error).toContain('sidecar update failed');
+    expect(refreshPlayerAfterMoves).toHaveBeenCalledTimes(1);
   });
 });
 

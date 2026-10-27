@@ -37,7 +37,7 @@ export function moveBaseLevels(m: MoveRecord): BasePair[] {
   return out;
 }
 
-/** Every equal trailing component stripped, one pair per distinct result (shared with the player rescan, Task 14). */
+/** Every equal trailing component stripped, one pair per distinct result. */
 export function moveBasePairs(moves: MoveRecord[]): BasePair[] {
   const out = new Map<string, BasePair>();
   for (const m of moves) {
@@ -259,7 +259,10 @@ export async function refreshPlayerAfterMoves(ctx: Pick<WorkerContext, 'db' | 's
     const rootIds = [...new Set(merges.flatMap((m) => [m.from.scanRootId, m.to.scanRootId]))];
     roots = new Map((await ctx.sql`select id, path from scan_roots where id = any(${rootIds}::uuid[])`).map((r) => [r['id'] as string, r['path'] as string]));
   } catch (error) {
-    // the merges are committed; a failed probe must not fail the reconcile (the next play re-matches)
+    // The merges are committed, so a failed probe must not fail the reconcile. The
+    // stale map rows stay: the app's albumQueue only re-matches tracks without a
+    // row, so until a later refresh of these files drops them (their next move or
+    // tag write) play may hit the old song id.
     ctx.logger.warn({ error: String(error) }, 'files.reconcile: could not check the player map after moves');
     return false;
   }

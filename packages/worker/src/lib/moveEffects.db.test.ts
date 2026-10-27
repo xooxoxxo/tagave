@@ -4,7 +4,7 @@
  * pair is found later by Tier 2: the image row keeps its id and points at the
  * same-named sidecar in the new folder.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -367,5 +367,57 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player after a move (db)', () =
     expect(folders).toEqual(['Artist/Album', 'Artist/Album (2001)']);
     expect(await sql`select 1 from player_track_map p join local_tracks lt on lt.id = p.local_track_id where lt.audio_file_id = any(${discs.map((x) => x.id)}::uuid[])`).toHaveLength(0);
     expect(sent.map((s) => s.name)).toEqual(['player.scan']);
+  });
+
+  /** A file of this library with a track, mapped to the player when songId is given. */
+  const fileWithTrack = async (relPath: string, songId?: string) => {
+    const id = randomUUID();
+    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${id}, ${libraryId}, ${rootId}, ${relPath})`;
+    const [{ id: tid }] = await sql`insert into local_tracks (audio_file_id) values (${id}) returning id`;
+    if (songId) await sql`insert into player_track_map (local_track_id, server_key, song_id, matched_by) values (${tid}, 'bundled', ${songId}, 'path')`;
+    return { id, trackId: tid as string };
+  };
+  const moved = (oldId: string, from: string, to: string): MergeDone => ({ kind: 'merged', oldId, libraryId, from: { scanRootId: rootId, relPath: from }, to: { scanRootId: rootId, relPath: to }, reparse: false, removedAlbumIds: [] });
+  const mapRow = async (trackId: string) => sql`select song_id from player_track_map where local_track_id = ${trackId}`;
+
+  it('a partial map: only the mapped moved rows drop, an unmoved sibling keeps its row, one rescan', async () => {
+    await sql`delete from player_scan_requests where library_id = ${libraryId}`;
+    sent.length = 0;
+    const a = await fileWithTrack('P2/a.flac', 'song-a');
+    const b = await fileWithTrack('P2/b.flac');
+    const stay = await fileWithTrack('P1/c.flac', 'song-c'); // left behind in the old folder
+    expect(await refreshPlayerAfterMoves(ctx, [moved(a.id, 'P1/a.flac', 'P2/a.flac'), moved(b.id, 'P1/b.flac', 'P2/b.flac')])).toBe(true);
+    expect(await mapRow(a.trackId)).toHaveLength(0);
+    expect(await mapRow(stay.trackId)).toEqual([{ song_id: 'song-c' }]);
+    const folders = (await sql`select folder from player_scan_requests where library_id = ${libraryId} order by folder`).map((r: any) => r.folder);
+    expect(folders).toEqual(['P1', 'P2']);
+    expect(sent.map((s) => s.name)).toEqual(['player.scan']);
+  });
+
+  it('70k moved files in one run (past the 65535 bind-parameter limit) still drop the stale rows', async () => {
+    await sql`delete from player_scan_requests where library_id = ${libraryId}`;
+    sent.length = 0;
+    const warn = vi.fn();
+    const big = { ...ctx, logger: Object.assign(pino({ level: 'silent' }), { warn }) } as WorkerContext;
+    const real = await fileWithTrack('Big2/real.flac', 'song-real');
+    // invented ids without rows keep the database side small; the statements still carry them all
+    const merges = [moved(real.id, 'Big1/real.flac', 'Big2/real.flac')];
+    for (let i = 0; i < 70_000; i++) merges.push(moved(randomUUID(), `Big1/${i}.flac`, `Big2/${i}.flac`));
+    expect(await refreshPlayerAfterMoves(big, merges)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+    expect(await mapRow(real.trackId)).toHaveLength(0);
+    const folders = (await sql`select folder from player_scan_requests where library_id = ${libraryId} order by folder`).map((r: any) => r.folder);
+    expect(folders).toEqual(['Big1', 'Big2']);
+  }, 60_000);
+
+  it('a failed probe logs a warning, asks nothing and leaves the rows', async () => {
+    sent.length = 0;
+    const warn = vi.fn();
+    const f = await fileWithTrack('Q2/a.flac', 'song-q');
+    const failing = { ...ctx, sql: (() => { throw new Error('connection reset'); }) as any, logger: Object.assign(pino({ level: 'silent' }), { warn }) } as WorkerContext;
+    expect(await refreshPlayerAfterMoves(failing, [moved(f.id, 'Q1/a.flac', 'Q2/a.flac')])).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(sent).toEqual([]);
+    expect(await mapRow(f.trackId)).toEqual([{ song_id: 'song-q' }]);
   });
 });

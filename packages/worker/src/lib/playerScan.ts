@@ -38,18 +38,29 @@ export function scanFoldersOf(files: readonly WrittenFile[], root = musicRoot())
   return new Map([...out].map(([lib, set]) => [lib, set.has('') ? [''] : [...set].sort()]));
 }
 
+/**
+ * Rows per statement: inArray and multi-row values bind one parameter per
+ * item, and Postgres takes at most 65535 in one statement (a whole-library
+ * reorganise moves far more files than that).
+ */
+export const RESCAN_BATCH = 5000;
+
 export async function requestPlayerRescan(ctx: Pick<WorkerContext, 'db' | 'boss' | 'logger'>, files: readonly WrittenFile[]): Promise<void> {
   if (files.length === 0) return;
   try {
     const fileIds = [...new Set(files.map((f) => f.fileId))];
-    await ctx.db.delete(playerTrackMap).where(inArray(
-      playerTrackMap.localTrackId,
-      ctx.db.select({ id: localTracks.id }).from(localTracks).where(inArray(localTracks.audioFileId, fileIds)),
-    ));
+    for (let i = 0; i < fileIds.length; i += RESCAN_BATCH) {
+      await ctx.db.delete(playerTrackMap).where(inArray(
+        playerTrackMap.localTrackId,
+        ctx.db.select({ id: localTracks.id }).from(localTracks).where(inArray(localTracks.audioFileId, fileIds.slice(i, i + RESCAN_BATCH))),
+      ));
+    }
     for (const [libraryId, folders] of scanFoldersOf(files)) {
-      await ctx.db.insert(playerScanRequests)
-        .values(folders.map((folder) => ({ libraryId, folder })))
-        .onConflictDoUpdate({ target: [playerScanRequests.libraryId, playerScanRequests.folder], set: { requestedAt: sql`now()` } });
+      for (let i = 0; i < folders.length; i += RESCAN_BATCH) {
+        await ctx.db.insert(playerScanRequests)
+          .values(folders.slice(i, i + RESCAN_BATCH).map((folder) => ({ libraryId, folder })))
+          .onConflictDoUpdate({ target: [playerScanRequests.libraryId, playerScanRequests.folder], set: { requestedAt: sql`now()` } });
+      }
       await ctx.boss.send(PLAYER_SCAN_QUEUE, { libraryId }, { singletonKey: `${PLAYER_SCAN_QUEUE}:${libraryId}`, startAfter: 10 });
     }
   } catch (error) {
