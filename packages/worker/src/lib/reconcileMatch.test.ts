@@ -54,6 +54,15 @@ describe('planPairs', () => {
     expect(p.pairs).toEqual([]);
   });
 
+  it('never pairs with a row first seen in the statement the old one was last seen (one walk batch: they coexisted, F1)', () => {
+    const a = old('A/1.flac');
+    const p = planPairs(1, [a], [moved(a, 'B/1.flac', { firstSeenAt: a.lastSeenAt })]);
+    expect(p.pairs).toEqual([]);
+    const t2 = planPairs(2, [{ ...a, durationMs: 1000, coreTagsDigest: 'd' }],
+      [moved({ ...a, durationMs: 1000, coreTagsDigest: 'd' }, 'B/1.flac', { firstSeenAt: a.lastSeenAt })]);
+    expect(t2.pairs).toEqual([]);
+  });
+
   it('two identical candidates pair nothing and are listed as a possible move', () => {
     const a = old('A/x.flac');
     const p = planPairs(1, [a], [moved(a, 'B/x.flac'), { ...moved(a, 'C/x.flac'), id: 'f2' }]);

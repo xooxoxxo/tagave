@@ -11,8 +11,9 @@
  * - Edition guard, after all settling: a new folder that still holds unpaired
  *   new files keeps no pair at all (a deluxe edition is a new album). This
  *   covers unique pairs outside dir pairs too, and runs to a fixed point.
- * - A new row only stands for an old one if it appeared after the old one was
- *   last seen, so the order roots are scanned in does not matter.
+ * - A new row only stands for an old one if it appeared strictly after the old
+ *   one was last seen (an equal time means both were seen in one walk batch,
+ *   so they coexisted), so the order roots are scanned in does not matter.
  * - The output depends only on the set of rows, never on their input order.
  */
 import { normKey, relBasename, relDirname } from './helpers.js';
@@ -93,7 +94,9 @@ export function planPairs(tier: Tier, olds: MatchFile[], freshs: MatchFile[]): P
     const list = [...pool].sort((a, b) => cmp(a.id, b.id));
     for (const f of list) {
       if (f.id === o.id) continue;
-      if (f.firstSeenAt.getTime() < o.lastSeenAt.getTime()) continue;
+      // Strictly after: rows inserted in one walk batch share one now(), so a new row
+      // first seen when the old one was last seen coexisted with it (F1, as isOlderResident).
+      if (f.firstSeenAt.getTime() <= o.lastSeenAt.getTime()) continue;
       if (!signatureMatches(tier, o, f)) continue;
       push(cand, o.id, f);
       push(back, f.id, o);
