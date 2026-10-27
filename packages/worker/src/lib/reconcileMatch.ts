@@ -24,6 +24,8 @@ export interface MatchFile {
   id: string;
   scanRootId: string;
   relPath: string;
+  /** files.handler: a pair is always two files of one handler */
+  handler: string;
   sizeBytes: number | null;
   mtime: number | null;
   inode: string | null;
@@ -52,6 +54,8 @@ const sorted = (xs: Iterable<string>) => [...xs].sort(cmp);
 const usableInode = (s: string | null): s is string => !!s && !s.endsWith(':0') && s.includes(':');
 
 export function signatureMatches(tier: Tier, o: MatchFile, f: MatchFile): boolean {
+  // A file never moves into another type (a renamed .flac → .epub is a new file).
+  if (o.handler !== f.handler) return false;
   if (tier === 1) {
     if (o.sizeBytes === null || o.sizeBytes !== f.sizeBytes) return false;
     // A rename or same-device move keeps mtime; inode reuse after a delete is

@@ -6,6 +6,7 @@ import { fileTypeHandler, noNul } from '@tagave/core/files';
 import type { WorkerContext } from '../lib/context.js';
 import { relDirname, tagsDigest, clusterSingletonKey } from '../lib/helpers.js';
 import { releaseReadyHolds, sendReleasedCluster } from '../lib/clusterHold.js';
+import { clusteredByMusic } from '../lib/musicFiles.js';
 
 export interface ScanParseJobData {
   /** files ids (the key keeps its old name: jobs queued before 0058 carry it) */
@@ -55,9 +56,15 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
     .where(inArray(scanRoots.id, rootIds));
   const rootPathById = new Map(roots.map((r) => [r.id, r.path]));
 
+  // Every folder a parsed (or failed) row is in may have a hold to release;
+  // only folders with a file the music app groups are re-clustered.
   const dirsTouched = new Map<string, { libraryId: string; scanRootId: string }>();
+  const dirsToCluster = new Map<string, { libraryId: string; scanRootId: string }>();
   const touch = (row: (typeof rows)[number]) => {
-    dirsTouched.set(`${row.scanRootId}\n${relDirname(row.relPath)}`, { libraryId: row.libraryId, scanRootId: row.scanRootId });
+    const key = `${row.scanRootId}\n${relDirname(row.relPath)}`;
+    const info = { libraryId: row.libraryId, scanRootId: row.scanRootId };
+    dirsTouched.set(key, info);
+    if (clusteredByMusic(row.handler)) dirsToCluster.set(key, info);
   };
   const failed = (id: string, parseError: string) =>
     ctx.db.update(files).set({ status: 'error', parseError }).where(eq(files.id, id));
@@ -104,14 +111,15 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
 
   // Folders whose held rows are now all parsed: release them (Tier 2 runs
   // there) before their cluster.dir is sent below. Their sends skip
-  // the 30 s throttle slot (see sendReleasedCluster).
+  // the 30 s throttle slot (see sendReleasedCluster); a released folder is
+  // returned only when it holds files the music app groups.
   const touched = [...dirsTouched].map(([key, info]) => ({ ...info, dirPath: key.split('\n')[1] ?? '' }));
   const released = await releaseReadyHolds(ctx, touched);
-  for (const d of released) dirsTouched.delete(`${d.scanRootId}\n${d.dirPath}`);
+  for (const d of released) dirsToCluster.delete(`${d.scanRootId}\n${d.dirPath}`);
   for (const d of released) await sendReleasedCluster(ctx, d, 30);
 
   // Debounced re-cluster of every touched directory (singleton per dir).
-  for (const [key, info] of dirsTouched) {
+  for (const [key, info] of dirsToCluster) {
     const dirPath = key.split('\n')[1] ?? '';
     await ctx.boss.send(
       'cluster.dir',

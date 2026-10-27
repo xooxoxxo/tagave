@@ -18,6 +18,7 @@ import { mergeFilePair, mergeFilePairs, type MergeDone, type MergeOutcome, type 
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
 import { queueArtAfterRepointFailure, refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
 import { cancelQueuedIdentify } from './cancelIdentify.js';
+import { clusteredByMusic } from './musicFiles.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 
 export const RECONCILE_LOCK_PREFIX = 'files.reconcile:';
@@ -26,7 +27,10 @@ export interface DirRef { scanRootId: string; dirPath: string }
 export interface MoveRecord { fromRootId: string; fromDir: string; toRootId: string; toDir: string; files: number }
 export interface ReconcileResult {
   merged: number; moves: MoveRecord[]; possibleMoves: number;
-  mergedFreshIds: string[]; reparseIds: string[]; reclusterDirs: DirRef[]; outcomes: MergeDone[];
+  mergedFreshIds: string[]; reparseIds: string[];
+  /** The old and new folders of the merged files the music app groups: cluster.dir for each. */
+  reclusterDirs: DirRef[];
+  outcomes: MergeDone[];
   /** The moved folders' sidecar covers could not be re-pointed: the caller must not drop stale sidecars this run. */
   sidecarRepointFailed: boolean;
 }
@@ -106,7 +110,7 @@ export async function loadMatchFiles(ctx: Pick<WorkerContext, 'sql'>, where: Fra
 /** `source` is everything after FROM; it must expose the files row as `af`. */
 async function matchRows(ctx: Pick<WorkerContext, 'sql'>, source: Fragment): Promise<MatchFile[]> {
   const rows = (await ctx.sql`
-    select af.id, af.scan_root_id, af.rel_path, af.size_bytes::float8 as size_bytes, af.mtime::float8 as mtime, af.inode,
+    select af.id, af.scan_root_id, af.rel_path, af.handler, af.size_bytes::float8 as size_bytes, af.mtime::float8 as mtime, af.inode,
            af.duration_ms, af.core_tags_digest, af.audio_hash,
            case when af.tags_raw->'common'->'track'->>'no' ~ '^[0-9]+$' then (af.tags_raw->'common'->'track'->>'no')::int end as track_no,
            case when af.tags_raw->'common'->'disk'->>'no' ~ '^[0-9]+$' then (af.tags_raw->'common'->'disk'->>'no')::int end as disc_no,
@@ -114,7 +118,7 @@ async function matchRows(ctx: Pick<WorkerContext, 'sql'>, source: Fragment): Pro
            (extract(epoch from af.last_seen_at) * 1000)::float8 as last_seen_ms
       from ${source}`) as unknown as Array<Record<string, any>>;
   return rows.map((r) => ({
-    id: r['id'], scanRootId: r['scan_root_id'], relPath: r['rel_path'], sizeBytes: r['size_bytes'], mtime: r['mtime'],
+    id: r['id'], scanRootId: r['scan_root_id'], relPath: r['rel_path'], handler: r['handler'], sizeBytes: r['size_bytes'], mtime: r['mtime'],
     inode: r['inode'], durationMs: r['duration_ms'], coreTagsDigest: r['core_tags_digest'], audioHash: r['audio_hash'],
     trackNo: r['track_no'], discNo: r['disc_no'],
     firstSeenAt: new Date(r['first_seen_ms']), lastSeenAt: new Date(r['last_seen_ms']),
@@ -271,8 +275,11 @@ export async function runMerges(
     const m = moves.get(k) ?? { fromRootId: res.from.scanRootId, fromDir, toRootId: res.to.scanRootId, toDir, files: 0 };
     m.files += 1;
     moves.set(k, m);
-    dirs.set(`${res.from.scanRootId}\n${fromDir}`, { scanRootId: res.from.scanRootId, dirPath: fromDir });
-    dirs.set(`${res.to.scanRootId}\n${toDir}`, { scanRootId: res.to.scanRootId, dirPath: toDir });
+    // Both rows of a pair have one handler (signatureMatches); only music's files are re-clustered.
+    if (clusteredByMusic(oldById.get(p.oldId)?.handler)) {
+      dirs.set(`${res.from.scanRootId}\n${fromDir}`, { scanRootId: res.from.scanRootId, dirPath: fromDir });
+      dirs.set(`${res.to.scanRootId}\n${toDir}`, { scanRootId: res.to.scanRootId, dirPath: toDir });
+    }
   }
   out.moves = [...moves.values()].sort((a, b) => b.files - a.files);
   out.reclusterDirs = [...dirs.values()];

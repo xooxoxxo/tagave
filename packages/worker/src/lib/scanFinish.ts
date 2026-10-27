@@ -11,6 +11,7 @@ import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 import { reconcileTier1, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
 import { placeHolds, sendReleasedCluster } from './clusterHold.js';
+import { clusteredByMusic } from './musicFiles.js';
 
 export type { MoveRecord, DirRef } from './reconcile.js';
 
@@ -24,6 +25,7 @@ export interface FinishOptions {
   reclusterSoon?: boolean;
 }
 export interface FinishResult {
+  /** dirsWithMissing: folders that lost a file the music app groups (the caller re-clusters them) */
   missing: number; dirsWithMissing: string[];
   failedDirs: string[]; heldMissing: { count: number; threshold: number } | null; reconcileSkipped: string | null; // guards
   merged: number; moves: MoveRecord[]; possibleMoves: number; reclusterDirs: DirRef[];                              // Tier 1
@@ -38,8 +40,8 @@ export async function markMissing(
   root: WalkRoot,
   rows: Array<{ id: string; relPath: string }>,
   walkStart: Date,
-): Promise<Array<{ id: string; relPath: string }>> {
-  const marked: Array<{ id: string; relPath: string }> = [];
+): Promise<Array<{ id: string; relPath: string; handler: string }>> {
+  const marked: Array<{ id: string; relPath: string; handler: string }> = [];
   for (let i = 0; i < rows.length; i += UPDATE_BATCH) {
     const chunk = rows.slice(i, i + UPDATE_BATCH);
     const out = (await ctx.sql`
@@ -47,7 +49,7 @@ export async function markMissing(
         from unnest(${chunk.map((r) => r.id)}::uuid[], ${chunk.map((r) => r.relPath)}::text[]) as u(id, rel_path)
        where af.id = u.id and af.rel_path = u.rel_path and af.scan_root_id = ${root.id}
          and af.last_seen_at < ${walkStart.toISOString()}::timestamptz and af.status in ('present', 'error')
-      returning af.id, af.rel_path as "relPath"`) as unknown as Array<{ id: string; relPath: string }>;
+      returning af.id, af.rel_path as "relPath", af.handler`) as unknown as Array<{ id: string; relPath: string; handler: string }>;
     marked.push(...out);
   }
   return marked;
@@ -100,7 +102,7 @@ export async function dropStaleSidecars(
 }
 
 /**
- * Whether a folder has a missing audio row in it, under it or above it (up to
+ * Whether a folder has a missing file row in it, under it or above it (up to
  * the root's top). One query for the root's distinct missing folders (by
  * scan_root_id and status), then set lookups per path level. Per the ruling,
  * "above" includes the root's top: one missing row there ('' folder) keeps
@@ -221,8 +223,9 @@ async function forgetDirMtimes(ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, 
 }
 
 /**
- * cluster.dir for the old and new folders of every merge (the old one possibly
- * on another root), sent as soon as the merges are in, not by the caller after
+ * cluster.dir for the old and new folders of every merge of a file the music
+ * app groups (runMerges lists only those), the old one possibly on another
+ * root, sent as soon as the merges are in, not by the caller after
  * the scan, so a crash in between cannot leave a moved album on its old folder
  * and the new folder unclustered. No singletonSeconds (see sendReleasedCluster):
  * a cluster.dir for the same folder that completed in the current 30 s slot
@@ -314,7 +317,7 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
       ...empty, ...reconciled, failedDirs, heldMissing, confirmedAfterHold,
       held: heldIds.length,
       missing: marked.length,
-      dirsWithMissing: [...new Set(marked.map((m) => relDirname(m.relPath)))],
+      dirsWithMissing: [...new Set(marked.filter((m) => clusteredByMusic(m.handler)).map((m) => relDirname(m.relPath)))],
     };
   });
 }

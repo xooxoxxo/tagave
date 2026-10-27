@@ -37,7 +37,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('files.backfillDigest (db)', () 
     const seen: string[] = [];
     const fn = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const res = await sql(strings, ...values);
-      if (strings.join('?').includes('select id, tags_raw')) {
+      if (strings.join('?').includes('select id, handler, tags_raw')) {
         const ids = (res as Array<{ id: string }>).map((r) => r.id);
         for (const id of ids) seen.push(id);
         if (onSelect) await onSelect(ids);
