@@ -19,9 +19,8 @@ import { withLibraryLock, describeMoves, rowsInDirs, sqlDirname } from './reconc
 import { finishNotes, finishWalk } from './scanFinish.js';
 import { scanDirMessage } from '../jobs/scanDir.js';
 import { scanRootJob } from '../jobs/scanRoot.js';
-import { scanParseJob } from '../jobs/scanParse.js';
-import { clusterDirJob } from '../jobs/clusterDir.js';
 import { writeFlac } from '../testkit/flac.js';
+import { drainJobs, type Sent } from '../testkit/moveLab.js';
 
 describe('describeMoves', () => {
   it('names the biggest folder move and counts the rest', () => {
@@ -37,7 +36,7 @@ describe('describeMoves', () => {
 /**
  * Spec §1, destination scanned and clustered first, end to end: real FLAC
  * files, real scan.root, and the scan.parse / cluster.dir jobs it queues run
- * by a small pump (as in clusterDir.carryover.db.test.ts), follow-up
+ * by the acceptance kit's pump (testkit/moveLab drainJobs), follow-up
  * re-clusters included. The copy on root B gets an album before root A's
  * scan notices the source gone. Untouched, it is folded into the old album
  * (old ids win, nothing is added); with owner data on any of its files, the
@@ -45,20 +44,11 @@ describe('describeMoves', () => {
  */
 describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1, destination clustered first (db)', () => {
   let ctx: WorkerContext; let sql: any; let base: string;
-  const queue: Array<{ name: string; data: any }> = [];
+  const queue: Sent[] = [];
   const userId = randomUUID(); const libraryId = randomUUID(); const rootA = randomUUID(); const rootB = randomUUID();
   let pad = 8;
 
-  const drain = async () => {
-    for (let round = 0; round < 10 && queue.length > 0; round++) {
-      const batch = queue.splice(0);
-      for (const j of batch) if (j.name === 'scan.parse') await scanParseJob(ctx, j.data);
-      const once = new Map<string, any>();
-      for (const j of batch) if (j.name === 'cluster.dir') once.set(`${j.data.scanRootId}\n${j.data.dirPath}`, j.data);
-      for (const d of once.values()) await clusterDirJob(ctx, d);
-    }
-    expect(queue.filter((j) => j.name === 'scan.parse' || j.name === 'cluster.dir')).toEqual([]);
-  };
+  const drain = () => drainJobs(ctx, queue);
   const scan = async (root: string) => { const r = await scanRootJob(ctx, { scanRootId: root, mode: 'full' }); await drain(); return r; };
   const albumCount = async () => (await sql`select count(*)::int as n from local_albums where library_id = ${libraryId}`)[0].n as number;
   const filesIn = async (root: string, dir: string) =>
