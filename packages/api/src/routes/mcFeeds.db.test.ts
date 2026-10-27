@@ -5,7 +5,7 @@
  * cursor rules, and the package's conformance suite run against tagave
  * itself (spec §3, §5 Security, §6).
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
@@ -279,59 +279,67 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     await sql`update album_matches set status = 'confirmed', decided_by = 'user' where local_album_id = ${albumA}`;
   });
 
-  // A decision model's accept: automatic, with its calibrated probability.
-  const modelMatch = () => sql`update album_matches set status = 'auto', decided_by = 'system', decided_kind = 'model', probability = 0.9940, decided_by_user_id = null
-                                where local_album_id = ${albumA} and status in ('auto', 'confirmed')`;
-  const personMatch = () => sql`update album_matches set status = 'confirmed', decided_by = 'user', decided_kind = 'user', probability = null, release_group_only = false
-                                 where local_album_id = ${albumA} and status in ('auto', 'confirmed')`;
+  describe('identity of a model match', () => {
+    // The fixture's own match, put back after each test whatever it did, so
+    // a failing test cannot leave the album as-is or matched by a model.
+    let original: string;
+    beforeAll(async () => {
+      original = (await sql<Array<{ id: string }>>`select id from album_matches where local_album_id = ${albumA} and status = 'confirmed'`)[0]!.id;
+    });
+    afterEach(async () => {
+      await sql`update local_albums set state = 'matched', release_id = ${releaseA}, release_group_id = ${rgA}, updated_at = now() where id = ${albumA}`;
+      await sql`delete from album_matches where local_album_id = ${albumA} and id <> ${original}`;
+      await sql`update album_matches set status = 'confirmed', decided_by = 'user', decided_kind = 'unknown', decided_by_user_id = null,
+                       probability = null, release_group_only = false, reason = null, release_id = ${releaseA}, distance = 0.08, source = 'mb_search'
+                 where id = ${original}`;
+    });
 
-  it('identity: a model match is auto, with the model probability as confidence', async () => {
-    const since = await tail('identity');
-    await modelMatch();
-    const p = await all('identity', since);
-    expect(p.items.map((i) => [i.key, i.op, i.data?.provenance, i.data?.confidence])).toEqual([[rgA, 'upsert', 'auto', 0.994]]);
-    await personMatch();
-  });
+    // A decision model's accept: automatic, with its calibrated probability.
+    const modelMatch = () => sql`update album_matches set status = 'auto', decided_by = 'system', decided_kind = 'model', probability = 0.9940, decided_by_user_id = null
+                                  where local_album_id = ${albumA} and status in ('auto', 'confirmed')`;
 
-  it('identity: "any edition" on a model match makes it manual, and logs the change', async () => {
-    await modelMatch();
-    const since = await tail('identity');
-    const rows = await logRows('identity', rgA);
-    // what POST …/match-any-edition writes: the kind and who, status unchanged
-    await sql`update album_matches set release_group_only = true, reason = coalesce(reason || '; ', '') || 'any edition (owner)',
-                     decided_by = 'user', decided_kind = 'user', decided_by_user_id = ${person.userId}
-               where local_album_id = ${albumA} and status in ('auto', 'confirmed')`;
-    expect(await logRows('identity', rgA)).toBe(rows + 1);
-    const p = await all('identity', since);
-    expect(p.items.map((i) => [i.key, i.op, i.data?.provenance, i.data?.confidence])).toEqual([[rgA, 'upsert', 'manual', 1]]);
-    await personMatch();
-  });
+    it('identity: a model match is auto, with the model probability as confidence', async () => {
+      const since = await tail('identity');
+      await modelMatch();
+      const p = await all('identity', since);
+      expect(p.items.map((i) => [i.key, i.op, i.data?.provenance, i.data?.confidence])).toEqual([[rgA, 'upsert', 'auto', 0.994]]);
+    });
 
-  it('identity: keeping a model-matched album as-is retracts its identity', async () => {
-    await modelMatch();
-    const since = await tail('identity');
-    // what POST /albums/:id/as-is writes
-    await sql`update local_albums set state = 'as_is', updated_at = now() where id = ${albumA}`;
-    const p = await all('identity', since);
-    expect(p.items.map((i) => [i.key, i.op])).toEqual([[rgA, 'delete']]);
-    await sql`update local_albums set state = 'matched', updated_at = now() where id = ${albumA}`;
-    await personMatch();
-  });
+    it('identity: "any edition" on a model match makes it manual, and logs the change', async () => {
+      await modelMatch();
+      const since = await tail('identity');
+      const rows = await logRows('identity', rgA);
+      // what POST …/match-any-edition writes: the kind and who, status unchanged
+      await sql`update album_matches set release_group_only = true, reason = coalesce(reason || '; ', '') || 'any edition (owner)',
+                       decided_by = 'user', decided_kind = 'user', decided_by_user_id = ${person.userId}
+                 where local_album_id = ${albumA} and status in ('auto', 'confirmed')`;
+      expect(await logRows('identity', rgA)).toBe(rows + 1);
+      const p = await all('identity', since);
+      expect(p.items.map((i) => [i.key, i.op, i.data?.provenance, i.data?.confidence])).toEqual([[rgA, 'upsert', 'manual', 1]]);
+    });
 
-  it('identity: a hand accept replacing a model match is manual', async () => {
-    await modelMatch();
-    const since = await tail('identity');
-    const [old] = await sql<Array<{ id: string }>>`select id from album_matches where local_album_id = ${albumA} and status = 'auto'`;
-    // what POST /albums/:id/match writes: the live row rejected, then the person's
-    await sql`update album_matches set status = 'rejected' where local_album_id = ${albumA} and status in ('auto', 'confirmed')`;
-    await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, source, reason, decided_kind, decided_by_user_id)
-              values (${libraryId}, ${albumA}, ${releaseA}, 0.08, 'confirmed', 'user', 'mb_search', 'accepted in review queue', 'user', ${person.userId})`;
-    await sql`update local_albums set state = 'matched', release_id = ${releaseA}, release_group_id = ${rgA}, updated_at = now() where id = ${albumA}`;
-    const p = await all('identity', since);
-    expect(p.items.length).toBeGreaterThan(0);
-    expect(p.items.map((i) => [i.key, i.op, i.data?.provenance, i.data?.confidence])).toContainEqual([rgA, 'upsert', 'manual', 1]);
-    expect(latest(p.items, rgA)?.data).toMatchObject({ provenance: 'manual', confidence: 1 });
-    await sql`delete from album_matches where id = ${old!.id}`;
+    it('identity: keeping a model-matched album as-is retracts its identity', async () => {
+      await modelMatch();
+      const since = await tail('identity');
+      // what POST /albums/:id/as-is writes
+      await sql`update local_albums set state = 'as_is', updated_at = now() where id = ${albumA}`;
+      const p = await all('identity', since);
+      expect(p.items.map((i) => [i.key, i.op])).toEqual([[rgA, 'delete']]);
+    });
+
+    it('identity: a hand accept replacing a model match is manual', async () => {
+      await modelMatch();
+      const since = await tail('identity');
+      // what POST /albums/:id/match writes: the live row rejected, then the person's
+      await sql`update album_matches set status = 'rejected' where local_album_id = ${albumA} and status in ('auto', 'confirmed')`;
+      await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, source, reason, decided_kind, decided_by_user_id)
+                values (${libraryId}, ${albumA}, ${releaseA}, 0.08, 'confirmed', 'user', 'mb_search', 'accepted in review queue', 'user', ${person.userId})`;
+      await sql`update local_albums set state = 'matched', release_id = ${releaseA}, release_group_id = ${rgA}, updated_at = now() where id = ${albumA}`;
+      const p = await all('identity', since);
+      expect(p.items.length).toBeGreaterThan(0);
+      expect(p.items.map((i) => [i.key, i.op, i.data?.provenance, i.data?.confidence])).toContainEqual([rgA, 'upsert', 'manual', 1]);
+      expect(latest(p.items, rgA)?.data).toMatchObject({ provenance: 'manual', confidence: 1 });
+    });
   });
 
   it('a release group’s MBID change reaches every feed that names it', async () => {

@@ -102,6 +102,16 @@ describe.skipIf(!url)('0069 match provenance (upgrade with data)', () => {
     const after = await identityRows(rg);
     expect(after).toBe(before + 1);
   });
+  it('a change of decided_by alone logs the album\'s identity once (the feed reads it)', async () => {
+    const before = await identityRows(rg);
+    await sql`update album_matches set decided_by = 'user' where local_album_id = ${albumOf['first']!}`;
+    expect(await identityRows(rg)).toBe(before + 1);
+  });
+  it('a change of probability alone logs the album\'s identity once', async () => {
+    const before = await identityRows(rg);
+    await sql`update album_matches set probability = 0.9100 where local_album_id = ${albumOf['acoustid']!}`;
+    expect(await identityRows(rg)).toBe(before + 1);
+  });
   it('a change of the reason alone still logs nothing', async () => {
     const before = await identityRows();
     await sql`update album_matches set reason = reason || ' ' where local_album_id = ${albumOf['chip']!}`;
