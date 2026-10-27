@@ -63,3 +63,27 @@ export async function resealTwoFactorSecrets(
     return { rows: rows.length, resealed, alreadyCurrent };
   });
 }
+
+/**
+ * Read-only: how many authenticator apps open with the auth secret derived
+ * from `oldAppSecret` and not yet with the new one. A count above zero proves
+ * the old secret right before the reseal changes anything.
+ */
+export async function twoFactorOpensWithOld(sql: postgres.Sql, oldAppSecret: string, newAppSecret: string): Promise<number> {
+  const exists = await sql`select to_regclass('public.auth_two_factors') as t`;
+  if (!exists[0]?.['t']) return 0;
+  const oldKey = deriveAuthSecret(oldAppSecret);
+  const newKey = deriveAuthSecret(newAppSecret);
+  const rows = await sql<Array<{ secret: string }>>`select secret from auth_two_factors`;
+  let n = 0;
+  for (const row of rows) {
+    if ((await decrypts(newKey, row.secret)) !== null) continue;
+    if ((await decrypts(oldKey, row.secret)) !== null) n++;
+  }
+  return n;
+}
+
+/** An authenticator-app value encrypted as Better Auth stores it, with the auth secret derived from `appSecret`. */
+export async function sealTwoFactorValue(appSecret: string, plain: string): Promise<string> {
+  return symmetricEncrypt({ key: deriveAuthSecret(appSecret), data: plain });
+}

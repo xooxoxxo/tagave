@@ -14,6 +14,7 @@ import postgres from 'postgres';
 import { runMigrations, setTypesafeKey, typesafeKeyHint } from '@tagave/db';
 import { openOne, openTokens, sealOne, sealTokens } from '@tagave/core/mc';
 import { openSecret, sealSecret } from '@tagave/core';
+import { resealTwoFactorSecrets, sealTwoFactorValue } from '@tagave/auth';
 import { resealCredentials, resealMcSecrets, resealModuleKeys } from './reseal.js';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -175,7 +176,7 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
     await setTypesafeKey(sql, libraryId, lost, 'k9z1');
     expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 1 });
     expect(await typesafe()).toBe(lost);
-    expect(await resealModuleKeys(sql, OLD, NEW, { clearUnreadable: true })).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [{ label: 'TypeSafe key', libraryId }], unreadable: 0 });
+    expect(await resealModuleKeys(sql, OLD, NEW, { clearUnreadable: true })).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [{ label: 'TypeSafe key', where: 'Settings › Modules › Autotagger', libraryId }], unreadable: 0 });
     expect(await resealModuleKeys(sql, OLD, NEW, { clearUnreadable: true })).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 0 });
   });
 
@@ -184,7 +185,7 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
     const sealed = await typesafe();
     const before = await snapshot();
     const err = await doctor('typo-secret-0123456789abcdef0123456789').then(() => null, (e: Error) => e);
-    expect(err?.message).toMatch(/TAGAVE_OLD_APP_SECRET opens no sealed key here, and 1 TypeSafe key\(s\) open with neither secret; is it right\? Nothing was changed/);
+    expect(err?.message).toMatch(/TAGAVE_OLD_APP_SECRET opens no sealed value here, and 1 TypeSafe key\(s\) open with neither secret; is it right\? Nothing was changed\. If it is, remove the key in Settings › Modules › Autotagger and run reseal again\./);
     for (const leak of [TYPESAFE, sealed, 'k9z1']) expect(err!.message).not.toContain(leak);
     expect(await snapshot()).toEqual(before);
     expect(await typesafe()).toBe(sealed);
@@ -194,8 +195,37 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
     expect(openSecret(await typesafe(), NEW)).toBe(TYPESAFE);
   });
 
+  it('a Music Connections value or an authenticator app the old secret opens is proof enough: the lost key is removed, the rest re-encrypted', async () => {
+    const lost = sealSecret(TYPESAFE, LOST);
+    // no provider secret: only the links (sealed with the old secret) show it is right
+    await sql`update libraries set settings = '{}'::jsonb where id = ${libraryId}`;
+    await setTypesafeKey(sql, libraryId, lost, 'k9z1');
+    const viaLinks = await doctor();
+    expect(viaLinks.warned).toContain(`the TypeSafe key of library ${libraryId} opens with neither secret and was removed; enter it again in Settings › Modules › Autotagger`);
+    expect(await typesafeKeyHint(sql, libraryId)).toBeNull();
+    const [link] = await sql<Array<{ sealed_tokens: string }>>`select sealed_tokens from mc_links where state = 'active'`;
+    expect(openTokens(link!.sealed_tokens, NEW)).toEqual(tokens);
+
+    // no provider secret and no links: only an authenticator app shows it
+    await sql`delete from mc_links`;
+    await sql`delete from mc_pending`;
+    await setTypesafeKey(sql, libraryId, lost, 'k9z1');
+    await sql`insert into auth_two_factors (user_id, secret, backup_codes) values (${userId}, ${await sealTwoFactorValue(OLD, 'totp-secret')}, ${await sealTwoFactorValue(OLD, 'codes')})`;
+    try {
+      const viaApp = await doctor();
+      expect(viaApp.warned).toContain(`the TypeSafe key of library ${libraryId} opens with neither secret and was removed`);
+      for (const leak of [TYPESAFE, lost, 'k9z1']) expect(viaApp.warned).not.toContain(leak);
+      expect(await typesafeKeyHint(sql, libraryId)).toBeNull();
+      expect(await resealTwoFactorSecrets(sql, OLD, NEW)).toEqual({ rows: 1, resealed: 0, alreadyCurrent: 1 });
+    } finally {
+      await sql`delete from auth_two_factors where user_id = ${userId}`;
+    }
+  });
+
   it('runs where the module\'s table was never made', async () => {
-    // moved aside (to_regclass finds no table by its name) and put back, so the order of the tests does not matter
+    // This suite runs on a database of its own (see beforeAll), so moving the
+    // table aside here touches no other suite. Moved aside (to_regclass finds
+    // no table by its name) and put back, so the order of the tests does not matter.
     await sql`alter table decider_library_settings rename to decider_library_settings_aside`;
     try {
       expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 0 });
