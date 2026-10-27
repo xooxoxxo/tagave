@@ -124,6 +124,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches routes', () => {
     const rel = releaseIds[releaseIds.length - 1]!;
     await db.insert(albumMatches).values({ libraryId, localAlbumId: decided, releaseId: rel, distance: '0.0100', status: 'auto', decidedBy: 'system', reason: 'auto-accept rules: 99% match (MusicBrainz)' });
     await db.insert(albumMatches).values({ libraryId, localAlbumId: decided, releaseId: rel, distance: '0.0100', status: 'rejected', decidedBy: 'system', reason: 'chip-rule auto-accept: 5 green' });
+    // a rules accept that was later superseded keeps its reason, but is no longer an accept
+    await db.insert(albumMatches).values({ libraryId, localAlbumId: decided, releaseId: rel, distance: '0.0100', status: 'rejected', decidedBy: 'system', reason: 'auto-accept rules: 97% match (MusicBrainz)' });
     const view = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json();
     expect(view.acceptedTotal).toBe(1);
     expect(view.recent).toEqual([expect.objectContaining({ albumId: decided, title: 'Kosmonument', percent: 99 })]);
