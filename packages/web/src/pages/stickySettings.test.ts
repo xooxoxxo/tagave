@@ -42,6 +42,12 @@ describe('settings: sticky header and section list', () => {
     expect(sticky).toMatch(/background:/);
   });
 
+  it('no rule under the sticky header, at rest or scrolled (owner: "what is that weird bar there?")', () => {
+    const css = read('../components/ui/PageShell.module.css');
+    expect(block(css, '.headerSticky')).not.toMatch(/border|box-shadow|animation/);
+    expect(css).not.toMatch(/stuckEdge|animation-timeline/);
+  });
+
   it('the shell renders the sticky header and marks a heading-only header', () => {
     const html = renderToStaticMarkup(createElement(PageShell, { title: 'Settings', sticky: true, children: 'x' }));
     expect(html).toMatch(/<header class="[^"]*headerSticky[^"]*" data-title-only="">/);

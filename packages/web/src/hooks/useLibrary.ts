@@ -280,7 +280,7 @@ export function useClearAnyEdition(libraryId: string | undefined) {
 const COLLECTION_QUERY_KEY = ['collection'];
 
 interface CollectionFilters {
-  view?: 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates' | 'all';
+  view?: 'active' | 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates' | 'all';
   folder?: string;
   q?: string;
   limit?: number;
@@ -487,6 +487,21 @@ export function useRemoveCollectionItem(libraryId: string | undefined) {
     mutationFn: (itemId: string) => api.delete(`/collection-items/${itemId}`),
     onSuccess: invalidate,
   });
+}
+
+/**
+ * Remove a record for real, once its Undo window is over (pages/collectionRemoval):
+ * resolves after the collection has refetched without it. `keepalive` lets
+ * the request outlive a closing tab.
+ */
+export function useCommitCollectionRemoval(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidatePhysical(libraryId);
+  return async (itemId: string, { keepalive }: { keepalive: boolean }) => {
+    await api.delete(`/collection-items/${itemId}`, keepalive ? { keepalive } : undefined);
+    invalidate();
+    await queryClient.refetchQueries({ queryKey: COLLECTION_QUERY_KEY, type: 'active' });
+  };
 }
 
 /** "I own both": the copies of a Discogs release are all real, none is a duplicate. */

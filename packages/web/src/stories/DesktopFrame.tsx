@@ -12,6 +12,11 @@ import layout from '../components/Layout.module.css';
 import bar from '../components/PlayerBar.module.css';
 
 const noop = () => undefined;
+const careLinks = [
+  { key: 'settings', label: 'Settings', onSelect: noop },
+  { key: 'work', label: 'Library care', onSelect: noop },
+  { key: 'plans', label: 'Tag changes', onSelect: noop },
+];
 
 export function DesktopFrame({ children, dock, accountGlow, empty = false, compartmentOpen = false }: {
   children: ReactNode;
@@ -37,8 +42,8 @@ export function DesktopFrame({ children, dock, accountGlow, empty = false, compa
       root.style.removeProperty('--player-bar-h');
     };
   }, []);
-  const link = (label: string, active = false, group?: string) => (
-    <a href="#" onClick={(e) => e.preventDefault()} className={active ? layout.navLinkActive : layout.navLink} data-group={group}>{label}</a>
+  const link = (label: string, active = false) => (
+    <a href="#" onClick={(e) => e.preventDefault()} className={active ? layout.navLinkActive : layout.navLink}>{label}</a>
   );
   return (
     <div className={layout.container}>
@@ -61,12 +66,9 @@ export function DesktopFrame({ children, dock, accountGlow, empty = false, compa
             {link('Albums', true)}
             {link('Artists')}
             {link('Physical collection')}
-            {link('Library care', false, 'manage')}
-            {link('Tag changes')}
-            {link('Settings')}
           </nav>
           <div className={layout.account} data-account-row="">
-            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} glow={accountGlow} />
+            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} links={careLinks} glow={accountGlow} />
           </div>
         </div>
       </aside>

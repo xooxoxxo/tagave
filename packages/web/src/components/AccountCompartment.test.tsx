@@ -9,7 +9,7 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { AccountCompartment, accountInitial } from './AccountCompartment';
+import { AccountCompartment, accountInitial, attentionOf } from './AccountCompartment';
 import { AlbumFacts, showsDiscogsData } from '../pages/AlbumFacts';
 
 const noop = () => undefined;
@@ -41,8 +41,38 @@ describe('AccountCompartment', () => {
     expect(css).toMatch(/\.compartment \{[^}]*visibility: hidden;/);
     expect(css).toMatch(/\.root\[data-open\] \.compartment \{[^}]*visibility: visible;/);
     const compartment = html.slice(html.indexOf('-compartment"'), html.lastIndexOf('<button'));
-    expect(text(compartment.slice(compartment.indexOf('>') + 1))).toBe('OOytuno@home.exampleAccountListeningAppearanceLightDarkAutoSign out');
+    expect(text(compartment.slice(compartment.indexOf('>') + 1))).toBe('OOytuno@home.exampleAccountListeningLightDarkAutoSign out');
+    // the theme control is named for a screen reader, with no label on screen
     expect(html).toMatch(/role="radiogroup" aria-label="Appearance"/);
+    expect(css).not.toMatch(/appearanceLabel/);
+  });
+
+  it('the pages that look after the library sit after Listening, with their count and dot', () => {
+    const links = [
+      { key: 'settings', label: 'Settings', onSelect: noop, dot: 'a new version is available' },
+      { key: 'work', label: 'Library care', onSelect: noop, count: 3, countLabel: 'open tasks', current: true },
+      { key: 'plans', label: 'Tag changes', onSelect: noop },
+    ];
+    const html = renderToStaticMarkup(createElement(AccountCompartment, { ...props, links }));
+    const compartment = html.slice(html.indexOf('-compartment"'), html.lastIndexOf('<button'));
+    expect(text(compartment.slice(compartment.indexOf('>') + 1))).toBe(
+      'OOytuno@home.exampleAccountListeningSettings (a new version is available)Library care, 3 open tasksTag changesLightDarkAutoSign out',
+    );
+    expect(html).toMatch(/<button type="button" class="[^"]*" aria-current="page">Library care/);
+    // closed, the row says what waits inside and shows a dot
+    const row = html.slice(html.lastIndexOf('<button'));
+    expect(row).toMatch(/aria-label="Account: Oytun \(a new version is available, 3 open tasks\)"/);
+    expect(row).toMatch(/data-row-dot=""/);
+    expect(css).toMatch(/\.root\[data-open\] \.rowDot \{ display: none; \}/);
+  });
+
+  it('nothing waiting: no dot on the row, its name is the person alone', () => {
+    const links = [{ key: 'work', label: 'Library care', onSelect: noop, count: 0, countLabel: 'open tasks' }];
+    const html = renderToStaticMarkup(createElement(AccountCompartment, { ...props, links }));
+    const row = html.slice(html.lastIndexOf('<button'));
+    expect(row).toMatch(/aria-label="Account: Oytun"/);
+    expect(row).not.toMatch(/data-row-dot/);
+    expect(attentionOf(links)).toEqual([]);
   });
 
   it('open, the row says so and the section shows', () => {

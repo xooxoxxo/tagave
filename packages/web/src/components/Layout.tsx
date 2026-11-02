@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation, useNavigate, useRouter } from '@tanstack/rea
 import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan } from '../hooks';
 import { SearchModal } from './SearchModal';
 import { IconButton } from './ui';
-import { AccountCompartment } from './AccountCompartment';
+import { AccountCompartment, type CompartmentLink } from './AccountCompartment';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
@@ -12,7 +12,6 @@ import { backAction, parentLabel, parentPath } from '../utils/backNav';
 import { useAppBarTitle, useSubpage } from './appBarTitle';
 import { pageTitle, pageTitles } from '../utils/pageTitles';
 import { BrandMark } from './BrandMark';
-import { UpdateDot } from './UpdateDot';
 import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
 import { useAlbumsReturnSearch } from '../pages/albumSelection';
@@ -56,8 +55,9 @@ export function Layout() {
   const playlistsOn = usePlaylistsOn();
   useJobEvents(user && libraryId && canCare ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
+  // (inside the account compartment; a dot on its row while it is closed)
   const taskCount = useGapCounts(user && canCare ? libraryId : undefined).data?.tasks?.todo ?? 0;
-  // a newer release (not skipped) shows as a quiet dot on Settings
+  // a newer release (not skipped) shows as a quiet dot on Settings (same)
   const updateAvailable = useUpdateAvailable(user && canSystem ? libraryId : undefined);
   // While albums are selected, "Albums" leads back to that list, selection intact.
   const albumsReturnSearch = useAlbumsReturnSearch();
@@ -118,6 +118,15 @@ export function Layout() {
   // Maintenance changes the album and artist pages, so its key lives in
   // their own header; elsewhere a pill says it is on.
   const onAlbumPage = /^\/(albums|artists)\/[^/]+/.test(pathname);
+  // Looking after the library lives with the account, under the person
+  // (owner, 2026-10-28); the sidebar keeps the places to browse.
+  const careLinks: CompartmentLink[] = [
+    { key: 'settings', label: pageTitles['/settings'], current: pathname.startsWith('/settings') || pathname.startsWith('/jobs'), onSelect: () => void navigate({ to: '/settings' }), ...(updateAvailable ? { dot: 'a new version is available' } : {}) },
+    ...(canCare ? [
+      { key: 'work', label: pageTitles['/work'], current: ['/work', '/queue', '/identify', '/attention'].some((p) => pathname.startsWith(p)), onSelect: () => void navigate({ to: '/work', search: { tab: 'review' } }), count: taskCount, countLabel: `open ${taskCount === 1 ? 'task' : 'tasks'}` },
+      { key: 'plans', label: pageTitles['/plans'], current: pathname.startsWith('/plans'), onSelect: () => void navigate({ to: '/plans' }) },
+    ] : []),
+  ];
   const backAct = back ? { label: backLabel, go: goBack } : null;
   const renderInlineBack = () => back && (
     <IconButton label={backLabel} variant="quiet" className={styles.inlineBack} onClick={goBack}>
@@ -177,9 +186,6 @@ export function Layout() {
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>{pageTitles['/artists']}</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>{pageTitles['/collection']}</Link>
           {playlistsOn && <Link to="/playlists" className={`${linkClass(pathname.startsWith('/playlists'))} ${styles.wideOnly}`}>{pageTitles['/playlists']}</Link>}
-          {canCare && <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">{pageTitles['/work']}{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>}
-          {canCare && <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>{pageTitles['/plans']}</Link>}
-          <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>{pageTitles['/settings']}{updateAvailable && <UpdateDot />}</Link>
         </nav>
         {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
         <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />
@@ -193,6 +199,7 @@ export function Layout() {
             closeKey={pathname}
             onAccount={() => void navigate({ to: '/settings/$section', params: { section: 'account' } })}
             onListening={() => void navigate({ to: '/settings/$section', params: { section: 'listening' } })}
+            links={careLinks}
             onSignOut={() => { stopPlayback(); logout.mutate(); }}
             glow={<AccountGlow />}
           />

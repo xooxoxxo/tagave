@@ -2,9 +2,13 @@
  * Physical collection (spec COL-1, GAP-3): the records and CDs in the owner's
  * Discogs collection next to the albums on disk.
  *
- * Views: Physical only · Both · Unmapped · Removed, plus Duplicates while any
- * Discogs release is in the collection twice. Each row is cover, artist –
- * title (year), format, and one primary action; the rest sit in its "⋯" menu.
+ * One list of every record, plus Unmapped (records tagave cannot place yet:
+ * a work queue) and Duplicates while any Discogs release is in the
+ * collection twice. Each row is cover, artist – title (year), a marker per
+ * medium (2×CD), a drive when the album is also on disk, and one primary
+ * action; the rest sit in its "⋯" menu. The copies of one release are one
+ * row ("2 copies"). Removing a record hides it with a few seconds of Undo,
+ * then it is gone (collectionRemoval); there is no Removed list.
  * An unmapped record offers the albums it likely is ("This is Yellow & Green
  * by Baroness (2012, 18 tracks) — Link"), "Not in my library", and linking by
  * a pasted URL as the fallback.
@@ -19,7 +23,8 @@ import {
   useUnmapCollectionItem,
   useCollectionOptions,
   useAddCollectionItem,
-  useRemoveCollectionItem,
+  useCommitCollectionRemoval,
+  useInvalidatePhysical,
   useRetryPush,
   useKeepBothCopies,
   useCurrentLibrary,
@@ -29,19 +34,19 @@ import {
 } from '../hooks';
 import { useCan } from '../hooks/usePermissions';
 import {
-  Banner, Button, Collapse, CoverArt, EmptyState, LinkButton, Menu, PageShell, Tabs, confirmDialog, showToast, updateToast, type MenuItem,
+  Badge, Button, Collapse, CoverArt, EmptyState, LinkButton, Menu, OnDiskIcon, PageShell, Tabs, confirmDialog, showToast, type MenuItem,
 } from '../components/ui';
 import { WantlistSection } from '../components/WantlistSection';
 import { shortDate } from '../utils/time';
+import { groupCopies, mediaOf, type CopyGroup } from './collectionGroups';
+import { scheduleRemoval, undoRemoval, useHiddenRemovals, UNDO_MS } from './collectionRemoval';
 import styles from './CollectionPage.module.css';
 
-type View = 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates';
+type View = 'active' | 'unmapped' | 'duplicates';
 
-const VIEWS: Array<{ key: View; label: string; count: 'physicalOnly' | 'both' | 'unmapped' | 'removed' | 'duplicates' }> = [
-  { key: 'physical_only', label: 'Physical only', count: 'physicalOnly' },
-  { key: 'both', label: 'Both', count: 'both' },
+const VIEWS: Array<{ key: View; label: string; count?: 'unmapped' | 'duplicates' }> = [
+  { key: 'active', label: 'All' },
   { key: 'unmapped', label: 'Unmapped', count: 'unmapped' },
-  { key: 'removed', label: 'Removed', count: 'removed' },
   { key: 'duplicates', label: 'Duplicates', count: 'duplicates' },
 ];
 
@@ -107,7 +112,7 @@ export function CollectionPage() {
   // keeping the collection is library care; a listener browses it
   const canCare = useCan('library.edit');
   const canConnect = useCan('system.manage');
-  const [view, setView] = useState<View>('physical_only');
+  const [view, setView] = useState<View>('active');
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [addError, setAddError] = useState<string | null>(null);
@@ -121,10 +126,12 @@ export function CollectionPage() {
   // The options endpoint answers 400 until a Discogs source exists: ask only once one does.
   const options = useCollectionOptions(libraryId, !!source && showAddForm);
   const addItem = useAddCollectionItem(libraryId);
+  const hidden = useHiddenRemovals();
 
   const items = ((collection.data as { items?: CollectionItem[] } | undefined)?.items) ?? [];
   const optionsData = (options.data as CollectionOptions) ?? { folders: [], conditionGrades: [] };
-  const counts = source?.counts ?? { total: 0, mapped: 0, unmapped: 0, removed: 0 };
+  const counts: SourcesResponse['sources'][number]['counts'] = source?.counts ?? { total: 0, mapped: 0, unmapped: 0, removed: 0 };
+  const groups = groupCopies(items, hidden);
   const duplicates = counts.duplicates ?? 0;
 
   // Poll while syncing or while any record is on its way to or from Discogs
@@ -137,7 +144,7 @@ export function CollectionPage() {
 
   // leave the Duplicates view once the last duplicate is gone
   useEffect(() => {
-    if (view === 'duplicates' && sources.data && duplicates === 0) setView('physical_only');
+    if (view === 'duplicates' && sources.data && duplicates === 0) setView('active');
   }, [view, duplicates, sources.data]);
 
   const addRecord = async (anotherCopy = false) => {
@@ -202,74 +209,66 @@ export function CollectionPage() {
         />
       ) : (
         <>
-          <Collapse open={showAddForm}>
-            <form className={styles.addForm} onSubmit={(e) => { e.preventDefault(); void addRecord(); }}>
-              <h2 className={styles.formTitle}>Add a record</h2>
+          <div>
+            <Collapse open={showAddForm}>
+              <form className={styles.addForm} onSubmit={(e) => { e.preventDefault(); void addRecord(); }}>
+                <h2 className={styles.formTitle}>Add a record</h2>
 
-              <label className={styles.formGroup}>
-                <span>Discogs release URL or ID</span>
-                <input type="text" required placeholder="https://www.discogs.com/release/12345 or 12345" value={form.input}
-                  onChange={(e) => setForm({ ...form, input: e.target.value })} className={styles.formInput} />
-              </label>
-              <div className={styles.formRow}>
                 <label className={styles.formGroup}>
-                  <span>Folder</span>
-                  <select value={form.folderId} onChange={(e) => setForm({ ...form, folderId: parseInt(e.target.value, 10) })} className={styles.formInput}>
-                    {(optionsData.folders.length ? optionsData.folders : [{ id: 1, name: 'Uncategorized' }]).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  </select>
+                  <span>Discogs release URL or ID</span>
+                  <input type="text" required placeholder="https://www.discogs.com/release/12345 or 12345" value={form.input}
+                    onChange={(e) => setForm({ ...form, input: e.target.value })} className={styles.formInput} />
                 </label>
+                <div className={styles.formRow}>
+                  <label className={styles.formGroup}>
+                    <span>Folder</span>
+                    <select value={form.folderId} onChange={(e) => setForm({ ...form, folderId: parseInt(e.target.value, 10) })} className={styles.formInput}>
+                      {(optionsData.folders.length ? optionsData.folders : [{ id: 1, name: 'Uncategorized' }]).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.formGroup}>
+                    <span>Media condition</span>
+                    <select value={form.mediaCondition} onChange={(e) => setForm({ ...form, mediaCondition: e.target.value })} className={styles.formInput}>
+                      <option value="">Not set</option>
+                      {optionsData.conditionGrades.map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.formGroup}>
+                    <span>Sleeve condition</span>
+                    <select value={form.sleeveCondition} onChange={(e) => setForm({ ...form, sleeveCondition: e.target.value })} className={styles.formInput}>
+                      <option value="">Not set</option>
+                      {optionsData.conditionGrades.map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </label>
+                </div>
                 <label className={styles.formGroup}>
-                  <span>Media condition</span>
-                  <select value={form.mediaCondition} onChange={(e) => setForm({ ...form, mediaCondition: e.target.value })} className={styles.formInput}>
-                    <option value="">Not set</option>
-                    {optionsData.conditionGrades.map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select>
+                  <span>Notes</span>
+                  <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={styles.formInput} />
                 </label>
-                <label className={styles.formGroup}>
-                  <span>Sleeve condition</span>
-                  <select value={form.sleeveCondition} onChange={(e) => setForm({ ...form, sleeveCondition: e.target.value })} className={styles.formInput}>
-                    <option value="">Not set</option>
-                    {optionsData.conditionGrades.map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select>
-                </label>
-              </div>
-              <label className={styles.formGroup}>
-                <span>Notes</span>
-                <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={styles.formInput} />
-              </label>
-              {addError && <p className={styles.formError} role="alert">{addError}</p>}
-              <div className={styles.formActions}>
-                <Button type="submit" loading={addItem.isPending} disabled={!form.input.trim()}>Add record</Button>
-                <Button variant="secondary" onClick={() => setShowAddForm(false)}>Cancel</Button>
-              </div>
-            </form>
-          </Collapse>
+                {addError && <p className={styles.formError} role="alert">{addError}</p>}
+                <div className={styles.formActions}>
+                  <Button type="submit" loading={addItem.isPending} disabled={!form.input.trim()}>Add record</Button>
+                  <Button variant="secondary" onClick={() => setShowAddForm(false)}>Cancel</Button>
+                </div>
+              </form>
+            </Collapse>
 
-          {duplicates > 0 && view !== 'duplicates' && (
-            <Banner tone="warning">
-              <span className={styles.bannerLine}>
-                {duplicates === 1 ? '1 duplicate' : `${duplicates} duplicates`}
-                <Button size="sm" variant="secondary" onClick={() => setView('duplicates')}>Review duplicates</Button>
-              </span>
-            </Banner>
-          )}
-
-          <div className={styles.viewHead}>
-            <Tabs
-              label="Collection views"
-              value={view}
-              onChange={(v) => setView(v as View)}
-              panelId="collection-panel"
-              items={visibleViews.map((v) => ({ value: v.key, label: v.label, ...(counts[v.count] ? { count: counts[v.count] } : {}) }))}
-            />
-
+            <div className={styles.viewHead}>
+              <Tabs
+                label="Collection views"
+                value={view}
+                onChange={(v) => setView(v as View)}
+                panelId="collection-panel"
+                items={visibleViews.map((v) => ({ value: v.key, label: v.label, ...(v.count && counts[v.count] ? { count: counts[v.count] } : {}) }))}
+              />
+            </div>
           </div>
 
           <div id="collection-panel" role="tabpanel" aria-label={current.label}>
             {collection.isLoading && <p className={styles.loading}>Loading…</p>}
-            {!collection.isLoading && items.length === 0 && <p className={styles.empty}>Nothing here.</p>}
+            {!collection.isLoading && groups.length === 0 && <p className={styles.empty}>Nothing here.</p>}
             <ul className={styles.list}>
-              {items.map((item) => <CollectionRow key={item.id} item={item} view={view} libraryId={libraryId} />)}
+              {groups.map((group) => <CollectionRow key={group.lead.id} group={group} view={view} libraryId={libraryId} />)}
             </ul>
           </div>
 
@@ -281,15 +280,16 @@ export function CollectionPage() {
   );
 }
 
-function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: View; libraryId: string | undefined }) {
+function CollectionRow({ group, view, libraryId }: { group: CopyGroup<CollectionItem>; view: View; libraryId: string | undefined }) {
   const canCare = useCan('library.edit');
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkInput, setLinkInput] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const { lead: item, copies, extras } = group;
   const unmapItem = useUnmapCollectionItem(libraryId);
   const mapItem = useMapCollectionItem(libraryId);
   const linkItem = useLinkCollectionItem(libraryId);
-  const removeItem = useRemoveCollectionItem(libraryId);
+  const commitRemoval = useCommitCollectionRemoval(libraryId);
   const retryPush = useRetryPush(libraryId);
   const keepBoth = useKeepBothCopies(libraryId);
   const isUnmapped = view === 'unmapped';
@@ -297,8 +297,6 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
   const title = titleOf(item);
   const artist = artistOf(item);
   const album = item.localAlbums[0];
-  const removing = item.pushState === 'removing';
-  const isExtraCopy = !!item.duplicateOf;
 
   const link = async (body: { localAlbumId?: string; notInLibrary?: boolean }, done: string) => {
     setError(null);
@@ -320,28 +318,15 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
       setError(detailOf(err, 'That address could not be linked.'));
     }
   };
-  const remove = async () => {
-    const ok = await confirmDialog(isExtraCopy
-      ? {
-          title: 'Remove the duplicate copy?',
-          message: <>This removes the extra copy of <strong>{artist} – {title}</strong> from tagave and from your Discogs collection. The other copy stays.</>,
-          confirmLabel: 'Remove duplicate',
-          tone: 'danger',
-        }
-      : {
-          title: `Remove ${title} from your collection?`,
-          message: 'It is removed from your Discogs collection too.',
-          confirmLabel: 'Remove',
-          tone: 'danger',
-        });
-    if (!ok) return;
-    const t = showToast({ message: isExtraCopy ? 'Removing the duplicate from Discogs…' : 'Removing from Discogs…', durationMs: 0 });
-    try {
-      await removeItem.mutateAsync(item.id);
-      updateToast(t, { message: isExtraCopy ? 'Duplicate removed; the other copy stays' : `Removed ${title}`, durationMs: 6000 });
-    } catch (err) {
-      updateToast(t, { message: `Could not remove it: ${detailOf(err, 'the server did not answer')}`, tone: 'danger', durationMs: 10000 });
-    }
+  // Gone at once with a few seconds of Undo; only then is it removed (from
+  // Discogs too). No confirmation: Undo is the way back.
+  const remove = (target: CollectionItem, message: string) => {
+    scheduleRemoval(
+      target.id,
+      (opts) => commitRemoval(target.id, opts),
+      (err) => showToast({ message: `Could not remove ${title}: ${detailOf(err, 'the server did not answer')}`, tone: 'danger', durationMs: 10000 }),
+    );
+    showToast({ message, action: { label: 'Undo', onClick: () => void undoRemoval(target.id) }, durationMs: UNDO_MS });
   };
 
   const ownBoth = async () => {
@@ -354,41 +339,46 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
   };
 
   const discogsLink = <a className={styles.textLink} href={item.discogsUrl} target="_blank" rel="noopener noreferrer">Discogs ↗</a>;
+  const failed = copies.find((c) => c.pushState === 'failed');
 
   // one primary action per row
   let primary: React.ReactNode = null;
-  if (removing) primary = <span className={styles.status}>Removing…</span>;
-  else if (!canCare) primary = album && view !== 'removed' ? <LinkButton size="sm" variant="secondary" to="/albums/$albumId" params={{ albumId: album.id }}>Open album</LinkButton> : discogsLink;
-  else if (isExtraCopy) primary = <Button size="sm" variant="quiet-danger" onClick={() => void remove()}>Remove duplicate</Button>;
-  else if (item.pushState === 'failed') primary = <Button size="sm" variant="secondary" loading={retryPush.isPending} onClick={() => retryPush.mutate(item.id)}>Retry</Button>;
-  else if (album && view !== 'removed') primary = <LinkButton size="sm" variant="secondary" to="/albums/$albumId" params={{ albumId: album.id }}>Open album</LinkButton>;
-  else if (isUnmapped) primary = <Button size="sm" variant="secondary" loading={linkItem.isPending && !!linkItem.variables?.notInLibrary} onClick={() => void link({ notInLibrary: true }, `${title} stays in Physical only`)}>Not in my library</Button>;
+  if (!canCare) primary = album ? <LinkButton size="sm" variant="secondary" to="/albums/$albumId" params={{ albumId: album.id }}>Open album</LinkButton> : discogsLink;
+  else if (failed) primary = <Button size="sm" variant="secondary" loading={retryPush.isPending} onClick={() => retryPush.mutate(failed.id)}>Retry</Button>;
+  else if (album) primary = <LinkButton size="sm" variant="secondary" to="/albums/$albumId" params={{ albumId: album.id }}>Open album</LinkButton>;
+  else if (isUnmapped) primary = <Button size="sm" variant="secondary" loading={linkItem.isPending && !!linkItem.variables?.notInLibrary} onClick={() => void link({ notInLibrary: true }, `${title} stays unlinked`)}>Not in my library</Button>;
   else primary = discogsLink;
 
+  // the newest copy goes first: an accidental extra, else the last one added
+  const extra = extras[extras.length - 1];
+  const newest = copies[copies.length - 1]!;
+  const removal: MenuItem = extra
+    ? { key: 'remove', label: 'Remove duplicate', tone: 'danger', separated: true, onSelect: () => remove(extra, 'Removed the duplicate') }
+    : copies.length > 1
+      ? { key: 'remove', label: 'Remove one copy', tone: 'danger', separated: true, onSelect: () => remove(newest, 'Removed a copy') }
+      : { key: 'remove', label: 'Remove from collection', tone: 'danger', separated: true, onSelect: () => remove(item, `Removed ${title}`) };
   const menu: MenuItem[] = !canCare ? [{ key: 'discogs', label: 'Open on Discogs', href: item.discogsUrl }] : [
-    ...(isExtraCopy && !removing ? [{ key: 'keep-both', label: 'I own both', hint: 'Keep both copies; this is not a duplicate', disabled: keepBoth.isPending, onSelect: () => void ownBoth() }] : []),
+    ...(extra ? [{ key: 'keep-both', label: 'I own both', hint: 'Not a duplicate: keep every copy', disabled: keepBoth.isPending, onSelect: () => void ownBoth() }] : []),
     ...(isUnmapped ? [{ key: 'by-url', label: 'Link by URL or ID…', hint: 'Paste a MusicBrainz or Discogs address', onSelect: () => setLinkOpen(true) }] : []),
     { key: 'discogs', label: 'Open on Discogs', href: item.discogsUrl },
-    ...(item.mappingState !== 'unmapped' && view !== 'removed'
+    ...(item.mappingState !== 'unmapped'
       ? [{ key: 'unlink', label: 'Unlink from album', hint: 'Back to Unmapped', disabled: unmapItem.isPending, onSelect: () => unmapItem.mutate(item.id) }] : []),
-    ...(view !== 'removed' && !removing
-      ? [{ key: 'remove', label: isExtraCopy ? 'Remove duplicate' : 'Remove from collection', tone: 'danger' as const, separated: true, onSelect: () => void remove() }] : []),
+    removal,
   ];
 
   const facts = [
-    item.format,
     item.folderName && item.folderName !== 'Uncategorized' ? item.folderName : null,
     item.mediaCondition || item.sleeveCondition ? [grade(item.mediaCondition), grade(item.sleeveCondition)].filter(Boolean).join('/') : null,
     item.rating ? '★'.repeat(item.rating) : null,
   ].filter(Boolean);
-  const onDisk = view === 'physical_only' || view === 'both' ? null : album && view !== 'removed'
+  const onDisk = album
     ? `On disk: ${album.title ?? 'album'}${item.localAlbums.length > 1 ? ` and ${item.localAlbums.length - 1} more` : ''}`
-    : item.mappingSource === 'not_in_library' ? 'Not in your library' : null;
+    : null;
 
   const list = suggestions.data?.suggestions ?? [];
 
   return (
-    <li className={styles.row}>
+    <li className={styles.row} data-collection-row="">
       <div className={styles.rowMain}>
         <CoverArt src={item.thumbUrl} title={title} compact className={styles.thumb} />
         <div className={styles.itemInfo}>
@@ -396,18 +386,15 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
             <span className={styles.itemArtist}>{artist}</span> – {title}{item.basicInfo?.year ? <span className={styles.itemYear}> ({item.basicInfo.year})</span> : null}
           </div>
           <div className={styles.details}>
+            {mediaOf(item.format).map((m) => <Badge key={m} size="sm">{m}</Badge>)}
+            {onDisk && <span className={styles.onDisk} role="img" aria-label={onDisk} title={onDisk}><OnDiskIcon /></span>}
+            {copies.length > 1 && <Badge size="sm" tone={extra ? 'warning' : 'neutral'}>{copies.length} copies</Badge>}
             {facts.length > 0 && <span>{facts.join(' · ')}</span>}
-            {onDisk && <span>{onDisk}</span>}
-            {isExtraCopy && <span className={styles.flag}>Duplicate · {item.copies} copies</span>}
-            {isExtraCopy && !removing && (
-              <Button size="sm" variant="quiet" loading={keepBoth.isPending} onClick={() => void ownBoth()}>I own both</Button>
-            )}
-
-            {item.pushState === 'pending' && <span className={styles.status}>adding to Discogs…</span>}
-            {item.pushState === 'failed' && <span className={styles.flagDanger} title={item.pushError ?? undefined}>{item.pushError?.startsWith('Removing') ? 'Removing from Discogs failed' : 'Adding to Discogs failed'}</span>}
+            {copies.some((c) => c.pushState === 'pending') && <span className={styles.status}>adding to Discogs…</span>}
+            {failed && <span title={failed.pushError ?? undefined}><Badge size="sm" tone="danger">{failed.pushError?.startsWith('Removing') ? 'Removing from Discogs failed' : 'Adding to Discogs failed'}</Badge></span>}
           </div>
 
-          {isUnmapped && !isExtraCopy && (
+          {isUnmapped && (
             <div className={styles.suggestions}>
               {suggestions.isLoading && <p className={styles.suggestHint}>Looking for this album in your library…</p>}
               {!suggestions.isLoading && list.length === 0 && <p className={styles.suggestHint}>No match in your library</p>}

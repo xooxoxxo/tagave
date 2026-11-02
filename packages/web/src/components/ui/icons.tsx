@@ -214,6 +214,11 @@ export function ImportIcon() {
   return <svg {...LINE}><path d="M12 4v11M8 11l4 4 4-4" /><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" /></svg>;
 }
 
+/** A drive: the album is on disk, in the library. */
+export function OnDiskIcon() {
+  return <svg {...LINE}><path d="M4 14 6.5 5.5h11L20 14" /><rect x="4" y="14" width="16" height="5.5" rx="1.5" /><path d="M16.5 16.75h.01" strokeWidth="2.4" /></svg>;
+}
+
 /** A pencil: rename. */
 export function RenameIcon() {
   return <svg {...LINE}><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>;
