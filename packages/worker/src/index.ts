@@ -36,6 +36,7 @@ import { addEditionJob, type AddEditionJobData } from './jobs/addEdition.js';
 import { evidenceBackfillJob, type EvidenceBackfillJobData } from './jobs/evidenceBackfill.js';
 import { deciderAcceptJob, type DeciderAcceptJobData } from './jobs/deciderAccept.js';
 import { deciderRunJob, type DeciderRunJobData } from './jobs/deciderRun.js';
+import { deciderTrainJob, type DeciderTrainJobData } from './jobs/deciderTrain.js';
 import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
@@ -110,6 +111,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'decider.accept': 'stately',
   // one run per library (singletonKey decider.run:<library id>) queued behind a running one
   'decider.run': 'stately',
+  // one training per library (singletonKey decider.train:<library id>) queued behind a running one
+  'decider.train': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -352,6 +355,11 @@ async function main() {
       // the run fails only when no retry follows; until then a retry resumes it
       const retryLimit = LONG_JOB_QUEUES['decider.run']!.retryLimit;
       for (const job of jobs) await deciderRunJob(ctx, job.data, { lastAttempt: job.retryCount >= retryLimit, signal: job.signal });
+    });
+    // Local decider training (owner-started): database-only, one per library at a time;
+    // a refusal (module off, too few owner decisions) is a result, not a retry.
+    await boss.work<DeciderTrainJobData>('decider.train', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await deciderTrainJob(ctx, job.data);
     });
     // A batch whose run died with the last worker (job expired after its last
     // retry) reads failed from boot on; enrich.sweep repeats this nightly.

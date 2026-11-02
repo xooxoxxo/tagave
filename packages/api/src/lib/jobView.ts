@@ -95,6 +95,7 @@ export function jobLabel(type: string, subjectName?: string | null): string {
     case 'queue.autoaccept': return 'Accept confident matches';
     case 'decider.accept': return 'Accept batch';
     case 'decider.run': return 'Decider run';
+    case 'decider.train': return 'Decider training';
     case 'artists.resolve': return 'Link artists';
     case 'tags.preview': return 'Preview a tag plan';
     default: return 'Background task';

@@ -228,6 +228,8 @@ export {
   requestForAlbum, requestOptions, jevPayloadFor, hashOf, MAX_GROUPS, MAX_EDITIONS_PER_GROUP, WEAK_TOP_CANDIDATES,
   LOCAL_FEATURES_VERSION, LOCAL_FEATURE_NAMES, BREAKDOWN_FEATURE_KEYS, NO_RIVAL_GAP, groupFeatures, candidateFeatures, featuresSchemaHash,
   fitStandardiser, fitLogistic, predictLogistic, fitIsotonic, applyIsotonic, calibratedProbability, modelVersion,
+  MIN_OWNER_ALBUMS, TRAIN_FOLDS, TRAIN_SEED, TRAIN_L2, OWNER_WEIGHT, AUTO_WEIGHT, REJECTION_WEIGHT,
+  TrainingRefused, numericBreakdown, localDeciderGroups, trainingRows, assignFolds, trainingDataHash, trainLocalModel,
 } from './decider/index.js';
 export type {
   GroupingCandidate, GroupingOptions, TracklistGroup, JevSpec, BandId, JevDecision, EditionChoice,
@@ -235,6 +237,7 @@ export type {
   JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack, NotSendableReason, AlbumRequest, RequestOptions,
   LocalCandidate, FeatureRow,
   Standardiser, LogisticModel, LogisticOptions, IsotonicBlock, IsotonicModel, LocalModel,
+  TrainingAlbum, TrainingRow, TrainingCounts, BandMetrics, LocalTrainMetrics, TrainOptions, TrainResult, TrainingRefusal,
 } from './decider/index.js';
 
 // Spot-check statistics: the one-sided Clopper–Pearson bound and the per-band gate

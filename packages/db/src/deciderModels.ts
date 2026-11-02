@@ -138,3 +138,16 @@ export async function listModels<M = unknown, X = unknown>(
     return rows.map((r) => rowOf<M, X>(r));
   }, []);
 }
+
+/** The singleton key every decider.train job of a library is sent with: one training per library at a time. */
+export function deciderTrainSingletonKey(libraryId: string): string {
+  return `decider.train:${libraryId}`;
+}
+
+/** What sends a job: pg-boss, or a stand-in in tests. */
+export interface DeciderTrainSender { send(name: string, data: object, opts: { singletonKey: string }): Promise<string | null> }
+
+/** Queue a training of the library's local model; null when one is already queued for it. */
+export async function sendDeciderTrain(boss: DeciderTrainSender, libraryId: string): Promise<string | null> {
+  return boss.send('decider.train', { libraryId }, { singletonKey: deciderTrainSingletonKey(libraryId) });
+}

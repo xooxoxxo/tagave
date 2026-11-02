@@ -14,3 +14,8 @@ export { LOCAL_FEATURES_VERSION, LOCAL_FEATURE_NAMES, BREAKDOWN_FEATURE_KEYS, NO
 export type { LocalCandidate, FeatureRow } from './localFeatures.js';
 export { fitStandardiser, fitLogistic, predictLogistic, fitIsotonic, applyIsotonic, calibratedProbability, modelVersion } from './localModel.js';
 export type { Standardiser, LogisticModel, LogisticOptions, IsotonicBlock, IsotonicModel, LocalModel } from './localModel.js';
+export {
+  MIN_OWNER_ALBUMS, TRAIN_FOLDS, TRAIN_SEED, TRAIN_L2, OWNER_WEIGHT, AUTO_WEIGHT, REJECTION_WEIGHT,
+  TrainingRefused, numericBreakdown, localDeciderGroups, trainingRows, assignFolds, trainingDataHash, trainLocalModel,
+} from './localTrain.js';
+export type { TrainingAlbum, TrainingRow, TrainingCounts, BandMetrics, LocalTrainMetrics, TrainOptions, TrainResult, TrainingRefusal } from './localTrain.js';

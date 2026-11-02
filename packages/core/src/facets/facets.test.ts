@@ -233,7 +233,7 @@ describe('manifest v2: apps, compatibility, the module ledger', () => {
   });
 
   it('the autotagger: its own migration chain, its tables in purge order, the core decider tables not among them', () => {
-    expect(AUTOTAGGER_MODULE).toMatchObject({ kind: 'in-process', builtIn: false, migrations: 'modules/autotagger', defaultEnabled: false, jobs: ['decider.run'], prefix: null, settingsKeys: [] });
+    expect(AUTOTAGGER_MODULE).toMatchObject({ kind: 'in-process', builtIn: false, migrations: 'modules/autotagger', defaultEnabled: false, jobs: ['decider.run', 'decider.train'], prefix: null, settingsKeys: [] });
     expect(AUTOTAGGER_MODULE.tables).toEqual(['decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings', 'decider_models']);
     expect(AUTOTAGGER_MODULE.tables).not.toContain('decider_batches');
     expect(AUTOTAGGER_MODULE.tables).not.toContain('decider_batch_items');

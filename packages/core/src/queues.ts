@@ -6,7 +6,7 @@
  */
 export const WORKER_QUEUES = [
   'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'cluster.backfillLoose', 'files.backfillDigest',
-  'identify.album', 'identify.acoustid', 'identify.sweep', 'edition.add', 'evidence.backfill', 'decider.accept', 'decider.run',
+  'identify.album', 'identify.acoustid', 'identify.sweep', 'edition.add', 'evidence.backfill', 'decider.accept', 'decider.run', 'decider.train',
   'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'art.thumb', 'art.thumbSweep', 'gaps.recompute', 'queue.autoaccept',
   'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch',
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
@@ -43,6 +43,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'decider.accept': 'identify.album',
   // decider runs: owner-started, database plus one TypeSafe call per album
   'decider.run': 'identify.album',
+  // local decider training: owner-started, database-only
+  'decider.train': 'identify.album',
   // cover thumbnails rebuilt from the originals art.fetch keeps on its cache volume
   'art.thumb': 'art.fetch',
   'art.thumbSweep': 'art.fetch',
