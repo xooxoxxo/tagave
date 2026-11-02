@@ -7,13 +7,12 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { OidcSettingsRequest, OidcSettingsResponse, OidcTestResult } from '@tagave/shared';
-import { Badge, Banner, Button, Input, TextField, confirmDialog, showToast } from '../ui';
+import { Badge, Banner, Button, Input, SegmentedControl, TextField, confirmDialog, showToast } from '../ui';
 import { api } from '../../services/api';
 import { OIDC_LINK_KEY, OIDC_PUBLIC_KEY, OIDC_SETTINGS_KEY, testOidcIssuer } from '../../services/oidc';
 import { USERS_KEY } from '../../hooks/useUsers';
 import { useStepUpAction } from './useStepUpAction';
 import styles from './UsersList.module.css';
-import page from '../../pages/SettingsSecurityPage.module.css';
 
 export interface SignInServiceDraft {
   name: string;
@@ -65,6 +64,8 @@ const STATE_BADGE: Record<Exclude<ServiceState, 'none'>, { tone: 'success' | 'wa
   off: { tone: 'neutral', label: 'Off' },
 };
 
+const ON_OFF = [{ value: 'off' as const, label: 'Off' }, { value: 'on' as const, label: 'On' }];
+
 export interface SignInServiceFormProps {
   view: OidcSettingsResponse;
   draft: SignInServiceDraft;
@@ -75,15 +76,16 @@ export interface SignInServiceFormProps {
   saving?: boolean;
   tested?: OidcTestResult | null;
   error?: string | null;
+  /** The section heading's class (Settings' section rhythm). */
+  headingClassName?: string | undefined;
 }
 
 /** The form, without data fetching (Storybook renders it with fixtures). */
-export function SignInServiceForm({ view, draft, onChange, onTest, onSave, testing = false, saving = false, tested = null, error = null }: SignInServiceFormProps) {
+export function SignInServiceForm({ view, draft, onChange, onTest, onSave, testing = false, saving = false, tested = null, error = null, headingClassName }: SignInServiceFormProps) {
   const redirect = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
   const state = serviceState(view);
   const set = <K extends keyof SignInServiceDraft>(k: K, v: SignInServiceDraft[K]) => onChange({ ...draft, [k]: v });
-  const label = draft.name.trim() || 'your login service';
   const ready = draft.name.trim() && draft.issuer.trim() && draft.clientId.trim();
   const copy = async () => {
     try {
@@ -99,9 +101,9 @@ export function SignInServiceForm({ view, draft, onChange, onTest, onSave, testi
     if (ready) onSave();
   };
   return (
-    <section className={page.section} aria-labelledby="users-sign-in-service">
-      <div className={styles.titleRow}>
-        <h3 id="users-sign-in-service" className={page.title}>Sign-in service</h3>
+    <section className={styles.serviceSection} aria-labelledby="users-sign-in-service">
+      <div className={[styles.titleRow, headingClassName].filter(Boolean).join(' ')}>
+        <h2 id="users-sign-in-service">Sign-in service</h2>
         {state !== 'none' && <Badge tone={STATE_BADGE[state].tone}>{STATE_BADGE[state].label}</Badge>}
       </div>
       {view.secretUnreadable && <Banner tone="warning">Enter the client secret again.</Banner>}
@@ -124,14 +126,14 @@ export function SignInServiceForm({ view, draft, onChange, onTest, onSave, testi
             <Button type="button" size="sm" variant="secondary" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</Button>
           </div>
         </div>
-        <label className={styles.check}>
-          <input type="checkbox" checked={draft.enabled} onChange={(e) => set('enabled', e.target.checked)} />
-          <span>Sign in with {label}</span>
-        </label>
-        <label className={styles.check}>
-          <input type="checkbox" checked={draft.joinEnabled} onChange={(e) => set('joinEnabled', e.target.checked)} />
-          <span>Anyone from {label} can join</span>
-        </label>
+        <div className={styles.field}>
+          <span className={styles.fieldLabel} aria-hidden="true">Sign-in button</span>
+          <SegmentedControl label="Sign-in button" value={draft.enabled ? 'on' : 'off'} onChange={(v) => set('enabled', v === 'on')} options={ON_OFF} />
+        </div>
+        <div className={styles.field}>
+          <span className={styles.fieldLabel} aria-hidden="true">Anyone can join</span>
+          <SegmentedControl label="Anyone can join" value={draft.joinEnabled ? 'on' : 'off'} onChange={(v) => set('joinEnabled', v === 'on')} options={ON_OFF} />
+        </div>
         {draft.joinEnabled && (
           <TextField label="Group" value={draft.joinGroup} maxLength={255} placeholder="Any" autoComplete="off" spellCheck={false} onChange={(e) => set('joinGroup', e.target.value)} />
         )}
@@ -151,7 +153,7 @@ const errorText = (err: unknown, fallback: string) => {
   return e?.detail ?? fallback;
 };
 
-export function SignInService() {
+export function SignInService({ headingClassName }: { headingClassName?: string | undefined } = {}) {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: OIDC_SETTINGS_KEY, queryFn: () => api.get<OidcSettingsResponse>('/users/sign-in-service') });
   const { run, dialog } = useStepUpAction();
@@ -219,6 +221,7 @@ export function SignInService() {
         saving={save.isPending}
         tested={tested}
         error={error}
+        headingClassName={headingClassName}
       />
       {dialog}
     </>

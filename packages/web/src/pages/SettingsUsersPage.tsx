@@ -4,14 +4,14 @@
  * or deleting their data). Invites, role changes, resets and removal ask the
  * owner to confirm it is them when the last sign-in is older than five
  * minutes (useStepUpAction). No email is sent: the owner copies the link.
- * The sign-in service (your own login service) is set up here too.
+ * The sign-in service (your own login service) is its own section below
+ * (SettingsPage renders it after this page).
  */
 import { useState, type FormEvent } from 'react';
 import { ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, type InviteLinkResponse, type Role, type UserView } from '@tagave/shared';
 import { Banner, Button, Select, TextField, confirmDialog } from '../components/ui';
 import { LinkPanel, PendingLinkRow, UserRow, usersListStyles as list } from '../components/users/UsersList';
 import { useStepUpAction } from '../components/users/useStepUpAction';
-import { SignInService } from '../components/users/SignInService';
 import { useOidcButton } from '../services/oidc';
 import { useChangeUser, useInviteUser, useRemoveUser, useResetSignIn, useRevokeInvite, useUsers } from '../hooks/useUsers';
 import styles from './SettingsSecurityPage.module.css';
@@ -193,7 +193,6 @@ export function SettingsUsersPage() {
         </section>
       )}
 
-      <SignInService />
       {dialog}
     </div>
   );

@@ -107,43 +107,28 @@ On the code page, **Don't ask for a code on this device for 30 days** remembers 
 
 ## Sign in with your login service
 
-If your household already signs in to its apps through one login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID or any other OpenID Connect provider), tagave can offer **Sign in with Zitadel** (or your service's name) next to the password and passkey.
+tagave can add a **Sign in with Zitadel** button (named after your service) for any OpenID Connect login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID). Set it up in Settings › Users › **Sign-in service**; each person links their account from Settings › **Account**. The redirect URI, shown there with **Copy**, is:
 
-### Set it up
-
-1. In your login service, create an app (a "web" or "confidential" OpenID Connect client) with this redirect URI:
-
-   ```
-   https://music.example.com/api/auth/callback/oidc
-   ```
-
-   Use your own `PUBLIC_URL`; Settings › Users › **Sign-in service** shows the exact address with a **Copy** button.
-2. In tagave, Settings › Users › **Sign-in service**: enter a name for the button, the issuer URL, the client ID and the client secret. **Test** fetches the issuer's discovery document; **Save** turns the button on.
-3. Each person links their account from Settings › **Account** › **Link**, while signed in.
-
-The client secret is stored encrypted with a key derived from `APP_SECRET` and is never shown again (the field says only **Set**). `tagave-doctor reseal` re-encrypts it when you rotate `APP_SECRET`.
+```
+https://music.example.com/api/auth/callback/oidc
+```
 
 ### Zitadel
 
-- Project › **New application**, type **Web**, authentication method **Code** (or **PKCE** for a client without a secret: leave the secret empty in tagave).
-- Redirect URI: the address above. Zitadel accepts an `http://` redirect URI only with **Development mode** on.
-- Issuer: your Zitadel address, for example `https://auth.example.com`.
-- To limit who may join to a group: add a project role (for example `music`), turn on **Assert Roles on Authentication** in the project, and **User roles inside ID Token** in the app's token settings. Enter the role key as the group in tagave.
-
-Other services: Authentik's issuer ends in `/application/o/<slug>/`; Keycloak's is `https://…/realms/<realm>` and needs a **Group Membership** mapper (full path off) for groups; Authelia and Pocket ID send groups with the `groups` scope, which tagave asks for when a group is set.
+- Project › **New application**, type **Web**, method **Code** (or **PKCE** with no secret).
+- Redirect URI: as above. An `http://` URI needs **Development mode**.
+- Issuer: your Zitadel address, e.g. `https://auth.example.com`.
+- Group limit: add a project role, turn on **Assert Roles on Authentication** and **User roles inside ID Token**, and enter the role key as the group.
 
 ### Who can sign in
 
-- **Linking is explicit.** An identity from the login service signs in only to the account it was linked to from Account. A matching email address never links anything, so nobody takes over an account by setting its address at the login service.
-- **New people** come by invite (the invite page offers **Continue with Zitadel**; the account gets the invite's address and role) or, with **Anyone from Zitadel can join** on, by signing in for the first time. Joiners are listeners, and only people in the group, when one is set.
-- **The owner keeps a password or a passkey.** Owner invites are accepted with a password, and someone who signs in only through the login service cannot be made an owner.
-- **Unlinking** is refused while it is the account's only way in, and so is deleting the last passkey of an account without a password (for an owner, even when the login service is linked).
-- **Linking asks for a fresh confirmation** (like inviting), so a stolen session cannot add a way in of its own.
-- A failed sign-in says only that it did not work, whatever the reason, so the page never tells whether an account exists. The reason is in the log.
-- tagave checks the state (bound to your browser), PKCE, the id_token's signature, issuer, audience and nonce, and that the discovery document names exactly the issuer you entered. It keeps none of the login service's tokens.
-- **Confirming it is you** can go through the login service: it asks you to sign in again (`prompt=login`, `max_age=0`) and counts only if the service reports a fresh sign-in time (`auth_time`). Dex does not send one, so with Dex this option never succeeds.
-- Changing the issuer unlinks everyone (an identity at one service means nothing at another); tagave asks before saving. If the issuer does not answer when tagave starts, the button stays hidden and tagave tries again when someone opens the sign-in page.
-- On an iPhone home-screen app, the login service opens in a browser sheet with its own cookies; a passkey stays the smoother sign-in there.
+- Only an account linked from Account; a matching email never links.
+- New people by invite, or with **Anyone can join** on (as listeners, only from the group when one is set).
+- Owners keep a password or passkey. Unlinking the last way in, or deleting the last passkey without a password, is refused.
+- Linking asks for a fresh confirmation. A failed sign-in never says why.
+- State, PKCE, nonce, issuer and the id_token signature are checked; the service's tokens are not kept. The client secret is encrypted with `APP_SECRET` (`tagave-doctor reseal` covers it).
+- Confirming through the service needs its `auth_time`; Dex sends none.
+- Changing the issuer unlinks everyone.
 
 ## Backup security
 

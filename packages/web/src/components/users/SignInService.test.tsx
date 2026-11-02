@@ -24,7 +24,8 @@ describe('sign-in service settings', () => {
     const html = renderToStaticMarkup(<SignInServiceForm view={v} draft={d} onChange={noop} onTest={noop} onSave={noop} />);
     expect(html).toContain('placeholder="Set"');
     expect(html).toContain('https://music.example.com/api/auth/callback/oidc');
-    expect(html).toContain('Anyone from Zitadel can join');
+    expect(html).toContain('Anyone can join');
+    expect(html).not.toContain('type="checkbox"');
     expect(html).not.toContain(SECRET);
   });
 
