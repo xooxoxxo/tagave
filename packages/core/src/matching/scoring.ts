@@ -29,6 +29,16 @@ import {
 export const MAX_ALIGN_TRACKS = 500;
 
 /**
+ * The text comparison the scorer uses. Callers leave it out; a read-only
+ * report passes an older normaliser to replay how the scorer used to judge.
+ */
+export interface ScoringText {
+  normalizeString: (s: string) => string;
+  stringDistance: (a: string, b: string) => number;
+}
+const CURRENT_TEXT: ScoringText = { normalizeString, stringDistance };
+
+/**
  * A provider release, seen only through what says how many discs it has.
  * Structural so the matcher does not have to depend on the provider types.
  */
@@ -99,7 +109,8 @@ function unaligned(track: LocalTrack): TrackAlignment {
  */
 export function alignTracks(
   localTracks: LocalTrack[],
-  canonicalTracks: CanonicalTrack[]
+  canonicalTracks: CanonicalTrack[],
+  text: ScoringText = CURRENT_TEXT
 ): TrackAlignment[] {
   if (!localTracks.length || !canonicalTracks.length
     || Math.max(localTracks.length, canonicalTracks.length) > MAX_ALIGN_TRACKS) {
@@ -111,7 +122,7 @@ export function alignTracks(
   // One disc on either side (or no disc information at all) => the historical
   // flat alignment, unchanged.
   if (localDiscs.length < 2 || canonicalMedia.length < 2) {
-    return alignFlat(localTracks, canonicalTracks);
+    return alignFlat(localTracks, canonicalTracks, text);
   }
 
   const byMedium = new Map<number, CanonicalTrack[]>();
@@ -141,7 +152,7 @@ export function alignTracks(
     const group = positions.map((i) => localTracks[i]!);
     const mediumNo = byNumber ? localDiscs[rank] : canonicalMedia[rank];
     const medium = mediumNo === undefined ? undefined : byMedium.get(mediumNo);
-    const sub = medium && medium.length ? alignFlat(group, medium) : group.map(unaligned);
+    const sub = medium && medium.length ? alignFlat(group, medium, text) : group.map(unaligned);
     for (let k = 0; k < positions.length; k++) {
       out[positions[k]!] = sub[k] ?? unaligned(group[k]!);
     }
@@ -155,7 +166,8 @@ export function alignTracks(
  */
 function alignFlat(
   localTracks: LocalTrack[],
-  canonicalTracks: CanonicalTrack[]
+  canonicalTracks: CanonicalTrack[],
+  text: ScoringText
 ): TrackAlignment[] {
   const GRACE_DURATION = 10; // seconds
   const HARD_CAP_DURATION = 30; // seconds
@@ -178,7 +190,7 @@ function alignFlat(
     const row: number[] = [];
     for (const canTrack of canonicalTracks) {
       // Calculate title distance
-      const titleDist = stringDistance(localTrack.title, canTrack.title);
+      const titleDist = text.stringDistance(localTrack.title, canTrack.title);
 
       // Unknown canonical duration (most Discogs releases carry none): the
       // duration says nothing, so the cost is the title alone — a 0 s
@@ -287,7 +299,8 @@ export interface ReleaseScore {
 export function scoreRelease(
   local: LocalAlbumView,
   candidate: CanonicalRelease,
-  prefs: MatchingPreferences = {}
+  prefs: MatchingPreferences = {},
+  text: ScoringText = CURRENT_TEXT
 ): ReleaseScore {
   const weights = { ...DEFAULT_WEIGHTS, ...(prefs.weights || {}) };
   const breakdown: DistanceBreakdown = {};
@@ -309,13 +322,13 @@ export function scoreRelease(
   }
 
   // 2. Artist comparison
-  const localArtist = normalizeString(local.albumartist || local.artist || '');
-  const canArtists = (candidate.artists || []).map((a) => normalizeString(a));
+  const localArtist = text.normalizeString(local.albumartist || local.artist || '');
+  const canArtists = (candidate.artists || []).map((a) => text.normalizeString(a));
   let artistDist = 1;
   if (localArtist && canArtists.length > 0) {
     // Take the best match from artist credits
     artistDist = Math.min(
-      ...canArtists.map((a) => stringDistance(localArtist, a))
+      ...canArtists.map((a) => text.stringDistance(localArtist, a))
     );
   }
   breakdown.artist = artistDist;
@@ -323,13 +336,13 @@ export function scoreRelease(
   totalWeight += weights.artist;
 
   // 3. Album title comparison
-  const albumDist = stringDistance(local.title, candidate.title);
+  const albumDist = text.stringDistance(local.title, candidate.title);
   breakdown.album = albumDist;
   totalScore += albumDist * weights.album;
   totalWeight += weights.album;
 
   // 4. Track alignment and count comparison
-  const alignments = alignTracks(local.tracks, candidate.tracks);
+  const alignments = alignTracks(local.tracks, candidate.tracks, text);
   let unmatchedCount = 0;
   let trackDistSum = 0;
 
@@ -385,7 +398,7 @@ export function scoreRelease(
   const alignedTitles = alignments.filter((a) => a.canonicalIndex !== null);
   if (alignedTitles.length > 0) {
     const avgTitleDist =
-      alignedTitles.reduce((sum, a) => sum + stringDistance(a.title.local, a.title.canonical || ''), 0) /
+      alignedTitles.reduce((sum, a) => sum + text.stringDistance(a.title.local, a.title.canonical || ''), 0) /
       alignedTitles.length;
     breakdown.trackTitle = avgTitleDist;
     totalScore += avgTitleDist * weights.trackTitle;
