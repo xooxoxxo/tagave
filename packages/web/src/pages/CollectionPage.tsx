@@ -209,58 +209,59 @@ export function CollectionPage() {
         />
       ) : (
         <>
-          <Collapse open={showAddForm}>
-            <form className={styles.addForm} onSubmit={(e) => { e.preventDefault(); void addRecord(); }}>
-              <h2 className={styles.formTitle}>Add a record</h2>
+          <div>
+            <Collapse open={showAddForm}>
+              <form className={styles.addForm} onSubmit={(e) => { e.preventDefault(); void addRecord(); }}>
+                <h2 className={styles.formTitle}>Add a record</h2>
 
-              <label className={styles.formGroup}>
-                <span>Discogs release URL or ID</span>
-                <input type="text" required placeholder="https://www.discogs.com/release/12345 or 12345" value={form.input}
-                  onChange={(e) => setForm({ ...form, input: e.target.value })} className={styles.formInput} />
-              </label>
-              <div className={styles.formRow}>
                 <label className={styles.formGroup}>
-                  <span>Folder</span>
-                  <select value={form.folderId} onChange={(e) => setForm({ ...form, folderId: parseInt(e.target.value, 10) })} className={styles.formInput}>
-                    {(optionsData.folders.length ? optionsData.folders : [{ id: 1, name: 'Uncategorized' }]).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  </select>
+                  <span>Discogs release URL or ID</span>
+                  <input type="text" required placeholder="https://www.discogs.com/release/12345 or 12345" value={form.input}
+                    onChange={(e) => setForm({ ...form, input: e.target.value })} className={styles.formInput} />
                 </label>
+                <div className={styles.formRow}>
+                  <label className={styles.formGroup}>
+                    <span>Folder</span>
+                    <select value={form.folderId} onChange={(e) => setForm({ ...form, folderId: parseInt(e.target.value, 10) })} className={styles.formInput}>
+                      {(optionsData.folders.length ? optionsData.folders : [{ id: 1, name: 'Uncategorized' }]).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.formGroup}>
+                    <span>Media condition</span>
+                    <select value={form.mediaCondition} onChange={(e) => setForm({ ...form, mediaCondition: e.target.value })} className={styles.formInput}>
+                      <option value="">Not set</option>
+                      {optionsData.conditionGrades.map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.formGroup}>
+                    <span>Sleeve condition</span>
+                    <select value={form.sleeveCondition} onChange={(e) => setForm({ ...form, sleeveCondition: e.target.value })} className={styles.formInput}>
+                      <option value="">Not set</option>
+                      {optionsData.conditionGrades.map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </label>
+                </div>
                 <label className={styles.formGroup}>
-                  <span>Media condition</span>
-                  <select value={form.mediaCondition} onChange={(e) => setForm({ ...form, mediaCondition: e.target.value })} className={styles.formInput}>
-                    <option value="">Not set</option>
-                    {optionsData.conditionGrades.map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select>
+                  <span>Notes</span>
+                  <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={styles.formInput} />
                 </label>
-                <label className={styles.formGroup}>
-                  <span>Sleeve condition</span>
-                  <select value={form.sleeveCondition} onChange={(e) => setForm({ ...form, sleeveCondition: e.target.value })} className={styles.formInput}>
-                    <option value="">Not set</option>
-                    {optionsData.conditionGrades.map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select>
-                </label>
-              </div>
-              <label className={styles.formGroup}>
-                <span>Notes</span>
-                <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={styles.formInput} />
-              </label>
-              {addError && <p className={styles.formError} role="alert">{addError}</p>}
-              <div className={styles.formActions}>
-                <Button type="submit" loading={addItem.isPending} disabled={!form.input.trim()}>Add record</Button>
-                <Button variant="secondary" onClick={() => setShowAddForm(false)}>Cancel</Button>
-              </div>
-            </form>
-          </Collapse>
+                {addError && <p className={styles.formError} role="alert">{addError}</p>}
+                <div className={styles.formActions}>
+                  <Button type="submit" loading={addItem.isPending} disabled={!form.input.trim()}>Add record</Button>
+                  <Button variant="secondary" onClick={() => setShowAddForm(false)}>Cancel</Button>
+                </div>
+              </form>
+            </Collapse>
 
-          <div className={styles.viewHead}>
-            <Tabs
-              label="Collection views"
-              value={view}
-              onChange={(v) => setView(v as View)}
-              panelId="collection-panel"
-              items={visibleViews.map((v) => ({ value: v.key, label: v.label, ...(v.count && counts[v.count] ? { count: counts[v.count] } : {}) }))}
-            />
-
+            <div className={styles.viewHead}>
+              <Tabs
+                label="Collection views"
+                value={view}
+                onChange={(v) => setView(v as View)}
+                panelId="collection-panel"
+                items={visibleViews.map((v) => ({ value: v.key, label: v.label, ...(v.count && counts[v.count] ? { count: counts[v.count] } : {}) }))}
+              />
+            </div>
           </div>
 
           <div id="collection-panel" role="tabpanel" aria-label={current.label}>
