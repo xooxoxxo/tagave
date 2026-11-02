@@ -46,6 +46,7 @@ describe('route permissions', () => {
       .sort();
     expect(pub).toEqual([
       'GET /api/auth/*',
+      'GET /api/v1/auth/oidc',
       'GET /api/v1/auth/setup-required',
       'GET /api/v1/connect/authorize',
       'GET /api/v1/health',
@@ -55,6 +56,7 @@ describe('route permissions', () => {
       'POST /api/auth/*',
       'POST /api/v1/auth/login',
       'POST /api/v1/auth/logout',
+      'POST /api/v1/auth/oidc/sign-in',
       'POST /api/v1/auth/setup',
       'POST /api/v1/connect/register',
       'POST /api/v1/connect/revoke',

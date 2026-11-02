@@ -183,7 +183,7 @@ export type StartUpdate = z.infer<typeof startUpdateSchema>;
 /** Step-up: how long a sign-in or a re-verification counts as fresh for a one-time action. */
 export const STEP_UP_WINDOW_MS = 5 * 60 * 1000;
 
-export type StepUpMethod = 'passkey' | 'totp' | 'password';
+export type StepUpMethod = 'passkey' | 'totp' | 'oidc' | 'password';
 
 /** GET /api/v1/auth/step-up */
 export interface StepUpStatus {
@@ -194,4 +194,6 @@ export interface StepUpStatus {
   fresh: boolean;
   /** Methods this account can re-verify with, strongest first. */
   methods: StepUpMethod[];
+  /** The login service's name, when `oidc` is one of the methods. */
+  oidcName?: string | null;
 }

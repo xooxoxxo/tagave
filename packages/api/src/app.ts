@@ -37,6 +37,7 @@ import { createPlayerRoutes } from './routes/player.js';
 import { createPlayerListeningRoutes } from './routes/playerListening.js';
 import { createUserRoutes } from './routes/users.js';
 import { createInviteRoutes } from './routes/invites.js';
+import { createOidcSettingsRoutes } from './routes/oidc.js';
 import { createConnectRoutes, createManifestRoute } from './routes/connect.js';
 import { createMcFeedRoutes } from './routes/mcFeeds.js';
 import { createMcConnectionRoutes } from './routes/mcConnections.js';
@@ -175,6 +176,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // Settings › Users: people, roles, invites (owner)
     instance.register(createUserRoutes, { prefix: '/api/v1' });
+    // Settings › Users › Sign-in service: your own login service (owner)
+    instance.register(createOidcSettingsRoutes, { prefix: '/api/v1' });
 
     // Settings › Connections: Music Connections links this person made to other apps ('self')
     instance.register(createMcConnectionRoutes, { prefix: '/api/v1' });

@@ -23,8 +23,12 @@ export const userViewSchema = z.object({
   createdAt: z.string(),
   /** Latest session activity, null when they never signed in. */
   lastSeenAt: z.string().nullable(),
+  /** Has a password (an account made through the login service may have none). */
+  password: z.boolean(),
   twoFactor: z.boolean(),
   passkeys: z.number().int(),
+  /** Linked to the login service (Settings › Users › Sign-in service). */
+  oidc: z.boolean(),
   /** The person looking at the list. */
   isSelf: z.boolean(),
 });
