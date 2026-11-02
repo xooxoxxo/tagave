@@ -68,8 +68,15 @@ export const serviceFetch: typeof fetch = (input, init) =>
           else if (v !== undefined) out.set(k, v);
         }
         const status = res.statusCode ?? 0;
+        // Response() throws on a status outside 200-599; thrown here, inside
+        // a stream event, it would be uncaught and take the process down.
+        if (status < 200 || status > 599) return reject(new Error(`unexpected status ${status}`));
         const empty = status === 204 || status === 304 || (status >= 300 && status < 400);
-        resolve(new Response(empty ? null : Buffer.concat(chunks), { status, headers: out }));
+        try {
+          resolve(new Response(empty ? null : Buffer.concat(chunks), { status, headers: out }));
+        } catch (err) {
+          reject(err);
+        }
       });
       res.on('error', reject);
     });
@@ -628,7 +635,7 @@ export async function profileFromTokens(
 
 /** The account key for an identity: its `sub`, namespaced by the issuer (an id at one service means nothing at another). */
 export function oidcAccountKey(issuer: string, sub: string): string {
-  return createHash('sha256').update(`${issuer}:${sub}`, 'utf8').digest('base64url');
+  return createHash('sha256').update(JSON.stringify([issuer, sub]), 'utf8').digest('base64url');
 }
 
 const JWKS_TTL_MS = 10 * 60 * 1000;

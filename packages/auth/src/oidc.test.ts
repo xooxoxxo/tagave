@@ -1,3 +1,4 @@
+import { createServer, type AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import {
   OidcConfigError,
@@ -8,7 +9,9 @@ import {
   hasLocalWayIn,
   inJoinGroup,
   parseIssuerInput,
+  oidcAccountKey,
   profileFromTokens,
+  serviceFetch,
   withoutOidcTokens,
 } from './oidc.js';
 
@@ -153,5 +156,25 @@ describe('accounts', () => {
     expect(hasLocalWayIn({ password: false, passkeys: 0, oidc: true })).toBe(false);
     expect(hasLocalWayIn({ password: true, passkeys: 0, oidc: true })).toBe(true);
     expect(hasLocalWayIn({ password: false, passkeys: 1, oidc: false })).toBe(true);
+  });
+});
+
+describe('service fetch', () => {
+  it('rejects a status Response cannot carry instead of throwing out of the stream', async () => {
+    const server = createServer((s) => {
+      s.once('data', () => s.end('HTTP/1.1 600 Odd\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}'));
+      s.on('error', () => undefined);
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    try {
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/.well-known/openid-configuration`;
+      await expect(serviceFetch(url)).rejects.toThrow('unexpected status 600');
+    } finally {
+      await new Promise((r) => server.close(() => r(undefined)));
+    }
+  });
+
+  it('keys an identity by issuer and sub without ambiguity', () => {
+    expect(oidcAccountKey('https://a.example', 'x:y')).not.toBe(oidcAccountKey('https://a.example:x', 'y'));
   });
 });
