@@ -510,8 +510,8 @@ interface Logger {
  * The profile for an id_token Better Auth has already verified (signature
  * against the discovery keys, issuer, audience, expiry, nonce). An answer
  * without an id_token, or naming another issuer than the one set, is
- * refused; claims missing from the token (Zitadel leaves email out unless
- * told) come from the userinfo endpoint, for the same `sub` only.
+ * refused; claims missing from the token come from the userinfo endpoint,
+ * for the same `sub` only, and never replace the token's own.
  */
 export async function profileFromTokens(
   tokens: { idToken?: string | undefined; accessToken?: string | undefined },
@@ -525,7 +525,10 @@ export async function profileFromTokens(
   const sub = claims['sub'];
   if (typeof sub !== 'string' || !sub) return null;
   let info: Record<string, unknown> = {};
-  if ((typeof claims['email'] !== 'string' || !claims['name']) && userinfoEndpoint && tokens.accessToken) {
+  // Zitadel leaves email and profile out of the id_token unless told; Authelia
+  // sends groups only from userinfo
+  const missing = typeof claims['email'] !== 'string' || !claims['name'] || claims['groups'] === undefined;
+  if (missing && userinfoEndpoint && tokens.accessToken) {
     try {
       const res = await fetchImpl(userinfoEndpoint, {
         headers: { authorization: `Bearer ${tokens.accessToken}`, accept: 'application/json' },
@@ -581,8 +584,9 @@ export function oidcPlugin(settings: OidcSettings, logger: Logger): BetterAuthPl
   }) as unknown as BetterAuthPlugin;
   const init = plugin.init!;
   plugin.init = async (ctx) => {
-    // the discovery fetch has no time limit of its own
-    userinfoEndpoint = await discoverOidc(settings.issuer).then((d) => d.userinfoEndpoint, () => null);
+    // Better Auth's discovery fetch has no time limit of its own; ours (for
+    // the userinfo endpoint) runs alongside it
+    const ours = discoverOidc(settings.issuer).then((d) => d.userinfoEndpoint, () => null);
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), DISCOVERY_TIMEOUT_MS); });
     let result: Awaited<ReturnType<typeof init>> | null;
@@ -593,6 +597,7 @@ export function oidcPlugin(settings: OidcSettings, logger: Logger): BetterAuthPl
     } finally {
       clearTimeout(timer);
     }
+    userinfoEndpoint = await ours;
     const providers = (result as { context?: { socialProviders?: Array<{ id: string; issuer?: string; idToken?: unknown }> } } | null)?.context?.socialProviders;
     if (!providers) {
       logger.warn(`Sign in with ${settings.name}: the issuer did not answer; the button stays hidden until it does.`);

@@ -137,7 +137,7 @@ Other services: Authentik's issuer ends in `/application/o/<slug>/`; Keycloak's 
 - **Linking is explicit.** An identity from the login service signs in only to the account it was linked to from Account. A matching email address never links anything, so nobody takes over an account by setting its address at the login service.
 - **New people** come by invite (the invite page offers **Continue with Zitadel**; the account gets the invite's address and role) or, with **Anyone from Zitadel can join** on, by signing in for the first time. Joiners are listeners, and only people in the group, when one is set.
 - **The owner keeps a password or a passkey.** Owner invites are accepted with a password, and someone who signs in only through the login service cannot be made an owner.
-- **Unlinking** is refused while it is the account's only way in.
+- **Unlinking** is refused while it is the account's only way in, and so is deleting the last passkey of an account without a password (for an owner, even when the login service is linked).
 - **Linking asks for a fresh confirmation** (like inviting), so a stolen session cannot add a way in of its own.
 - A failed sign-in says only that it did not work, whatever the reason, so the page never tells whether an account exists. The reason is in the log.
 - tagave checks the state (bound to your browser), PKCE, the id_token's signature, issuer, audience and nonce, and that the discovery document names exactly the issuer you entered. It keeps none of the login service's tokens.

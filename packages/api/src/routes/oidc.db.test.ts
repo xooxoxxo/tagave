@@ -300,6 +300,27 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
     expect(start.statusCode).toBe(404);
   });
 
+  it('the last passkey of an account without a password goes only when the login service is left, and never for an owner', async () => {
+    const addPasskey = (userId: string) => sql<Array<{ id: string }>>`
+      insert into auth_passkeys (user_id, public_key, credential_id, counter, device_type, backed_up)
+      values (${userId}, 'pk', ${`cred-${userId}`}, 0, 'singleDevice', false) returning id`;
+    const deletePasskey = (jar: Jar, id: string) => app.inject({
+      method: 'POST', url: '/api/auth/passkey/delete-passkey',
+      headers: { ...headers(jar), 'content-type': 'application/json' }, payload: { id },
+    });
+    for (const role of ['listener', 'owner'] as const) {
+      const u = await createTestUser(handle, { role });
+      await sql`delete from auth_accounts where user_id = ${u.userId} and provider_id = 'credential'`;
+      const [pk] = await addPasskey(u.userId);
+      const alone = await deletePasskey(u.jar, pk!.id);
+      expect(alone.statusCode, alone.body).toBe(400);
+      expect(alone.json().code).toBe('LAST_WAY_IN');
+      await sql`insert into auth_accounts (user_id, account_id, provider_id) values (${u.userId}, ${`idp-${role}`}, 'oidc')`;
+      const withService = await deletePasskey(u.jar, pk!.id);
+      expect(withService.statusCode, withService.body).toBe(role === 'owner' ? 400 : 200);
+    }
+  });
+
   it('an invite accepted through the service makes the invited account with its role, once', async () => {
     const inv = await call(owner.jar, 'POST', '/api/v1/users/invites', { email: 'Ed@Example.test', role: 'editor' });
     expect(inv.statusCode, inv.body).toBe(201);

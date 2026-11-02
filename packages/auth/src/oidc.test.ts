@@ -115,6 +115,12 @@ describe('profile from tokens', () => {
     expect(other?.email).toBeUndefined();
   });
 
+  it('takes groups from userinfo when the id_token has none (Authelia)', async () => {
+    const userinfo = (async () => new Response(JSON.stringify({ sub: 'u1', groups: ['music'] }))) as unknown as typeof fetch;
+    const p = await profileFromTokens({ idToken: jwt({ iss, sub: 'u1', email: 'a@b.c', name: 'A' }), accessToken: 'at' }, iss, 'https://x/userinfo', userinfo);
+    expect(p?.['groups']).toEqual(['music']);
+  });
+
   it('the id_token wins over userinfo', async () => {
     const userinfo = (async () => new Response(JSON.stringify({ sub: 'u1', iss: 'https://evil.example', name: 'Info' }))) as unknown as typeof fetch;
     const p = await profileFromTokens({ idToken: jwt({ iss, sub: 'u1', email: 'a@b.c', email_verified: true }), accessToken: 'at' }, iss, 'https://x/userinfo', userinfo);

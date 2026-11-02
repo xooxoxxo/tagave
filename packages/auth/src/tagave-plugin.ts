@@ -1,9 +1,13 @@
 import type { BetterAuthPlugin } from 'better-auth';
-import { APIError, createAuthEndpoint, createAuthMiddleware } from 'better-auth/api';
+import { APIError, createAuthEndpoint, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
 import type postgres from 'postgres';
 import * as z from 'zod';
 import { revokeAllTrustedDevices } from './trusted-devices.js';
+import { waysIn } from './oidc.js';
+
+/** Deleting this passkey would leave the account no way in (or an owner only the login service). */
+export const LAST_WAY_IN = 'LAST_WAY_IN';
 
 function checkPasswordLength(config: { minPasswordLength: number; maxPasswordLength: number }, password: string): void {
   if (password.length < config.minPasswordLength) {
@@ -23,6 +27,29 @@ export const tagavePlugin = (sql: postgres.Sql, rpId: string) =>
   ({
     id: 'tagave',
     hooks: {
+      before: [
+        {
+          // The last passkey of an account without a password: refused when
+          // nothing else is left, and for an owner when only the login
+          // service would be (an owner keeps a password or a passkey).
+          matcher: (ctx) => ctx.path === '/passkey/delete-passkey',
+          handler: createAuthMiddleware(async (ctx) => {
+            const session = await getSessionFromCtx(ctx);
+            if (!session) return;
+            const ways = await waysIn(sql, session.user.id);
+            if (ways.password || ways.passkeys > 1) return;
+            const owner = (session.user as { role?: unknown }).role === 'owner';
+            if (owner || !ways.oidc) {
+              throw new APIError('BAD_REQUEST', {
+                code: LAST_WAY_IN,
+                message: owner
+                  ? 'An owner keeps a password or a passkey. Add another passkey first.'
+                  : 'This is your only way to sign in. Add another passkey first.',
+              });
+            }
+          }),
+        },
+      ],
       after: [
         {
           // Turning the authenticator off or changing the password forgets
