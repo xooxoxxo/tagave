@@ -107,7 +107,7 @@ On the code page, **Don't ask for a code on this device for 30 days** remembers 
 
 ## Sign in with your login service
 
-tagave can add a **Sign in with Zitadel** button (named after your service) for any OpenID Connect login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID). Set it up in Settings › Users › **Sign-in service**; each person links their account from Settings › **Account**. The redirect URI, shown there with **Copy**, is:
+Any OpenID Connect login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID) can add a **Sign in with …** button. Set it up in Settings › Users › **Sign-in service**; each person links from Settings › **Account**. The redirect URI:
 
 ```
 https://music.example.com/api/auth/callback/oidc
@@ -118,16 +118,17 @@ https://music.example.com/api/auth/callback/oidc
 - Project › **New application**, type **Web**, method **Code** (or **PKCE** with no secret).
 - Redirect URI: as above. An `http://` URI needs **Development mode**.
 - Issuer: your Zitadel address, e.g. `https://auth.example.com`.
-- Group limit: add a project role, turn on **Assert Roles on Authentication** and **User roles inside ID Token**, and enter the role key as the group.
+- Group limit: a project role, with **Assert Roles on Authentication** and **User roles inside ID Token** on; enter its key as the group.
 
 ### Who can sign in
 
 - Only an account linked from Account; a matching email never links.
-- New people by invite, or with **Anyone can join** on (as listeners, only from the group when one is set).
+- New people by invite, or with **Anyone can join** on (as listeners, only from the group when one is set). Someone removed cannot rejoin.
+- An authenticator app still asks for its code; a set-password link unlinks the service.
 - Owners keep a password or passkey. Unlinking the last way in, or deleting the last passkey without a password, is refused.
-- Linking asks for a fresh confirmation. A failed sign-in never says why.
-- State, PKCE, nonce, issuer and the id_token signature are checked; the service's tokens are not kept. The client secret is encrypted with `APP_SECRET` (`tagave-doctor reseal` covers it).
-- Confirming through the service needs its `auth_time`; Dex sends none.
+- Linking and unlinking ask for a fresh confirmation. A failed sign-in never says why.
+- State, PKCE, nonce, issuer and the id_token signature are checked; the service's tokens are not kept. The client secret is encrypted with `APP_SECRET`.
+- Confirming through the service needs its `auth_time` (Dex sends none), and only without a passkey or authenticator.
 - Changing the issuer unlinks everyone.
 
 ## Backup security

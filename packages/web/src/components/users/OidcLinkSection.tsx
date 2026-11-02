@@ -82,7 +82,8 @@ export function OidcLinkSection() {
     setError(null);
     setBusy(true);
     try {
-      await unlinkOidc();
+      // like linking, unlinking asks for a fresh confirmation
+      await run(`Unlink ${name}`, () => unlinkOidc());
       await queryClient.invalidateQueries({ queryKey: OIDC_LINK_KEY });
     } catch (err) {
       setError(errorText(err, 'Could not unlink.'));

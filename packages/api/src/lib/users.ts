@@ -7,7 +7,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type postgres from 'postgres';
 import { INVITE_TTL_DAYS, type InvitePurpose, type InviteView, type Role, type UserView } from '@tagave/shared';
-import { hasLocalWayIn, waysIn } from '@tagave/auth';
+import { hasLocalWayIn, refuseOidcRejoin, waysIn } from '@tagave/auth';
 import { ApiError } from '../middleware/errorHandler.js';
 import { toRole } from '../middleware/auth.js';
 
@@ -242,6 +242,8 @@ export async function removeUser(sql: postgres.Sql, actorId: string, userId: str
     await tx`update field_locks set created_by = ${actorId} where created_by = ${userId}`;
     await tx`update cluster_overrides set created_by = ${actorId} where created_by = ${userId}`;
     await revokeLinksMadeBy(tx, userId);
+    // their login-service identity does not come back by "Anyone can join"
+    await refuseOidcRejoin(tx, userId);
     if (data === 'delete') {
       // their bundled-player account goes with the row (cascade); the people
       // sync locks it on the server from here, so phone apps lose it too

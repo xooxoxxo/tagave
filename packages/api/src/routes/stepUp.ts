@@ -43,7 +43,9 @@ function requireSession(request: FastifyRequest): { userId: string; sessionId: s
 
 async function status(userId: string, sessionId: string): Promise<StepUpStatus> {
   const { sql, env } = getAuthHandle();
-  const oidc = await getAuthHandle().retryOidc();
+  // never waits on the login service: a due retry runs in the background
+  void getAuthHandle().retryOidc().catch(() => undefined);
+  const oidc = getAuthHandle().oidcStatus();
   const at = (await lastVerifiedAt(sql, sessionId)) ?? new Date(0);
   return {
     verifiedAt: at.toISOString(),

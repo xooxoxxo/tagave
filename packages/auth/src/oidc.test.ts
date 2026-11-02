@@ -60,6 +60,21 @@ describe('discovery', () => {
     await expect(discoverOidc('https://login.example.com', fetchOf(doc({ issuer: undefined })))).rejects.toThrow(/another issuer/);
   });
 
+  it('wants https endpoints (plain http only on this computer) and follows no redirect', async () => {
+    for (const key of ['token_endpoint', 'jwks_uri', 'userinfo_endpoint', 'authorization_endpoint']) {
+      await expect(discoverOidc('https://login.example.com', fetchOf(doc({ [key]: 'http://login.example.com/x' })))).rejects.toThrow(/must be https/);
+    }
+    const local = { issuer: 'http://127.0.0.1:5556/dex', authorization_endpoint: 'http://127.0.0.1:5556/dex/auth', token_endpoint: 'http://127.0.0.1:5556/dex/token', jwks_uri: 'http://127.0.0.1:5556/dex/keys' };
+    expect((await discoverOidc('http://127.0.0.1:5556/dex', fetchOf(doc(local)))).tokenEndpoint).toBe('http://127.0.0.1:5556/dex/token');
+    let init: RequestInit | undefined;
+    const moved = (async (_url: string | URL | Request, i?: RequestInit) => {
+      init = i;
+      return new Response(null, { status: 302, headers: { location: 'https://evil.example/.well-known/openid-configuration' } });
+    }) as typeof fetch;
+    await expect(discoverOidc('https://login.example.com', moved)).rejects.toThrow(/redirected/);
+    expect(init?.redirect).toBe('manual');
+  });
+
   it('refuses plain OAuth (no signed id_tokens), no keys, no code flow, errors', async () => {
     await expect(discoverOidc('https://login.example.com', fetchOf(doc({ id_token_signing_alg_values_supported: [] })))).rejects.toThrow(/not OpenID Connect/);
     await expect(discoverOidc('https://login.example.com', fetchOf(doc({ jwks_uri: undefined })))).rejects.toThrow(/jwks_uri/);

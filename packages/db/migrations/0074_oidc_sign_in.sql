@@ -1,7 +1,8 @@
 -- Sign in with your own login service (OpenID Connect: Zitadel, Authentik,
 -- Authelia, Keycloak, Pocket ID, ...), set up in Settings › Users. One
 -- service per install, so one row. The people who use it are ordinary
--- auth_accounts rows (provider_id 'oidc', account_id = the service's `sub`),
+-- auth_accounts rows (provider_id 'oidc', account_id = sha256 of
+-- "<issuer>:<sub>", base64url, so an id never matches across issuers),
 -- made only by an explicit link from Account, an invite or, when join is on,
 -- a first sign-in.
 --
@@ -21,6 +22,14 @@ create table if not exists auth_oidc_config (
   join_group varchar(255),
   updated_by uuid references users(id) on delete set null,
   updated_at timestamptz not null default now()
+);
+
+-- Login-service identities (auth_accounts.account_id: a hash of issuer and
+-- sub) of people the owner removed: "Anyone can join" does not let them back
+-- in. An invite still can.
+create table if not exists auth_oidc_refused (
+  account_id text primary key,
+  created_at timestamptz not null default now()
 );
 
 -- Step-up through the login service (prompt=login, a fresh auth_time).

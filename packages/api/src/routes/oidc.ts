@@ -80,9 +80,20 @@ function requireSession(request: FastifyRequest): { userId: string; sessionId: s
   return { userId: request.user.id, sessionId: request.sessionId };
 }
 
-/** The service's button works (retrying discovery now and then when it did not answer at boot). */
+/**
+ * The service's button works. Starting a flow waits for a due retry (one at
+ * a time, shared by every caller, bounded by the discovery time limit).
+ */
 async function activeName(): Promise<string | null> {
   const status = await getAuthHandle().retryOidc();
+  return status.active ? status.name : null;
+}
+
+/** The same for a page load: never waits; a due retry runs in the background for the next request. */
+export function currentOidcName(): string | null {
+  const h = getAuthHandle();
+  void h.retryOidc().catch(() => undefined);
+  const status = h.oidcStatus();
   return status.active ? status.name : null;
 }
 
@@ -165,7 +176,7 @@ async function linkStart(
 export async function createOidcAuthRoutes(fastify: FastifyInstance) {
   fastify.get('/oidc', async (request): Promise<OidcPublicView> => {
     lookups.check(`ip:${request.ip}`);
-    return { name: await activeName() };
+    return { name: currentOidcName() };
   });
 
   fastify.post('/oidc/sign-in', async (request, reply): Promise<OidcStartResponse> => {
@@ -194,7 +205,7 @@ export async function createOidcAuthRoutes(fastify: FastifyInstance) {
       select created_at from auth_accounts where user_id = ${userId} and provider_id = ${OIDC_PROVIDER_ID}`;
     const ways = await waysIn(sql, userId);
     return {
-      name: await activeName(),
+      name: currentOidcName(),
       linked: Boolean(row),
       linkedAt: row ? new Date(row.created_at).toISOString() : null,
       canUnlink: Boolean(row) && hasLocalWayIn(ways),
@@ -217,6 +228,8 @@ export async function createOidcAuthRoutes(fastify: FastifyInstance) {
     sameOrigin(request);
     const { userId } = requireSession(request);
     starts.check(`user:${userId}`);
+    // removing a way in is a sign-in change too: a fresh confirmation first, like linking
+    await requireFreshStepUp(request);
     const { sql } = getAuthHandle();
     const done = await sql.begin(async (tx) => {
       // their sign-in rows stay put while this decides
@@ -317,6 +330,8 @@ export async function createOidcSettingsRoutes(fastify: FastifyInstance) {
         throw new ApiError(409, 'Conflict', `${n} ${n === 1 ? 'person is' : 'people are'} linked to the old issuer. Saving unlinks them.`);
       }
       if (n > 0) {
+        // the old service is off first, so no sign-in through it lands while its links go
+        await h.suspendOidc();
         await h.sql`delete from auth_accounts where provider_id = ${OIDC_PROVIDER_ID}`;
         request.log.info({ event: 'auth.oidc.unlinked_all', actor: actor.id, count: n }, 'login service changed: links removed');
       }

@@ -7,8 +7,8 @@
  *
  * Re-verification methods, strongest first: a passkey or security key (with
  * its PIN or fingerprint), the authenticator app, a fresh sign-in at the
- * login service (oidc.ts: prompt=login, max_age=0, auth_time checked), and
- * the password only for an account with no passkey or authenticator app
+ * login service (oidc.ts: prompt=login, max_age=0, auth_time checked) and
+ * the password, those two only for an account with no passkey or authenticator app
  * (owner decision 2026-10-10, item 3).
  *
  * Keyward will generalise this; until then it stays this one file.
@@ -42,7 +42,8 @@ export async function stepUpMethods(sql: postgres.Sql, userId: string, passkeysU
   const methods: StepUpMethod[] = [];
   if (row && row.passkeys > 0 && passkeysUsable) methods.push('passkey');
   if (row?.totp) methods.push('totp');
-  if (row?.oidc && oidcUsable) methods.push('oidc');
+  // Like the password: the login service never stands in for tagave's own second factor.
+  if (row?.oidc && oidcUsable && row.passkeys === 0 && !row.totp) methods.push('oidc');
   // The password alone is a fallback only for an account with no second factor.
   if (row?.password && row.passkeys === 0 && !row.totp) methods.push('password');
   return methods;

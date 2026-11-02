@@ -9,11 +9,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
-import type { AuthHandle } from '@tagave/auth';
+import { oidcAccountKey, type AuthHandle } from '@tagave/auth';
 import type { InviteLinkResponse, OidcSettingsResponse, StepUpStatus } from '@tagave/shared';
 import { registerApiRoutes } from '../app.js';
 import { initAuth } from '../middleware/auth.js';
-import { TEST_PUBLIC_URL, cookieHeader, cookieJar, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
+import { TEST_PUBLIC_URL, cookieHeader, cookieJar, createScratchDb, migrateAll, testAuth, totpFromUri } from '../testkit/authApp.js';
 import { createTestUser, type TestUser } from '../testkit/users.js';
 import { FakeOidc, type AuthorizeOptions, type FakeUser } from '../testkit/fakeOidc.js';
 import { resetUserRouteLimits } from './users.js';
@@ -39,6 +39,9 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
   const call = (jar: Jar | undefined, method: string, url: string, payload?: unknown) =>
     app.inject({ method: method as never, url, headers: headers(jar), ...(payload !== undefined ? { payload: payload as object } : {}) });
   const ageSessions = (userId: string) => sql`update auth_sessions set created_at = now() - interval '10 minutes' where user_id = ${userId}`;
+  const freshSessions = (userId: string) => sql`update auth_sessions set created_at = now() where user_id = ${userId}`;
+  /** The stored account key for an identity at the test service. */
+  const key = (sub: string) => oidcAccountKey(idp.issuer, sub);
 
   async function configure(over: Record<string, unknown> = {}) {
     const res = await call(owner.jar, 'PUT', '/api/v1/users/sign-in-service', {
@@ -81,6 +84,15 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
 
   const sessionCookieSet = (setCookie: string | string[] | undefined) =>
     (Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : []).some((c) => c.startsWith(`${SESSION}=`) && !/max-age=0/i.test(c));
+
+  async function signInWithPassword(u: TestUser) {
+    const res = await app.inject({
+      method: 'POST', url: '/api/auth/sign-in/email',
+      headers: { ...headers(), 'content-type': 'application/json' }, payload: { email: u.email, password: u.password },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    return { jar: cookieJar(res.headers['set-cookie']) };
+  }
 
   async function me(jar: Jar) {
     const res = await call(jar, 'GET', '/api/v1/auth/me');
@@ -206,7 +218,7 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
     const links = await sql`select 1 from auth_accounts where user_id = ${owner.userId} and provider_id = 'oidc'`;
     expect(links).toHaveLength(0);
     // and it joined nobody
-    expect(await sql`select 1 from auth_accounts where account_id = 'attacker-1'`).toHaveLength(0);
+    expect(await sql`select 1 from auth_accounts where account_id = ${key('attacker-1')}`).toHaveLength(0);
     // "would make a new account" (join on, here: allowed) differs; a refusal never says why
     expect(stranger.location.pathname).toBe('/');
     await configure({ joinEnabled: false });
@@ -226,7 +238,7 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
     const who = await me(inside.jar);
     expect(who).toMatchObject({ email: 'in@example.test', role: 'listener' });
     const [acct] = await sql<Array<{ access_token: string | null; refresh_token: string | null; id_token: string | null }>>`
-      select access_token, refresh_token, id_token from auth_accounts where provider_id = 'oidc' and account_id = 'in-1'`;
+      select access_token, refresh_token, id_token from auth_accounts where provider_id = 'oidc' and account_id = ${key('in-1')}`;
     expect(acct).toEqual({ access_token: null, refresh_token: null, id_token: null });
 
     // a profile claim never sets the role
@@ -277,18 +289,18 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
   });
 
   it('unlinking the last way in is refused', async () => {
-    const [m] = await sql<Array<{ id: string }>>`select u.id from users u join auth_accounts a on a.user_id = u.id where a.account_id = 'in-1'`;
+    const [m] = await sql<Array<{ id: string }>>`select u.id from users u join auth_accounts a on a.user_id = u.id where a.account_id = ${key('in-1')}`;
     const s = await signIn({ sub: 'in-1', email: 'in@example.test' });
     expect((await me(s.jar))?.id).toBe(m!.id);
     const view = await call(s.jar, 'GET', '/api/v1/auth/oidc/link');
     expect(view.json()).toMatchObject({ linked: true, canUnlink: false });
     const res = await call(s.jar, 'DELETE', '/api/v1/auth/oidc/link');
     expect(res.statusCode).toBe(409);
-    expect(await sql`select 1 from auth_accounts where account_id = 'in-1'`).toHaveLength(1);
+    expect(await sql`select 1 from auth_accounts where account_id = ${key('in-1')}`).toHaveLength(1);
   });
 
   it('the owner cannot become login-service-only', async () => {
-    const [m] = await sql<Array<{ id: string }>>`select user_id as id from auth_accounts where account_id = 'in-1'`;
+    const [m] = await sql<Array<{ id: string }>>`select user_id as id from auth_accounts where account_id = ${key('in-1')}`;
     const promote = await call(owner.jar, 'PATCH', `/api/v1/users/${m!.id}`, { role: 'owner' });
     expect(promote.statusCode).toBe(409);
     expect((await sql`select role from users where id = ${m!.id}`)[0]!.role).toBe('listener');
@@ -355,7 +367,7 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
     const other = await flow({ url: '/api/v1/auth/step-up/oidc', jar: s.jar }, { sub: 'in-2', email: 'in2@example.test' });
     expect(other.location.search).toBe('?oidc=failed');
     expect(((await call(s.jar, 'GET', '/api/v1/auth/step-up')).json() as StepUpStatus).fresh).toBe(false);
-    expect(await sql`select 1 from auth_accounts where user_id = ${userId} and account_id = 'in-2'`).toHaveLength(0);
+    expect(await sql`select 1 from auth_accounts where user_id = ${userId} and account_id = ${key('in-2')}`).toHaveLength(0);
 
     const ok = await flow({ url: '/api/v1/auth/step-up/oidc', jar: s.jar }, { sub: 'in-1', email: 'in@example.test' });
     expect(ok.location.toString()).toBe(`${TEST_PUBLIC_URL}/auth/oidc-done`);
@@ -364,8 +376,137 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
     expect((await sql`select method from auth_step_ups where user_id = ${userId}`)[0]!.method).toBe('oidc');
   });
 
+  it('keys an account by issuer and sub, never by the sub alone', async () => {
+    const [row] = await sql<Array<{ account_id: string }>>`select account_id from auth_accounts where account_id = ${key('in-1')}`;
+    expect(row!.account_id).toBe(oidcAccountKey(idp.issuer, 'in-1'));
+    expect(row!.account_id).not.toBe('in-1');
+    expect(oidcAccountKey('https://other.example', 'in-1')).not.toBe(row!.account_id);
+  });
+
+  it('unlinking asks for a fresh sign-in, like linking', async () => {
+    const u = await createTestUser(handle, { role: 'listener' });
+    await flow({ url: '/api/v1/auth/oidc/link', jar: u.jar }, { sub: 'unlink-1', email: 'u1@idp.example' });
+    await ageSessions(u.userId);
+    const stale = await call(u.jar, 'DELETE', '/api/v1/auth/oidc/link');
+    expect(stale.statusCode).toBe(403);
+    expect(stale.json().title).toBe('Step-up required');
+    expect(await sql`select 1 from auth_accounts where user_id = ${u.userId} and provider_id = 'oidc'`).toHaveLength(1);
+    await freshSessions(u.userId);
+    expect((await call(u.jar, 'DELETE', '/api/v1/auth/oidc/link')).statusCode).toBe(204);
+  });
+
+  it('a set-password link unlinks the login service, so an identity someone else linked loses its way in', async () => {
+    await freshSessions(owner.userId);
+    const victim = await createTestUser(handle, { role: 'editor' });
+    await flow({ url: '/api/v1/auth/oidc/link', jar: victim.jar }, { sub: 'attacker-2', email: 'attacker@idp.example' });
+    expect((await signIn({ sub: 'attacker-2', email: 'attacker@idp.example' })).location.pathname).toBe('/');
+    for (const clearSecondFactors of [false, true]) {
+      if (clearSecondFactors) await flow({ url: '/api/v1/auth/oidc/link', jar: (await signInWithPassword(victim)).jar }, { sub: 'attacker-2', email: 'attacker@idp.example' });
+      const reset = await call(owner.jar, 'POST', `/api/v1/users/${victim.userId}/reset-sign-in`, { clearSecondFactors });
+      expect(reset.statusCode, reset.body).toBe(201);
+      const token = (reset.json() as InviteLinkResponse).link.split('/invite/')[1]!;
+      const used = await call(undefined, 'POST', `/api/v1/invites/${token}/accept`, { password: 'a new passphrase here' });
+      expect(used.statusCode, used.body).toBe(200);
+      victim.password = 'a new passphrase here';
+      expect(await sql`select 1 from auth_accounts where user_id = ${victim.userId} and provider_id = 'oidc'`).toHaveLength(0);
+      expect((await signIn({ sub: 'attacker-2', email: 'attacker@idp.example' })).location.search).toBe('?oidc=failed');
+    }
+  });
+
+  it('someone the owner removed cannot come back by joining; an invite still can', async () => {
+    await freshSessions(owner.userId);
+    await configure({ joinEnabled: true });
+    const joined = await signIn({ sub: 'rejoin-1', email: 'rejoin@idp.example', name: 'Re' });
+    const who = await me(joined.jar);
+    expect(who?.role).toBe('listener');
+    const removed = await call(owner.jar, 'DELETE', `/api/v1/users/${who!.id}`, { data: 'keep' });
+    expect(removed.statusCode, removed.body).toBe(204);
+    expect(await sql`select 1 from auth_oidc_refused where account_id = ${key('rejoin-1')}`).toHaveLength(1);
+    const again = await signIn({ sub: 'rejoin-1', email: 'rejoin@idp.example' });
+    expect(again.location.search).toBe('?oidc=failed');
+    expect(await sql`select 1 from auth_accounts where account_id = ${key('rejoin-1')}`).toHaveLength(0);
+    // the delete-data removal holds too
+    const other = await me((await signIn({ sub: 'rejoin-2', email: 'rejoin2@idp.example' })).jar);
+    expect((await call(owner.jar, 'DELETE', `/api/v1/users/${other!.id}`, { data: 'delete' })).statusCode).toBe(204);
+    expect((await signIn({ sub: 'rejoin-2', email: 'rejoin2@idp.example' })).location.search).toBe('?oidc=failed');
+    await configure({ joinEnabled: false });
+    // the owner's explicit invite is not a join
+    const inv = await call(owner.jar, 'POST', '/api/v1/users/invites', { email: 'back@example.test', role: 'listener' });
+    const token = (inv.json() as InviteLinkResponse).link.split('/invite/')[1]!;
+    const back = await flow({ url: '/api/v1/auth/oidc/sign-in', payload: { invite: token } }, { sub: 'rejoin-1', email: 'rejoin@idp.example' });
+    expect(back.location.toString()).toBe(`${TEST_PUBLIC_URL}/`);
+  });
+
+  it('the login service never stands in for the authenticator app', async () => {
+    const u = await createTestUser(handle, { role: 'editor' });
+    const jsonHeaders = (jar: Jar) => ({ ...headers(jar), 'content-type': 'application/json' });
+    const enable = await app.inject({ method: 'POST', url: '/api/auth/two-factor/enable', headers: jsonHeaders(u.jar), payload: { password: u.password } });
+    expect(enable.statusCode, enable.body).toBe(200);
+    const uri = enable.json().totpURI as string;
+    const on = await app.inject({ method: 'POST', url: '/api/auth/two-factor/verify-totp', headers: jsonHeaders(u.jar), payload: { code: totpFromUri(uri) } });
+    expect(on.statusCode, on.body).toBe(200);
+    const jar = cookieJar(on.headers['set-cookie'], { ...u.jar });
+    await freshSessions(u.userId);
+    const linked = await flow({ url: '/api/v1/auth/oidc/link', jar }, { sub: 'totp-1', email: 'totp@idp.example' });
+    expect(linked.location.search).toBe('?oidc=linked');
+
+    // step-up: the authenticator, not the service (and not the password)
+    await ageSessions(u.userId);
+    const st = (await call(jar, 'GET', '/api/v1/auth/step-up')).json() as StepUpStatus;
+    expect(st.methods).toEqual(['totp']);
+    expect((await call(jar, 'POST', '/api/v1/auth/step-up/oidc', {})).statusCode).toBe(400);
+
+    // sign-in: the service, then the code, as after a password
+    const viaService = await signIn({ sub: 'totp-1', email: 'totp@idp.example' });
+    expect(viaService.location.toString()).toBe(`${TEST_PUBLIC_URL}/login/2fa`);
+    expect(sessionCookieSet(viaService.cbSetCookie)).toBe(false);
+    expect(await me(viaService.jar)).toBeNull();
+    const code = await app.inject({ method: 'POST', url: '/api/auth/two-factor/verify-totp', headers: jsonHeaders(viaService.jar), payload: { code: totpFromUri(uri) } });
+    expect(code.statusCode, code.body).toBe(200);
+    expect((await me(cookieJar(code.headers['set-cookie'], viaService.jar)))?.id).toBe(u.userId);
+
+    // a password account with the service: both are offered, the service first
+    const p = await createTestUser(handle, { role: 'listener' });
+    await flow({ url: '/api/v1/auth/oidc/link', jar: p.jar }, { sub: 'pw-1', email: 'pw@idp.example' });
+    await ageSessions(p.userId);
+    expect(((await call(p.jar, 'GET', '/api/v1/auth/step-up')).json() as StepUpStatus).methods).toEqual(['oidc', 'password']);
+  });
+
+  it('a passkey-only account signs in through the service with no extra step', async () => {
+    const u = await createTestUser(handle, { role: 'listener' });
+    await sql`delete from auth_accounts where user_id = ${u.userId} and provider_id = 'credential'`;
+    await sql`insert into auth_passkeys (user_id, public_key, credential_id, counter, device_type, backed_up)
+              values (${u.userId}, 'pk', ${`cred-po-${u.userId}`}, 0, 'singleDevice', false)`;
+    await flow({ url: '/api/v1/auth/oidc/link', jar: u.jar }, { sub: 'pk-only-1', email: 'pk@idp.example' });
+    const out = await signIn({ sub: 'pk-only-1', email: 'pk@idp.example' });
+    expect(out.location.toString()).toBe(`${TEST_PUBLIC_URL}/`);
+    expect((await me(out.jar))?.id).toBe(u.userId);
+  });
+
+  it('two passkey deletes at once cannot both take the last way in', async () => {
+    const u = await createTestUser(handle, { role: 'listener' });
+    await sql`delete from auth_accounts where user_id = ${u.userId} and provider_id = 'credential'`;
+    const ids = await sql<Array<{ id: string }>>`
+      insert into auth_passkeys (user_id, public_key, credential_id, counter, device_type, backed_up)
+      values (${u.userId}, 'pk', ${`cred-a-${u.userId}`}, 0, 'singleDevice', false),
+             (${u.userId}, 'pk', ${`cred-b-${u.userId}`}, 0, 'singleDevice', false) returning id`;
+    const del = (id: string) => app.inject({
+      method: 'POST', url: '/api/auth/passkey/delete-passkey',
+      headers: { ...headers(u.jar), 'content-type': 'application/json' }, payload: { id },
+    });
+    const results = await Promise.all(ids.map((r) => del(r.id)));
+    expect(results.map((r) => r.statusCode).sort()).toEqual([200, 400]);
+    expect(await sql`select 1 from auth_passkeys where user_id = ${u.userId}`).toHaveLength(1);
+    // someone else's passkey is not theirs to delete
+    const other = await createTestUser(handle, { role: 'listener' });
+    const [theirs] = await sql<Array<{ id: string }>>`
+      insert into auth_passkeys (user_id, public_key, credential_id, counter, device_type, backed_up)
+      values (${other.userId}, 'pk', ${`cred-c-${other.userId}`}, 0, 'singleDevice', false) returning id`;
+    expect((await del(theirs!.id)).statusCode).toBe(404);
+  });
+
   it('a turned-off account gets no session through the service', async () => {
-    const [m] = await sql<Array<{ id: string }>>`select user_id as id from auth_accounts where account_id = 'in-2'`;
+    const [m] = await sql<Array<{ id: string }>>`select user_id as id from auth_accounts where account_id = ${key('in-2')}`;
     expect((await call(owner.jar, 'PATCH', `/api/v1/users/${m!.id}`, { disabled: true })).statusCode).toBe(204);
     const out = await signIn({ sub: 'in-2', email: 'in2@example.test' });
     expect(out.location.search).toBe('?oidc=failed');

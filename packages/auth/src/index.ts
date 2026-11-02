@@ -13,10 +13,13 @@ import { recordTrustedDevice } from './trusted-devices.js';
 import {
   OIDC_PROVIDER_ID,
   oidcGate,
+  discoverOidc,
+  serviceFetch,
   oidcPlugin,
   oidcUserCreateBefore,
   readOidcSettings,
   withoutOidcTokens,
+  type OidcDiscovery,
   type OidcSettings,
 } from './oidc.js';
 
@@ -50,6 +53,8 @@ export interface CreateAuthOptions {
   rateLimit?: boolean;
   /** Pool size for the auth connections (default 5). */
   maxConnections?: number;
+  /** How long the login service may take to answer discovery (default 5 s; tests). */
+  oidcDiscoveryTimeoutMs?: number;
 }
 
 /**
@@ -339,6 +344,8 @@ export interface AuthHandle {
   reload: () => Promise<OidcStatus>;
   /** reload(), at most every `minIntervalMs`, while the service is set up but its button does not work yet. */
   retryOidc: (minIntervalMs?: number) => Promise<OidcStatus>;
+  /** Take the login service off this instance now (before its accounts are unlinked). */
+  suspendOidc: () => Promise<void>;
   oidcStatus: () => OidcStatus;
   /** The settings in use (secret included: never send them anywhere). */
   oidcSettings: () => OidcSettings | null;
@@ -354,53 +361,82 @@ export function createAuth(opts: CreateAuthOptions): AuthHandle {
   let chain: Promise<unknown> = Promise.resolve();
   const logger = { warn: (m: string) => console.warn(m) };
 
-  const rebuild = async (): Promise<OidcStatus> => {
-    const read = await readOidcSettings(sql, opts.env.appSecret).catch(() => ({ settings: null, secretUnreadable: false }));
-    const next = read.settings?.enabled ? read.settings : null;
-    const options = buildOptions(opts, sql, () => settings);
-    const auth = next
-      ? (betterAuth({ ...options, plugins: [...options.plugins, oidcPlugin(next, logger)] }) as unknown as Auth)
-      : betterAuth(options);
-    const ctx = await auth.$context;
-    const active = Boolean(next) && ctx.socialProviders.some((p) => p.id === OIDC_PROVIDER_ID);
+  const discoveryTimeoutMs = opts.oidcDiscoveryTimeoutMs ?? 5000;
+
+  const install = (auth: Auth, next: OidcSettings | null, s: OidcStatus) => {
     settings = next;
     handle.auth = auth;
-    status = {
-      configured: Boolean(next),
+    status = s;
+  };
+
+  const rebuild = async (): Promise<OidcStatus> => {
+    const read = await readOidcSettings(sql, opts.env.appSecret).catch(() => ({ settings: null, secretUnreadable: false }));
+    const wanted = read.settings?.enabled ? read.settings : null;
+    // Discovery here, with a time limit that aborts the request: Better Auth
+    // is then given the endpoints and fetches nothing itself.
+    let discovery: OidcDiscovery | null = null;
+    if (wanted) {
+      discovery = await discoverOidc(wanted.issuer, serviceFetch, discoveryTimeoutMs).catch(() => null);
+      if (!discovery || discovery.issuer !== wanted.issuer) {
+        if (discovery) logger.warn(`Sign in with ${wanted.name}: discovery names another issuer now; the button stays hidden.`);
+        else logger.warn(`Sign in with ${wanted.name}: the issuer did not answer; the button stays hidden until it does.`);
+        discovery = null;
+      }
+    }
+    const options = buildOptions(opts, sql, () => settings);
+    const auth = wanted && discovery
+      ? (betterAuth({ ...options, plugins: [...options.plugins, oidcPlugin(wanted, discovery)] }) as unknown as Auth)
+      : betterAuth(options);
+    const ctx = await auth.$context;
+    const active = Boolean(wanted && discovery) && ctx.socialProviders.some((p) => p.id === OIDC_PROVIDER_ID);
+    install(auth, wanted, {
+      configured: Boolean(wanted),
       active,
       name: read.settings?.name ?? null,
       secretUnreadable: read.secretUnreadable,
       checkedAt: new Date(),
-    };
+    });
     if (read.secretUnreadable) {
       logger.warn('Sign in with your login service is off: its client secret does not open with this APP_SECRET. Run tagave-doctor reseal, or enter the secret again in Settings › Users.');
     }
     return status;
   };
 
-  const reload = () => {
-    const run = chain.then(rebuild, rebuild);
+  const queue = <T,>(task: () => Promise<T>): Promise<T> => {
+    const run = chain.then(task, task);
     chain = run.catch(() => undefined);
     return run;
   };
+
+  // one retry at a time, however many requests ask for it
+  let retrying: Promise<OidcStatus> | null = null;
+  const retryDue = (minIntervalMs: number) =>
+    status.configured && !status.active && (!status.checkedAt || Date.now() - status.checkedAt.getTime() >= minIntervalMs);
 
   const handle: AuthHandle = {
     auth: makeAuth(opts, sql),
     sql,
     env: opts.env,
     close: () => sql.end({ timeout: 5 }),
-    reload,
-    retryOidc: async (minIntervalMs = OIDC_RETRY_MS) => {
-      if (status.configured && !status.active && (!status.checkedAt || Date.now() - status.checkedAt.getTime() >= minIntervalMs)) {
-        return reload();
-      }
-      return status;
+    reload: () => queue(rebuild),
+    retryOidc: (minIntervalMs = OIDC_RETRY_MS) => {
+      if (retrying) return retrying;
+      if (!retryDue(minIntervalMs)) return Promise.resolve(status);
+      // counted from now, so the next caller waits for this one instead of starting another
+      status = { ...status, checkedAt: new Date() };
+      const run = queue(async () => (status.configured && !status.active ? rebuild() : status));
+      retrying = run.finally(() => { retrying = null; });
+      return retrying;
     },
+    suspendOidc: () => queue(async () => {
+      install(betterAuth(buildOptions(opts, sql, () => null)), null, { ...status, active: false, checkedAt: new Date() });
+    }),
     oidcStatus: () => status,
     oidcSettings: () => settings,
   };
   return handle;
 }
+
 
 /**
  * Self-heal for rollback-and-return: a user created by 0.6.x (with only

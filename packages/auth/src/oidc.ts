@@ -21,7 +21,9 @@
  * Which flow a callback belongs to comes from the OAuth state, which only the
  * api writes (auth.api.signInSocial / linkSocial are not on the HTTP router).
  */
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey, type JsonWebKeyInput, type KeyObject } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import type { BetterAuthPlugin } from 'better-auth';
 import { getOAuthState } from 'better-auth/api';
 import { symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
@@ -36,6 +38,48 @@ export const OIDC_CALLBACK_PATH = `/api/auth/callback/${OIDC_PROVIDER_ID}`;
 /** A re-verification counts when the service's auth_time is this close to the request (clock skew allowed). */
 export const OIDC_STEP_UP_SKEW_MS = 60 * 1000;
 const DISCOVERY_TIMEOUT_MS = 5000;
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * fetch for the login service's endpoints, on node:http(s): never follows a
+ * redirect, reads at most MAX_BODY_BYTES, and an aborted signal destroys the
+ * socket at once. (undici's fetch keeps the socket of an aborted request
+ * open, so an issuer that never answers would pile up connections.)
+ */
+export const serviceFetch: typeof fetch = (input, init) =>
+  new Promise<Response>((resolve, reject) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    const signal = init?.signal ?? undefined;
+    if (signal?.aborted) return reject(signal.reason);
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers).forEach((v, k) => { headers[k] = v; });
+    const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, { method: init?.method ?? 'GET', headers, agent: false }, (res) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on('data', (c: Buffer) => {
+        size += c.length;
+        if (size > MAX_BODY_BYTES) req.destroy(new Error('response too large'));
+        else chunks.push(c);
+      });
+      res.on('end', () => {
+        const out = new Headers();
+        for (const [k, v] of Object.entries(res.headers)) {
+          if (Array.isArray(v)) for (const x of v) out.append(k, x);
+          else if (v !== undefined) out.set(k, v);
+        }
+        const status = res.statusCode ?? 0;
+        const empty = status === 204 || status === 304 || (status >= 300 && status < 400);
+        resolve(new Response(empty ? null : Buffer.concat(chunks), { status, headers: out }));
+      });
+      res.on('error', reject);
+    });
+    const onAbort = () => req.destroy(signal?.reason instanceof Error ? signal.reason : new Error('aborted'));
+    signal?.addEventListener('abort', onAbort, { once: true });
+    req.on('close', () => signal?.removeEventListener('abort', onAbort));
+    req.on('error', reject);
+    if (init?.body != null) req.write(String(init.body));
+    req.end();
+  });
 
 export type OidcIntent = 'sign-in' | 'invite' | 'link' | 'step-up';
 
@@ -101,6 +145,8 @@ export interface OidcDiscovery {
   /** Whether the service says it supports S256 (absent from the document: unknown). */
   pkceS256: boolean | null;
   scopes: string[];
+  /** id_token_signing_alg_values_supported, as the document lists them. */
+  signingAlgs: string[];
 }
 
 function urlField(doc: Record<string, unknown>, key: string, required: true): string;
@@ -111,11 +157,17 @@ function urlField(doc: Record<string, unknown>, key: string, required: boolean):
     if (required) throw new OidcConfigError(`The discovery document has no ${key}.`);
     return null;
   }
+  let url: URL;
   try {
-    return new URL(v).toString();
+    url = new URL(v);
   } catch {
     throw new OidcConfigError(`The discovery document's ${key} is not a URL.`);
   }
+  // codes, tokens and keys travel these: https, plain http only on this computer
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url.hostname))) {
+    throw new OidcConfigError(`The discovery document's ${key} must be https.`);
+  }
+  return url.toString();
 }
 
 /**
@@ -126,7 +178,7 @@ function urlField(doc: Record<string, unknown>, key: string, required: boolean):
  */
 export async function discoverOidc(
   issuerInput: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = serviceFetch,
   timeoutMs = DISCOVERY_TIMEOUT_MS,
 ): Promise<OidcDiscovery> {
   const typed = parseIssuerInput(issuerInput).toString();
@@ -134,10 +186,15 @@ export async function discoverOidc(
   try {
     res = await fetchImpl(discoveryUrlFor(typed), {
       headers: { accept: 'application/json' },
+      // a redirect is an answer from somewhere else: refused, never followed
+      redirect: 'manual',
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     throw new OidcConfigError('Could not reach the issuer.');
+  }
+  if (res.status >= 300 && res.status < 400 || res.type === 'opaqueredirect') {
+    throw new OidcConfigError('The issuer redirected its discovery document elsewhere.');
   }
   if (!res.ok) throw new OidcConfigError(`The issuer answered ${res.status} for its discovery document.`);
   let doc: Record<string, unknown>;
@@ -166,6 +223,7 @@ export async function discoverOidc(
     jwksUri: urlField(doc, 'jwks_uri', true),
     pkceS256: Array.isArray(pkce) ? pkce.includes('S256') : null,
     scopes: Array.isArray(scopes) ? scopes.filter((s): s is string => typeof s === 'string') : [],
+    signingAlgs: algs.filter((a): a is string => typeof a === 'string' && a !== 'none'),
   };
 }
 
@@ -344,6 +402,17 @@ export async function waysIn(sql: postgres.Sql, userId: string): Promise<WaysIn>
   return { password: Boolean(row?.password), passkeys: row?.passkeys ?? 0, oidc: Boolean(row?.oidc) };
 }
 
+/**
+ * Removing someone: the login-service identities linked to them may not join
+ * again (an invite can still bring them back). Run before their accounts go.
+ */
+export async function refuseOidcRejoin(sql: postgres.Sql | postgres.TransactionSql, userId: string): Promise<void> {
+  await sql`
+    insert into auth_oidc_refused (account_id)
+    select account_id from auth_accounts where user_id = ${userId} and provider_id = ${OIDC_PROVIDER_ID}
+    on conflict (account_id) do nothing`;
+}
+
 /** Owners keep a way in that does not depend on the login service. */
 export function hasLocalWayIn(w: WaysIn): boolean {
   return w.password || w.passkeys > 0;
@@ -419,6 +488,9 @@ export function oidcGate(sql: postgres.Sql, getSettings: () => OidcSettings | nu
     const settings = getSettings();
     if (!settings?.enabled) return REFUSED;
     const profile = data.source.oauth.profile ?? {};
+    const sub = typeof profile['sub'] === 'string' ? profile['sub'] : null;
+    // the profile's issuer was checked against the settings (profileFromTokens)
+    const key = sub ? oidcAccountKey(settings.issuer, sub) : null;
     const flow = await flowData();
     switch (data.source.action) {
       case 'sign-in':
@@ -430,19 +502,20 @@ export function oidcGate(sql: postgres.Sql, getSettings: () => OidcSettings | nu
           // an owner always keeps a password or passkey: owner invites are accepted with a password
           return invite && invite.role !== 'owner' ? undefined : REFUSED;
         }
-        if (flow.tagaveIntent === 'sign-in' && settings.joinEnabled && inJoinGroup(profile, settings.joinGroup)) return undefined;
-        return REFUSED;
+        if (flow.tagaveIntent !== 'sign-in' || !settings.joinEnabled || !inJoinGroup(profile, settings.joinGroup) || !key) return REFUSED;
+        // someone the owner removed does not come back by joining
+        const [removed] = await sql`select 1 from auth_oidc_refused where account_id = ${key}`;
+        return removed ? REFUSED : undefined;
       }
       case 'link-account': {
         const userId = data.user.id;
         if (!userId) return REFUSED;
         if (flow.tagaveIntent === 'link') return undefined;
         if (flow.tagaveIntent === 'step-up') {
-          const sub = typeof profile['sub'] === 'string' ? profile['sub'] : null;
-          if (!sub || !flow.tagaveSession) return REFUSED;
+          if (!key || !flow.tagaveSession) return REFUSED;
           // the same identity this account already has, signed in again just now
           const [linked] = await sql`
-            select 1 from auth_accounts where provider_id = ${OIDC_PROVIDER_ID} and account_id = ${sub} and user_id = ${userId}`;
+            select 1 from auth_accounts where provider_id = ${OIDC_PROVIDER_ID} and account_id = ${key} and user_id = ${userId}`;
           if (!linked) return REFUSED;
           if (!authTimeFresh(profile['auth_time'], flow.tagaveStartedAt)) return REFUSED;
           const [session] = await sql`
@@ -502,10 +575,6 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
   }
 }
 
-interface Logger {
-  warn: (msg: string) => void;
-}
-
 /**
  * The profile for an id_token Better Auth has already verified (signature
  * against the discovery keys, issuer, audience, expiry, nonce). An answer
@@ -517,7 +586,7 @@ export async function profileFromTokens(
   tokens: { idToken?: string | undefined; accessToken?: string | undefined },
   expectedIssuer: string,
   userinfoEndpoint: string | null,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = serviceFetch,
 ): Promise<Record<string, unknown> | null> {
   if (!tokens.idToken) return null;
   const claims = decodeJwtPayload(tokens.idToken);
@@ -532,6 +601,7 @@ export async function profileFromTokens(
     try {
       const res = await fetchImpl(userinfoEndpoint, {
         headers: { authorization: `Bearer ${tokens.accessToken}`, accept: 'application/json' },
+        redirect: 'manual',
         signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
       });
       if (res.ok) {
@@ -556,58 +626,90 @@ export async function profileFromTokens(
   };
 }
 
+/** The account key for an identity: its `sub`, namespaced by the issuer (an id at one service means nothing at another). */
+export function oidcAccountKey(issuer: string, sub: string): string {
+  return createHash('sha256').update(`${issuer}:${sub}`, 'utf8').digest('base64url');
+}
+
+const JWKS_TTL_MS = 10 * 60 * 1000;
+const JWKS_COOLDOWN_MS = 30 * 1000;
+
 /**
- * The genericOAuth plugin for these settings. Its start-up discovery is
- * bounded (DISCOVERY_TIMEOUT_MS) so an unreachable service never holds up
- * password and passkey sign-in, and the provider is dropped unless discovery
- * named exactly the issuer that was set and gave keys to check id_tokens.
+ * The service's signing keys, for jose's jwtVerify: fetched with a time
+ * limit and never through a redirect, kept for JWKS_TTL_MS, fetched again
+ * for an unknown key id at most every JWKS_COOLDOWN_MS.
  */
-export function oidcPlugin(settings: OidcSettings, logger: Logger): BetterAuthPlugin {
-  let userinfoEndpoint: string | null = null;
+export function remoteKeys(jwksUri: string, fetchImpl: typeof fetch = serviceFetch, timeoutMs = DISCOVERY_TIMEOUT_MS) {
+  let keys: Array<Record<string, unknown>> = [];
+  let fetchedAt = 0;
+  const load = async () => {
+    const res = await fetchImpl(jwksUri, { headers: { accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) throw new Error(`the signing keys answered ${res.status}`);
+    const body = (await res.json()) as { keys?: unknown };
+    keys = Array.isArray(body.keys) ? (body.keys as Array<Record<string, unknown>>) : [];
+    fetchedAt = Date.now();
+  };
+  const pick = (header: { kid?: string | undefined }) => {
+    const usable = keys.filter((k) => k['use'] === undefined || k['use'] === 'sig');
+    if (header.kid) return usable.find((k) => k['kid'] === header.kid);
+    return usable.length === 1 ? usable[0] : undefined;
+  };
+  return async (header: { kid?: string | undefined }): Promise<KeyObject> => {
+    if (Date.now() - fetchedAt > JWKS_TTL_MS) await load();
+    let jwk = pick(header);
+    if (!jwk && Date.now() - fetchedAt > JWKS_COOLDOWN_MS) {
+      await load();
+      jwk = pick(header);
+    }
+    if (!jwk) throw new Error('no signing key for this id_token');
+    return createPublicKey({ key: jwk as JsonWebKeyInput['key'], format: 'jwk' });
+  };
+}
+
+/**
+ * The genericOAuth plugin for these settings and the discovery document
+ * fetched for them (discoverOidc: the issuer checked, endpoints https, a time
+ * limit). Better Auth gets the endpoints, so it fetches nothing at start-up
+ * and a slow issuer can hold up nothing; the id_token check (signature
+ * against the service's keys, issuer, audience, expiry, nonce) is set on the
+ * provider here, and Better Auth runs it before getUserInfo.
+ */
+export function oidcPlugin(settings: OidcSettings, discovery: OidcDiscovery): BetterAuthPlugin {
   const plugin = genericOAuth({
     config: [{
       providerId: OIDC_PROVIDER_ID,
       name: settings.name,
-      discoveryUrl: discoveryUrlFor(settings.issuer),
+      authorizationUrl: discovery.authorizationEndpoint,
+      tokenUrl: discovery.tokenEndpoint,
+      ...(discovery.userinfoEndpoint ? { userInfoUrl: discovery.userinfoEndpoint } : {}),
       clientId: settings.clientId,
       ...(settings.clientSecret ? { clientSecret: settings.clientSecret } : { tokenEndpointAuth: { method: 'none' as const } }),
       scopes: ['openid', 'email', 'profile', ...(settings.joinEnabled && settings.joinGroup ? ['groups'] : [])],
       pkce: true,
-      requireIdTokenVerification: true,
       disableImplicitSignUp: true,
       overrideUserInfo: false,
+      // the issuer is part of the key: an old-issuer identity never matches a new-issuer account
+      accountSubject: ({ profile }) => oidcAccountKey(String(profile['iss'] ?? ''), String(profile['sub'] ?? '')),
       getUserInfo: async (tokens) => {
-        const profile = await profileFromTokens(tokens, settings.issuer, userinfoEndpoint);
+        const profile = await profileFromTokens(tokens, settings.issuer, discovery.userinfoEndpoint);
         return profile as never;
       },
     }],
   }) as unknown as BetterAuthPlugin;
   const init = plugin.init!;
+  const jwks = remoteKeys(discovery.jwksUri);
   plugin.init = async (ctx) => {
-    // Better Auth's discovery fetch has no time limit of its own; ours (for
-    // the userinfo endpoint) runs alongside it
-    const ours = discoverOidc(settings.issuer).then((d) => d.userinfoEndpoint, () => null);
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), DISCOVERY_TIMEOUT_MS); });
-    let result: Awaited<ReturnType<typeof init>> | null;
-    try {
-      result = await Promise.race([Promise.resolve(init(ctx)), timeout]);
-    } catch {
-      result = null;
-    } finally {
-      clearTimeout(timer);
-    }
-    userinfoEndpoint = await ours;
-    const providers = (result as { context?: { socialProviders?: Array<{ id: string; issuer?: string; idToken?: unknown }> } } | null)?.context?.socialProviders;
-    if (!providers) {
-      logger.warn(`Sign in with ${settings.name}: the issuer did not answer; the button stays hidden until it does.`);
-      return {} as never;
-    }
-    const mine = providers.find((p) => p.id === OIDC_PROVIDER_ID);
-    if (!mine || mine.issuer !== settings.issuer || !mine.idToken) {
-      logger.warn(`Sign in with ${settings.name}: discovery did not name the issuer that was set or gave no signing keys; the button stays hidden.`);
-      return { context: { socialProviders: providers.filter((p) => p.id !== OIDC_PROVIDER_ID) } } as never;
-    }
+    const result = (await init(ctx)) as { context?: { socialProviders?: Array<Record<string, unknown> & { id: string }> } } | undefined;
+    const mine = result?.context?.socialProviders?.find((p) => p.id === OIDC_PROVIDER_ID);
+    if (!mine) throw new Error('the login service provider was not built');
+    mine['issuer'] = settings.issuer;
+    mine['idToken'] = {
+      jwks: (header: { kid?: string | undefined }) => jwks(header),
+      issuer: settings.issuer,
+      audience: settings.clientId,
+      algorithms: discovery.signingAlgs,
+    };
+    mine['requiresIdTokenNonce'] = true;
     return result as never;
   };
   return plugin;
