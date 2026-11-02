@@ -133,6 +133,8 @@
 .row:active:not(:disabled) { background: var(--mist); transform: none; }
 .row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .row:disabled { opacity: 0.5; cursor: not-allowed; }
+/* the delete item (Mark for deletion / Move to trash) */
+.row[data-tone='danger'], .row[data-tone='danger'] .rowIcon { color: var(--danger); }
 /* a link row (Listen elsewhere) looks like the others */
 a.row, a.row:hover { text-decoration: none; color: var(--ink); }
 .rowIcon { display: grid; place-items: center; flex: none; width: 24px; color: var(--ink-2); }

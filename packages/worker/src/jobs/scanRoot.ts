@@ -5,7 +5,7 @@ import { walkRoot, type WalkMode } from '../lib/walk.js';
 import { finishNotes } from '../lib/scanFinish.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
-import { probeRoot } from './rootsValidate.js';
+import { hostPathHere, probeRoot } from './rootsValidate.js';
 import { clusterSingletonKey } from '../lib/helpers.js';
 
 export interface ScanRootJobData {
@@ -84,7 +84,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   const { status, message: validationMessage, probeWritable } = await probeRoot(root.path, root.writable);
   await ctx.db
     .update(scanRoots)
-    .set({ validationStatus: status, validationMessage, validatedAt: new Date(), probeWritable })
+    .set({ validationStatus: status, validationMessage, validatedAt: new Date(), probeWritable, hostPath: await hostPathHere(root.path) })
     .where(eq(scanRoots.id, root.id));
   if (status !== 'ok') {
     await fail('aborted', `root ${status}: ${validationMessage ?? status}`);

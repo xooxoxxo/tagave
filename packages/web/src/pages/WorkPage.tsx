@@ -6,7 +6,8 @@
 import { useMemo } from 'react';
 import { useSearch, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useCurrentLibrary, useIdentifyStats, useGapCounts } from '../hooks';
+import { useCan, useCurrentLibrary, useIdentifyStats, useGapCounts } from '../hooks';
+import { DeletingPanel } from './DeletingPage';
 import { api } from '../services/api';
 import { PageShell, TabItem } from '../components/ui';
 import { ReviewPanel } from './QueuePage';
@@ -24,6 +25,7 @@ export function WorkPage() {
   const { libraryId } = useCurrentLibrary();
   const navigate = useNavigate();
   const { tab } = useSearch({ strict: false }) as { tab?: string };
+  const owner = useCan('system.manage');
   const activeTab = tab || 'review';
 
   // Fetch queue length for review tab count
@@ -71,12 +73,14 @@ export function WorkPage() {
         value: 'tasks',
         ...(taskCount > 0 && { count: taskCount }),
       },
+      // deleted songs and albums: the owner's (a deletion reaches the music folder)
+      ...(owner ? [{ label: 'Deleting', value: 'deleting' }] : []),
     ],
-    [queueCount, identifyCount, attentionTotal, taskCount],
+    [queueCount, identifyCount, attentionTotal, taskCount, owner],
   );
 
   const handleTabChange = (newTab: string) => {
-    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' } });
+    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' } });
   };
 
   const renderPanel = () => {
@@ -87,6 +91,8 @@ export function WorkPage() {
         return <AttentionPanel />;
       case 'tasks':
         return <TasksPanel />;
+      case 'deleting':
+        return owner ? <DeletingPanel /> : <ReviewPanel />;
       default:
         return <ReviewPanel />;
     }

@@ -253,6 +253,8 @@ export const scanRoots = pgTable(
     validationMessage: varchar('validation_message'),
     validatedAt: timestamp('validated_at', { withTimezone: true }),
     probeWritable: boolean('probe_writable'),
+    /** 0073: the root on the computer that holds the music (the file worker's TAGAVE_MUSIC_HOST_DIR); null when unknown */
+    hostPath: text('host_path'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -1991,3 +1993,32 @@ export const installedModules = pgTable('installed_modules', {
   settings: jsonb().notNull().default(sql`'{}'::jsonb`),
   updatedAt: tstz('updated_at').notNull().defaultNow(),
 });
+
+// Deleting songs and albums (0073): one row per file the owner deleted from
+// tagave, marked (they delete it themselves) or moved to the root's trash
+// folder by the file worker. While the row exists the file's tracks are out
+// of the library; everything attached to them stays until the file row goes.
+export const fileDeletions = pgTable(
+  'file_deletions',
+  {
+    fileId: uuid('file_id').primaryKey().references(() => files.id, { onDelete: 'cascade' }),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    scanRootId: uuid('scan_root_id').notNull().references(() => scanRoots.id, { onDelete: 'cascade' }),
+    /** mark | trash */
+    kind: text().notNull(),
+    /** marked (mark) · moving | trashed | restoring (trash) */
+    state: text().notNull(),
+    relPath: text('rel_path').notNull(),
+    trashRelPath: text('trash_rel_path'),
+    error: text(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    trashedAt: tstz('trashed_at'),
+  },
+  (table) => ({
+    libraryIdx: index('idx_file_deletions_library').on(table.libraryId, table.kind),
+    kindCheck: check('file_deletions_kind_check', sql`kind in ('mark', 'trash')`),
+    stateCheck: check('file_deletions_state_check', sql`state in ('marked', 'moving', 'trashed', 'restoring')`),
+    kindStateCheck: check('file_deletions_kind_state', sql`(kind = 'mark') = (state = 'marked')`),
+  })
+);

@@ -9,6 +9,7 @@
  */
 import type { PgBoss } from 'pg-boss';
 import type postgres from 'postgres';
+import { trackLiveSql } from '@tagave/db';
 import type { PlayerAlbumAvailability, PlayerCapability, PlayerQueueTrack, PlayerQueueView, PlayerScanStatus, UnplayableReason } from '@tagave/shared';
 import {
   getAlbum,
@@ -311,7 +312,7 @@ async function albumTracks(sql: Sql, albumId: string, serverKey: string): Promis
     left join canonical_tracks ct on ct.id = lt.canonical_track_id
     left join recordings rec on rec.id = lt.recording_id
     left join player_track_map ptm on ptm.local_track_id = lt.id and ptm.server_key = ${serverKey}
-    where lt.local_album_id = ${albumId}
+    where lt.local_album_id = ${albumId} and ${sql.unsafe(trackLiveSql('af.id'))}
     order by coalesce(lt.disc_no, 1), lt.track_no nulls last, af.rel_path`;
 }
 
@@ -499,7 +500,7 @@ export async function trackById(sql: Sql, localTrackId: string): Promise<TrackFo
     join libraries l on l.id = la.library_id
     left join canonical_tracks ct on ct.id = lt.canonical_track_id
     left join recordings rec on rec.id = lt.recording_id
-    where lt.id = ${localTrackId}`;
+    where lt.id = ${localTrackId} and ${sql.unsafe(trackLiveSql('lt.audio_file_id'))}`;
   const r = rows[0];
   return r ? { ...r, settings: parseSettings(r.settings) } : null;
 }

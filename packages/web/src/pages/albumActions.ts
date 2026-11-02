@@ -93,7 +93,7 @@ export const playLabel = (mode: AlbumPlayState['mode']) => (mode === 'pause' ? '
 
 /* ---------------- the ⋮ menu ---------------- */
 
-export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance' | 'next' | 'queue' | 'playlist';
+export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance' | 'next' | 'queue' | 'playlist' | 'trash';
 
 export interface AlbumMenuAction {
   key: string;
@@ -104,6 +104,8 @@ export interface AlbumMenuAction {
   disabled?: boolean | undefined;
   /** a hairline above it (a new group of tools) */
   separated?: boolean | undefined;
+  /** a destructive action (the delete item) */
+  tone?: 'danger' | undefined;
   onSelect: () => void;
 }
 
@@ -139,6 +141,8 @@ export interface AlbumMenuInput {
   queue?: { next: () => void; end: () => void } | null | undefined;
   /** Add to playlist… (the playlists module) */
   addToPlaylist?: (() => void) | null | undefined;
+  /** the owner's one delete item, in the library's mode ("Mark for deletion" or "Move to trash") */
+  remove?: { label: string; onSelect: () => void } | null | undefined;
 }
 
 /**
@@ -165,6 +169,7 @@ export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
     ...(i.addToPlaylist ? [{ key: 'playlist', label: 'Add to playlist…', icon: 'playlist' as const, onSelect: i.addToPlaylist }] : []),
     { key: 'info', label: 'Album info', hint: 'Details and reviews', icon: 'info', onSelect: i.onInfo },
     ...(one ? [] : i.artists.map(artist)),
+    ...(i.remove ? [{ key: 'delete', label: i.remove.label, icon: 'trash' as const, tone: 'danger' as const, separated: true, onSelect: i.remove.onSelect }] : []),
   ];
   return {
     tiles,
@@ -183,7 +188,7 @@ export const maintenanceLabel = (on: boolean) => (on ? 'Turn off Maintenance' : 
 /** The same menu as a desktop dropdown's items, in the drawer's order. */
 export function albumMenuItems(m: AlbumMenuModel): MenuItem[] {
   const item = (a: AlbumMenuAction): MenuItem => ({
-    key: a.key, label: a.label, onSelect: a.onSelect,
+    key: a.key, label: a.label, onSelect: a.onSelect, ...(a.tone ? { tone: a.tone } : {}),
     ...(a.hint ? { hint: a.hint } : {}), ...(a.disabled ? { disabled: true } : {}), ...(a.separated ? { separated: true } : {}),
   });
   const tools = m.tools.map((t, n) => ({ ...item(t), separated: n === 0 || !!t.separated }));

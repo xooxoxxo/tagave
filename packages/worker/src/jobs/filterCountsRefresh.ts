@@ -1,4 +1,4 @@
-import { fetchArtistRows } from '@tagave/db';
+import { albumLiveSql, fetchArtistRows } from '@tagave/db';
 import { artistListPositions } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 
@@ -102,7 +102,8 @@ export async function refreshFilterCounts(
       left join lateral (
         select array_agg(distinct gg.kind) as kinds from gaps gg
         where gg.state = 'open' and gg.subject_id in (la.id, la.release_group_id)) gp on true
-      where la.library_id = ${libraryId}
+      -- an album whose every song is deleted (0073) is out of the library
+      where la.library_id = ${libraryId} and ${tx.unsafe(albumLiveSql('la.id'))}
       returning 1`;
     albums = inserted.length;
     await tx`

@@ -7,6 +7,8 @@ import styles from './SegmentedControl.module.css';
 export interface SegmentedOption<T extends string> {
   value: T;
   label: ReactNode;
+  /** shown but not choosable now */
+  disabled?: boolean;
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -30,8 +32,8 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
   const { trackRef, indicatorRef } = useSlidingIndicator<HTMLDivElement>(value);
   return <div ref={trackRef} role="radiogroup" aria-label={label} className={[styles.track, size === 'sm' ? styles.small : undefined].filter(Boolean).join(' ')}>
     <SlidingPill ref={indicatorRef} />
-    {options.map(option => <label key={option.value} data-active={option.value === value} className={[styles.option, option.value === value ? styles.selected : undefined].filter(Boolean).join(' ')}>
-      <input className={styles.radio} type="radio" name={groupName} value={option.value} checked={option.value === value} onChange={() => onChange(option.value)} />
+    {options.map(option => <label key={option.value} data-active={option.value === value} data-disabled={option.disabled ? '' : undefined} className={[styles.option, option.value === value ? styles.selected : undefined].filter(Boolean).join(' ')}>
+      <input className={styles.radio} type="radio" name={groupName} value={option.value} checked={option.value === value} disabled={option.disabled} onChange={() => onChange(option.value)} />
       <span className={styles.label}>{option.label}</span>
     </label>)}
   </div>;

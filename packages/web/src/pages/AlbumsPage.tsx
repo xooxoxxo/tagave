@@ -1,5 +1,6 @@
 import { Input, Select } from '../components/ui/FormControl';
-import { Button, Chip, confirmDialog, CoverArt, PageShell, SegmentedControl, type SegmentedOption } from '../components/ui';
+import { Button, Chip, confirmDialog, CoverArt, KebabIcon, Menu, PageShell, SegmentedControl, embossClassName, type SegmentedOption } from '../components/ui';
+import { useDeleteAction, useHiddenDeletions } from './deleteAction';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
  * library, filter rail with facet counts, multi-select filters, bulk actions
@@ -132,8 +133,23 @@ export function AlbumsPage() {
   const bulk = useBulkAlbums(libraryId);
   const [railOpen, setRailOpen] = useState(false);
 
-  const items = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
-  const total = facets?.total ?? items.length;
+  // the owner's one delete item on each card and row; an album waiting out its Undo is left out
+  const del = useDeleteAction(libraryId);
+  const hiddenDel = useHiddenDeletions();
+  const allItems = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
+  const items = useMemo(() => allItems.filter((a) => !hiddenDel.album(a.id)), [allItems, hiddenDel]);
+  const albumMore = (album: AlbumSummary) => del && (
+    <span className={styles.more} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <Menu
+        label={`More for ${album.title}`}
+        items={[{ key: 'delete', label: del.label, tone: 'danger', onSelect: () => del.album(album.id, album.title) }]}
+        triggerClassName={embossClassName('page')}
+        icon={<KebabIcon />}
+      />
+    </span>
+  );
+  // an album waiting out its Undo leaves the count at once too
+  const total = Math.max(0, (facets?.total ?? allItems.length) - (allItems.length - items.length));
 
   /* ---- selection (§14.2: checkbox, ⌘-click, shift-range, select-all-matching) ----
      Lives in a store outside the page (albumSelection.ts) so it survives a trip
@@ -554,6 +570,7 @@ export function AlbumsPage() {
                           {album.ownRating != null && <span title="Your rating">★ {album.ownRating}</span>}
                           {album.hasReview && <span title="Reviewed">✎</span>}
                         </span>
+                        {albumMore(album)}
                       </div>
                     );
                   }
@@ -594,7 +611,8 @@ export function AlbumsPage() {
                               )}
                               <CoverArt src={album.coverUrl} title={album.title} fill />
                             </div>
-                            <div className={styles.albumInfo}>
+                            <div className={del ? styles.albumInfoMore : styles.albumInfo}>
+                              {albumMore(album)}
                               <h3 className={styles.albumTitle} dir="auto">{album.title}</h3>
                               <p className={styles.albumArtist} dir="auto">{album.artistCredit}</p>
                               <p className={styles.albumStats}>

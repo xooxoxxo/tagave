@@ -58,6 +58,15 @@
   background: color-mix(in srgb, var(--surface) 45%, transparent);
 }
 
+/* an option that cannot be chosen now (Trash on a read-only music folder) */
+.option[data-disabled],
+.option[data-disabled]:hover {
+  color: var(--ink-3);
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* The clear bubble: the selected option paints it until the sliding pill is
    placed, then the pill (SlidingPill) carries it from option to option
    (useSlidingIndicator, same as Tabs). The weight stays put so nothing
@@ -86,6 +95,8 @@
   opacity: 0;
   cursor: pointer;
 }
+/* the global :disabled dimming would show the native radio of a disabled option */
+.radio:disabled { opacity: 0; cursor: not-allowed; }
 
 .option:has(.radio:focus-visible) {
   outline: 2px solid var(--ring);

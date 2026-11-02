@@ -48,6 +48,7 @@ async function startBoss(): Promise<PgBoss> {
     'art.thumb', 'art.thumbSweep', // cover thumbnails the images route found missing
     'connections.pull', // Settings › Connections: Sync now, and the first pull after linking
     'listenLinks.resolve', // Listen elsewhere: an album or artist page asks for its links
+    'files.trash', // Deleting: moves into and out of the trash folder, Empty trash
   ]) {
     await boss.createQueue(q, q === 'scan.root' ? undefined : QUEUE_RETRY_DEFAULTS);
   }

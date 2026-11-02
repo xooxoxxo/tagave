@@ -40,6 +40,7 @@ import { artistsEnrichJob, type ArtistsEnrichJobData } from './jobs/artistsEnric
 import { artistsRefreshSweepJob, type ArtistsRefreshSweepJobData } from './jobs/artistsRefreshSweep.js';
 import { tagsPreviewJob } from './jobs/tagsPreview.js';
 import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
+import { filesTrashJob, type FilesTrashJobData } from './lib/deletions.js';
 import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefresh.js';
 import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
@@ -91,6 +92,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'artist.refresh': 'stately',
   'tags.preview': 'stately',
   'tags.apply': 'stately',
+  // one queued per library and action behind the running one; every run does all that waits
+  'files.trash': 'stately',
   'tags.revert': 'stately',
   'facets.refresh': 'stately',
   'fingerprint.album': 'stately',
@@ -550,6 +553,14 @@ async function main() {
         await tagsApplyJob(ctx, job.data);
       }
     });
+    // Deleting (0073): moves into and out of the trash, Empty trash, and the daily
+    // run that deletes what has been in the trash for 30 days
+    await boss.work<FilesTrashJobData>('files.trash', { batchSize: 1 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) results.push(await filesTrashJob(ctx, job.data ?? {}));
+      return results.length === 1 ? results[0] : results;
+    });
+    await boss.schedule('files.trash', '17 4 * * *', { action: 'sweep' }, {});
   }
 
   if (wants('tags.revert')) {

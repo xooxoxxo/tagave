@@ -3,7 +3,7 @@ import { eq, and, or, isNotNull, sql, inArray, desc, type SQLWrapper } from 'dri
 import {
   albumMatches, files, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
-  releaseGroupArtists, fieldLocks, auditLog,
+  releaseGroupArtists, fieldLocks, auditLog, albumLiveSql, albumDeletedSql, fileDeletedSql, trackLiveSql,
 } from '@tagave/db';
 import { normalizeGenreMap, effectiveGenres, physicalFormatLabel } from '@tagave/core';
 import { getDb } from '../db.js';
@@ -61,7 +61,8 @@ export function albumQueryParts(
   const anyOf = (parts: ReturnType<typeof sql>[]) => sql`(${sql.join(parts, sql` or `)})`;
   const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : undefined);
 
-  const conds = [eq(localAlbums.libraryId, libraryId)];
+  // an album whose every track is deleted (Mark or Trash, 0073) is out of the library
+  const conds = [eq(localAlbums.libraryId, libraryId), sql.raw(albumLiveSql('local_albums.id'))];
   const search = str(q['q']) ?? str(q['search']);
   const artist = str(q['artist']);
   // Unresolved artists are listed by their shown name (numbering stripped,
@@ -403,10 +404,13 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         // lossless / lossy / mixed badge per album from the files themselves (m4a can be either)
         const losslessRows = albums.length
           ? ((await db.execute(sql`
-              select lt.local_album_id, bool_and(coalesce(af.lossless, false)) as all_lossless, bool_or(coalesce(af.lossless, false)) as any_lossless
+              select lt.local_album_id, bool_and(coalesce(af.lossless, false)) filter (where not t.deleted) as all_lossless,
+                     bool_or(coalesce(af.lossless, false)) filter (where not t.deleted) as any_lossless,
+                     count(*) filter (where t.deleted)::int as deleted_tracks
               from local_tracks lt join files af on af.id = lt.audio_file_id
+              cross join lateral (select ${sql.raw(fileDeletedSql('af.id'))} as deleted) t
               where lt.local_album_id in ${sql`(${sql.join(albums.map((a) => sql`${a.id}`), sql`, `)})`}
-              group by lt.local_album_id`)) as unknown as { local_album_id: string; all_lossless: boolean; any_lossless: boolean }[])
+              group by lt.local_album_id`)) as unknown as { local_album_id: string; all_lossless: boolean; any_lossless: boolean; deleted_tracks: number }[])
           : [];
         const losslessOf = new Map(losslessRows.map((r) => [r.local_album_id, r]));
         return albums.map((album) => ({
@@ -420,7 +424,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         isLossless: losslessOf.get(album.id)?.all_lossless ?? false,
         isMixed: (losslessOf.get(album.id)?.any_lossless ?? false) && !(losslessOf.get(album.id)?.all_lossless ?? false),
         state: album.state,
-        trackCount: album.trackCount ?? 0,
+        // deleted songs (0073) no longer count
+        trackCount: Math.max(0, (album.trackCount ?? 0) - (losslessOf.get(album.id)?.deleted_tracks ?? 0)),
         canonicalTrackCount: (album.releaseId && canonCount.get(album.releaseId)) || null,
         needsAttention: flagged.has(album.id) || (!!album.releaseGroupId && flagged.has(album.releaseGroupId)),
         matchKind: matchKind.get(album.id) ?? null,
@@ -480,6 +485,18 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         // Invariant: this should never happen since we checked albums.length > 0 above
         throw new ApiError(404, 'Not Found', 'Album not found');
       }
+      // Deleted songs (Mark or Trash, 0073) are out of the album; an album
+      // with all of them deleted is out of the library until Unmark / Restore.
+      const [gone] = (await db.execute(sql`
+        select ${sql.raw(albumDeletedSql(`'${album.id}'::uuid`))} as album,
+               count(*)::int as tracks, coalesce(sum(lt.duration_ms), 0)::int as ms
+          from local_tracks lt
+         where lt.local_album_id = ${album.id} and ${sql.raw(fileDeletedSql('lt.audio_file_id'))}`)) as unknown as Array<{ album: boolean; tracks: number; ms: number }>;
+      if (gone?.album) throw new ApiError(404, 'Not Found', 'Album not found');
+      if (gone && gone.tracks > 0) {
+        album.trackCount = Math.max(0, (album.trackCount ?? 0) - gone.tracks);
+        album.totalDurationMs = Math.max(0, (album.totalDurationMs ?? 0) - gone.ms);
+      }
 
       // Everything below depends only on the album row: run the independent
       // lookups together instead of ~24 awaits in a row (audit 2026-10-10:
@@ -509,7 +526,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         })
         .from(localTracks)
         .innerJoin(files, eq(files.id, localTracks.audioFileId))
-        .where(eq(localTracks.localAlbumId, albumId));
+        .where(and(eq(localTracks.localAlbumId, albumId), sql.raw(trackLiveSql('files.id'))));
 
       const releaseP = (async () => {
         let release: Record<string, unknown> | null = null;
@@ -815,6 +832,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             .where(and(
               eq(localAlbums.releaseGroupId, album.releaseGroupId),
               sql`${localAlbums.id} != ${albumId}`,
+              sql.raw(albumLiveSql('local_albums.id')),
             ))
         : Promise.resolve([]);
 
@@ -1517,6 +1535,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const albums = await db
         .select()
         .from(localAlbums)
+        .where(sql.raw(albumLiveSql('local_albums.id')))
         .limit(parseInt(limit, 10));
 
       const filtered = albums.filter(
