@@ -226,11 +226,13 @@ export {
   JEV_SPEC, jevSpecHash, bandOf, decideFromProbabilities, pickEdition,
   buildJevRequest, requestBytes, questionName, NotSendableError,
   requestForAlbum, requestOptions, jevPayloadFor, hashOf, MAX_GROUPS, MAX_EDITIONS_PER_GROUP, WEAK_TOP_CANDIDATES,
+  LOCAL_FEATURES_VERSION, LOCAL_FEATURE_NAMES, BREAKDOWN_FEATURE_KEYS, NO_RIVAL_GAP, groupFeatures, candidateFeatures, featuresSchemaHash,
 } from './decider/index.js';
 export type {
   GroupingCandidate, GroupingOptions, TracklistGroup, JevSpec, BandId, JevDecision, EditionChoice,
   Decider, DeciderInput, DeciderAnswer, DeciderRequest,
   JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack, NotSendableReason, AlbumRequest, RequestOptions,
+  LocalCandidate, FeatureRow,
 } from './decider/index.js';
 
 // Spot-check statistics: the one-sided Clopper–Pearson bound and the per-band gate

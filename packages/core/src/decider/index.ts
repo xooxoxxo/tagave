@@ -10,3 +10,5 @@ export type { EditionChoice } from './pickEdition.js';
 export type { Decider, DeciderInput, DeciderAnswer, DeciderRequest, RequestOptions } from './types.js';
 export { requestForAlbum, requestOptions, jevPayloadFor, hashOf, MAX_GROUPS, MAX_EDITIONS_PER_GROUP, WEAK_TOP_CANDIDATES } from './preview.js';
 export type { AlbumRequest } from './preview.js';
+export { LOCAL_FEATURES_VERSION, LOCAL_FEATURE_NAMES, BREAKDOWN_FEATURE_KEYS, NO_RIVAL_GAP, groupFeatures, candidateFeatures, featuresSchemaHash } from './localFeatures.js';
+export type { LocalCandidate, FeatureRow } from './localFeatures.js';
