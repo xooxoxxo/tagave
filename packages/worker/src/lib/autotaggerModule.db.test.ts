@@ -2,7 +2,7 @@
  * The autotagger module's switch, per-library settings and data, against a
  * real database: the ledger row is the switch (no row reads off), the
  * settings are the defaults until the owner sets one, a patch is validated
- * before anything is written, deleting its data empties exactly its six
+ * before anything is written, deleting its data empties exactly its
  * tables, and the drizzle mirror has every column its migration made.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -11,8 +11,8 @@ import { getTableColumns } from 'drizzle-orm';
 import postgres from 'postgres';
 import {
   AUTOTAGGER_TABLES, AutotaggerStillOnError, DEFAULT_AUTOTAGGER_CONFIG as DB_DEFAULTS, UnknownModuleError, autotaggerConfig, autotaggerEnabled, deciderCalls,
-  deciderDecisions, deciderLibrarySettings, deciderPrices, deciderRuns, deciderSpotChecks, makeDb, removeAutotaggerData, runMigrations,
-  clearTypesafeKey, markPayloadSeen, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules, typesafeKeyHint, typesafeKeyHintOf, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
+  deciderDecisions, deciderLibrarySettings, deciderModels, deciderPrices, deciderRuns, deciderSpotChecks, makeDb, removeAutotaggerData, runMigrations,
+  clearTypesafeKey, markPayloadSeen, setAutotaggerConfig, storeModel, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules, typesafeKeyHint, typesafeKeyHintOf, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
 } from '@tagave/db';
 import {
   DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, deciderPriceSchema, type AutotaggerConfig, type AutotaggerConfigPatch,
@@ -165,7 +165,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (shared db: i
   it('the drizzle schema has every column the module migration made', async () => {
     const tables = {
       decider_library_settings: deciderLibrarySettings, decider_prices: deciderPrices, decider_runs: deciderRuns,
-      decider_calls: deciderCalls, decider_decisions: deciderDecisions, decider_spot_checks: deciderSpotChecks,
+      decider_calls: deciderCalls, decider_decisions: deciderDecisions, decider_spot_checks: deciderSpotChecks, decider_models: deciderModels,
     };
     expect(Object.keys(tables).sort()).toEqual([...AUTOTAGGER_TABLES].sort());
     for (const [name, table] of Object.entries(tables)) {
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (scratch db: 
 
   it('the switch is the module ledger: off from the start, on and off again, and no row reads off', async () => {
     const [row] = await client`select enabled, kind, schema_version from installed_modules where id = 'autotagger'`;
-    expect(row).toMatchObject({ enabled: false, kind: 'in-process', schema_version: '0001_autotagger.sql' });
+    expect(row).toMatchObject({ enabled: false, kind: 'in-process', schema_version: '0002_decider_models.sql' });
     expect(await autotaggerEnabled(client)).toBe(false);
     await setAutotaggerEnabled(client, true);
     expect(await autotaggerEnabled(client)).toBe(true);
@@ -255,10 +255,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (scratch db: 
     const [dec] = await client`insert into decider_decisions (run_id, local_album_id, call_id, outcome, band) values (${run.id}, ${album}, ${call.id}, 'pick', 'high') returning id`;
     await client`insert into decider_spot_checks (run_id, decision_id, band) values (${run.id}, ${dec.id}, 'high')`;
     const [batch] = await client`insert into decider_batches (library_id, decider_id, decided_kind, run_id) values (${libraryId}, 'jev', 'model', ${run.id}) returning id`;
+    await storeModel(client, { libraryId, version: 'local@purge', featuresSchemaHash: 'f'.repeat(64), model: {}, dataHash: 'd'.repeat(64), counts: { albums: 0, rows: 0, owner: 0, auto: 0, rejections: 0 }, metrics: {} });
 
     const counts = await removeAutotaggerData(client);
     expect(Object.keys(counts)).toEqual([...AUTOTAGGER_TABLES]);
-    for (const t of ['decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings'] as const) {
+    for (const t of ['decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings', 'decider_models'] as const) {
       expect(counts[t], t).toBeGreaterThanOrEqual(1);
     }
     for (const t of AUTOTAGGER_TABLES) expect(await client`select 1 from ${client(t)} where true`, t).toHaveLength(0);

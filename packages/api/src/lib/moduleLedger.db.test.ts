@@ -157,7 +157,7 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
   it('every ledger row is keyed (module, name): the core chain’s, then a module’s own chain under its id', async () => {
     const rows = await sql`select module, name from _migrations order by module = 'core' desc, module, name`;
     const own = applied.filter((f) => f.includes('/'));
-    expect(own).toEqual(['autotagger/0001_autotagger.sql']);
+    expect(own).toEqual(['autotagger/0001_autotagger.sql', 'autotagger/0002_decider_models.sql']);
     expect(rows.filter((r) => r['module'] === 'core').map((r) => r['name'])).toEqual([...before.ledger, ...applied.filter((f) => !f.includes('/'))]);
     expect(rows.filter((r) => r['module'] !== 'core').map((r) => `${r['module']}/${r['name']}`)).toEqual(own);
     expect(await readLedger(sql)).toEqual([...before.ledger, ...applied]);

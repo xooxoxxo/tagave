@@ -4,7 +4,7 @@
  *
  *   turn off          no run can start and Library care › Review hides the
  *                     decider; every row stays
- *   delete its data   its six tables are emptied, nothing else: accept
+ *   delete its data   its tables are emptied, nothing else: accept
  *                     batches and match provenance are core, so accepted
  *                     batches stay undoable
  *
@@ -28,7 +28,7 @@ export const AUTOTAGGER_MODULE_ID = 'autotagger';
 
 /** Every table the module owns, a table before the ones it references. */
 export const AUTOTAGGER_TABLES = [
-  'decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings',
+  'decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings', 'decider_models',
 ] as const;
 
 /** The module's settings for one library (@tagave/shared AutotaggerConfig). */

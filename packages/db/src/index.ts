@@ -53,3 +53,4 @@ export * from './deciderRuns.js';
 export * from './evidenceStore.js';
 export * from './deciderPopulation.js';
 export * from './deciderSpotChecks.js';
+export * from './deciderModels.js';

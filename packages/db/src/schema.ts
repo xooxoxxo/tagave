@@ -2254,3 +2254,30 @@ export const deciderSpotChecks = pgTable(
     verdictCheck: check('decider_spot_checks_verdict_check', sql`verdict in ('pending', 'correct', 'wrong', 'unsure')`),
   })
 );
+
+/** The local decider's trained models; one active per library and decider (modules/autotagger/0002). */
+export const deciderModels = pgTable(
+  'decider_models',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    decider: varchar({ length: 16 }).notNull().default('local'),
+    /** the hash a decision names (decider_version) */
+    version: varchar({ length: 40 }).notNull(),
+    featuresSchemaHash: char('features_schema_hash', { length: 64 }).notNull(),
+    /** the whole model as the decider reads it */
+    model: jsonb().notNull(),
+    /** sha256 over the training labels */
+    dataHash: char('data_hash', { length: 64 }).notNull(),
+    /** albums, rows, owner, auto, rejections */
+    counts: jsonb().notNull().default(sql`'{}'::jsonb`),
+    /** held-out figures per band */
+    metrics: jsonb().notNull().default(sql`'{}'::jsonb`),
+    active: boolean().notNull().default(false),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    oneActive: uniqueIndex('decider_models_one_active').on(table.libraryId, table.decider).where(sql`active`),
+    libraryIdx: index('idx_decider_models_library').on(table.libraryId, table.decider, table.createdAt.desc()),
+  })
+);

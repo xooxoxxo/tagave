@@ -256,7 +256,7 @@ describe.skipIf(!adminUrl)('autotagger settings routes (integration, scratch db)
   });
 
   it('reads zero, and deletes nothing, when the module’s tables are not there (never migrated)', async () => {
-    await sql`drop table decider_decisions, decider_calls, decider_runs, decider_prices, decider_library_settings`;
+    await sql`drop table decider_decisions, decider_calls, decider_runs, decider_prices, decider_library_settings, decider_models`;
     const removed = await post('/settings/autotagger/remove-data', {});
     expect(removed.statusCode).toBe(200);
     expect(removed.json()).toMatchObject({ enabled: false, removed: {} });

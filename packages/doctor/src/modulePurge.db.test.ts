@@ -190,7 +190,7 @@ describe.skipIf(!url)('purge-module autotagger (scratch db)', () => {
     await admin?.end({ timeout: 2 });
   });
 
-  it('is built from its manifest: its six tables, nothing in libraries.settings', () => {
+  it('is built from its manifest: its tables, nothing in libraries.settings', () => {
     expect(MODULE_DATA['autotagger']).toMatchObject({ tables: [...AUTOTAGGER_MODULE.tables], librarySettingsKeys: [], history: null, onWhenEnv: [] });
   });
 

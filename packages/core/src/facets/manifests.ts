@@ -168,7 +168,7 @@ export const AUTOTAGGER_MODULE = defineModule({
   consumes: [],
   jobs: ['decider.run'],
   // a table before the ones it references (decider_calls → decider_runs)
-  tables: ['decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings'],
+  tables: ['decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings', 'decider_models'],
   migrations: 'modules/autotagger',
   // off until the owner turns it on: it sends album evidence to an outside model, at a cost
   defaultEnabled: false,

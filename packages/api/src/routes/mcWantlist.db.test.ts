@@ -364,7 +364,7 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
     // a module-ish table: a module prefix, or the core facet transport
     const CORE_FACET_TABLES = ['facet_changes', 'facet_cursors', 'identity_fills'];
     // module tables without a prefix of their own: decider_ is shared with the core's accept batches
-    const MODULE_TABLES_WITHOUT_PREFIX = ['decider_library_settings', 'decider_prices', 'decider_runs', 'decider_calls', 'decider_decisions', 'decider_spot_checks'];
+    const MODULE_TABLES_WITHOUT_PREFIX = ['decider_library_settings', 'decider_prices', 'decider_runs', 'decider_calls', 'decider_decisions', 'decider_spot_checks', 'decider_models'];
     const mustOwn = tables.filter((t) => t.startsWith('mc_') || t.startsWith('player_') || t.startsWith('listen_') || t.startsWith('playlist') || CORE_FACET_TABLES.includes(t) || MODULE_TABLES_WITHOUT_PREFIX.includes(t));
     for (const t of MODULE_TABLES_WITHOUT_PREFIX) expect(owners.get(t), t).toEqual(['autotagger']);
     // every decider_ table is the autotagger's, but the accept batches, which are core
