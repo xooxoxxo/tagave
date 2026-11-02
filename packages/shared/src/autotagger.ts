@@ -153,3 +153,14 @@ export interface RunView {
   /** albums × the library's mean cost per answered call in `currency`; null before any call */
   projected: number | null;
 }
+
+/** One band's agreement between the decider and the owner (p99, p97, p95, p90, or 'none'). */
+export interface AgreementRow { band: string | 'none'; decided: number; agree: number; disagree: number; noDecision: number }
+
+/**
+ * How often the decider agreed with the owner; it informs, never gates.
+ * `backtest`: the latest done backtest run against the owner's past
+ * decisions (null before one). `queue`: the owner's review-queue decisions
+ * after a needs_review run's.
+ */
+export interface AgreementView { backtest: { runId: string; rows: AgreementRow[] } | null; queue: AgreementRow[] }

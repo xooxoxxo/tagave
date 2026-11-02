@@ -20,9 +20,13 @@
  *   GET    /api/v1/libraries/:libraryId/autotagger/runs/:runId         library.edit
  *   POST   /api/v1/libraries/:libraryId/autotagger/runs/:runId/resume  system.manage: a paused or failed run, where it stopped
  *   POST   /api/v1/libraries/:libraryId/autotagger/runs/:runId/cancel  system.manage
+ *   GET    /api/v1/libraries/:libraryId/autotagger/agreement           library.edit: the decider against the owner, per band
+ *
+ * A backtest is a run like any other ({ population: 'backtest' }), with the
+ * same checks. Agreement only informs: nothing accepts by it.
  *
  * Off: every /libraries/:libraryId/autotagger route but the GETs of the
- * settings and the runs, and cancel, answers 409.
+ * settings, the runs and the agreement, and cancel, answers 409.
  *
  * The preview and the run make an album's request with the same function
  * (requestForAlbum, @tagave/core), from the same evidence and population
@@ -38,10 +42,10 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type postgres from 'postgres';
 import {
-  AUTOTAGGER_MODULE_ID, AUTOTAGGER_TABLES, AutotaggerStillOnError, UnknownModuleError, albumPopulation, autotaggerConfig, autotaggerEnabled, checkBudget,
+  AUTOTAGGER_MODULE_ID, AUTOTAGGER_TABLES, AutotaggerStillOnError, UnknownModuleError, albumPopulation, autotaggerConfig, autotaggerEnabled, backtestAgreement, checkBudget,
   clearTypesafeKey, deciderRunSingletonKey, loadEvidence, loadEvidenceMany, markPayloadSeen, meanCallCost, monthSpendByCurrency, populationAlbumIds, priceFor,
   deciderRunJobWaiting, removeAutotaggerData, staleDeciderRunJobs, waitingDeciderRunJobs, runSpendByCurrency, sendDeciderRun, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint,
-  typesafeKeyHintOf, type AutotaggerConfig, type LoadedEvidence,
+  latestBacktestRunId, queueAgreement, typesafeKeyHintOf, type AutotaggerConfig, type LoadedEvidence,
 } from '@tagave/db';
 import {
   NotSendableError, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
@@ -49,7 +53,7 @@ import {
 import {
   AUTOTAGGER_DECIDER_ID, DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, autotaggerKeySchema, autotaggerModuleSchema, deciderLabel, deciderPriceSchema,
   startRunSchema,
-  type AutotaggerLibraryView, type AutotaggerModuleView, type DeciderPrice, type PayloadPreview, type Population, type RunView,
+  type AgreementView, type AutotaggerLibraryView, type AutotaggerModuleView, type DeciderPrice, type PayloadPreview, type Population, type RunView,
 } from '@tagave/shared';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -544,6 +548,15 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     const { libraryId, runId } = request.params as { libraryId: string; runId: string };
     await assertLibrary(libraryId);
     return runView(libraryId, runId);
+  });
+
+  fastify.get('/libraries/:libraryId/autotagger/agreement', async (request): Promise<AgreementView> => {
+    const { libraryId } = request.params as { libraryId: string };
+    await assertLibrary(libraryId);
+    // separate reads, no transaction: a missing module table reads as empty
+    const runId = await latestBacktestRunId(sql(), libraryId);
+    const backtest = runId ? { runId, rows: await backtestAgreement(sql(), runId) } : null;
+    return { backtest, queue: await queueAgreement(sql(), libraryId) };
   });
 
   fastify.post('/libraries/:libraryId/autotagger/runs/:runId/resume', async (request, reply): Promise<RunView> => {

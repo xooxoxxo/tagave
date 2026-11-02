@@ -414,4 +414,70 @@ describe.skipIf(!adminUrl)('autotagger runs and payload preview (integration, sc
     expect(states).toEqual([{ run: third.json().id, state: 'created' }]);
     await post(`${runs()}/${third.json().id}/cancel`, {});
   });
+  it('a backtest starts through the run route, with the checks of any run, and shows in the runs list', async () => {
+    const kept = await makeAlbum(lib, { title: 'Pidetty', state: 'as_is', identifyReason: null, tracks: [{ title: 'Ilta' }], candidates: [{ distance: 0.05, titles: ['Ilta'] }] });
+    await ready();
+    await sql`update decider_library_settings set config = config - 'payloadSeenAt' - 'payloadSeenBy' where library_id = ${lib}`;
+    let r = await post(runs(), { population: 'backtest' });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().detail).toMatch(/payload/i);
+    await ready();
+    await patch(`/api/v1/libraries/${lib}/autotagger/config`, { monthlyCap: null });
+    r = await post(runs(), { population: 'backtest' });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().detail).toMatch(/cap/i);
+    await ready();
+    await sql`delete from decider_prices where decider_id = 'jev'`;
+    r = await post(runs(), { population: 'backtest' });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().detail).toMatch(/price/i);
+    expect(bossSend).not.toHaveBeenCalled();
+    await ready();
+    r = await post(runs(), { population: 'backtest' });
+    expect(r.statusCode).toBe(202);
+    expect(bossSend).toHaveBeenCalledWith('decider.run', { runId: r.json().id }, { singletonKey: `decider.run:${lib}` });
+    // the one album the owner kept as is
+    expect(r.json()).toMatchObject({ population: 'backtest', state: 'queued', albums: 1 });
+    const listed = (await getR(runs(), editor)).json().items.find((v: { id: string }) => v.id === r.json().id);
+    expect(listed).toMatchObject({ population: 'backtest', albums: 1 });
+    await post(`${runs()}/${r.json().id}/cancel`, {});
+    await sql`update local_albums set state = 'ignored' where id = ${kept}`;
+  });
+
+  it('agreement per band for editors: the latest done backtest and the review queue', async () => {
+    const agreement = (l = lib) => `/api/v1/libraries/${l}/autotagger/agreement`;
+    const empty = await getR(agreement(emptyLib), editor);
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ backtest: null, queue: [] });
+    expect((await getR(agreement(randomUUID()))).statusCode).toBe(404);
+    expect((await getR(agreement('not-a-uuid'))).statusCode).toBe(404);
+    const listener = await createTestUser(handle, { role: 'listener' });
+    expect((await getR(agreement(), listener)).statusCode).toBe(403);
+
+    // a done backtest: the owner kept the album as is, Jev picked
+    const kept = await makeAlbum(lib, { title: 'Ennallaan', state: 'as_is', identifyReason: null, tracks: [{ title: 'Ilta' }], candidates: [{ distance: 0.05, titles: ['Ilta'] }] });
+    const [bt] = await sql<Array<{ id: string }>>`
+      insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population, state, finished_at)
+      values (${lib}, 'jev', 's', 'jev-latest', 'backtest', 'done', now()) returning id::text as id`;
+    await sql`insert into decider_decisions (run_id, local_album_id, outcome, band, group_release_ids) values (${bt!.id}, ${kept}, 'pick', 'p97', '{}'::uuid[])`;
+    // a review-queue decision, then the owner accepting a release of its group
+    const [rel] = await sql<Array<{ id: string }>>`select release_id::text as id from match_candidates where local_album_id = ${oneGroup} limit 1`;
+    const [nr] = await sql<Array<{ id: string }>>`
+      insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population, state, finished_at)
+      values (${lib}, 'jev', 's', 'jev-latest', 'needs_review', 'done', now()) returning id::text as id`;
+    await sql`insert into decider_decisions (run_id, local_album_id, outcome, band, group_release_ids, created_at)
+              values (${nr!.id}, ${oneGroup}, 'pick', 'p99', ${[rel!.id]}::uuid[], now() - interval '1 hour')`;
+    await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, decided_kind, reason)
+              values (${lib}, ${oneGroup}, ${rel!.id}, 0.05, 'confirmed', 'user', 'user', 'accepted in review queue')`;
+
+    // read only: also while the module is off
+    await setAutotaggerEnabled(sql, false);
+    const r = await getR(agreement(), editor);
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({
+      backtest: { runId: bt!.id, rows: [{ band: 'p97', decided: 1, agree: 0, disagree: 1, noDecision: 0 }] },
+      queue: [{ band: 'p99', decided: 1, agree: 1, disagree: 0, noDecision: 0 }],
+    });
+    await setAutotaggerEnabled(sql, true);
+  });
 });

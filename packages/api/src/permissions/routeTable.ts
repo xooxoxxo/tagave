@@ -167,6 +167,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   // Its runs (routes/autotagger.ts): editors see them; starting, resuming and cancelling one is the owner's (system.manage below).
   'GET /api/v1/libraries/:libraryId/autotagger/runs': 'library.edit',
   'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId': 'library.edit',
+  // How often the decider agreed with the owner (routes/autotagger.ts): read only, no payload.
+  'GET /api/v1/libraries/:libraryId/autotagger/agreement': 'library.edit',
   'GET /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'PUT /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/preview': 'library.edit',

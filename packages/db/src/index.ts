@@ -47,6 +47,7 @@ export * from './listenLinks.js';
 export * from './playlistsModule.js';
 export * from './modules.js';
 export * from './autotaggerModule.js';
+export * from './deciderAgreement.js';
 export * from './deciderBudget.js';
 export * from './deciderRuns.js';
 export * from './evidenceStore.js';
