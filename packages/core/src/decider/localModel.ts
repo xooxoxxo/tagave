@@ -14,9 +14,13 @@
  *   checked with a backtracking line search, and when the Hessian cannot be
  *   factored the step is damped (a multiple of the identity is added), so
  *   duplicated or constant columns do not break the fit.
- * - Calibration: pool-adjacent-violators over the sorted scores. Blocks are
- *   flat between their lowest and highest score; between blocks the value
- *   is interpolated linearly, outside the range it is clamped.
+ * - Calibration: pool-adjacent-violators over the sorted scores; each
+ *   finished block's value is then Laplace-smoothed, (positives + 1) /
+ *   (total + 2), so no block claims a certainty of exactly 0 or 1. Blocks
+ *   that smoothing leaves equal or out of order are pooled again, so the
+ *   steps strictly increase. Blocks are flat between
+ *   their lowest and highest score; between blocks the value is
+ *   interpolated linearly, outside the range it is clamped.
  */
 import { createHash } from 'node:crypto';
 import { stableJson } from '../matching/evidence.js';
@@ -41,7 +45,7 @@ export interface IsotonicBlock {
   /** Lowest and highest score pooled into the block. */
   lo: number;
   hi: number;
-  /** The block's weighted share of positives. */
+  /** The block's smoothed share of positives: (weighted positives + 1) / (weighted total + 2). */
   p: number;
   /** Total weight pooled into the block. */
   weight: number;
@@ -275,9 +279,10 @@ export function predictLogistic(model: LogisticModel, x: number[]): number {
 }
 
 /**
- * Isotonic regression by pool-adjacent-violators: monotone non-decreasing
- * blocks over the sorted scores. Equal scores are pooled first, so tied rows
- * always share one value whatever their order. Rows of weight 0 are dropped.
+ * Isotonic regression by pool-adjacent-violators: monotone blocks over the
+ * sorted scores, each valued (weighted positives + 1) / (weighted total + 2).
+ * Equal scores are pooled first, so tied rows always share one value
+ * whatever their order. Rows of weight 0 are dropped.
  */
 export function fitIsotonic(scores: number[], labels: (0 | 1)[], weights?: number[]): IsotonicModel {
   const n = scores.length;
@@ -295,17 +300,11 @@ export function fitIsotonic(scores: number[], labels: (0 | 1)[], weights?: numbe
 
   // blocks carry the weighted label sum so the pooled value is exact
   type Block = { lo: number; hi: number; sum: number; weight: number };
-  const stack: Block[] = [];
-  const value = (b: Block): number => b.sum / b.weight;
-  for (const r of rows) {
-    const top = stack[stack.length - 1];
-    if (top && top.hi === r.s) {
-      top.sum += r.w * r.y;
-      top.weight += r.w;
-    } else {
-      stack.push({ lo: r.s, hi: r.s, sum: r.w * r.y, weight: r.w });
-    }
-    // pool while the last two blocks violate (or tie) the order
+  const raw = (b: Block): number => b.sum / b.weight;
+  const smoothed = (b: Block): number => (b.sum + 1) / (b.weight + 2);
+  /** Pushes a block, then pools while the last two violate (or tie) the order under `value`. */
+  const pool = (stack: Block[], next: Block, value: (b: Block) => number): void => {
+    stack.push(next);
     while (stack.length > 1 && value(stack[stack.length - 2]!) >= value(stack[stack.length - 1]!)) {
       const b = stack.pop()!;
       const a = stack[stack.length - 1]!;
@@ -313,8 +312,26 @@ export function fitIsotonic(scores: number[], labels: (0 | 1)[], weights?: numbe
       a.sum += b.sum;
       a.weight += b.weight;
     }
+  };
+  // plain PAV on the weighted share of positives, equal scores pooled first
+  const blocks: Block[] = [];
+  for (const r of rows) {
+    const top = blocks[blocks.length - 1];
+    if (top && top.hi === r.s) {
+      top.sum += r.w * r.y;
+      top.weight += r.w;
+      // the grown block may now violate the order with the one before it
+      const last = blocks.pop()!;
+      pool(blocks, last, raw);
+    } else {
+      pool(blocks, { lo: r.s, hi: r.s, sum: r.w * r.y, weight: r.w }, raw);
+    }
   }
-  return { blocks: stack.map((b) => ({ lo: b.lo, hi: b.hi, p: value(b), weight: b.weight })) };
+  // smoothing can make neighbours equal or out of order (a small pure block
+  // is pulled further toward 1/2 than a large one); pool those again
+  const stack: Block[] = [];
+  for (const b of blocks) pool(stack, { ...b }, smoothed);
+  return { blocks: stack.map((b) => ({ lo: b.lo, hi: b.hi, p: smoothed(b), weight: b.weight })) };
 }
 
 /** The calibrated value of a score: flat within a block, linear between blocks, clamped outside. */

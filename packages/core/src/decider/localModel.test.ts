@@ -174,29 +174,41 @@ describe('predictLogistic', () => {
 });
 
 describe('isotonic calibration (pool-adjacent-violators)', () => {
-  it('matches a hand-worked example', () => {
-    // labels by score: 0 1 0 0 1 1 -> pool (1,0,0) at 0.2..0.4 into 1/3
+  it('matches a hand-worked example (Laplace-smoothed blocks)', () => {
+    // labels by score: 0 1 0 0 1 1. Smoothed: {0} -> 1/3; (1,0,0) at 0.2..0.4 -> 2/5;
+    // (1,1) at 0.5..0.6 -> 3/4 (the two 2/3 singletons tie after smoothing and pool)
     const m = fitIsotonic([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], [0, 1, 0, 0, 1, 1]);
     expect(m.blocks.map((b) => [b.lo, b.hi, b.p])).toEqual([
-      [0.1, 0.1, 0], [0.2, 0.4, 1 / 3], [0.5, 0.6, 1],
+      [0.1, 0.1, 1 / 3], [0.2, 0.4, 2 / 5], [0.5, 0.6, 3 / 4],
     ]);
-    expect(applyIsotonic(m, 0.1)).toBe(0);
-    expect(applyIsotonic(m, 0.3)).toBeCloseTo(1 / 3, 12);
-    expect(applyIsotonic(m, 0.15)).toBeCloseTo(1 / 6, 12); // halfway between the edges 0.1 and 0.2
-    expect(applyIsotonic(m, 0.45)).toBeCloseTo(2 / 3, 12);
-    expect(applyIsotonic(m, -5)).toBe(0); // clamped below
-    expect(applyIsotonic(m, 5)).toBe(1); // clamped above
+    expect(m.blocks.map((b) => b.weight)).toEqual([1, 3, 2]);
+    expect(applyIsotonic(m, 0.1)).toBeCloseTo(1 / 3, 12);
+    expect(applyIsotonic(m, 0.3)).toBeCloseTo(2 / 5, 12);
+    expect(applyIsotonic(m, 0.15)).toBeCloseTo(11 / 30, 12); // halfway between the edges 0.1 and 0.2
+    expect(applyIsotonic(m, 0.45)).toBeCloseTo(0.575, 12);
+    expect(applyIsotonic(m, -5)).toBeCloseTo(1 / 3, 12); // clamped below
+    expect(applyIsotonic(m, 5)).toBe(3 / 4); // clamped above
   });
 
-  it('uses weights, and sorts its input', () => {
-    // order shuffled; weight 3 on the 0.3 negative pulls the pooled block down
+  it('a block of 10 positives gives 11/12, not 1', () => {
+    const m = fitIsotonic(Array.from({ length: 10 }, (_, i) => i / 10), new Array(10).fill(1) as (0 | 1)[]);
+    expect(m.blocks).toHaveLength(1);
+    expect(m.blocks[0]!.p).toBe(11 / 12);
+    expect(applyIsotonic(m, 100)).toBe(11 / 12);
+    const neg = fitIsotonic([0.1, 0.2, 0.3], [0, 0, 0]);
+    expect(neg.blocks.map((b) => b.p)).toEqual([1 / 5]);
+  });
+
+  it('uses weights, sorts its input, and pools again blocks that smoothing makes equal', () => {
+    // order shuffled; weight 3 on the 0.3 negative pulls (0.2, 0.3) down to (1+1)/(4+2) = 1/3,
+    // which ties the smoothed 1/3 of the 0.1 negative, so all three pool: (1+1)/(5+2)
     const m = fitIsotonic([0.3, 0.1, 0.2], [0, 0, 1], [3, 1, 1]);
-    expect(m.blocks.map((b) => [b.lo, b.hi, b.p])).toEqual([[0.1, 0.1, 0], [0.2, 0.3, 0.25]]);
+    expect(m.blocks.map((b) => [b.lo, b.hi, b.p, b.weight])).toEqual([[0.1, 0.3, 2 / 7, 5]]);
   });
 
   it('pools equal scores', () => {
     const m = fitIsotonic([0.5, 0.5, 0.5, 0.9], [1, 0, 0, 1]);
-    expect(m.blocks.map((b) => [b.lo, b.hi, b.p])).toEqual([[0.5, 0.5, 1 / 3], [0.9, 0.9, 1]]);
+    expect(m.blocks.map((b) => [b.lo, b.hi, b.p])).toEqual([[0.5, 0.5, 2 / 5], [0.9, 0.9, 2 / 3]]);
     // the order of tied rows does not matter
     expect(fitIsotonic([0.5, 0.5, 0.5, 0.9], [0, 0, 1, 1])).toEqual(m);
   });
@@ -214,17 +226,35 @@ describe('isotonic calibration (pool-adjacent-violators)', () => {
     for (let s = -0.1; s <= 1.1; s += 0.001) {
       const p = applyIsotonic(m, s);
       expect(p).toBeGreaterThanOrEqual(prev);
-      expect(p).toBeGreaterThanOrEqual(0);
-      expect(p).toBeLessThanOrEqual(1);
+      expect(p).toBeGreaterThan(0);
+      expect(p).toBeLessThan(1);
       prev = p;
     }
   });
 
   it('maps well-separated scores to about 0 and 1', () => {
-    const scores = [0.01, 0.02, 0.03, 0.05, 0.06, 0.94, 0.95, 0.97, 0.98, 0.99];
-    const m = fitIsotonic(scores, [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
+    // 100 negatives under 0.1, 100 positives over 0.9: smoothed 1/102 and 101/102
+    const scores = Array.from({ length: 200 }, (_, i) => (i < 100 ? i / 1000 : 0.9 + (i - 100) / 1000));
+    const m = fitIsotonic(scores, scores.map((_, i) => (i < 100 ? 0 : 1)));
+    expect(applyIsotonic(m, 0.02)).toBeCloseTo(1 / 102, 12);
+    expect(applyIsotonic(m, 0.95)).toBeCloseTo(101 / 102, 12);
     expect(applyIsotonic(m, 0.02)).toBeLessThan(0.01);
-    expect(applyIsotonic(m, 0.97)).toBeGreaterThan(0.99);
+    expect(applyIsotonic(m, 0.95)).toBeGreaterThan(0.99);
+  });
+
+  it('smoothed steps never decrease, with weights and ties', () => {
+    const r = rng(17);
+    for (let run = 0; run < 20; run++) {
+      const scores = Array.from({ length: 60 }, () => Math.round(r() * 10) / 10);
+      const labels = scores.map((s) => (r() < s ? 1 : 0)) as (0 | 1)[];
+      const weights = scores.map(() => 0.5 + r() * 3);
+      const m = fitIsotonic(scores, labels, weights);
+      for (let i = 1; i < m.blocks.length; i++) expect(m.blocks[i]!.p).toBeGreaterThan(m.blocks[i - 1]!.p);
+      for (const b of m.blocks) {
+        expect(b.p).toBeGreaterThan(0);
+        expect(b.p).toBeLessThan(1);
+      }
+    }
   });
 
   it('rejects bad input', () => {
