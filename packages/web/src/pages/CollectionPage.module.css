@@ -12,26 +12,11 @@
   font-weight: 500;
 }
 
-.bannerLine {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
 .viewHead {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
   margin-top: var(--space-md);
-}
-
-.viewHelp {
-  margin: 0;
-  max-width: 62ch;
-  color: var(--ink-2);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-normal);
 }
 
 .list {
@@ -88,31 +73,32 @@
   font-weight: 400;
 }
 
+/* the record's facts: a marker per medium, the drive when it is on disk,
+   copies, folder and grades; every piece on the line's baseline */
 .details {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
+  align-items: baseline;
+  gap: 4px 10px;
   color: var(--ink-3);
   font-size: var(--font-size-sm);
+  line-height: 20px;
+}
+
+.onDisk {
+  display: inline-flex;
+  align-self: center;
+  color: var(--ink-2);
+}
+
+.onDisk svg {
+  width: 16px;
+  height: 16px;
 }
 
 .status {
   color: var(--ink-3);
   font-size: var(--font-size-sm);
-}
-
-.flag,
-.flagDanger {
-  padding: 1px 8px;
-  border-radius: var(--r-pill);
-  background: var(--warn-tint, var(--dew-tint));
-  color: var(--ink);
-  font-size: var(--font-size-xs, 12px);
-  font-weight: 600;
-}
-
-.flagDanger {
-  background: var(--danger-tint);
 }
 
 .rowActions {

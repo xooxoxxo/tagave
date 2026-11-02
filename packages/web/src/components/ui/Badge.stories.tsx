@@ -21,3 +21,12 @@ export const Tones: Story = {
 export const LongText: Story = {
   render: () => <div style={{ width: 160 }}><Badge tone="warning">Four different album-artist tags</Badge></div>,
 };
+
+/** sm: a marker in a line of small text, on its baseline (a record's format and copies). */
+export const Small: Story = {
+  render: () => (
+    <p style={{ margin: 0, display: 'flex', alignItems: 'baseline', gap: 14, color: 'var(--ink-3)', fontSize: 'var(--font-size-sm)' }}>
+      <Badge size="sm">2×CD</Badge><span>VG+/VG</span><Badge size="sm" tone="warning">2 copies</Badge>
+    </p>
+  ),
+};
