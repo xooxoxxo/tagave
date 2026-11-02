@@ -455,3 +455,39 @@ describe('scoreRelease alignment', () => {
     expect(after).toStrictEqual(before);
   });
 });
+
+describe('scoreRelease compares text by script', () => {
+  const cyrillic = ['Падение Рода', 'Поворот В Никуда', 'Без Четверти Вечность'];
+  // the same titles read with the wrong code page: Latin letters
+  const misread = ['Ïàäåíèå Ðîäà', 'Ïîâîðîò Â Íèêóäà', 'Áåç ×åòâåðòè Âå÷íîñòü'];
+  const tracks = (titles: string[]) => titles.map((title, i) => ({ title, duration: 200 + 40 * i, index: i }));
+  const release = (title: string, titles: string[]) =>
+    ({ id: 'r', releaseGroupId: 'g', title, artists: ['Stigmatic Chorus'], tracks: tracks(titles), source: 'musicbrainz' as const });
+
+  it('a misread tracklist against the Cyrillic one costs nothing; the durations align it', () => {
+    const r = scoreRelease({ artist: 'Stigmatic Chorus', title: 'Ãåäîíèñò', tracks: tracks(misread) }, release('Гедонист', cyrillic));
+    expect(r.breakdown.album).toBe(0);
+    expect(r.breakdown.trackTitle).toBe(0);
+    expect(r.alignment.map((a) => a.canonicalIndex)).toEqual([0, 1, 2]);
+    expect(r.distance).toBe(0);
+  });
+
+  it('a plain-ASCII title against a Cyrillic one costs what it did before', () => {
+    const r = scoreRelease({ artist: 'Stigmatic Chorus', title: 'Gedonist', tracks: tracks(misread) }, release('Гедонист', cyrillic));
+    expect(r.breakdown.album).toBe(1);
+    expect(r.breakdown.trackTitle).toBe(0);
+  });
+
+  it('two Cyrillic tracklists with different titles still cost', () => {
+    const other = ['Ветры солнца', 'Теотиуакан', 'Дороги ведут в Копан'];
+    const r = scoreRelease({ artist: 'Stigmatic Chorus', title: 'Гедонист', tracks: tracks(cyrillic) }, release('Гедонист', other));
+    expect(r.breakdown.trackTitle).toBeGreaterThan(0.3);
+  });
+
+  it('an accent on a Latin name costs nothing', () => {
+    const r = scoreRelease({ artist: 'Chyliñska', title: 'Winna', tracks: tracks(['Zla']) },
+      { ...release('Winna', ['Zła']), artists: ['Chylińska'] });
+    expect(r.breakdown.artist).toBe(0);
+    expect(r.breakdown.trackTitle).toBe(0);
+  });
+});

@@ -17,6 +17,7 @@ export {
   jaroWinklerDistance,
   tokenSetRatio,
   stringDistance,
+  scriptAwareDistance,
 } from './text/index.js';
 
 // Matching engine

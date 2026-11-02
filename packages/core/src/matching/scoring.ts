@@ -3,7 +3,7 @@
  * Implements spec §12.5 matching algorithm.
  */
 
-import { stringDistance, normalizeString } from '../text/normalize.js';
+import { scriptAwareDistance, normalizeString } from '../text/normalize.js';
 import { hungarianAlgorithm } from './hungarian.js';
 import type {
   LocalAlbumView,
@@ -31,12 +31,17 @@ export const MAX_ALIGN_TRACKS = 500;
 /**
  * The text comparison the scorer uses. Callers leave it out; a read-only
  * report passes an older normaliser to replay how the scorer used to judge.
+ *
+ * The scorer compares by script: a title or name in a script the other side
+ * does not use at all neither adds to nor takes away from the match, so the
+ * durations and the other fields decide (scriptAwareDistance). Only here,
+ * where that other evidence exists; plain stringDistance keeps scripts apart.
  */
 export interface ScoringText {
   normalizeString: (s: string) => string;
   stringDistance: (a: string, b: string) => number;
 }
-const CURRENT_TEXT: ScoringText = { normalizeString, stringDistance };
+const CURRENT_TEXT: ScoringText = { normalizeString, stringDistance: scriptAwareDistance };
 
 /**
  * A provider release, seen only through what says how many discs it has.

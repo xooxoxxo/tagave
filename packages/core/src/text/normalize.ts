@@ -5,14 +5,47 @@
  *
  * Letters, digits and combining marks are kept in every script, so Japanese,
  * Chinese, Cyrillic or accented Latin titles are compared rather than
- * deleted. Accents are not folded: "é" stays "é" (a Japanese voiced mark is a
- * combining mark too, and folding it would make different words equal).
- * NFKC folds full-width and other compatibility forms ("Ｍ" → "M").
+ * deleted. NFKC folds full-width and other compatibility forms ("Ｍ" → "M").
+ *
+ * Accents are folded on Latin letters only ("é" → "e", "ő" → "o"): tags and
+ * catalogues disagree about them all the time ("Regö" against "Regő"). A
+ * mark on a letter of any other script is kept, because there it tells
+ * words apart: a Japanese voiced mark makes "が" a different kana from "か",
+ * and the breve makes "й" a different Cyrillic letter from "и".
  */
 
-/** Unicode compatibility composition + lowercase: the shared first step. */
+/**
+ * Signs that NFKC would turn into letters or into a space plus an accent:
+ * "™" becomes "TM", "´" becomes " ́" and splits "Journey´s" in two. They are
+ * removed before the fold. The spacing kana voiced marks stay, so the fold
+ * can still attach them to their kana.
+ */
+const PRE_FOLD_SIGNS = /[\u2120\u2122]|(?![\u309B\u309C])\p{Sk}/gu;
+
+/** Latin letters with no decomposition into a base letter and a mark. */
+const LATIN_LETTERS: Readonly<Record<string, string>> = {
+  'ø': 'o', 'ł': 'l', 'đ': 'd', 'ß': 'ss', 'æ': 'ae', 'œ': 'oe', 'ƒ': 'f',
+  // Turkish dotless i; its capital is "I", and the dotted capital "İ" decomposes into I + dot
+  'ı': 'i',
+};
+const LATIN_LETTER = new RegExp(`[${Object.keys(LATIN_LETTERS).join('')}]`, 'gu');
+
+/** Combining marks that sit on a Latin letter. */
+const LATIN_MARKS = /(\p{Script=Latin})\p{M}+/gu;
+
+/**
+ * The shared first step: compatibility fold, lowercase, and Latin accents
+ * folded. Marks on every other script are kept and recomposed.
+ */
 function fold(s: string): string {
-  return s.normalize('NFKC').toLowerCase();
+  return s
+    .replace(PRE_FOLD_SIGNS, '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(LATIN_LETTER, (ch) => LATIN_LETTERS[ch] ?? ch)
+    .normalize('NFKD')
+    .replace(LATIN_MARKS, '$1')
+    .normalize('NFC');
 }
 
 /** Emoji variation selectors and the keycap mark carry no text. */
@@ -153,17 +186,8 @@ export function tokenSetRatio(a: string, b: string): number {
   return intersection / union;
 }
 
-/**
- * Combined string distance for matching: weighted average of normalized Jaro-Winkler
- * and token-set ratio. Lower values indicate better matches.
- *
- * Distance is 1 - similarity, so a return of 0 means identical and 1 means completely different.
- * Used for album titles, artist names, etc.
- */
-export function stringDistance(a: string, b: string): number {
-  const normalized1 = normalizeString(a);
-  const normalized2 = normalizeString(b);
-
+/** Distance between two already normalized strings. */
+function normalizedDistance(normalized1: string, normalized2: string): number {
   if (normalized1 === normalized2) return 0;
   if (!normalized1 || !normalized2) return 1;
 
@@ -175,4 +199,105 @@ export function stringDistance(a: string, b: string): number {
 
   // Weighted average: slightly favor Jaro-Winkler for single-word differences
   return jw * 0.6 + tokenSet * 0.4;
+}
+
+/**
+ * Combined string distance for matching: weighted average of normalized Jaro-Winkler
+ * and token-set ratio. Lower values indicate better matches.
+ *
+ * Distance is 1 - similarity, so a return of 0 means identical and 1 means completely different.
+ * Used for album titles, artist names, etc.
+ */
+export function stringDistance(a: string, b: string): number {
+  return normalizedDistance(normalizeString(a), normalizeString(b));
+}
+
+// ---------------------------------------------------------------------------
+// Scripts
+// ---------------------------------------------------------------------------
+
+type ScriptFamily = 'latin' | 'cyrillic' | 'greek' | 'cjk' | 'arabic' | 'hebrew' | 'other';
+
+/**
+ * Letters by writing system. Han, kana, Hangul and Bopomofo are one family,
+ * because Japanese titles mix kanji and kana and a Korean one may carry
+ * hanja; by Script_Extensions, so the kana long-vowel mark counts as kana.
+ * Letters of any script not named here are one "other" family, so two such
+ * texts always compare.
+ */
+const FAMILY_LETTERS: ReadonlyArray<readonly [Exclude<ScriptFamily, 'other'>, string]> = [
+  ['latin', '\\p{sc=Latin}'],
+  ['cyrillic', '\\p{sc=Cyrillic}'],
+  ['greek', '\\p{sc=Greek}'],
+  ['cjk', '\\p{scx=Han}\\p{scx=Hiragana}\\p{scx=Katakana}\\p{scx=Hangul}\\p{scx=Bopomofo}'],
+  ['arabic', '\\p{sc=Arabic}'],
+  ['hebrew', '\\p{sc=Hebrew}'],
+];
+const KNOWN_LETTERS = FAMILY_LETTERS.map(([, cls]) => cls).join('');
+/** One letter of a family, with the marks that sit on it. */
+const FAMILY_LETTER: Readonly<Record<ScriptFamily, RegExp>> = {
+  ...Object.fromEntries(FAMILY_LETTERS.map(([f, cls]) => [f, new RegExp(`[${cls}]\\p{M}*`, 'gu')])),
+  other: new RegExp(`(?![${KNOWN_LETTERS}])\\p{L}\\p{M}*`, 'gu'),
+} as Record<ScriptFamily, RegExp>;
+const FAMILIES = Object.keys(FAMILY_LETTER) as ScriptFamily[];
+
+/** The script families whose letters a text uses. */
+function familiesOf(s: string): Set<ScriptFamily> {
+  const out = new Set<ScriptFamily>();
+  for (const f of FAMILIES) {
+    const re = FAMILY_LETTER[f];
+    re.lastIndex = 0;
+    if (re.test(s)) out.add(f);
+  }
+  return out;
+}
+
+/** The text without the letters of the given families, spaces collapsed. */
+function withoutFamilies(s: string, drop: ScriptFamily[]): string {
+  let out = s;
+  for (const f of drop) out = out.replace(FAMILY_LETTER[f], '');
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * What the old normaliser kept of a text: ASCII letters, digits, underscore
+ * and spaces, without a leading English article. A Cyrillic or Japanese
+ * title, or one read with the wrong code page, keeps nothing.
+ */
+function asciiSkeleton(s: string): string {
+  return s.normalize('NFC').toLowerCase()
+    .replace(/[^\w\s]/gu, '').trim()
+    .replace(/\s+/g, ' ')
+    .replace(/^(the|a|an)\s+/i, '').trim();
+}
+
+/**
+ * The distance the matcher uses: stringDistance over the scripts both texts
+ * are written in. A part in a script the other text does not use says
+ * nothing about it, so it neither adds to nor takes away from the match:
+ * the Arabic half of "تانيا صالح = Tania Saleh" against "Tania Saleh", or
+ * the Greek of "Πρόλογος (Prologos)" against "Prologos".
+ *
+ * - Both texts use the same scripts: compared as they are, so two different
+ *   Japanese titles stay apart.
+ * - They share some scripts: only the letters of those are compared.
+ * - They share none (both have letters): there is nothing to compare, and
+ *   the pair is judged exactly as the old normaliser judged it, by the
+ *   plain ASCII letters and digits each carries. Two texts with none (a
+ *   Cyrillic title against the same title read with the wrong code page)
+ *   cost nothing; a plain-ASCII name against a Cyrillic one costs what it
+ *   always did. Durations and the other fields decide the rest.
+ * - A text without letters (only digits, or empty) compares as it is.
+ */
+export function scriptAwareDistance(a: string, b: string): number {
+  const n1 = normalizeString(a);
+  const n2 = normalizeString(b);
+  if (n1 === n2) return 0;
+  const f1 = familiesOf(n1);
+  const f2 = familiesOf(n2);
+  if (f1.size === 0 || f2.size === 0) return normalizedDistance(n1, n2);
+  const only1 = [...f1].filter((f) => !f2.has(f));
+  const only2 = [...f2].filter((f) => !f1.has(f));
+  if (only1.length === f1.size) return normalizedDistance(asciiSkeleton(a), asciiSkeleton(b));
+  return normalizedDistance(withoutFamilies(n1, only1), withoutFamilies(n2, only2));
 }

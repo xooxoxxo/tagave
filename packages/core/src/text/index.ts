@@ -8,4 +8,5 @@ export {
   jaroWinklerDistance,
   tokenSetRatio,
   stringDistance,
+  scriptAwareDistance,
 } from './normalize.js';

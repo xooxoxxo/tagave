@@ -5,8 +5,9 @@
  * The old normaliser kept only ASCII word characters, so every non-ASCII
  * letter was deleted: "Stück" became "stck", and a Japanese, Chinese or
  * Cyrillic title became an empty string that compared equal to any other.
- * The current one keeps letters, digits and combining marks in every script
- * and folds compatibility forms (NFKC).
+ * The current one keeps letters, digits and combining marks in every script,
+ * folds compatibility forms (NFKC) and accents on Latin letters, and compares
+ * only the scripts both texts use.
  *
  * For every album with stored candidates, each candidate release is rebuilt
  * from the stored rows and scored twice against the album's files:
@@ -445,7 +446,7 @@ export function renderNormalisationReport(r: NormalisationReport, generatedAt = 
   out.push('## How to read this', '');
   out.push(
     '- **before**: the scorer with the old normaliser (NFC, lowercase, then every character outside ASCII letters, digits, underscore and spaces deleted). "Stück" read as "stck"; a Japanese, Chinese or Cyrillic title read as an empty string, which compared equal to any other empty string.',
-    '- **after**: the current scorer (NFKC, lowercase; letters, digits and combining marks kept in every script; full-width forms folded; accents not folded).',
+    '- **after**: the current scorer (NFKC, lowercase; letters, digits and combining marks kept in every script; full-width forms folded; accents folded on Latin letters only; text in a script the other side does not use is left out of the comparison, and two texts with no script in common cost nothing).',
     '- Both sides score the same candidate releases, rebuilt from what was stored when the album was identified. Albums are not filtered: every album with stored candidates is replayed.',
     '- **top candidate** changes when the best-scored release differs. Rows marked **tied before** had two or more best candidates with exactly the same old score, so the old pick fell to stored order.',
     '- identify\'s decision is replayed without its check that the chosen release was stored; a pick whose release was missing would go to review instead.',
