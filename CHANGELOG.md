@@ -2,7 +2,29 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.15.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.15.0)
+## [v0.16.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.16.0)
+
+**Minor release (0.15 → 0.16).** Settings, Library care and Tag changes move under your account, and the physical collection shows one row per record with an Undo for removals.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+
+### New
+
+- **Settings, Library care and Tag changes are under your account.** They open from the compartment above your account at the sidebar's foot, after Account and Listening; the phone menu and the tablet bar follow. A dot on the account shows when something inside is waiting, like open Library care tasks or a new version. ([c1c0a90](https://github.com/xooxoxxo/tagave/commit/c1c0a90))
+- **One row per record in the physical collection.** Copies of one release are a single row marked "2 copies"; each row shows its media ("2×CD", "Vinyl") and a drive icon when the album is also on disk. The views are All, Unmapped and Duplicates (only while there are any). "I own both" and "Remove one copy" are in the row's ⋯ menu. ([1b17b61](https://github.com/xooxoxxo/tagave/commit/1b17b61))
+- **Undo instead of Removed.** Removing a record takes it off the list with an Undo for 5 seconds; after that it is removed from your Discogs collection too. Leaving the page sooner removes it right away. ([1b17b61](https://github.com/xooxoxxo/tagave/commit/1b17b61))
+
+### Fixed
+
+- The Settings header no longer draws a line across the page as you scroll. ([a816216](https://github.com/xooxoxxo/tagave/commit/a816216))
+- The physical collection lost the empty space above its views. ([78e70c7](https://github.com/xooxoxxo/tagave/commit/78e70c7))
+- Deleting a module's data checks, inside the same transaction, that the module is still off, so turning it back on mid-delete can't leave half its data. ([a68384d](https://github.com/xooxoxxo/tagave/commit/a68384d))
+
+**All changes:** [v0.15.0...v0.16.0](https://github.com/xooxoxxo/tagave/compare/v0.15.0...v0.16.0)
+
+## [v0.15.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.15.0) (2026-10-27)
 
 **Minor release (0.14 → 0.15).** Moving or renaming music no longer loses anything, colour themes, a player bar that stays on the desktop, and the groundwork for apps beyond music.
 
