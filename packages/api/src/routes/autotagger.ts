@@ -34,8 +34,9 @@
  *
  * Spot checks are drawn at random from all of a band's picks in a finished
  * run, in an order the run's seed fixes, never the same pick twice; no
- * route adds a chosen album. Only correct and wrong verdicts are checks:
- * unsure is counted apart and never counts as a clean one.
+ * route adds a chosen album. The bound counts only the checks drawn
+ * before the band's first pending one, and an unsure verdict among them
+ * is an error: only correct is a clean check.
  *
  * Off: every /libraries/:libraryId/autotagger route but the GETs of the
  * settings, the runs (their bands and spot checks too) and the agreement,
@@ -62,7 +63,7 @@ import {
   bandTable, drawSpotChecks, recordVerdict, spotChecks, type SpotCheckRow,
 } from '@tagave/db';
 import {
-  NotSendableError, bandGate, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
+  NotSendableError, bandGate, hashOf, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
   type BandId as CoreBandId,
 } from '@tagave/core';
 import {
@@ -389,16 +390,16 @@ const isBand = (b: string): b is BandId => (BAND_IDS as readonly string[]).inclu
 
 /**
  * The run's bands against the spot-check gate: the 95% Clopper-Pearson
- * bound from its wrong verdicts among correct and wrong ones (unsure
- * never counts), at most `maxRate` to be allowed. A missing module table
- * reads as no bands.
+ * bound over the checks drawn before the band's first pending one, with
+ * wrong and unsure verdicts as errors, at most `maxRate` to be allowed. A
+ * missing module table reads as no bands.
  */
 export async function gatedBands(db: postgres.Sql<any> | Tx, runId: string, maxRate: number): Promise<BandRow[]> {
   const rows = await bandTable(db, runId);
   return rows.filter((r) => isBand(r.band)).map((r) => {
     const gate = bandGate(r.errors, r.checked, maxRate);
     return {
-      band: r.band as BandId, picks: r.picks, drawn: r.drawn, checked: r.checked, errors: r.errors, unsure: r.unsure,
+      band: r.band as BandId, picks: r.picks, drawn: r.drawn, checked: r.checked, errors: r.errors, unsure: r.unsure, pending: r.pending,
       upper: gate.upper, allowed: gate.allowed,
       // out of reach within the bound's search limit: JSON has no Infinity
       stillNeeded: Number.isFinite(gate.stillNeeded) ? gate.stillNeeded : null,
@@ -417,7 +418,7 @@ function lengthOf(seconds: number | null): string | null {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
-function spotCheckItem(r: SpotCheckRow): SpotCheckItem {
+function spotCheckItem(r: SpotCheckRow, currentHash: string | null): SpotCheckItem {
   const year = r.releaseDate ? Number.parseInt(r.releaseDate.slice(0, 4), 10) : NaN;
   return {
     id: r.id,
@@ -437,9 +438,29 @@ function spotCheckItem(r: SpotCheckRow): SpotCheckItem {
       source: r.releaseSource ?? '',
       tracks: r.releaseTracks.map((t, i) => ({ n: i + 1, title: t.title ?? '', length: lengthOf(t.seconds) })),
     },
-    probability: r.probability ?? 0,
+    probability: r.probability,
     groupSize: r.groupSize,
+    stale: r.evidenceHash !== currentHash,
   };
+}
+
+/**
+ * Each album's evidence hash as it is now (one snapshot), as a decision is
+ * pinned to it; null for an album with no evidence, or evidence that does
+ * not hash.
+ */
+async function currentHashes(albumIds: string[]): Promise<Map<string, string | null>> {
+  if (albumIds.length === 0) return new Map();
+  const loaded = await sql().begin('isolation level repeatable read read only', (tx) => loadEvidenceMany<AlbumEvidence, CandidateEvidence>(tx, albumIds));
+  return new Map(albumIds.map((id) => {
+    const ev = loaded.get(id);
+    if (!ev) return [id, null];
+    try {
+      return [id, hashOf(ev)];
+    } catch {
+      return [id, null];
+    }
+  }));
 }
 
 export async function createAutotaggerRoutes(fastify: FastifyInstance) {
@@ -677,7 +698,8 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     const parsed = spotCheckQuerySchema.safeParse(request.query ?? {});
     if (!parsed.success) throw badRequest(parsed.error.issues, 'Invalid filter');
     const rows = await spotChecks(sql(), runId, parsed.data);
-    return rows.map(spotCheckItem);
+    const current = await currentHashes(rows.map((r) => r.albumId));
+    return rows.map((r) => spotCheckItem(r, current.get(r.albumId) ?? null));
   });
 
   fastify.put('/libraries/:libraryId/autotagger/spot-checks/:checkId', async (request, reply) => {

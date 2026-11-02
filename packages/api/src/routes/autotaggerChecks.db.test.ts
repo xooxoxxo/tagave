@@ -3,9 +3,14 @@
  * module switch is install-wide, so it is never flipped on the shared test
  * database): checks are drawn at random from all of a band's picks in a
  * run, in an order fixed by the run's seed, never the same pick twice; the
- * owner's verdicts feed the band table's Clopper-Pearson gate, where
- * unsure never counts; a check shows the owner's album beside the chosen
+ * owner's verdicts feed the band table's Clopper-Pearson gate, which
+ * counts only the checks drawn before the first pending one and takes
+ * unsure as an error; a check shows the owner's album beside the chosen
  * edition. Nothing is sent anywhere: pg-boss is a stand-in.
+ *
+ * The `it`s on the shared run (`run`) build on each other in order: the
+ * draws and verdicts of one are the next one's starting point. The gate
+ * cases at the end each use a fresh run of their own.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -14,7 +19,8 @@ import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
 import { setAutotaggerEnabled, syncInstalledModules } from '@tagave/db';
 import { ledgerEntries } from '@tagave/core/facets';
-import { JEV_SPEC } from '@tagave/core';
+import { JEV_SPEC, hashOf, type AlbumEvidence, type CandidateEvidence } from '@tagave/core';
+import { loadEvidence } from '@tagave/db';
 import { BAND_IDS } from '@tagave/shared';
 import type { AuthHandle } from '@tagave/auth';
 
@@ -288,11 +294,11 @@ describe.skipIf(!adminUrl)('autotagger spot checks (integration, scratch db)', (
     expect(p99.drawn).toBeGreaterThanOrEqual(299);
   });
 
-  it('unsure does not count; wrong does', async () => {
+  it('unsure counts as an error, and is shown apart', async () => {
     await markAll(run, 'p97', 5, 'unsure');
     await markAll(run, 'p97', 1, 'wrong');
     const p97 = (await bands()).find((b: { band: string }) => b.band === 'p97');
-    expect(p97).toMatchObject({ checked: 1, errors: 1, unsure: 5, drawn: PICKS_P97, allowed: false, upper: 1 });
+    expect(p97).toMatchObject({ checked: 6, errors: 6, unsure: 5, pending: PICKS_P97 - 6, drawn: PICKS_P97, allowed: false, upper: 1 });
     expect(p97.stillNeeded === null || p97.stillNeeded > 299).toBe(true);
   });
 
@@ -303,10 +309,10 @@ describe.skipIf(!adminUrl)('autotagger spot checks (integration, scratch db)', (
       select verdict, checked_by_user_id::text as checked_by_user_id, checked_at from decider_spot_checks where id = ${wrong.id}`;
     expect(row).toMatchObject({ verdict: 'correct', checked_by_user_id: editor.userId });
     expect(row!.checked_at).not.toBeNull();
-    expect((await bands()).find((b: { band: string }) => b.band === 'p97')).toMatchObject({ checked: 1, errors: 0, unsure: 5 });
+    expect((await bands()).find((b: { band: string }) => b.band === 'p97')).toMatchObject({ checked: 6, errors: 5, unsure: 5 });
     const [unsure] = await get(`${runUrl()}/spot-checks?band=p97&verdict=unsure`);
     expect((await put(checkUrl(unsure.id), { verdict: 'wrong' })).statusCode).toBe(204);
-    expect((await bands()).find((b: { band: string }) => b.band === 'p97')).toMatchObject({ checked: 2, errors: 1, unsure: 4 });
+    expect((await bands()).find((b: { band: string }) => b.band === 'p97')).toMatchObject({ checked: 6, errors: 5, unsure: 4 });
     // back to pending is not a verdict; a check of another library's run is not found
     expect((await put(checkUrl(unsure.id), { verdict: 'pending' })).statusCode).toBe(400);
     expect((await put(checkUrl(unsure.id, otherLib), { verdict: 'correct' })).statusCode).toBe(404);
@@ -324,6 +330,12 @@ describe.skipIf(!adminUrl)('autotagger spot checks (integration, scratch db)', (
       chosen: { releaseId: release, title: 'Albumi (remaster)', year: 2001, country: 'FI', label: 'Levy-yhtiö · LY-001', format: 'CD', source: 'musicbrainz' },
     });
     expect(item.album.title).toMatch(/^Albumi \d+$/);
+    // the decision was made on other evidence than the album's now; pinned to the current hash, it is not stale
+    expect(item.stale).toBe(true);
+    const ev = (await loadEvidence<AlbumEvidence, CandidateEvidence>(sql, item.album.id))!;
+    await sql`update decider_decisions set evidence_hash = ${hashOf(ev)} where run_id = ${run} and local_album_id = ${item.album.id}`;
+    const [fresh] = await get(`${runUrl()}/spot-checks?band=p99&verdict=pending&limit=1`);
+    expect(fresh).toMatchObject({ id: item.id, stale: false });
     // the owner's own titles, a file-name title too (no request placeholders on their own screen)
     expect(item.album.tracks).toEqual([
       { n: 1, title: 'Ilta', length: '3:20' }, { n: 2, title: '02 oma tiedosto', length: '3:30' }, { n: 3, title: 'Yö', length: null },
@@ -338,6 +350,13 @@ describe.skipIf(!adminUrl)('autotagger spot checks (integration, scratch db)', (
     const [item] = await get(`${runUrl()}/spot-checks?band=p95`);
     expect(item.album).toMatchObject({ id: scannedAlbum, title: 'Skannattu', year: null });
     expect(item.album.tracks).toEqual([{ n: 1, title: 'Yksi', length: '2:02' }, { n: 2, title: 'Kaksi', length: '1:01' }]);
+    // evidence with no tracks shows the scan too; a decision with no probability shows none (never 0)
+    await sql`insert into album_evidence (local_album_id, v, evidence)
+              values (${scannedAlbum}, 1, ${JSON.stringify({ v: 1, artist: 'Kuunvalo', title: 'Skannattu', titleSource: 'tag', year: null, yearSource: null, discsKnown: false, discCount: null, tracks: [] })}::text::jsonb)`;
+    await sql`update decider_decisions set probability = null where run_id = ${run} and local_album_id = ${scannedAlbum}`;
+    const [again] = await get(`${runUrl()}/spot-checks?band=p95`);
+    expect(again.album.tracks).toEqual(item.album.tracks);
+    expect(again.probability).toBeNull();
     expect((await bands()).map((b: { band: string }) => b.band)).toEqual(['p99', 'p97', 'p95']);
   });
 
@@ -362,5 +381,48 @@ describe.skipIf(!adminUrl)('autotagger spot checks (integration, scratch db)', (
     await item(otherRunBatch, albums[2]!.id, 'accepted', 0);
     const [p99] = await bands();
     expect(p99.accepted).toBe(1);
+  });
+  describe('the bound counts only checks decided in draw order', () => {
+    let seed = 1000;
+    /** A fresh done run with `n` p99 picks, all drawn; its checks in draw order. */
+    async function drawnRun(n: number): Promise<{ id: string; checks: string[] }> {
+      const id = await makeRun(lib, 'done', seed++);
+      await makePicks(lib, id, 'p99', n, 0.995);
+      for (let left = n; left > 0; left -= 100) expect((await draw('p99', Math.min(100, left), id)).statusCode).toBe(200);
+      const checks = (await sql<Array<{ id: string }>>`
+        select s.id::text as id from decider_spot_checks s join decider_decisions d on d.id = s.decision_id join decider_runs r on r.id = s.run_id
+         where s.run_id = ${id} order by s.drawn_at, md5(d.id::text || r.seed::text), d.id`).map((r) => r.id);
+      expect(checks).toHaveLength(n);
+      return { id, checks };
+    }
+    const mark = async (ids: string[], verdict: string) => {
+      for (const c of ids) expect((await put(checkUrl(c), { verdict })).statusCode).toBe(204);
+    };
+    const p99Of = async (runId: string) => (await bands(runId))[0];
+
+    it('299 correct with a pending check drawn before the last of them: closed', async () => {
+      const r = await drawnRun(300);
+      await mark([...r.checks.slice(0, 298), r.checks[299]!], 'correct');
+      expect(await p99Of(r.id)).toMatchObject({ checked: 298, errors: 0, pending: 1, allowed: false, stillNeeded: 1 });
+      await mark([r.checks[298]!], 'correct');
+      expect(await p99Of(r.id)).toMatchObject({ checked: 300, errors: 0, pending: 0, allowed: true });
+    });
+
+    it('299 correct and 1 unsure: closed', async () => {
+      const r = await drawnRun(300);
+      await mark(r.checks.filter((_, i) => i !== 150), 'correct');
+      await mark([r.checks[150]!], 'unsure');
+      const p99 = await p99Of(r.id);
+      expect(p99).toMatchObject({ checked: 300, errors: 1, unsure: 1, pending: 0, allowed: false });
+      expect(p99.upper).toBeGreaterThan(0.01);
+    });
+
+    it('one correct changed to wrong at 299 closes the gate', async () => {
+      const r = await drawnRun(299);
+      await mark(r.checks, 'correct');
+      expect(await p99Of(r.id)).toMatchObject({ checked: 299, errors: 0, allowed: true });
+      await mark([r.checks[10]!], 'wrong');
+      expect(await p99Of(r.id)).toMatchObject({ checked: 299, errors: 1, allowed: false });
+    });
   });
 });

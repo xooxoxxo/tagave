@@ -9,8 +9,11 @@
  *   takes the next ones not drawn yet. A decision is never drawn twice
  *   (decider_spot_checks.decision_id is unique), and nothing here can add
  *   a chosen decision.
- * - Only `correct` and `wrong` are checks. `unsure` is counted apart and
- *   never counts toward the clean checks a band needs.
+ * - The bound counts only the checks drawn before the band's first pending
+ *   one (in draw order): leaving a doubtful check undecided, or skipping
+ *   it, holds back every check drawn after it, so the counted checks stay
+ *   a random sample whatever order the verdicts come in. Among them,
+ *   `unsure` counts as an error: only `correct` is a clean check.
  * - A later verdict replaces the earlier one, with who gave it and when.
  *
  * This package depends on no other tagave package: bandTable gives the raw
@@ -94,29 +97,49 @@ export async function recordVerdict(sql: Sql, checkId: string, verdict: SpotChec
 }
 
 /**
- * One band of a run, raw counts: `checked` = correct + wrong, `errors` =
- * wrong, `unsure` apart; `accepted` = picks whose album is in an accepted
- * item of one of this run's model batches.
+ * One band of a run, raw counts. `checked`: the checks drawn before the
+ * band's first pending one, in draw order (all of them when none is
+ * pending); `errors`: the wrong and unsure ones among them. `unsure` and
+ * `pending` count every drawn check of the band. `accepted`: picks whose
+ * album is in an accepted item of one of this run's model batches.
  */
-export interface BandCounts { band: string; picks: number; drawn: number; checked: number; errors: number; unsure: number; accepted: number }
+export interface BandCounts {
+  band: string; picks: number; drawn: number; checked: number; errors: number; unsure: number; pending: number; accepted: number;
+}
 
 /** The run's picks per band with their spot-check counts (bands with no pick are left out). */
 export async function bandTable(sql: Sql, runId: string): Promise<BandCounts[]> {
   return orMissing(() => sql<BandCounts[]>`
-    select d.band,
-           count(*)::int as picks,
-           count(s.id)::int as drawn,
-           (count(*) filter (where s.verdict in ('correct', 'wrong')))::int as checked,
-           (count(*) filter (where s.verdict = 'wrong'))::int as errors,
-           (count(*) filter (where s.verdict = 'unsure'))::int as unsure,
-           (count(*) filter (where exists (
-              select 1 from decider_batch_items i join decider_batches b on b.id = i.batch_id
-               where b.run_id = d.run_id and b.decided_kind = 'model' and i.status = 'accepted' and i.local_album_id = d.local_album_id)))::int as accepted
-      from decider_decisions d
-      left join decider_spot_checks s on s.decision_id = d.id
-     where d.run_id = ${runId} and d.outcome = 'pick' and d.band is not null
-     group by d.band
-     order by array_position(${BAND_ORDER}::text[], d.band::text) nulls last, d.band`, [] as BandCounts[]);
+    with picks as (
+      select d.id, d.band, d.local_album_id,
+             exists (select 1 from decider_batch_items i join decider_batches b on b.id = i.batch_id
+                      where b.run_id = d.run_id and b.decided_kind = 'model' and i.status = 'accepted' and i.local_album_id = d.local_album_id) as accepted
+        from decider_decisions d
+       where d.run_id = ${runId} and d.outcome = 'pick' and d.band is not null),
+    drawn as (
+      -- draw order: the draw's time, then the run's shuffled order within a draw
+      select p.band, s.verdict,
+             row_number() over (partition by p.band order by s.drawn_at, md5(p.id::text || r.seed::text), p.id) as k
+        from picks p
+        join decider_spot_checks s on s.decision_id = p.id
+        join decider_runs r on r.id = s.run_id),
+    stop as (
+      select band, min(k) filter (where verdict = 'pending') as first_pending from drawn group by band),
+    checks as (
+      select d.band,
+             count(*)::int as drawn,
+             (count(*) filter (where st.first_pending is null or d.k < st.first_pending))::int as checked,
+             (count(*) filter (where (st.first_pending is null or d.k < st.first_pending) and d.verdict in ('wrong', 'unsure')))::int as errors,
+             (count(*) filter (where d.verdict = 'unsure'))::int as unsure,
+             (count(*) filter (where d.verdict = 'pending'))::int as pending
+        from drawn d join stop st on st.band = d.band
+       group by d.band),
+    bands as (
+      select band, count(*)::int as picks, (count(*) filter (where accepted))::int as accepted from picks group by band)
+    select b.band, b.picks, coalesce(c.drawn, 0) as drawn, coalesce(c.checked, 0) as checked, coalesce(c.errors, 0) as errors,
+           coalesce(c.unsure, 0) as unsure, coalesce(c.pending, 0) as pending, b.accepted
+      from bands b left join checks c on c.band = b.band
+     order by array_position(${BAND_ORDER}::text[], b.band::text) nulls last, b.band`, [] as BandCounts[]);
 }
 
 /** A track as a spot check shows it: its title and length in whole seconds. */
@@ -131,8 +154,14 @@ export interface SpotCheckRow {
   albumTitle: string | null;
   albumArtist: string | null;
   albumYear: number | null;
-  /** the album's tracks as the decision saw them (its stored evidence), else as scanned */
+  /**
+   * the album's tracks from its stored evidence as it is now (the owner's
+   * tags; it may have changed since the decision: compare evidenceHash),
+   * else as scanned
+   */
   albumTracks: SpotCheckTrack[];
+  /** the evidence hash the decision was made on (null when it has none) */
+  evidenceHash: string | null;
   releaseId: string;
   releaseTitle: string | null;
   releaseDate: string | null;
@@ -168,11 +197,11 @@ export async function spotChecks(sql: Sql, runId: string, filter: SpotCheckFilte
     const rows = await sql<Array<{
       id: string; band: string; verdict: string; album_id: string; title_guess: string | null; artist_guess: string | null; year_guess: number | null;
       release_id: string; r_title: string | null; r_date: string | null; country: string | null; labels: unknown; media: unknown; source_of_truth: string | null;
-      probability: string | null; group_size: number;
+      probability: string | null; group_size: number; evidence_hash: string | null;
     }>>`
       select s.id::text as id, s.band, s.verdict, la.id::text as album_id, la.title_guess, la.artist_guess, la.year_guess,
              d.release_id::text as release_id, rel.title as r_title, rel.date::text as r_date, rel.country, rel.labels, rel.media, rel.source_of_truth,
-             d.probability::text as probability, coalesce(cardinality(d.group_release_ids), 0)::int as group_size
+             d.probability::text as probability, coalesce(cardinality(d.group_release_ids), 0)::int as group_size, d.evidence_hash
         from decider_spot_checks s
         join decider_decisions d on d.id = s.decision_id
         join decider_runs r on r.id = s.run_id
@@ -188,7 +217,8 @@ export async function spotChecks(sql: Sql, runId: string, filter: SpotCheckFilte
     const releaseIds = [...new Set(rows.map((r) => r.release_id).filter((x): x is string => x !== null))];
     const evidence = await sql<Array<{ id: string; tracks: Array<{ title?: unknown; durS?: unknown }> | null }>>`
       select local_album_id::text as id, evidence->'tracks' as tracks from album_evidence where local_album_id = any(${albumIds}::uuid[])`;
-    const fromEvidence = new Map(evidence.map((e) => [e.id, Array.isArray(e.tracks) ? e.tracks : null]));
+    // evidence with no tracks shows the album as scanned
+    const fromEvidence = new Map(evidence.map((e) => [e.id, Array.isArray(e.tracks) && e.tracks.length > 0 ? e.tracks : null]));
     const scannedIds = albumIds.filter((id) => !fromEvidence.get(id));
     const scanned = scannedIds.length === 0 ? [] : await sql<Array<{ album_id: string; title: string | null; duration_ms: number | null }>>`
       select local_album_id::text as album_id, title_guess as title, duration_ms
@@ -213,7 +243,7 @@ export async function spotChecks(sql: Sql, runId: string, filter: SpotCheckFilte
         albumId: r.album_id, albumTitle: r.title_guess, albumArtist: r.artist_guess, albumYear: r.year_guess, albumTracks,
         releaseId: r.release_id, releaseTitle: r.r_title, releaseDate: r.r_date, releaseCountry: r.country, releaseLabels: r.labels, releaseMedia: r.media,
         releaseSource: r.source_of_truth, releaseTracks: canonicalBy.get(r.release_id) ?? [],
-        probability: r.probability === null ? null : Number(r.probability), groupSize: r.group_size,
+        probability: r.probability === null ? null : Number(r.probability), groupSize: r.group_size, evidenceHash: r.evidence_hash,
       };
     });
   }, []);

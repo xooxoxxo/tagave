@@ -194,13 +194,15 @@ export const spotCheckQuerySchema = z
   .strict();
 
 /**
- * One band of a run against the spot-check gate. `checked` counts correct
- * and wrong verdicts only; `unsure` is apart and never a clean check.
- * `upper`: the 95% Clopper-Pearson upper bound on the error rate from
- * `errors` in `checked`; `allowed` when it is at most the library's
- * maxErrorRate. `stillNeeded`: more clean checks before it would be (0
- * when allowed; null when it cannot be reached). `accepted`: picks already
- * accepted by one of the run's batches.
+ * One band of a run against the spot-check gate. `checked`: the checks
+ * drawn before the band's first pending one, in draw order (a pending
+ * check holds back every check drawn after it); `errors`: the wrong and
+ * unsure ones among them (only correct is clean). `unsure` and `pending`
+ * count all of the band's drawn checks. `upper`: the 95% Clopper-Pearson
+ * upper bound on the error rate from `errors` in `checked`; `allowed`
+ * when it is at most the library's maxErrorRate. `stillNeeded`: more
+ * clean checks before it would be (0 when allowed; null when it cannot be
+ * reached). `accepted`: picks already accepted by one of the run's batches.
  */
 export interface BandRow {
   band: BandId;
@@ -209,6 +211,7 @@ export interface BandRow {
   checked: number;
   errors: number;
   unsure: number;
+  pending: number;
   upper: number;
   allowed: boolean;
   stillNeeded: number | null;
@@ -219,9 +222,11 @@ export interface BandRow {
 export interface SpotCheckTrack { n: number; title: string | null; length: string | null }
 
 /**
- * One drawn spot check: the owner's album (their own tags, as the decision
- * saw them) beside the edition the decider chose. `groupSize`: releases in
- * the tracklist group it chose from.
+ * One drawn spot check: the owner's album (their own tags, from its
+ * evidence as it is now) beside the edition the decider chose. `stale`:
+ * the album's evidence changed since the decision. `groupSize`: releases
+ * in the tracklist group it chose from. `probability`: null when the
+ * decision has none.
  */
 export interface SpotCheckItem {
   id: string;
@@ -232,6 +237,7 @@ export interface SpotCheckItem {
     releaseId: string; title: string; year: number | null; country: string | null; label: string | null; format: string | null; source: string;
     tracks: Array<{ n: number; title: string; length: string | null }>;
   };
-  probability: number;
+  probability: number | null;
   groupSize: number;
+  stale: boolean;
 }
