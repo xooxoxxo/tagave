@@ -40,6 +40,7 @@ export {
 
 // People: Settings › Users and invite links
 export * from './users.js';
+export * from './oidc.js';
 
 // Library and scanning
 export {

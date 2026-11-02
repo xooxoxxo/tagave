@@ -239,7 +239,7 @@ function CatalogueModules() {
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState<string | null>(() => readDismissed());
   const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ m: ModuleStatus; act: 'enable' | 'disable'; choice: TurnOffChoice; methods: StepUpMethod[] } | null>(null);
+  const [stepUp, setStepUp] = useState<{ m: ModuleStatus; act: 'enable' | 'disable'; choice: TurnOffChoice; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
   const [pending, setPending] = useState<string | null>(null);
 
   // A run that finished may have changed what the app offers (the player).
@@ -258,7 +258,7 @@ function CatalogueModules() {
       const e = err as { status?: number; title?: string; detail?: string };
       if (e.status === 403 && e.title === 'Step-up required') {
         const s = await getStepUp();
-        setStepUp({ m, act, choice, methods: s.methods });
+        setStepUp({ m, act, choice, methods: s.methods, oidcName: s.oidcName ?? null });
       } else {
         setError(sentence(e.detail ?? e.title) || `${m.name} could not be turned ${act === 'enable' ? 'on' : 'off'}.`);
       }
@@ -271,7 +271,7 @@ function CatalogueModules() {
     try {
       const s = await getStepUp();
       if (!s.fresh) {
-        setStepUp({ m, act, choice, methods: s.methods });
+        setStepUp({ m, act, choice, methods: s.methods, oidcName: s.oidcName ?? null });
         return;
       }
     } catch {
@@ -323,6 +323,7 @@ function CatalogueModules() {
         <StepUpDialog
           action={`Turning ${stepUp.act === 'enable' ? 'on' : 'off'} ${stepUp.m.name}`}
           methods={stepUp.methods}
+          oidcName={stepUp.oidcName}
           onCancel={() => setStepUp(null)}
           onDone={() => { const s = stepUp; setStepUp(null); void go(s.m, s.act, s.choice); }}
         />
@@ -374,7 +375,7 @@ function McModuleSection() {
   const setOn = useSetMcModule();
   const remove = useRemoveMcData();
   const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ act: McAction; methods: StepUpMethod[] } | null>(null);
+  const [stepUp, setStepUp] = useState<{ act: McAction; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
 
   const run = async (act: McAction) => {
     setError(null);
@@ -385,7 +386,7 @@ function McModuleSection() {
       const e = err as { status?: number; title?: string; detail?: string };
       if (e.status === 403 && e.title === 'Step-up required') {
         const s = await getStepUp();
-        setStepUp({ act, methods: s.methods });
+        setStepUp({ act, methods: s.methods, oidcName: s.oidcName ?? null });
       } else {
         setError(sentence(e.detail ?? e.title) || 'Music Connections could not be changed.');
       }
@@ -424,6 +425,7 @@ function McModuleSection() {
         <StepUpDialog
           action={stepUp.act.kind === 'on' ? 'Turning on Music Connections' : 'Turning off Music Connections'}
           methods={stepUp.methods}
+          oidcName={stepUp.oidcName}
           onCancel={() => setStepUp(null)}
           onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
         />
@@ -473,7 +475,7 @@ function ListenLinksModuleSection() {
   const setOn = useSetListenLinksModule();
   const remove = useRemoveListenLinksData();
   const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ act: ListenAction; methods: StepUpMethod[] } | null>(null);
+  const [stepUp, setStepUp] = useState<{ act: ListenAction; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
 
   const run = async (act: ListenAction) => {
     setError(null);
@@ -484,7 +486,7 @@ function ListenLinksModuleSection() {
       const e = err as { status?: number; title?: string; detail?: string };
       if (e.status === 403 && e.title === 'Step-up required') {
         const s = await getStepUp();
-        setStepUp({ act, methods: s.methods });
+        setStepUp({ act, methods: s.methods, oidcName: s.oidcName ?? null });
       } else {
         setError(sentence(e.detail ?? e.title) || 'Listen elsewhere could not be changed.');
       }
@@ -518,6 +520,7 @@ function ListenLinksModuleSection() {
         <StepUpDialog
           action={stepUp.act.kind === 'on' ? 'Turning on Listen elsewhere' : 'Turning off Listen elsewhere'}
           methods={stepUp.methods}
+          oidcName={stepUp.oidcName}
           onCancel={() => setStepUp(null)}
           onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
         />
@@ -567,7 +570,7 @@ function PlaylistsModuleSection() {
   const setOn = useSetPlaylistsModule();
   const remove = useRemovePlaylistsData();
   const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ act: PlaylistsAction; methods: StepUpMethod[] } | null>(null);
+  const [stepUp, setStepUp] = useState<{ act: PlaylistsAction; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
 
   const run = async (act: PlaylistsAction) => {
     setError(null);
@@ -578,7 +581,7 @@ function PlaylistsModuleSection() {
       const e = err as { status?: number; title?: string; detail?: string };
       if (e.status === 403 && e.title === 'Step-up required') {
         const s = await getStepUp();
-        setStepUp({ act, methods: s.methods });
+        setStepUp({ act, methods: s.methods, oidcName: s.oidcName ?? null });
       } else {
         setError(sentence(e.detail ?? e.title) || 'Playlists could not be changed.');
       }
@@ -613,6 +616,7 @@ function PlaylistsModuleSection() {
         <StepUpDialog
           action={stepUp.act.kind === 'on' ? 'Turning on Playlists' : 'Turning off Playlists'}
           methods={stepUp.methods}
+          oidcName={stepUp.oidcName}
           onCancel={() => setStepUp(null)}
           onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
         />

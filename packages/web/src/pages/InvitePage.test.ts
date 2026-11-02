@@ -21,6 +21,13 @@ describe('Settings › Users wording', () => {
     expect(signInText({ twoFactor: false, passkeys: 3 })).toBe('Password, 3 passkeys');
   });
 
+  it('names the login service, and says when there is no password', () => {
+    expect(signInText({ password: true, oidc: true, twoFactor: false, passkeys: 0 }, 'Zitadel')).toBe('Password, Zitadel');
+    expect(signInText({ password: false, oidc: true, twoFactor: false, passkeys: 1 }, 'Zitadel')).toBe('Zitadel, 1 passkey');
+    expect(signInText({ password: false, oidc: true, twoFactor: false, passkeys: 0 })).toBe('Login service');
+    expect(signInText({ password: false, oidc: false, twoFactor: true, passkeys: 0 })).toBe('Authenticator');
+  });
+
   it('says when they were last here', () => {
     expect(lastSeenText(null)).toBe('Never signed in');
     expect(lastSeenText('2026-10-03T10:00:00Z')).toMatch(/^Seen /);

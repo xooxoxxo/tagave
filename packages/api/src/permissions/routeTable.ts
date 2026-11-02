@@ -21,6 +21,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/invites/:token': 'public',
   'GET /api/v1/openapi.json': 'public',
   'POST /api/v1/invites/:token/accept': 'public',
+  // Sign in with your login service (routes/oidc.ts): the button, and starting a sign-in (the service and the gate in @tagave/auth decide who gets in).
+  'GET /api/v1/auth/oidc': 'public',
+  'POST /api/v1/auth/oidc/sign-in': 'public',
   // Music Connections OAuth (routes/connect.ts): the client authenticates itself at token and revoke; authorize only records a request for the consent page.
   'POST /api/v1/connect/register': 'public',
   'GET /api/v1/connect/authorize': 'public',
@@ -34,6 +37,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/auth/step-up/passkey/options': 'self',
   'POST /api/v1/auth/step-up/password': 'self',
   'POST /api/v1/auth/step-up/totp': 'self',
+  'POST /api/v1/auth/step-up/oidc': 'self',
+  'GET /api/v1/auth/oidc/link': 'self',
+  'POST /api/v1/auth/oidc/link': 'self',
+  'DELETE /api/v1/auth/oidc/link': 'self',
   'DELETE /api/v1/auth/trusted-devices/:id': 'self',
   'GET /api/v1/version': 'self',
   // The consent page: any signed-in person approves or denies a link to their own account.
@@ -254,6 +261,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/users/:userId/reset-sign-in': 'users.manage',
   'POST /api/v1/users/invites': 'users.manage',
   'DELETE /api/v1/users/invites/:inviteId': 'users.manage',
+  'GET /api/v1/users/sign-in-service': 'users.manage',
+  'PUT /api/v1/users/sign-in-service': 'users.manage',
+  'POST /api/v1/users/sign-in-service/test': 'users.manage',
 };
 
 /**

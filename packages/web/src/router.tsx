@@ -21,6 +21,7 @@ const PlanPage = lazyRouteComponent(() => import('./pages/PlanPage'), 'PlanPage'
 const WorkPage = lazyRouteComponent(() => import('./pages/WorkPage'), 'WorkPage');
 const SettingsPage = lazyRouteComponent(() => import('./pages/SettingsPage'), 'SettingsPage');
 const InvitePage = lazyRouteComponent(() => import('./pages/InvitePage'), 'InvitePage');
+const OidcDonePage = lazyRouteComponent(() => import('./pages/OidcDonePage'), 'OidcDonePage');
 const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
 const ConnectConsentPage = lazyRouteComponent(() => import('./pages/ConnectConsentPage'), 'ConnectConsentPage');
 const PlaylistsPage = lazyRouteComponent(() => import('./pages/PlaylistsPage'), 'PlaylistsPage');
@@ -72,6 +73,13 @@ const inviteRoute = new Route({
   getParentRoute: () => rootRoute,
   path: '/invite/$token',
   component: InvitePage,
+});
+
+// The login service sends a re-verification back here (the step-up popup)
+const oidcDoneRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/auth/oidc-done',
+  component: OidcDonePage,
 });
 
 // Music Connections consent: another app asks to read this person's data.
@@ -304,6 +312,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   loginTwoFactorRoute,
   inviteRoute,
+  oidcDoneRoute,
   connectConsentRoute,
   layoutRoute.addChildren([
     dashboardRoute,

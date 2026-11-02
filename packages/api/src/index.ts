@@ -138,6 +138,9 @@ try {
   db = await initDb(databaseUrl);
   const authHandle = createAuth({ env: authEnv, databaseUrl });
   initAuth(authHandle);
+  // Sign in with your login service (Settings › Users): built from the database, bounded wait
+  const oidc = await authHandle.reload();
+  if (oidc.configured) logger.info({ active: oidc.active }, `Sign in with ${oidc.name}: ${oidc.active ? 'ready' : 'the issuer did not answer; retried on use'}`);
   // Rollback-and-return: users written by 0.6.x get their credential account.
   const healed = await ensureCredentialAccounts(authHandle.sql);
   if (healed > 0) logger.info(`Created the sign-in account for ${healed} user(s) written by an older version`);

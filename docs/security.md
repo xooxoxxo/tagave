@@ -76,11 +76,11 @@ An install can have several accounts. Everyone signed in sees the same libraries
 
 - **Per-person data stays per person.** Ratings, reviews, listens, clippings and saved grid views are stored against the account that made them; nobody else can read or change them. Library-level things (albums, tags, tag changes, follows) are shared.
 - **Every API route declares what it needs.** The server checks it before reading the request: anonymous callers get 401, a role without the permission gets 403 "Not available for your account". A route with no declaration refuses everyone, and a test fails CI over it. A second test signs in as each role and calls every route.
-- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app and passkeys). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › Users.
+- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app, passkeys and the login service's callback). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › Users.
 - **At least one owner.** The last owner who can sign in cannot be demoted, turned off or removed.
 - **Invite and set-password links** are one-time, expire after 7 days and are stored only as a SHA-256 hash; the owner copies the link (no email is sent). A set-password link signs the person out everywhere and can also remove their passkeys and authenticator app (a lost device). Opening links is rate limited per address.
 - **Turning sign-in off** ends every session at once and refuses new sign-ins (password, passkey or code) until the owner turns it back on. **Removing** someone either keeps their ratings, reviews and listens (the account is closed, its email freed, its sign-in methods deleted) or deletes them with the account. Libraries and tag changes they created pass to the owner removing them.
-- **Inviting, changing a role, resetting sign-in and removing** ask the owner to confirm it is them (a passkey, the authenticator app, or the password on an account with neither) unless they signed in within five minutes.
+- **Inviting, changing a role, resetting sign-in and removing** ask the owner to confirm it is them (a passkey, the authenticator app, the login service, or the password on an account with no passkey or authenticator) unless they signed in within five minutes.
 
 ## Passkeys and security keys
 
@@ -104,6 +104,32 @@ Settings › Security › **Authenticator app** turns on a second step after the
 ### Trusted devices
 
 On the code page, **Don't ask for a code on this device for 30 days** remembers that browser. Settings › Security › **Trusted devices** lists every remembered browser (browser, last use, expiry) and forgets any of them. Turning the authenticator off or changing your password forgets them all.
+
+## Sign in with your login service
+
+Any OpenID Connect login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID) can add a **Sign in with …** button. Set it up in Settings › Users › **Sign-in service**; each person links from Settings › **Account**. The redirect URI:
+
+```
+https://music.example.com/api/auth/callback/oidc
+```
+
+### Zitadel
+
+- Project › **New application**, type **Web**, method **Code** (or **PKCE** with no secret).
+- Redirect URI: as above. An `http://` URI needs **Development mode**.
+- Issuer: your Zitadel address, e.g. `https://auth.example.com`.
+- Group limit: a project role, with **Assert Roles on Authentication** and **User roles inside ID Token** on; enter its key as the group.
+
+### Who can sign in
+
+- Only an account linked from Account; a matching email never links.
+- New people by invite, or with **Anyone can join** on (as listeners, only from the group when one is set). Someone removed cannot rejoin.
+- An authenticator app still asks for its code; a set-password link unlinks the service.
+- Owners keep a password or passkey. Unlinking the last way in, or deleting the last passkey without a password, is refused.
+- Linking and unlinking ask for a fresh confirmation. A failed sign-in never says why.
+- State, PKCE, nonce, issuer and the id_token signature are checked; the service's tokens are not kept. The client secret is encrypted with `APP_SECRET`.
+- Confirming through the service needs its `auth_time` (Dex sends none), and only without a passkey or authenticator.
+- Changing the issuer unlinks everyone.
 
 ## Backup security
 

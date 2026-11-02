@@ -10,6 +10,18 @@ import { CLIENT_IP_HEADER, deriveAuthSecret as deriveSecret, type AuthEnvConfig 
 import { hashPassword, verifyPassword } from './password.js';
 import { tagavePlugin } from './tagave-plugin.js';
 import { recordTrustedDevice } from './trusted-devices.js';
+import {
+  OIDC_PROVIDER_ID,
+  oidcGate,
+  discoverOidc,
+  serviceFetch,
+  oidcPlugin,
+  oidcUserCreateBefore,
+  readOidcSettings,
+  withoutOidcTokens,
+  type OidcDiscovery,
+  type OidcSettings,
+} from './oidc.js';
 
 export * from './config.js';
 export { fromNodeHeaders } from 'better-auth/node';
@@ -18,6 +30,7 @@ export { hashPassword, verifyPassword } from './password.js';
 export * from './trusted-devices.js';
 export * from './reseal.js';
 export * from './step-up.js';
+export * from './oidc.js';
 
 /** Cookie names are `tagave.<name>`, `__Secure-tagave.<name>` when PUBLIC_URL is https. */
 export const COOKIE_PREFIX = 'tagave';
@@ -40,6 +53,8 @@ export interface CreateAuthOptions {
   rateLimit?: boolean;
   /** Pool size for the auth connections (default 5). */
   maxConnections?: number;
+  /** How long the login service may take to answer discovery (default 5 s; tests). */
+  oidcDiscoveryTimeoutMs?: number;
 }
 
 /**
@@ -62,7 +77,7 @@ export function openAuthSql(databaseUrl: string, max = 5): postgres.Sql {
   });
 }
 
-function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
+function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql, oidc: () => OidcSettings | null) {
   const { env } = opts;
   return {
     appName: 'tagave',
@@ -94,6 +109,8 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
         disabledAt: { type: 'date' as const, required: false, input: false, fieldName: 'disabled_at' },
         removedAt: { type: 'date' as const, required: false, input: false, fieldName: 'removed_at' },
       },
+      // Who the login service may sign in, make or link (oidc.ts); every other way passes.
+      validateUserInfo: oidcGate(sql, oidc) as never,
     },
     session: {
       modelName: 'auth_sessions',
@@ -128,7 +145,17 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
         createdAt: 'created_at',
         updatedAt: 'updated_at',
       },
-      accountLinking: { enabled: false, disableImplicitLinking: true, trustedProviders: [] as string[] },
+      // Linking is open only to the explicit link a signed-in person makes from
+      // Account (the api calls linkSocial; it is not on the HTTP router):
+      // nothing ever links by a matching email (disableImplicitLinking), and
+      // the link may name another address than the account's.
+      accountLinking: {
+        enabled: true,
+        disableImplicitLinking: true,
+        allowDifferentEmails: true,
+        updateUserInfoOnLink: false,
+        trustedProviders: [OIDC_PROVIDER_ID] as string[],
+      },
     },
     verification: {
       modelName: 'auth_verifications',
@@ -154,6 +181,10 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
       ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     databaseHooks: {
+      user: {
+        // An account the login service makes: the invite's role and address, or a listener.
+        create: { before: async (user: Record<string, unknown>) => oidcUserCreateBefore(sql)(user) as never },
+      },
       session: {
         // The one place every sign-in (password, passkey, authenticator code,
         // invite, set-password link) makes its session: a turned-off or
@@ -170,8 +201,14 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
       account: {
         // While the bridge release lasts, users.password_hash mirrors the
         // credential hash so rolling back to 0.6.x keeps every password.
-        create: { after: async (account: { id: string }) => mirrorPasswordHash(sql, account.id) },
-        update: { after: async (account: { id: string }) => mirrorPasswordHash(sql, account.id) },
+        create: {
+          before: async (account: Record<string, unknown>) => withoutOidcTokens(account) as never,
+          after: async (account: { id: string }) => mirrorPasswordHash(sql, account.id),
+        },
+        update: {
+          before: async (account: Record<string, unknown>) => withoutOidcTokens(account) as never,
+          after: async (account: { id: string }) => mirrorPasswordHash(sql, account.id),
+        },
       },
     },
     plugins: [
@@ -272,26 +309,134 @@ async function mirrorPasswordHash(sql: postgres.Sql, accountId: string | undefin
 }
 
 function makeAuth(opts: CreateAuthOptions, sql: postgres.Sql) {
-  return betterAuth(buildOptions(opts, sql));
+  return betterAuth(buildOptions(opts, sql, () => null));
 }
 
 export type Auth = ReturnType<typeof makeAuth>;
 
+/** How the login service stands after the last (re)build. */
+export interface OidcStatus {
+  /** Set up and switched on in Settings › Users. */
+  configured: boolean;
+  /** Its button works: discovery answered with the issuer that was set. */
+  active: boolean;
+  name: string | null;
+  /** The stored client secret does not open with this APP_SECRET. */
+  secretUnreadable: boolean;
+  checkedAt: Date | null;
+}
+
 export interface AuthHandle {
+  /** Replaced by reload(): read it per request, never keep it. */
   auth: Auth;
   /** The settings it was built from (PUBLIC_URL, trusted origins). */
   env: AuthEnvConfig;
   /** The auth layer's pool (also used for tagave's own auth tables). */
   sql: postgres.Sql;
   close: () => Promise<void>;
+  /**
+   * Rebuild the Better Auth instance from the login-service settings in the
+   * database (boot, every save in Settings › Users). Better Auth configures
+   * its providers once, at start-up, so a change means a new instance; both
+   * share this pool and keep their state (sessions, OAuth state, limits) in
+   * the database, so a flow started on the old one finishes on the new.
+   */
+  reload: () => Promise<OidcStatus>;
+  /** reload(), at most every `minIntervalMs`, while the service is set up but its button does not work yet. */
+  retryOidc: (minIntervalMs?: number) => Promise<OidcStatus>;
+  /** Take the login service off this instance now (before its accounts are unlinked). */
+  suspendOidc: () => Promise<void>;
+  oidcStatus: () => OidcStatus;
+  /** The settings in use (secret included: never send them anywhere). */
+  oidcSettings: () => OidcSettings | null;
 }
+
+const OIDC_RETRY_MS = 30_000;
 
 /** The one Better Auth configuration, shared by the api and tagave-doctor. */
 export function createAuth(opts: CreateAuthOptions): AuthHandle {
   const sql = openAuthSql(opts.databaseUrl, opts.maxConnections ?? 5);
-  const auth = makeAuth(opts, sql);
-  return { auth, sql, env: opts.env, close: () => sql.end({ timeout: 5 }) };
+  let settings: OidcSettings | null = null;
+  let status: OidcStatus = { configured: false, active: false, name: null, secretUnreadable: false, checkedAt: null };
+  let chain: Promise<unknown> = Promise.resolve();
+  const logger = { warn: (m: string) => console.warn(m) };
+
+  const discoveryTimeoutMs = opts.oidcDiscoveryTimeoutMs ?? 5000;
+
+  const install = (auth: Auth, next: OidcSettings | null, s: OidcStatus) => {
+    settings = next;
+    handle.auth = auth;
+    status = s;
+  };
+
+  const rebuild = async (): Promise<OidcStatus> => {
+    const read = await readOidcSettings(sql, opts.env.appSecret).catch(() => ({ settings: null, secretUnreadable: false }));
+    const wanted = read.settings?.enabled ? read.settings : null;
+    // Discovery here, with a time limit that aborts the request: Better Auth
+    // is then given the endpoints and fetches nothing itself.
+    let discovery: OidcDiscovery | null = null;
+    if (wanted) {
+      discovery = await discoverOidc(wanted.issuer, serviceFetch, discoveryTimeoutMs).catch(() => null);
+      if (!discovery || discovery.issuer !== wanted.issuer) {
+        if (discovery) logger.warn(`Sign in with ${wanted.name}: discovery names another issuer now; the button stays hidden.`);
+        else logger.warn(`Sign in with ${wanted.name}: the issuer did not answer; the button stays hidden until it does.`);
+        discovery = null;
+      }
+    }
+    const options = buildOptions(opts, sql, () => settings);
+    const auth = wanted && discovery
+      ? (betterAuth({ ...options, plugins: [...options.plugins, oidcPlugin(wanted, discovery)] }) as unknown as Auth)
+      : betterAuth(options);
+    const ctx = await auth.$context;
+    const active = Boolean(wanted && discovery) && ctx.socialProviders.some((p) => p.id === OIDC_PROVIDER_ID);
+    install(auth, wanted, {
+      configured: Boolean(wanted),
+      active,
+      name: read.settings?.name ?? null,
+      secretUnreadable: read.secretUnreadable,
+      checkedAt: new Date(),
+    });
+    if (read.secretUnreadable) {
+      logger.warn('Sign in with your login service is off: its client secret does not open with this APP_SECRET. Run tagave-doctor reseal, or enter the secret again in Settings › Users.');
+    }
+    return status;
+  };
+
+  const queue = <T,>(task: () => Promise<T>): Promise<T> => {
+    const run = chain.then(task, task);
+    chain = run.catch(() => undefined);
+    return run;
+  };
+
+  // one retry at a time, however many requests ask for it
+  let retrying: Promise<OidcStatus> | null = null;
+  const retryDue = (minIntervalMs: number) =>
+    status.configured && !status.active && (!status.checkedAt || Date.now() - status.checkedAt.getTime() >= minIntervalMs);
+
+  const handle: AuthHandle = {
+    auth: makeAuth(opts, sql),
+    sql,
+    env: opts.env,
+    close: () => sql.end({ timeout: 5 }),
+    reload: () => queue(rebuild),
+    retryOidc: (minIntervalMs = OIDC_RETRY_MS) => {
+      if (retrying) return retrying;
+      if (!retryDue(minIntervalMs)) return Promise.resolve(status);
+      // counted from now, so the next caller waits for this one instead of starting another
+      status = { ...status, checkedAt: new Date() };
+      const run = queue(async () => (status.configured && !status.active ? rebuild() : status));
+      retrying = run.finally(() => { retrying = null; });
+      return retrying;
+    },
+    suspendOidc: () => queue(async () => {
+      install(betterAuth(buildOptions(opts, sql, () => null)), null, { ...status, active: false, checkedAt: new Date() });
+    }),
+    oidcStatus: () => status,
+    oidcSettings: () => settings,
+  };
+  return handle;
 }
+
 
 /**
  * Self-heal for rollback-and-return: a user created by 0.6.x (with only

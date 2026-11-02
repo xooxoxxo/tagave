@@ -26,6 +26,7 @@ import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
 import { SettingsUsersPage } from './SettingsUsersPage';
+import { SignInService } from '../components/users/SignInService';
 import { SettingsAccountPage } from './SettingsAccountPage';
 import { CUSTOM_THEME_SECTION, CustomThemeScreen, ThemeSetting } from '../themes/ThemeSetting';
 import { NotAvailable } from '../components/access/NotAvailable';
@@ -119,7 +120,7 @@ export function SettingsPage() {
         {section === 'following' && <SettingsFollowRulesContent />}
         {section === 'appearance' && <><h2>Appearance</h2><ThemeSwitch /><ThemeSetting headingClassName={styles.modeSetting} />{canMaintain && <MaintenanceSetting />}<DisplaySettings /></>}
         {section === CUSTOM_THEME_SECTION && <><h2>Custom theme</h2><CustomThemeScreen /></>}
-        {section === 'users' && <><h2>Users</h2><SettingsUsersPage /></>}
+        {section === 'users' && <><h2>Users</h2><SettingsUsersPage /><SignInService headingClassName={styles.modeSetting} /></>}
         {section === 'account' && <><h2>Account</h2><SettingsAccountPage /></>}
         {section === 'providers' && <><h2>Integrations</h2><SettingsProvidersPage /></>}
         {section === 'playback' && <SettingsPlaybackContent />}
