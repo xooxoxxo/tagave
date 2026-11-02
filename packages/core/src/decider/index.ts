@@ -12,3 +12,5 @@ export { requestForAlbum, requestOptions, jevPayloadFor, hashOf, MAX_GROUPS, MAX
 export type { AlbumRequest } from './preview.js';
 export { LOCAL_FEATURES_VERSION, LOCAL_FEATURE_NAMES, BREAKDOWN_FEATURE_KEYS, NO_RIVAL_GAP, groupFeatures, candidateFeatures, featuresSchemaHash } from './localFeatures.js';
 export type { LocalCandidate, FeatureRow } from './localFeatures.js';
+export { fitStandardiser, fitLogistic, predictLogistic, fitIsotonic, applyIsotonic, calibratedProbability, modelVersion } from './localModel.js';
+export type { Standardiser, LogisticModel, LogisticOptions, IsotonicBlock, IsotonicModel, LocalModel } from './localModel.js';
