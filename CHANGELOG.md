@@ -2,7 +2,35 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.16.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.16.0)
+## [v0.17.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.17.0)
+
+**Minor release (0.16 → 0.17).** Delete songs and albums, by marking them or moving them to a trash, and sign in with your own login service, such as Zitadel.
+
+### Before you update
+
+- **Going back to 0.16 means a restore.** This update changes the database (migrations 0073 and 0074). The updater takes a backup first and restores it on its own if the update fails; to return to 0.16 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.17.0/docs/operations.md).
+- **Split installs** (a files worker on another machine): update that worker too, so it learns where your music folder is on that machine.
+
+### New
+
+- **Delete songs and albums.** Settings › Library › Deleting picks one mode, and every ⋯ menu shows only that one: on a song, an album, an album card, and each copy in an album's Duplicates. An Undo shows for 5 seconds first. ([e7a8384](https://github.com/xooxoxxo/tagave/commit/e7a8384), [918395f](https://github.com/xooxoxxo/tagave/commit/918395f))
+  - **Mark** (any install): the song or album leaves the library, search and the player at once; your music files are not touched. Library care › Deleting lists what is marked, with Unmark and a command that deletes exactly those files on your server.
+  - **Trash** (music folders tagave may write to): the files move to a hidden `.tagave-trash` folder in the music folder, which the player skips. Restore puts them back; Empty trash deletes them, and trash older than 30 days empties itself.
+  - Plays, ratings and matches stay until the files are really gone, so Unmark and Restore lose nothing.
+- **Sign in with your login service.** Zitadel, Authentik, Authelia, Keycloak, Pocket ID or any OpenID Connect service: set it up in Settings › Users › Sign-in service and a "Sign in with …" button joins password and passkey. People link it from Account; new people come by invite, or join on their own if you allow it, optionally only from one group. The owner always keeps a password or passkey, and an authenticator app still asks for its code. See [Sign in with your login service](https://github.com/xooxoxxo/tagave/blob/v0.17.0/docs/security.md). ([1bb941d](https://github.com/xooxoxxo/tagave/commit/1bb941d), [8970e87](https://github.com/xooxoxxo/tagave/commit/8970e87), [9ff99ac](https://github.com/xooxoxxo/tagave/commit/9ff99ac), [26db84c](https://github.com/xooxoxxo/tagave/commit/26db84c), [feff76f](https://github.com/xooxoxxo/tagave/commit/feff76f), [8d6f7e1](https://github.com/xooxoxxo/tagave/commit/8d6f7e1))
+
+### Improved
+
+- **Removing the last passkey** of an account with no password is refused unless another way in remains; an owner's last passkey can't be removed.
+
+### For self-hosters
+
+- **Migrations:** 0073 (file deletions), 0074 (login service sign-in).
+- **Compose:** the files worker now gets `TAGAVE_MUSIC_HOST_DIR: ${MUSIC_DIR}`, so the delete command shows paths as they are on your server. The updater brings the new compose file; if you keep your own compose file, add that line to the files worker.
+
+**All changes:** [v0.16.0...v0.17.0](https://github.com/xooxoxxo/tagave/compare/v0.16.0...v0.17.0)
+
+## [v0.16.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.16.0) (2026-11-02)
 
 **Minor release (0.15 → 0.16).** Settings, Library care and Tag changes move under your account, and the physical collection shows one row per record with an Undo for removals.
 
