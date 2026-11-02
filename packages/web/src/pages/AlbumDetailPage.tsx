@@ -44,7 +44,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, CloseIcon, Collapse, CoverArt, LinkButton, PageShell, Tabs, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, CloseIcon, Collapse, CoverArt, KebabIcon, LinkButton, Menu, PageShell, Tabs, TrashIcon, embossClassName, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import { AlbumFacts, showsDiscogsData } from './AlbumFacts';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
@@ -68,6 +68,7 @@ import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabi
 import { currentTrack, playAlbum, shuffleAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
 import { TrackActions, enqueueWithToast } from '../components/player/TrackActions';
 import { usePlaylistsOn } from '../hooks/usePlaylists';
+import { useDeleteAction, useHiddenDeletions } from './deleteAction';
 
 const AddToPlaylistSheet = lazy(() => import('../components/player/TrackDrawer').then((m) => ({ default: m.AddToPlaylistSheet })));
 import { scanWaitLine } from '../player/logic';
@@ -125,6 +126,9 @@ export function AlbumDetailPage() {
   const playability = useAlbumPlayability(albumId, canPlay);
   const playingHere = usePlayerStore((s) => currentTrack(s)?.albumId === albumId);
   const playlistsOn = usePlaylistsOn();
+  // the owner's one delete item (Mark for deletion / Move to trash), and what waits out its Undo
+  const del = useDeleteAction(libraryId);
+  const hiddenDel = useHiddenDeletions();
   const playStatus = usePlayerStore((s) => s.status);
   const playingTrackId = usePlayerStore((s) => (currentTrack(s)?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
   const queueLoading = usePlayerStore((s) => s.loadingAlbumId === albumId);
@@ -586,13 +590,24 @@ export function AlbumDetailPage() {
     return null;
   };
 
-  const duplicatesList = album.duplicates.length > 0 && (
+  const duplicates = album.duplicates.filter((d) => !hiddenDel.album(d.id));
+  const duplicatesList = duplicates.length > 0 && (
     <ul className={styles.plainList}>
-      {album.duplicates.map((d) => (
-        <li key={d.id}>
-          <Link to="/albums/$albumId" params={{ albumId: d.id }}>{d.title ?? 'Untitled'}</Link>
-          <span className={styles.muted}> · {[d.formats?.join('/'), `${d.trackCount} tracks`, STATE_LABEL[d.state] ?? d.state].filter(Boolean).join(' · ')}</span>
-          {d.dirPaths?.[0] && <span className={styles.pathLine}>{d.dirPaths[0]}</span>}
+      {duplicates.map((d) => (
+        <li key={d.id} className={del ? styles.copyRow : undefined}>
+          <div>
+            <Link to="/albums/$albumId" params={{ albumId: d.id }}>{d.title ?? 'Untitled'}</Link>
+            <span className={styles.muted}> · {[d.formats?.join('/'), `${d.trackCount} tracks`, STATE_LABEL[d.state] ?? d.state].filter(Boolean).join(' · ')}</span>
+            {d.dirPaths?.[0] && <span className={styles.pathLine}>{d.dirPaths[0]}</span>}
+          </div>
+          {del && (
+            <Menu
+              label={`More for ${d.title ?? 'this copy'}${d.dirPaths?.[0] ? ` (${d.dirPaths[0]})` : ''}`}
+              items={[{ key: 'delete', label: del.label, tone: 'danger', onSelect: () => del.album(d.id, d.title ?? 'Untitled') }]}
+              triggerClassName={embossClassName('page', styles.copyMore)}
+              icon={<KebabIcon />}
+            />
+          )}
         </li>
       ))}
     </ul>
@@ -880,6 +895,8 @@ export function AlbumDetailPage() {
       end: () => void enqueueWithToast({ albumId }, 'end'),
     } : null,
     addToPlaylist: playlistsOn ? () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; setSheet('playlist'); } : null,
+    // the album leaves the library at once: back to the albums, with Undo on the toast
+    remove: del ? { label: del.label, onSelect: () => { del.album(albumId, title ?? 'Untitled'); void navigate({ to: '/albums' }); } } : null,
   });
   const openActions = (button: HTMLElement) => { opener.current = button; setSheet('actions'); };
   // the one ⋮ (owner, 2026-10-17: "only single ... is enough"): in the header
@@ -1055,19 +1072,20 @@ export function AlbumDetailPage() {
           {...(sections && tracksPanel ? { id: TAB_PANEL_ID, role: 'tabpanel', 'aria-labelledby': tabIdFor(TAB_PANEL_ID, 'tracks') } : {})}
         >
           <AlbumTracks
-            tracks={album.tracks}
+            tracks={album.tracks.filter((t) => !hiddenDel.track(t.id))}
             missingTracks={album.missingTracks}
             discCount={album.discCount}
             albumArtists={[album.artistCredit, albumArtist, Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit]}
             artistNames={album.artists?.map((a) => a.name) ?? []}
             maintenance={maintenance}
             player={canPlay && !playDisabled ? { currentTrackId: playingTrackId, onPlay: (trackId) => void playAlbum(albumRef, trackId) } : null}
-            trackMenu={(canPlay && !playDisabled) || playlistsOn ? (t) => (
+            trackMenu={(canPlay && !playDisabled) || playlistsOn || del ? (t) => (
               <TrackActions
                 label={`More for ${t.title ?? 'this track'}`}
                 summary={{ title: t.title ?? 'Untitled', subtitle: [t.artist || artistLine, title].filter(Boolean).join(' · '), coverUrl: album.coverUrl }}
                 source={{ trackIds: [t.id] }}
                 artist={album.artists?.[0] ? { id: album.artists[0].id, name: album.artists[0].name } : null}
+                extra={del ? [{ key: 'delete', label: del.label, icon: <TrashIcon />, tone: 'danger', onSelect: () => del.tracks([t.id], t.title ?? 'Untitled') }] : undefined}
               />
             ) : null}
           />

@@ -59,6 +59,17 @@ describe('the ⋮ menu by role', () => {
   });
   const keys = (a: { key: string }[]) => a.map((x) => x.key);
 
+  it('the owner: one delete item, last of the rows, in the library’s mode; none without it', () => {
+    const onSelect = vi.fn();
+    const m = albumMenu(base({ remove: { label: 'Move to trash', onSelect } }));
+    expect(keys(m.rows)).toEqual(['info', 'delete']);
+    expect(m.rows.at(-1)).toMatchObject({ label: 'Move to trash', icon: 'trash', tone: 'danger', separated: true });
+    const items = albumMenuItems(m);
+    expect(items.filter((i) => i.key === 'delete')).toEqual([expect.objectContaining({ label: 'Move to trash', tone: 'danger', separated: true })]);
+    expect(items.some((i) => String(i.label).startsWith('Mark for deletion'))).toBe(false);
+    expect(keys(albumMenu(base()).rows)).not.toContain('delete');
+  });
+
   it('owner or editor: Shuffle, the artist and the physical copy as tiles; Album info; the Maintenance switch', () => {
     const m = albumMenu(base());
     expect(keys(m.tiles)).toEqual(['shuffle', 'artist-a1', 'own']);

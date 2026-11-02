@@ -8,6 +8,7 @@ import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { usePhoneSubpage } from '../components/appBarTitle';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
+import { SettingsDeletingContent } from './SettingsDeletingPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
 import { SettingsGenresContent } from './SettingsGenresPage';
 import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
@@ -44,6 +45,8 @@ type Section = { value: string; label: string; group: string; permission?: Permi
 
 const sections: Section[] = [
   { value: 'library', label: 'Music folders', group: 'Library', permission: 'system.manage' },
+  // Mark or Trash: a deletion reaches the music folder, so the owner's alone
+  { value: 'deleting', label: 'Deleting', group: 'Library', permission: 'system.manage' },
   { value: 'metadata', label: 'Tag preferences', group: 'Library', permission: 'library.edit' },
   { value: 'genre-mapping', label: 'Genre mapping', group: 'Library', permission: 'library.edit' },
   { value: 'following', label: 'Follow rules', group: 'Library', permission: 'library.edit' },
@@ -110,6 +113,7 @@ export function SettingsPage() {
       <div className={styles.content}>
         {!allowed ? <NotAvailable inline /> : <>
         {section === 'library' && <SettingsScanRootsContent />}
+        {section === 'deleting' && <SettingsDeletingContent />}
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}

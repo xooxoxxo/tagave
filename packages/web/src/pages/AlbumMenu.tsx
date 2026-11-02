@@ -9,7 +9,7 @@
  * The drawers themselves (AlbumSheets.tsx) load when one first opens.
  */
 import { useSyncExternalStore, type ReactNode } from 'react';
-import { AddQueueIcon, CoverArt, DiscIcon, PlayNextIcon, PlaylistIcon, EmbossIconButton, InfoIcon, KebabIcon, ListenIcon, Menu, PersonIcon, ShuffleIcon, WrenchIcon, embossClassName, type EmbossPlace } from '../components/ui';
+import { AddQueueIcon, CoverArt, DiscIcon, PlayNextIcon, PlaylistIcon, EmbossIconButton, InfoIcon, KebabIcon, ListenIcon, Menu, PersonIcon, ShuffleIcon, TrashIcon, WrenchIcon, embossClassName, type EmbossPlace } from '../components/ui';
 import { albumMenuItems, listenKindLabel, type AlbumMenuAction, type AlbumMenuIcon, type AlbumMenuModel } from './albumActions';
 import styles from './AlbumMenu.module.css';
 
@@ -36,6 +36,7 @@ const ICONS: Record<AlbumMenuIcon, () => ReactNode> = {
   next: PlayNextIcon,
   queue: AddQueueIcon,
   playlist: PlaylistIcon,
+  trash: TrashIcon,
 };
 const Icon = ({ name }: { name: AlbumMenuIcon }) => { const C = ICONS[name]; return <>{C()}</>; };
 
@@ -100,7 +101,7 @@ export function AlbumActionsBody({ summary, model, onClose }: { summary: AlbumSu
   };
   const row = (a: AlbumMenuAction) => (
     <li key={a.key}>
-      <button type="button" className={styles.row} disabled={a.disabled} onClick={() => pick(a)} data-menu-row={a.key}>
+      <button type="button" className={styles.row} disabled={a.disabled} onClick={() => pick(a)} data-menu-row={a.key} data-tone={a.tone}>
         <span className={styles.rowIcon} aria-hidden="true"><Icon name={a.icon} /></span>
         <span className={styles.rowText}>
           <span className={styles.rowLabel}>{a.label}</span>

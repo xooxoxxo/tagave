@@ -560,6 +560,15 @@
   padding: 0.35rem 0;
 }
 
+/* a copy under Duplicates with its ⋮ (the delete item) at the end of the row */
+.plainList > li.copyRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.copyRow > div { flex: 1; min-width: 0; }
+.copyMore { flex: none; }
+
 .taskList > li {
   display: flex;
   flex-wrap: wrap;

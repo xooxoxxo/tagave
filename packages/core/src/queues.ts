@@ -12,7 +12,7 @@ export const WORKER_QUEUES = [
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
-  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve',
+  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'files.trash',
 ] as const;
 
 /**
@@ -43,6 +43,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'files.backfillDigest': 'scan.parse',
   // folders of loose files from before untagged files formed albums: rides with the clusterer
   'cluster.backfillLoose': 'cluster.dir',
+  // Deleting: moves into and out of the trash folder; rides with the tag writer, the other job that writes the music folder
+  'files.trash': 'tags.apply',
 };
 
 /** The names TAGAVE_QUEUES chooses from: each needs some live worker. */

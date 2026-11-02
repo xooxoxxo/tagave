@@ -9,6 +9,7 @@ import fastifySwaggerUI from '@fastify/swagger-ui';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
 import { createUserPrefsRoutes } from './routes/userPrefs.js';
+import { createDeletionRoutes } from './routes/deletions.js';
 import { createBulkRoutes } from './routes/bulk.js';
 import { createUpdateRoutes } from './routes/updates.js';
 import { createUpdaterInternalRoutes, createUpdaterRoutes } from './routes/updater.js';
@@ -190,5 +191,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createPlaylistRoutes, { prefix: '/api/v1' });
     // Each person's own preferences that follow them between devices (the colour theme)
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
+    // Deleting songs and albums: Mark or Trash, Library care › Deleting (owner)
+    instance.register(createDeletionRoutes, { prefix: '/api/v1' });
   });
 }

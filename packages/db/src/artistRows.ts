@@ -6,6 +6,10 @@
  * (live list, searches) and the worker (facets.refresh rebuilds artist_list).
  */
 import { sql } from 'drizzle-orm';
+import { albumLiveSql } from './deletions.js';
+
+/** An album whose every song is deleted (0073) counts for no artist. */
+const LIVE = sql.raw(albumLiveSql('la.id'));
 
 export interface ArtistRow {
   id: string | null;
@@ -31,7 +35,7 @@ export async function fetchArtistRows(db: Db, libraryId: string, search: string)
       select rga.artist_id, la.id as album_id, la.track_count, la.year_guess, la.created_at
         from local_albums la
         join release_group_artists rga on rga.release_group_id = la.release_group_id
-       where la.library_id = ${libraryId}
+       where la.library_id = ${libraryId} and ${LIVE}
       union
       -- Albums known only by their tags (no release group, or one with no
       -- credits) under the artist of that name (0040): Aarni's demos belong
@@ -39,7 +43,7 @@ export async function fetchArtistRows(db: Db, libraryId: string, search: string)
       select a.id, la.id, la.track_count, la.year_guess, la.created_at
         from local_albums la
         join artists a on lower(a.name) = lower(tagave_display_artist(la.artist_guess))
-       where la.library_id = ${libraryId}
+       where la.library_id = ${libraryId} and ${LIVE}
          and tagave_display_artist(la.artist_guess) is not null
          and (la.release_group_id is null or not exists (
            select 1 from release_group_artists rga
@@ -82,7 +86,7 @@ export async function fetchArtistRows(db: Db, libraryId: string, search: string)
              max(la.year_guess)::int as year_to,
              max(la.created_at) as added_at
         from local_albums la
-       where la.library_id = ${libraryId}
+       where la.library_id = ${libraryId} and ${LIVE}
          and tagave_display_artist(la.artist_guess) is not null
          and (la.release_group_id is null or not exists (
            select 1 from release_group_artists rga

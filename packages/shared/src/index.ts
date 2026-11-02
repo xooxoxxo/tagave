@@ -541,3 +541,6 @@ export * from './playlists.js';
 
 // Each person's own preferences that follow them between devices (the colour theme)
 export * from './userPrefs.js';
+
+// Deleting songs and albums: Mark or Trash, Library care › Deleting
+export * from './deletions.js';

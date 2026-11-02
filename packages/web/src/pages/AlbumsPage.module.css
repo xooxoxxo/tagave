@@ -223,12 +223,24 @@
   opacity: 1;
 }
 
-.albumInfo {
+.albumInfo,
+.albumInfoMore {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
   min-height: 0;
 }
+
+/* the owner's ⋮ (the delete item): at the end of the title line on a card,
+   at the end of a list row; on a card it shows on hover or focus, always on touch */
+.albumInfoMore { position: relative; padding-right: 32px; }
+.more { flex: none; display: inline-flex; }
+.albumInfoMore > .more { position: absolute; top: -12px; right: -14px; opacity: 0; transition: opacity var(--transition-fast); }
+.albumCard:hover .more,
+.albumCardSelected:hover .more,
+.albumCard:focus-within .more,
+.albumCardSelected:focus-within .more { opacity: 1; }
+@media (hover: none) { .albumInfoMore > .more { opacity: 1; } }
 
 /* Fixed height keeps every card the same size, which is what lets the
    virtualizer use one row height without measuring each card. */

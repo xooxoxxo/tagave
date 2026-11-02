@@ -12,6 +12,9 @@
  *
  * Owner, 2026-10-28: "let's maybe have like an undo for couple seconds but
  * then the user can enter it again so no need [for Removed]".
+ *
+ * Deleting songs and albums (deleteAction.ts) uses the same store, with keys
+ * prefixed `delete:`.
  */
 import { useSyncExternalStore } from 'react';
 

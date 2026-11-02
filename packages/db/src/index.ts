@@ -38,4 +38,5 @@ export * from './wantlist.js';
 export * from './albumLock.js';
 export * from './listenLinks.js';
 export * from './playlistsModule.js';
+export * from './deletions.js';
 export * from './modules.js';

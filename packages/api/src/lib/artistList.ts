@@ -10,6 +10,7 @@
  * for searches and for a library whose list was never built.
  */
 import { sql } from 'drizzle-orm';
+import { albumLiveSql } from '@tagave/db';
 import { ARTIST_GROUP_ORDER, type ArtistGroupKey } from '@tagave/shared';
 import { type ArtistGroupCount, type ArtistRow, type ArtistSort } from '@tagave/core';
 
@@ -98,7 +99,7 @@ export async function coversFor(db: Db, libraryId: string, rows: ArtistRow[], pe
   // Albums with a front cover, thumbnail built or not: a missing thumbnail
   // (after a restore) is served as a placeholder and rebuilt on that request.
   const hasThumb = sql`exists (select 1 from images im
-    where im.local_album_id = la.id and im.kind = 'front')`;
+    where im.local_album_id = la.id and im.kind = 'front') and ${sql.raw(albumLiveSql('la.id'))}`;
   const arms = [];
   if (ids.length) {
     const idList = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);

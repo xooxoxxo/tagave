@@ -6,6 +6,7 @@
  * that left the library still has a name ("Missing").
  */
 import type postgres from 'postgres';
+import { trackLiveSql } from '@tagave/db';
 import { normalizeKey, pickByNames, type MatchCandidate, type ParsedItem, type ParsedPlaylist } from '@tagave/core/playlists';
 import {
   PLAYLIST_FILE_FORMAT, PLAYLIST_FILE_VERSION,
@@ -58,7 +59,7 @@ async function snapshots(sql: Sql | Tx, ids: readonly string[]): Promise<Map<str
 export async function albumTrackIds(sql: Sql | Tx, albumId: string): Promise<string[]> {
   const rows = await sql<Array<{ id: string }>>`
     select lt.id::text as id from local_tracks lt join files af on af.id = lt.audio_file_id
-     where lt.local_album_id = ${albumId}
+     where lt.local_album_id = ${albumId} and ${sql.unsafe(trackLiveSql('af.id'))}
      order by coalesce(lt.disc_no, 1), lt.track_no nulls last, af.rel_path`;
   return rows.map((r) => r.id);
 }
@@ -108,7 +109,8 @@ export async function getPlaylist(sql: Sql, userId: string, id: string): Promise
   const items = await sql<Array<{ id: string; local_track_id: string | null; album_id: string | null; title: string; artist: string | null; album: string | null; duration_ms: number | null; has_art: boolean }>>`
     select i.id::text as id, i.local_track_id::text as local_track_id, lt.local_album_id::text as album_id, i.title, i.artist, i.album, i.duration_ms,
            exists (select 1 from images im where im.local_album_id = lt.local_album_id and im.kind = 'front') as has_art
-      from playlist_items i left join local_tracks lt on lt.id = i.local_track_id
+      -- a deleted song (0073) shows as Missing until Unmark / Restore
+      from playlist_items i left join local_tracks lt on lt.id = i.local_track_id and ${sql.unsafe(trackLiveSql('lt.audio_file_id'))}
      where i.playlist_id = ${id}
      order by i.position, i.added_at`;
   return {

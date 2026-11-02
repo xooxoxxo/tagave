@@ -1,6 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
-import { libraries } from '@tagave/db';
+import { albumLiveSql, libraries, trackLiveSql } from '@tagave/db';
+
+/** Deleted songs and albums (0073) are not found. */
+const LIVE_ALBUM = sql.raw(albumLiveSql('la.id'));
+const LIVE_TRACK = sql.raw(trackLiveSql('lt.audio_file_id'));
 import { getDb } from '../db.js';
 import { containsPattern, escapeLike, foldedColumn, foldedValue, textMatches } from '../lib/textMatch.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -78,7 +82,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
              least(${rank(sql`la.title_guess`)}, ${rank(sql`la.artist_guess`)} + 1) as rank,
              greatest(similarity(la.title_guess, ${query}), similarity(coalesce(la.artist_guess, ''), ${query})) as score
       from local_albums la
-      where la.library_id = ${libraryId}
+      where la.library_id = ${libraryId} and ${LIVE_ALBUM}
         and (${textMatches(sql`la.title_guess`, like)}
              or ${textMatches(sql`la.artist_guess`, like)}
              ${useSimilarity ? sql`or la.title_guess % ${query} or la.artist_guess % ${query}` : sql``})
@@ -104,7 +108,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
         join release_groups rg on rg.id = la.release_group_id
         join release_group_artists rga on rga.release_group_id = rg.id
         join artists a on a.id = rga.artist_id
-        where la.library_id = ${libraryId}
+        where la.library_id = ${libraryId} and ${LIVE_ALBUM}
           and (${textMatches(sql`a.name`, like)}
                or ${textMatches(sql`a.sort_name`, like)}
                or ${textMatches(sql`array_to_string(a.aliases, ' ')`, like)}
@@ -116,7 +120,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
                min(${rank(sql`la.artist_guess`)}) as rank,
                max(similarity(la.artist_guess, ${query})) as score
         from local_albums la
-        where la.library_id = ${libraryId}
+        where la.library_id = ${libraryId} and ${LIVE_ALBUM}
           and la.artist_guess is not null
           and (la.release_group_id is null or not exists (
             select 1 from release_group_artists rga where rga.release_group_id = la.release_group_id))
@@ -139,7 +143,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
              greatest(similarity(lt.title_guess, ${query}), similarity(coalesce(lt.artist_guess, ''), ${query})) as score
       from local_tracks lt
       join local_albums la on la.id = lt.local_album_id
-      where la.library_id = ${libraryId}
+      where la.library_id = ${libraryId} and ${LIVE_TRACK}
         and (${textMatches(sql`lt.title_guess`, like)}
              or ${textMatches(sql`lt.artist_guess`, like)}
              ${useSimilarity ? sql`or lt.title_guess % ${query} or lt.artist_guess % ${query}` : sql``})
