@@ -4,10 +4,13 @@
  * player bar and as wide as the sidebar, painted like the bar, so with
  * something playing the foot of the screen reads as one strip. Pressing it
  * slides a section open directly above it, inside the sidebar, as if a
- * hidden compartment were revealed: Account, Listening, the colour theme,
- * Sign out (and, on a tablet, where the row is the tile alone, who is
- * signed in). Nothing floats and nothing in the sidebar
- * moves; the compartment grows up from the row.
+ * hidden compartment were revealed: Account, Listening, the pages that look
+ * after the library (Settings, Library care, Tag changes, passed in as
+ * `links`), the colour theme, Sign out (and, on a tablet, where the row is
+ * the tile alone, who is signed in). Nothing floats and nothing in the
+ * sidebar moves; the compartment grows up from the row. A count or a dot
+ * on one of those pages shows as a dot on the row while it is closed, so
+ * it is never out of sight.
  *
  * A disclosure, not a menu: the row says whether it is open and which
  * section it controls (aria-expanded, aria-controls), the section holds
@@ -17,11 +20,27 @@
  *
  * Owner, 2026-10-20: "instead open up a section in that place above the
  * user (on desktop) as if it was a hidden compartment that was revealed".
+ * Owner, 2026-10-28: "settings, library care and tag changes should also be
+ * under it"; the theme control carries no label.
  */
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { SegmentedControl, type SegmentedOption } from './ui/SegmentedControl';
 import { useThemePreference, type ThemePreference } from '../theme';
 import styles from './AccountCompartment.module.css';
+
+/** A page the compartment leads to (Settings, Library care, Tag changes). */
+export interface CompartmentLink {
+  key: string;
+  label: string;
+  onSelect: () => void;
+  /** the page being shown */
+  current?: boolean;
+  /** a count on the item (Library care's open tasks) and what it counts, for a screen reader */
+  count?: number;
+  countLabel?: string;
+  /** a quiet dot on the item (Settings: a new version) and what it means */
+  dot?: string;
+}
 
 export interface AccountCompartmentProps {
   name: string;
@@ -29,6 +48,8 @@ export interface AccountCompartmentProps {
   onAccount: () => void;
   onListening: () => void;
   onSignOut: () => void;
+  /** pages after Account and Listening */
+  links?: CompartmentLink[];
   signingOut?: boolean;
   /** Changes on every navigation (the path): the compartment closes. */
   closeKey?: string;
@@ -51,7 +72,15 @@ const themeOptions: SegmentedOption<ThemePreference>[] = [
   { value: 'system', label: 'Auto' },
 ];
 
-export function AccountCompartment({ name, email, onAccount, onListening, onSignOut, signingOut = false, closeKey, defaultOpen = false, className, glow }: AccountCompartmentProps) {
+/** What the links have waiting (a count, a dot), as words: empty when nothing is. */
+export function attentionOf(links: CompartmentLink[]): string[] {
+  return links.flatMap((l) => [
+    ...(l.count ? [`${l.count} ${l.countLabel ?? 'waiting'}`] : []),
+    ...(l.dot ? [l.dot] : []),
+  ]);
+}
+
+export function AccountCompartment({ name, email, onAccount, onListening, onSignOut, links = [], signingOut = false, closeKey, defaultOpen = false, className, glow }: AccountCompartmentProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [theme, setTheme] = useThemePreference();
   const id = useId();
@@ -61,6 +90,7 @@ export function AccountCompartment({ name, email, onAccount, onListening, onSign
   const panel = useRef<HTMLDivElement>(null);
   const shown = name.trim() || email;
   const initial = accountInitial(name, email);
+  const attention = attentionOf(links);
 
   /** Close; focus goes back to the row when it was inside the compartment. */
   const close = useCallback((refocus = true) => {
@@ -130,8 +160,14 @@ export function AccountCompartment({ name, email, onAccount, onListening, onSign
             <div className={styles.items}>
               <button type="button" className={styles.item} onClick={choose(onAccount)}>Account</button>
               <button type="button" className={styles.item} onClick={choose(onListening)}>Listening</button>
+              {links.map((l) => (
+                <button key={l.key} type="button" className={l.current ? styles.itemCurrent : styles.item} aria-current={l.current ? 'page' : undefined} onClick={choose(l.onSelect)}>
+                  {l.label}
+                  {!!l.count && <span className={styles.count}><span className={styles.srOnly}>, </span>{l.count}<span className={styles.srOnly}> {l.countLabel ?? 'waiting'}</span></span>}
+                  {l.dot && <span className={styles.dot} title={l.dot}><span className={styles.srOnly}> ({l.dot})</span></span>}
+                </button>
+              ))}
               <div className={styles.appearance}>
-                <span className={styles.appearanceLabel} aria-hidden="true">Appearance</span>
                 <SegmentedControl size="sm" label="Appearance" name={`${id}-theme`} value={theme} onChange={setTheme} options={themeOptions} />
               </div>
               <button type="button" className={`${styles.item} ${styles.signOut}`} disabled={signingOut} onClick={() => { close(); onSignOut(); }}>
@@ -147,11 +183,11 @@ export function AccountCompartment({ name, email, onAccount, onListening, onSign
         className={styles.row}
         aria-expanded={open}
         aria-controls={panelId}
-        aria-label={`Account: ${shown}`}
+        aria-label={`Account: ${shown}${attention.length ? ` (${attention.join(', ')})` : ''}`}
         onClick={toggle}
       >
         {glow}
-        <span className={styles.tile} aria-hidden="true">{initial}</span>
+        <span className={styles.tile} aria-hidden="true">{initial}{attention.length > 0 && <span className={styles.rowDot} data-row-dot="" />}</span>
         <span className={styles.text} aria-hidden="true">
           <span className={styles.name}>{shown}</span>
           {shown !== email && <span className={styles.email}>{email}</span>}

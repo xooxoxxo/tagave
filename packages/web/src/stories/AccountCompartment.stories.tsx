@@ -4,11 +4,16 @@ import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { AccountCompartment } from '../components/AccountCompartment';
 
 const noop = () => undefined;
+const links = [
+  { key: 'settings', label: 'Settings', onSelect: noop },
+  { key: 'work', label: 'Library care', onSelect: noop },
+  { key: 'plans', label: 'Tag changes', onSelect: noop },
+];
 
 /** The sidebar's foot: its width and fill, the row on the bottom edge, edge to edge. */
 function SidebarFoot({ children }: { children: ReactNode }) {
   return (
-    <div style={{ width: 248, height: 480, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', background: 'var(--bg-nav)' }}>
+    <div style={{ width: 248, height: 560, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', background: 'var(--bg-nav)' }}>
       {children}
     </div>
   );
@@ -17,9 +22,9 @@ function SidebarFoot({ children }: { children: ReactNode }) {
 const meta = {
   title: 'Components/Account compartment',
   component: AccountCompartment,
-  parameters: { layout: 'centered', docs: { description: { component: 'The signed-in person at the foot of the sidebar: a band as wide as the sidebar and as tall as the player bar, painted like the bar. Pressing it opens a compartment directly above it (Account, Listening, Appearance, Sign out; on a tablet also who is signed in); it is a disclosure, not a floating menu.' } } },
+  parameters: { layout: 'centered', docs: { description: { component: 'The signed-in person at the foot of the sidebar: a band as wide as the sidebar and as tall as the player bar, painted like the bar. Pressing it opens a compartment directly above it (Account, Listening, Settings, Library care, Tag changes, the theme, Sign out; on a tablet also who is signed in); it is a disclosure, not a floating menu.' } } },
   decorators: [(Story) => <SidebarFoot><Story /></SidebarFoot>],
-  args: { name: 'Oytun', email: 'o@home.example', onAccount: noop, onListening: noop, onSignOut: noop },
+  args: { name: 'Oytun', email: 'o@home.example', onAccount: noop, onListening: noop, onSignOut: noop, links },
 } satisfies Meta<typeof AccountCompartment>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -42,6 +47,19 @@ export const Open: Story = {
     // let the height animation finish before the screenshot
     await new Promise((r) => setTimeout(r, 260));
   },
+};
+
+/** Open tasks on Library care and a new version on Settings: a dot on the row while closed. */
+export const Waiting: Story = {
+  args: { links: [
+    { key: 'settings', label: 'Settings', onSelect: noop, dot: 'a new version is available' },
+    { key: 'work', label: 'Library care', onSelect: noop, count: 3, countLabel: 'open tasks', current: true },
+    { key: 'plans', label: 'Tag changes', onSelect: noop },
+  ] },
+};
+
+export const WaitingOpen: Story = {
+  args: { ...Waiting.args, defaultOpen: true },
 };
 
 /** Keyboard: Enter opens, Tab reaches Account, Escape closes and the row has focus again. */
