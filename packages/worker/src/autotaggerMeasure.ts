@@ -24,8 +24,10 @@
  *                         has no record of the payload being seen)
  *   --confirm-database    must name the database DATABASE_URL points at, so the tool
  *                         is never run against the live database by accident
- * A run with rejected requests is a result (exit code 0); a refused key or a
- * run that stopped for another reason exits 1.
+ * It also refuses a database with the autotagger switched on: a restored copy
+ * always has it off. A run with rejected requests is a result (exit code 0);
+ * a refused key, a run that stopped for another reason or a failed run (what
+ * it spent is printed) exits 1.
  */
 import { randomInt } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
@@ -33,7 +35,7 @@ import { pathToFileURL } from 'node:url';
 import pino from 'pino';
 import type { PgBoss } from 'pg-boss';
 import { NotSendableError, jevSpecHash, requestForAlbum, requestOptions, type Decider, type JevRequest } from '@tagave/core';
-import { autotaggerConfig, makeDb, type Price } from '@tagave/db';
+import { autotaggerConfig, autotaggerEnabled, makeDb, type Price } from '@tagave/db';
 import type { WorkerContext } from './lib/context.js';
 import { loadEvidence, loadEvidenceMany } from './lib/evidenceStore.js';
 import { MEASURE_LARGEST, MEASURE_SAMPLE, albumPopulation, populationAlbumIds } from './lib/deciderPopulation.js';
@@ -59,6 +61,12 @@ export interface MeasureReport {
   /** how the run ended: done, or paused with its reason (cap_reached: the spend limit) */
   state: string; pauseReason: string | null;
 }
+/** A measurement that stopped with an error; its run (and what that run spent) stays in the database. */
+export class MeasureFailed extends Error {
+  override readonly name = 'MeasureFailed';
+  constructor(readonly runId: string, readonly cause: unknown) { super(cause instanceof Error ? cause.message : String(cause)); }
+}
+
 export interface MeasureDeps {
   decider: Decider;
   apiKey: string;
@@ -86,13 +94,23 @@ export async function measure(ctx: WorkerContext, opts: MeasureOptions, deps: Me
   // The whole run in this one call: no time budget and no abort signal, so
   // the job never hands the rest of the run to a queue (there is no worker
   // on a restored copy, and nothing should be queued from here).
-  const summary = await deciderRunJob(ctx, { runId }, {
+  let summary;
+  try {
+    summary = await deciderRunJob(ctx, { runId }, {
     decider: deps.decider, apiKey: deps.apiKey, price: opts.price, maxSpend: opts.maxSpend,
     population: { sample: opts.sample, largest: opts.largest },
     ...(deps.payloadApproved !== undefined ? { payloadApproved: deps.payloadApproved } : {}),
     timeBudgetMs: Number.POSITIVE_INFINITY,
-  });
-  if (summary.state === 'running') throw new Error('the measurement run is being worked by another process');
+    });
+  } catch (err) {
+    throw new MeasureFailed(runId, err);
+  }
+  if (summary.state === 'running') {
+    // another process holds the lock on this new run: it never started here, so it is not left queued
+    await ctx.sql`update decider_runs set state = 'cancelled', message = 'not started: held elsewhere', finished_at = now()
+                   where id = ${runId} and state = 'queued'`;
+    throw new Error('the measurement run is being worked by another process');
+  }
   return reportFor(ctx, runId, opts.libraryId, opts.price.currency);
 }
 
@@ -186,6 +204,7 @@ export const USAGE = [
   '       autotaggerMeasure measure --library <id> --price-per-mtok <n> --currency <XXX> --max-spend <n>',
   '                                 --key-stdin --payload-approved --confirm-database <name>',
   '                                 [--sample 190] [--largest 10] [--model jev-latest] [--json <file>]',
+  'A re-measure on a copy that already has runs reuses stored answers: use a fresh --model alias or a clean copy.',
 ].join('\n');
 
 export type CliCommand =
@@ -275,7 +294,7 @@ export function renderReport(r: MeasureReport): string {
     `albums sent: ${r.albumsSent} (reused: ${r.reused})    outcomes: ${JSON.stringify(r.outcomes)}`,
     `input tokens per album: mean ${num(r.inputTokens.mean, 1)} median ${num(r.inputTokens.median, 1)} p95 ${r.inputTokens.p95} max ${r.inputTokens.max}`,
     `cost per album (${c}): mean ${num(r.costPerAlbum.mean)} median ${num(r.costPerAlbum.median)} p95 ${num(r.costPerAlbum.p95)}    spent: ${num(r.spent)}`,
-    `queue: ${r.queue.needsReview} in review, ${r.queue.weak} weak    projected: ${num(r.projected.needsReview, 4)} in review, ${num(r.projected.withWeak, 4)} with weak`,
+    `queue: ${r.queue.needsReview} in review, ${r.queue.weak} weak    projected: ${num(r.projected.needsReview, 4)} in review, ${num(r.projected.withWeak, 4)} with weak (upper bound)`,
     `request bytes: largest accepted ${r.requestBytes.largestAccepted ?? '-'}, smallest rejected ${r.requestBytes.smallestRejected ?? '-'}    recommended limit: ${r.recommendedMaxRequestBytes ?? '-'}`,
     `model: ${r.model ?? '-'}`,
     ...(r.state === 'done' ? [] : [`run ${r.state}${r.pauseReason ? `: ${r.pauseReason}` : ''}`]),
@@ -310,8 +329,11 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   if (!url) { io.stderr.write('DATABASE_URL is required\n'); return 2; }
 
   if (cli.command === 'preview') {
-    const { ctx, close } = await cliContext(url, true, io.stderr);
+    let close: (() => Promise<void>) | null = null;
     try {
+      const c = await cliContext(url, true, io.stderr);
+      close = c.close;
+      const ctx = c.ctx;
       const p = await previewOne(ctx, cli.library, cli.model, cli.album);
       if (!p) { io.stderr.write('no album to show\n'); return 1; }
       io.stdout.write(`album: ${p.albumId}    bytes: ${p.bytes}\n${JSON.stringify(p.request, null, 2)}\n`);
@@ -320,7 +342,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       io.stderr.write(`${err instanceof NotSendableError ? `not sendable: ${err.reason}` : err instanceof Error ? err.message : String(err)}\n`);
       return 1;
     } finally {
-      await close();
+      await close?.();
     }
   }
 
@@ -328,12 +350,21 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   if (raw === null) { io.stderr.write('--key-stdin: pipe the key on stdin\n'); return 2; }
   const key = raw.trim();
   if (!key) { io.stderr.write('--key-stdin: no key on stdin\n'); return 2; }
-  const { ctx, close } = await cliContext(url, false, io.stderr);
+  let close: (() => Promise<void>) | null = null;
+  let ctx: WorkerContext | null = null;
   try {
+    const c = await cliContext(url, false, io.stderr);
+    close = c.close;
+    ctx = c.ctx;
     // the confirmed database, before anything is written
     const [db] = await ctx.sql<Array<{ name: string }>>`select current_database() as name`;
     if (db?.name !== cli.confirmDatabase) {
       io.stderr.write('refused: --confirm-database does not name the database DATABASE_URL points at\n');
+      return 2;
+    }
+    // a restored copy always has the module off; the live database has it on
+    if (await autotaggerEnabled(ctx.sql)) {
+      io.stderr.write('refused: the autotagger is on in this database, so it is not a restored copy\n');
       return 2;
     }
     const [lib] = await ctx.sql`select 1 as x from libraries where id = ${cli.library}`;
@@ -349,9 +380,18 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     return r.state === 'done' || (r.state === 'paused' && r.pauseReason === 'cap_reached') ? 0 : 1;
   } catch (err) {
     io.stderr.write(`${scrub(err instanceof Error ? err.message : String(err), key)}\n`);
+    if (err instanceof MeasureFailed && ctx) {
+      try {
+        // what the stopped measurement spent, possibly billed calls included
+        const [row] = await ctx.sql<Array<{ spent: string }>>`select coalesce(sum(cost), 0)::text as spent from decider_calls where run_id = ${err.runId}`;
+        io.stderr.write(scrub(`measurement stopped: run ${err.runId}, spent ${num(Number(row?.spent ?? 0))} ${cli.price.currency} (possibly billed calls included)\n`, key));
+      } catch (lookupErr) {
+        io.stderr.write(`${scrub(lookupErr instanceof Error ? lookupErr.message : String(lookupErr), key)}\n`);
+      }
+    }
     return 1;
   } finally {
-    await close();
+    await close?.();
   }
 }
 

@@ -15,12 +15,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import postgres from 'postgres';
 import pino from 'pino';
-import { makeDb, markPayloadSeen, runMigrations, syncInstalledModules } from '@tagave/db';
+import { autotaggerEnabled, makeDb, markPayloadSeen, runMigrations, setAutotaggerEnabled, syncInstalledModules } from '@tagave/db';
 import { buildAlbumEvidence, buildCandidateEvidence, jevPayloadFor, jevSpecHash, requestBytes, type Decider, type JevRequest } from '@tagave/core';
 import { ledgerEntries } from '@tagave/core/facets';
 import type { WorkerContext } from './lib/context.js';
 import { upsertAlbumEvidence } from './lib/evidenceStore.js';
-import { JevRejected } from './lib/jevClient.js';
+import { JevRejected, JevUnavailable } from './lib/jevClient.js';
 import { measure, previewOne, reportFor, runCli } from './autotaggerMeasure.js';
 
 const LIMIT_BYTES = 3000;
@@ -224,6 +224,40 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotaggerMeasure (scratch db)'
       expect(await runs()).toBe(0);
     });
 
+    it('refuses a database with the autotagger on (a restored copy has it off), before writing anything', async () => {
+      expect(await autotaggerEnabled(client)).toBe(false);
+      await setAutotaggerEnabled(client, true);
+      try {
+        const t = io({ decider: fakeDecider() });
+        expect(await runCli(full(name), t.cli)).toBe(2);
+        expect(t.stderr.text()).toContain('autotagger is on');
+        expect(await runs()).toBe(0);
+      } finally {
+        await setAutotaggerEnabled(client, false);
+      }
+    });
+
+    it('a measurement that fails prints what its run spent, possibly billed calls included', async () => {
+      const down: Decider = { ...fakeDecider(), async ask() { throw new JevUnavailable(503, `down for ${KEY}`, 2); } };
+      const t = io({ decider: down });
+      // another model, so no stored answer stands in for the call
+      expect(await runCli([...full(name), '--model', 'jev-down'], t.cli)).toBe(1);
+      const err = t.stderr.text();
+      const [, runId, spent] = err.match(/measurement stopped: run ([0-9a-f-]{36}), spent ([\d.]+) USD/) ?? [];
+      expect(Number(spent)).toBeGreaterThan(0);
+      const [{ c, state }] = await client`select (select sum(cost)::float8 from decider_calls where run_id = r.id) as c, r.state from decider_runs r where r.id = ${runId}`;
+      expect(Number(spent)).toBeCloseTo(c, 6);
+      expect(state).toBe('failed');
+      expect(t.stdout.text() + err).not.toContain(KEY);
+    });
+
+    it('a connection failure goes through the same scrubbed path', async () => {
+      const t = io({ decider: fakeDecider() });
+      t.cli.env = { DATABASE_URL: `postgres://nobody:${KEY}@127.0.0.1:1/none` };
+      expect(await runCli(full(name), t.cli)).toBe(1);
+      expect(t.stdout.text() + t.stderr.text()).not.toContain(KEY);
+    });
+
     it('measures, writes the JSON report, and the key appears in no output', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'tagave-measure-'));
       try {
@@ -233,6 +267,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotaggerMeasure (scratch db)'
         const out = t.stdout.text();
         expect(out).toContain('albums sent: 3 (reused: 0)');
         expect(out).toContain('cost per album (USD)');
+        expect(out).toContain('with weak (upper bound)');
         const written = await readFile(json, 'utf8');
         const report = JSON.parse(written);
         expect(report.albumsSent).toBe(3);
