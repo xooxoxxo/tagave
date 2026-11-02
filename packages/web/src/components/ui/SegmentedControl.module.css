@@ -95,6 +95,8 @@
   opacity: 0;
   cursor: pointer;
 }
+/* the global :disabled dimming would show the native radio of a disabled option */
+.radio:disabled { opacity: 0; cursor: not-allowed; }
 
 .option:has(.radio:focus-visible) {
   outline: 2px solid var(--ring);

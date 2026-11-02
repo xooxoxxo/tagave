@@ -148,7 +148,8 @@ export function AlbumsPage() {
       />
     </span>
   );
-  const total = facets?.total ?? items.length;
+  // an album waiting out its Undo leaves the count at once too
+  const total = Math.max(0, (facets?.total ?? allItems.length) - (allItems.length - items.length));
 
   /* ---- selection (§14.2: checkbox, ⌘-click, shift-range, select-all-matching) ----
      Lives in a store outside the page (albumSelection.ts) so it survives a trip

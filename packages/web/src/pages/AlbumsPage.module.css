@@ -233,7 +233,8 @@
 
 /* the owner's ⋮ (the delete item): at the end of the title line on a card,
    at the end of a list row; on a card it shows on hover or focus, always on touch */
-.albumInfoMore { position: relative; padding-right: 32px; }
+.albumInfoMore { position: relative; }
+.albumInfoMore > .albumTitle { padding-right: 28px; }
 .more { flex: none; display: inline-flex; }
 .albumInfoMore > .more { position: absolute; top: -12px; right: -14px; opacity: 0; transition: opacity var(--transition-fast); }
 .albumCard:hover .more,
