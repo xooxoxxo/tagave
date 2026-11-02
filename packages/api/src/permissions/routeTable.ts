@@ -169,6 +169,11 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId': 'library.edit',
   // How often the decider agreed with the owner (routes/autotagger.ts): read only, no payload.
   'GET /api/v1/libraries/:libraryId/autotagger/agreement': 'library.edit',
+  // Spot checks of a run's picks per band (routes/autotagger.ts): random draws only, the owner's verdicts, the gate per band.
+  'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId/bands': 'library.edit',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks/draw': 'library.edit',
+  'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks': 'library.edit',
+  'PUT /api/v1/libraries/:libraryId/autotagger/spot-checks/:checkId': 'library.edit',
   'GET /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'PUT /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/preview': 'library.edit',

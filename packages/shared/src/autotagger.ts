@@ -164,3 +164,74 @@ export interface AgreementRow { band: string | 'none'; decided: number; agree: n
  * after a needs_review run's.
  */
 export interface AgreementView { backtest: { runId: string; rows: AgreementRow[] } | null; queue: AgreementRow[] }
+
+/** The decider's probability bands, most sure first (@tagave/core JEV_SPEC.bands, which the api checks agree). */
+export const BAND_IDS = ['p99', 'p97', 'p95', 'p90'] as const;
+export type BandId = (typeof BAND_IDS)[number];
+
+/** A spot check's verdict: 'pending' until the owner gives one. */
+export const SPOT_CHECK_VERDICTS = ['pending', 'correct', 'wrong', 'unsure'] as const;
+export type SpotCheckVerdictView = (typeof SPOT_CHECK_VERDICTS)[number];
+
+/** Draw more random spot checks of one band of a run. */
+export const drawSpotChecksSchema = z
+  .object({ band: z.enum(BAND_IDS), count: z.number().int().min(1).max(100).default(25) })
+  .strict();
+
+/** The owner's verdict on one spot check; a later one replaces it. */
+export const spotCheckVerdictSchema = z
+  .object({ verdict: z.enum(['correct', 'wrong', 'unsure']) })
+  .strict();
+
+/** Which drawn checks to list: one band or all, one verdict or 'all' (default 'pending'). */
+export const spotCheckQuerySchema = z
+  .object({
+    band: z.enum(BAND_IDS).optional(),
+    verdict: z.enum([...SPOT_CHECK_VERDICTS, 'all']).default('pending'),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+    offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  })
+  .strict();
+
+/**
+ * One band of a run against the spot-check gate. `checked` counts correct
+ * and wrong verdicts only; `unsure` is apart and never a clean check.
+ * `upper`: the 95% Clopper-Pearson upper bound on the error rate from
+ * `errors` in `checked`; `allowed` when it is at most the library's
+ * maxErrorRate. `stillNeeded`: more clean checks before it would be (0
+ * when allowed; null when it cannot be reached). `accepted`: picks already
+ * accepted by one of the run's batches.
+ */
+export interface BandRow {
+  band: BandId;
+  picks: number;
+  drawn: number;
+  checked: number;
+  errors: number;
+  unsure: number;
+  upper: number;
+  allowed: boolean;
+  stillNeeded: number | null;
+  accepted: number;
+}
+
+/** A track as a spot check shows it; `length` as m:ss. */
+export interface SpotCheckTrack { n: number; title: string | null; length: string | null }
+
+/**
+ * One drawn spot check: the owner's album (their own tags, as the decision
+ * saw them) beside the edition the decider chose. `groupSize`: releases in
+ * the tracklist group it chose from.
+ */
+export interface SpotCheckItem {
+  id: string;
+  band: BandId;
+  verdict: SpotCheckVerdictView;
+  album: { id: string; title: string | null; artist: string | null; year: number | null; tracks: SpotCheckTrack[] };
+  chosen: {
+    releaseId: string; title: string; year: number | null; country: string | null; label: string | null; format: string | null; source: string;
+    tracks: Array<{ n: number; title: string; length: string | null }>;
+  };
+  probability: number;
+  groupSize: number;
+}

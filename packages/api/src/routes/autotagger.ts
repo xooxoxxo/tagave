@@ -22,11 +22,24 @@
  *   POST   /api/v1/libraries/:libraryId/autotagger/runs/:runId/cancel  system.manage
  *   GET    /api/v1/libraries/:libraryId/autotagger/agreement           library.edit: the decider against the owner, per band
  *
+ * Spot checks (the gate a band's batch accept goes through):
+ *
+ *   GET    /api/v1/libraries/:libraryId/autotagger/runs/:runId/bands                library.edit: picks, checks and the bound per band
+ *   POST   /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks/draw     library.edit: { band, count? } → { drawn }
+ *   GET    /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks          library.edit: ?band=&verdict=pending&limit=25&offset=0
+ *   PUT    /api/v1/libraries/:libraryId/autotagger/spot-checks/:checkId             library.edit: { verdict } → 204
+ *
  * A backtest is a run like any other ({ population: 'backtest' }), with the
  * same checks. Agreement only informs: nothing accepts by it.
  *
+ * Spot checks are drawn at random from all of a band's picks in a finished
+ * run, in an order the run's seed fixes, never the same pick twice; no
+ * route adds a chosen album. Only correct and wrong verdicts are checks:
+ * unsure is counted apart and never counts as a clean one.
+ *
  * Off: every /libraries/:libraryId/autotagger route but the GETs of the
- * settings, the runs and the agreement, and cancel, answers 409.
+ * settings, the runs (their bands and spot checks too) and the agreement,
+ * and cancel, answers 409.
  *
  * The preview and the run make an album's request with the same function
  * (requestForAlbum, @tagave/core), from the same evidence and population
@@ -46,15 +59,19 @@ import {
   clearTypesafeKey, deciderRunSingletonKey, loadEvidence, loadEvidenceMany, markPayloadSeen, meanCallCost, monthSpendByCurrency, populationAlbumIds, priceFor,
   deciderRunJobWaiting, removeAutotaggerData, staleDeciderRunJobs, waitingDeciderRunJobs, runSpendByCurrency, sendDeciderRun, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint,
   latestBacktestRunId, queueAgreement, typesafeKeyHintOf, type AutotaggerConfig, type LoadedEvidence,
+  bandTable, drawSpotChecks, recordVerdict, spotChecks, type SpotCheckRow,
 } from '@tagave/db';
 import {
-  NotSendableError, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
+  NotSendableError, bandGate, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
+  type BandId as CoreBandId,
 } from '@tagave/core';
 import {
   AUTOTAGGER_DECIDER_ID, DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, autotaggerKeySchema, autotaggerModuleSchema, deciderLabel, deciderPriceSchema,
-  startRunSchema,
-  type AgreementView, type AutotaggerLibraryView, type AutotaggerModuleView, type DeciderPrice, type PayloadPreview, type Population, type RunView,
+  startRunSchema, BAND_IDS, drawSpotChecksSchema, spotCheckQuerySchema, spotCheckVerdictSchema,
+  type AgreementView, type AutotaggerLibraryView, type AutotaggerModuleView, type BandId, type BandRow, type DeciderPrice, type PayloadPreview, type Population,
+  type RunView, type SpotCheckItem, type SpotCheckVerdictView,
 } from '@tagave/shared';
+import { labelSummary, mediaSummary } from '../lib/releaseSummary.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
@@ -361,6 +378,70 @@ async function runStateOf(libraryId: string, runId: string): Promise<string> {
   return row.state;
 }
 
+// ---- spot checks ----
+
+/** The bands @tagave/shared names are the decider's own (a compile error otherwise). */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const BANDS_AGREE: Same<CoreBandId, BandId> = true;
+void BANDS_AGREE;
+
+const isBand = (b: string): b is BandId => (BAND_IDS as readonly string[]).includes(b);
+
+/**
+ * The run's bands against the spot-check gate: the 95% Clopper-Pearson
+ * bound from its wrong verdicts among correct and wrong ones (unsure
+ * never counts), at most `maxRate` to be allowed. A missing module table
+ * reads as no bands.
+ */
+export async function gatedBands(db: postgres.Sql<any> | Tx, runId: string, maxRate: number): Promise<BandRow[]> {
+  const rows = await bandTable(db, runId);
+  return rows.filter((r) => isBand(r.band)).map((r) => {
+    const gate = bandGate(r.errors, r.checked, maxRate);
+    return {
+      band: r.band as BandId, picks: r.picks, drawn: r.drawn, checked: r.checked, errors: r.errors, unsure: r.unsure,
+      upper: gate.upper, allowed: gate.allowed,
+      // out of reach within the bound's search limit: JSON has no Infinity
+      stillNeeded: Number.isFinite(gate.stillNeeded) ? gate.stillNeeded : null,
+      accepted: r.accepted,
+    };
+  });
+}
+
+/** Whole seconds as m:ss (h:mm:ss from an hour); null when unknown. */
+function lengthOf(seconds: number | null): string | null {
+  if (seconds === null || !(seconds > 0)) return null;
+  const s = Math.round(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+function spotCheckItem(r: SpotCheckRow): SpotCheckItem {
+  const year = r.releaseDate ? Number.parseInt(r.releaseDate.slice(0, 4), 10) : NaN;
+  return {
+    id: r.id,
+    band: r.band as BandId,
+    verdict: r.verdict as SpotCheckVerdictView,
+    album: {
+      id: r.albumId, title: r.albumTitle, artist: r.albumArtist, year: r.albumYear,
+      tracks: r.albumTracks.map((t, i) => ({ n: i + 1, title: t.title, length: lengthOf(t.seconds) })),
+    },
+    chosen: {
+      releaseId: r.releaseId,
+      title: r.releaseTitle ?? '',
+      year: Number.isFinite(year) ? year : null,
+      country: r.releaseCountry,
+      label: labelSummary(r.releaseLabels),
+      format: mediaSummary(r.releaseMedia),
+      source: r.releaseSource ?? '',
+      tracks: r.releaseTracks.map((t, i) => ({ n: i + 1, title: t.title ?? '', length: lengthOf(t.seconds) })),
+    },
+    probability: r.probability ?? 0,
+    groupSize: r.groupSize,
+  };
+}
+
 export async function createAutotaggerRoutes(fastify: FastifyInstance) {
   // ---- Settings › Modules ----
 
@@ -557,6 +638,62 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     const runId = await latestBacktestRunId(sql(), libraryId);
     const backtest = runId ? { runId, rows: await backtestAgreement(sql(), runId) } : null;
     return { backtest, queue: await queueAgreement(sql(), libraryId) };
+  });
+
+  // ---- spot checks ----
+
+  fastify.get('/libraries/:libraryId/autotagger/runs/:runId/bands', async (request): Promise<BandRow[]> => {
+    const { libraryId, runId } = request.params as { libraryId: string; runId: string };
+    await assertLibrary(libraryId);
+    await runStateOf(libraryId, runId);
+    const config = await orMissing(() => autotaggerConfig(sql(), libraryId), { ...DEFAULT_AUTOTAGGER_CONFIG });
+    return gatedBands(sql(), runId, config.maxErrorRate);
+  });
+
+  fastify.post('/libraries/:libraryId/autotagger/runs/:runId/spot-checks/draw', async (request): Promise<{ drawn: number }> => {
+    sameSite(request);
+    const { libraryId, runId } = request.params as { libraryId: string; runId: string };
+    await assertLibrary(libraryId);
+    await runStateOf(libraryId, runId);
+    const parsed = drawSpotChecksSchema.safeParse(request.body ?? {});
+    if (!parsed.success) throw badRequest(parsed.error.issues, 'band (p99, p97, p95 or p90) and count (1 to 100)');
+    await on();
+    const { band, count } = parsed.data;
+    const ids = await whileOn(async (tx) => {
+      // the sample is drawn from all of the band's picks: only once the run has decided them all
+      const [run] = await tx<Array<{ state: string }>>`select state from decider_runs where id = ${runId} and library_id = ${libraryId}`;
+      if (!run) throw new ApiError(404, 'Not Found', 'Run not found');
+      if (run.state !== 'done') throw new ApiError(409, 'Conflict', `Run is ${run.state}`);
+      return drawSpotChecks(tx, runId, band, count);
+    });
+    request.log.info({ event: 'autotagger.spot_checks_drawn', libraryId, runId, band, drawn: ids.length, userId: request.user?.id ?? null }, 'spot checks drawn');
+    return { drawn: ids.length };
+  });
+
+  fastify.get('/libraries/:libraryId/autotagger/runs/:runId/spot-checks', async (request): Promise<SpotCheckItem[]> => {
+    const { libraryId, runId } = request.params as { libraryId: string; runId: string };
+    await assertLibrary(libraryId);
+    await runStateOf(libraryId, runId);
+    const parsed = spotCheckQuerySchema.safeParse(request.query ?? {});
+    if (!parsed.success) throw badRequest(parsed.error.issues, 'Invalid filter');
+    const rows = await spotChecks(sql(), runId, parsed.data);
+    return rows.map(spotCheckItem);
+  });
+
+  fastify.put('/libraries/:libraryId/autotagger/spot-checks/:checkId', async (request, reply) => {
+    sameSite(request);
+    const { libraryId, checkId } = request.params as { libraryId: string; checkId: string };
+    await assertLibrary(libraryId);
+    if (!UUID.test(checkId)) throw new ApiError(404, 'Not Found', 'Spot check not found');
+    const parsed = spotCheckVerdictSchema.safeParse(request.body ?? {});
+    if (!parsed.success) throw new ApiError(400, 'Bad Request', 'verdict: correct, wrong or unsure');
+    await on();
+    const actor = request.user?.id;
+    if (!actor) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const found = await whileOn((tx) => recordVerdict(tx, checkId, parsed.data.verdict, actor, libraryId));
+    if (!found) throw new ApiError(404, 'Not Found', 'Spot check not found');
+    request.log.info({ event: 'autotagger.spot_check_verdict', libraryId, checkId, verdict: parsed.data.verdict, userId: actor }, 'spot check verdict');
+    return reply.status(204).send();
   });
 
   fastify.post('/libraries/:libraryId/autotagger/runs/:runId/resume', async (request, reply): Promise<RunView> => {
