@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import pino from 'pino';
 import {
-  DEFAULT_TOKENS_PER_BYTE, makeDb, markPayloadSeen, monthSpend, pauseStaleRuns, runMigrations, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
+  DEFAULT_TOKENS_PER_BYTE, makeDb, markPayloadSeen, monthSpend, pauseStaleRuns, runMigrations, runSpendByCurrency, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
 } from '@tagave/db';
 import { buildAlbumEvidence, buildCandidateEvidence, jevPayloadFor, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type Decider, type DeciderInput } from '@tagave/core';
 import { ledgerEntries } from '@tagave/core/facets';
@@ -274,6 +274,37 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     expect((await client`select count(*)::int as n from decider_calls where library_id = ${lib}`)[0].n).toBe(first);
     expect((await client`select decider_version from decider_runs where id = ${r2}`)[0].decider_version).toBe('jev-2026-09-15');
     expect((await decisionOf(bootlegOnlyAlbum)).outcome).toBe('none');
+  });
+
+  it('an answer paid for again by another run is that run\'s own call; the next run reuses the latest', async () => {
+    const d1 = fakeDecider(() => ({ A: 0.99 }));
+    const r1 = await newRun();
+    await deciderRunJob(ctx, { runId: r1 }, { decider: d1, apiKey: 'k' });
+    // another requested model: nothing to reuse until the first answer pins the dated model, so the first album is paid for again
+    const [{ id: r2 }] = await client`insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population, started_by_user_id)
+                                      values (${lib}, 'jev', ${jevSpecHash()}, 'jev-other', 'needs_review', ${owner}) returning id`;
+    const d2 = fakeDecider(() => ({ A: 0.99 }));
+    const s2 = await deciderRunJob(ctx, { runId: r2 }, { decider: d2, apiKey: 'k' });
+    expect(s2).toMatchObject({ state: 'done', billed: 1 });
+    const own = await client`select local_album_id, cost::float8 as cost from decider_calls where run_id = ${r2}`;
+    expect(own).toHaveLength(1);
+    expect(own[0].cost).toBeCloseTo(0.001, 6);
+    const again = own[0].local_album_id as string;
+    // each run's spend counts only its own calls; the month counts both
+    const spend = await runSpendByCurrency(client, [r1, r2]);
+    const one = spend.get(r1)!.find((x) => x.currency === 'USD')!.amount;
+    expect(one).toBeCloseTo(0.001 * d1.calls.length, 6);
+    expect(spend.get(r2)).toEqual([{ currency: 'USD', amount: 0.001 }]);
+    expect(await monthSpend(client, lib, 'USD')).toBeCloseTo(one + 0.001, 6);
+    expect((await client`select count(*)::int as n from decider_calls where run_id = ${r1} and local_album_id = ${again}`)[0].n).toBe(1);
+    // a reused answer adds no row and no cost, and is the latest one for the key
+    const r3 = await newRun();
+    const d3 = fakeDecider(() => ({ A: 0.99 }));
+    expect(await deciderRunJob(ctx, { runId: r3 }, { decider: d3, apiKey: 'k' })).toMatchObject({ state: 'done', billed: 0 });
+    expect(d3.calls).toHaveLength(0);
+    expect((await client`select count(*)::int as n from decider_calls where run_id = ${r3}`)[0].n).toBe(0);
+    const [{ call_id }] = await client`select call_id from decider_decisions where run_id = ${r3} and local_album_id = ${again}`;
+    expect((await client`select run_id from decider_calls where id = ${call_id}`)[0].run_id).toBe(r2);
   });
 
   it('a crash resumes where it stopped and asks no album twice', async () => {

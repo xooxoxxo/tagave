@@ -75,7 +75,9 @@ create table if not exists decider_calls (
   created_at timestamptz not null default now(),
   check (possibly_billed = (answers is null))
 );
-create unique index if not exists decider_calls_answer_key on decider_calls (local_album_id, evidence_hash, spec_hash, decider_version)
+-- one answered call per key and run: every run's paid answers are its own rows, so a run's
+-- spend counts each call it paid for (a later run reuses the latest stored answer instead)
+create unique index if not exists decider_calls_answer_key on decider_calls (local_album_id, evidence_hash, spec_hash, decider_version, run_id)
   where not possibly_billed;
 create index if not exists idx_decider_calls_library_month on decider_calls (library_id, created_at);
 

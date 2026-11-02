@@ -2174,7 +2174,7 @@ export const deciderRuns = pgTable(
   })
 );
 
-/** Every billed call, unique per album, evidence, question spec and dated model. */
+/** Every billed call, unique per album, evidence, question spec, dated model and run. */
 export const deciderCalls = pgTable(
   'decider_calls',
   {
@@ -2197,7 +2197,7 @@ export const deciderCalls = pgTable(
   },
   (table) => ({
     once: uniqueIndex('decider_calls_answer_key').on(
-      table.localAlbumId, table.evidenceHash, table.specHash, table.deciderVersion,
+      table.localAlbumId, table.evidenceHash, table.specHash, table.deciderVersion, table.runId,
     ).where(sql`not possibly_billed`),
     monthIdx: index('idx_decider_calls_library_month').on(table.libraryId, table.createdAt),
   })

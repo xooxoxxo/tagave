@@ -370,7 +370,8 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     const stored = async (v: string) => (await ctx.sql<Array<{ id: string; answers: Record<string, number> | string }>>`
       select id, answers from decider_calls
        where local_album_id = ${albumId} and evidence_hash = ${callHash} and spec_hash = ${run.spec_hash} and decider_version = ${v}
-         and not possibly_billed`)[0];
+         and not possibly_billed
+       order by created_at desc, id limit 1`)[0];
     let call: { id: string; answers: Record<string, number> } | null = null;
     const found = version ? await stored(version) : prevVersion ? await stored(prevVersion) : undefined;
     if (found && !version && prevVersion) {
@@ -445,15 +446,16 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     const changed = version !== null && a.model !== version;
     await ctx.sql.begin(async (tx) => {
       if (!version) await tx`update decider_runs set decider_version = ${a.model} where id = ${run.id} and decider_version is null`;
-      // A second paid answer for the same key (a crash between the call and
-      // this write, or a model another run pinned) adds its cost, so spend is
-      // never undercounted; the first answer stays.
+      // Every paid answer is a row of this run, so the run's own spend counts
+      // it. A second paid answer for the same key in the same run (a crash
+      // between the call and this write) adds its cost to the run's row, so
+      // spend is never undercounted; the first answer stays.
       const [row] = await tx<Array<{ id: string; answers: Record<string, number> | string }>>`
         insert into decider_calls (library_id, local_album_id, run_id, evidence_hash, spec_hash, decider_id, decider_version,
                                    request_bytes, input_tokens, cost, currency, answers)
         values (${run.library_id}, ${albumId}, ${run.id}, ${callHash}, ${run.spec_hash}, ${decider.id}, ${a.model},
                 ${a.requestBytes}, ${a.inputTokens}, ${costOf(a.inputTokens, p)}, ${p.currency}, ${JSON.stringify(a.probabilities)}::text::jsonb)
-        on conflict (local_album_id, evidence_hash, spec_hash, decider_version) where not possibly_billed do update
+        on conflict (local_album_id, evidence_hash, spec_hash, decider_version, run_id) where not possibly_billed do update
            set cost = decider_calls.cost + excluded.cost, input_tokens = decider_calls.input_tokens + excluded.input_tokens,
                request_bytes = decider_calls.request_bytes + excluded.request_bytes
         returning id, answers`;
