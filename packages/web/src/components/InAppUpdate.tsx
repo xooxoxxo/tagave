@@ -442,7 +442,7 @@ export function InAppUpdate({ view, current, releases, confirmed, upToDate = fal
   const queryClient = useQueryClient();
   const start = useStartUpdate();
   const [picked, setPicked] = useState<string>(releases[0]?.version ?? '');
-  const [stepUp, setStepUp] = useState<{ version: string; methods: StepUpMethod[] } | null>(null);
+  const [stepUp, setStepUp] = useState<{ version: string; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const versions = useMemo(() => releases.map((r) => r.version), [releases]);
   const restart = restartingOn(view);
@@ -462,7 +462,7 @@ export function InAppUpdate({ view, current, releases, confirmed, upToDate = fal
         setError(restartConflictError(queryClient.getQueryData<SeenUpdaterView>(updaterKey), e.detail));
       } else if (e.status === 403 && e.title === 'Step-up required') {
         const s = await getStepUp();
-        setStepUp({ version, methods: s.methods });
+        setStepUp({ version, methods: s.methods, oidcName: s.oidcName ?? null });
       } else {
         setError(e.detail ?? e.title ?? 'The update could not be started.');
       }
@@ -484,7 +484,7 @@ export function InAppUpdate({ view, current, releases, confirmed, upToDate = fal
     try {
       const s = await getStepUp();
       if (!s.fresh) {
-        setStepUp({ version: picked, methods: s.methods });
+        setStepUp({ version: picked, methods: s.methods, oidcName: s.oidcName ?? null });
         return;
       }
     } catch {
@@ -521,6 +521,7 @@ export function InAppUpdate({ view, current, releases, confirmed, upToDate = fal
         <StepUpDialog
           action={`Updating to ${stepUp.version}`}
           methods={stepUp.methods}
+          oidcName={stepUp.oidcName}
           onCancel={() => setStepUp(null)}
           onDone={() => { const v = stepUp.version; setStepUp(null); void go(v); }}
         />

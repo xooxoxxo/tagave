@@ -7,11 +7,11 @@ const actions = { onRole: noop, onToggleDisabled: noop, onResetSignIn: noop, onR
 const at = (days: number) => new Date(Date.UTC(2026, 9, 16) - days * 86_400_000).toISOString();
 
 const people: UserView[] = [
-  { id: '00000000-0000-4000-8000-000000000001', name: 'Ada Lindqvist', email: 'ada@example.com', role: 'owner', status: 'active', createdAt: at(200), lastSeenAt: at(0), twoFactor: true, passkeys: 2, isSelf: true },
-  { id: '00000000-0000-4000-8000-000000000002', name: 'Deniz Kaya', email: 'deniz@example.com', role: 'editor', status: 'active', createdAt: at(30), lastSeenAt: at(2), twoFactor: false, passkeys: 1, isSelf: false },
-  { id: '00000000-0000-4000-8000-000000000003', name: 'Sam Okafor', email: 'sam@example.com', role: 'listener', status: 'active', createdAt: at(3), lastSeenAt: null, twoFactor: false, passkeys: 0, isSelf: false },
-  { id: '00000000-0000-4000-8000-000000000004', name: 'Robin Moreau', email: 'robin@example.com', role: 'listener', status: 'disabled', createdAt: at(90), lastSeenAt: at(40), twoFactor: true, passkeys: 0, isSelf: false },
-  { id: '00000000-0000-4000-8000-000000000005', name: 'Former housemate', email: '', role: 'listener', status: 'removed', createdAt: at(300), lastSeenAt: null, twoFactor: false, passkeys: 0, isSelf: false },
+  { id: '00000000-0000-4000-8000-000000000001', name: 'Ada Lindqvist', email: 'ada@example.com', role: 'owner', status: 'active', createdAt: at(200), lastSeenAt: at(0), password: true, twoFactor: true, passkeys: 2, oidc: false, isSelf: true },
+  { id: '00000000-0000-4000-8000-000000000002', name: 'Deniz Kaya', email: 'deniz@example.com', role: 'editor', status: 'active', createdAt: at(30), lastSeenAt: at(2), password: true, twoFactor: false, passkeys: 1, oidc: false, isSelf: false },
+  { id: '00000000-0000-4000-8000-000000000003', name: 'Sam Okafor', email: 'sam@example.com', role: 'listener', status: 'active', createdAt: at(3), lastSeenAt: null, password: true, twoFactor: false, passkeys: 0, oidc: false, isSelf: false },
+  { id: '00000000-0000-4000-8000-000000000004', name: 'Robin Moreau', email: 'robin@example.com', role: 'listener', status: 'disabled', createdAt: at(90), lastSeenAt: at(40), password: true, twoFactor: true, passkeys: 0, oidc: false, isSelf: false },
+  { id: '00000000-0000-4000-8000-000000000005', name: 'Former housemate', email: '', role: 'listener', status: 'removed', createdAt: at(300), lastSeenAt: null, password: false, twoFactor: false, passkeys: 0, oidc: false, isSelf: false },
 ];
 
 const links: InviteView[] = [

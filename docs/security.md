@@ -76,11 +76,11 @@ An install can have several accounts. Everyone signed in sees the same libraries
 
 - **Per-person data stays per person.** Ratings, reviews, listens, clippings and saved grid views are stored against the account that made them; nobody else can read or change them. Library-level things (albums, tags, tag changes, follows) are shared.
 - **Every API route declares what it needs.** The server checks it before reading the request: anonymous callers get 401, a role without the permission gets 403 "Not available for your account". A route with no declaration refuses everyone, and a test fails CI over it. A second test signs in as each role and calls every route.
-- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app and passkeys). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › Users.
+- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app, passkeys and the login service's callback). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › Users.
 - **At least one owner.** The last owner who can sign in cannot be demoted, turned off or removed.
 - **Invite and set-password links** are one-time, expire after 7 days and are stored only as a SHA-256 hash; the owner copies the link (no email is sent). A set-password link signs the person out everywhere and can also remove their passkeys and authenticator app (a lost device). Opening links is rate limited per address.
 - **Turning sign-in off** ends every session at once and refuses new sign-ins (password, passkey or code) until the owner turns it back on. **Removing** someone either keeps their ratings, reviews and listens (the account is closed, its email freed, its sign-in methods deleted) or deletes them with the account. Libraries and tag changes they created pass to the owner removing them.
-- **Inviting, changing a role, resetting sign-in and removing** ask the owner to confirm it is them (a passkey, the authenticator app, or the password on an account with neither) unless they signed in within five minutes.
+- **Inviting, changing a role, resetting sign-in and removing** ask the owner to confirm it is them (a passkey, the authenticator app, the login service, or the password on an account with no passkey or authenticator) unless they signed in within five minutes.
 
 ## Passkeys and security keys
 
@@ -104,6 +104,46 @@ Settings › Security › **Authenticator app** turns on a second step after the
 ### Trusted devices
 
 On the code page, **Don't ask for a code on this device for 30 days** remembers that browser. Settings › Security › **Trusted devices** lists every remembered browser (browser, last use, expiry) and forgets any of them. Turning the authenticator off or changing your password forgets them all.
+
+## Sign in with your login service
+
+If your household already signs in to its apps through one login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID or any other OpenID Connect provider), tagave can offer **Sign in with Zitadel** (or your service's name) next to the password and passkey.
+
+### Set it up
+
+1. In your login service, create an app (a "web" or "confidential" OpenID Connect client) with this redirect URI:
+
+   ```
+   https://music.example.com/api/auth/callback/oidc
+   ```
+
+   Use your own `PUBLIC_URL`; Settings › Users › **Sign-in service** shows the exact address with a **Copy** button.
+2. In tagave, Settings › Users › **Sign-in service**: enter a name for the button, the issuer URL, the client ID and the client secret. **Test** fetches the issuer's discovery document; **Save** turns the button on.
+3. Each person links their account from Settings › **Account** › **Link**, while signed in.
+
+The client secret is stored encrypted with a key derived from `APP_SECRET` and is never shown again (the field says only **Set**). `tagave-doctor reseal` re-encrypts it when you rotate `APP_SECRET`.
+
+### Zitadel
+
+- Project › **New application**, type **Web**, authentication method **Code** (or **PKCE** for a client without a secret: leave the secret empty in tagave).
+- Redirect URI: the address above. Zitadel accepts an `http://` redirect URI only with **Development mode** on.
+- Issuer: your Zitadel address, for example `https://auth.example.com`.
+- To limit who may join to a group: add a project role (for example `music`), turn on **Assert Roles on Authentication** in the project, and **User roles inside ID Token** in the app's token settings. Enter the role key as the group in tagave.
+
+Other services: Authentik's issuer ends in `/application/o/<slug>/`; Keycloak's is `https://…/realms/<realm>` and needs a **Group Membership** mapper (full path off) for groups; Authelia and Pocket ID send groups with the `groups` scope, which tagave asks for when a group is set.
+
+### Who can sign in
+
+- **Linking is explicit.** An identity from the login service signs in only to the account it was linked to from Account. A matching email address never links anything, so nobody takes over an account by setting its address at the login service.
+- **New people** come by invite (the invite page offers **Continue with Zitadel**; the account gets the invite's address and role) or, with **Anyone from Zitadel can join** on, by signing in for the first time. Joiners are listeners, and only people in the group, when one is set.
+- **The owner keeps a password or a passkey.** Owner invites are accepted with a password, and someone who signs in only through the login service cannot be made an owner.
+- **Unlinking** is refused while it is the account's only way in.
+- **Linking asks for a fresh confirmation** (like inviting), so a stolen session cannot add a way in of its own.
+- A failed sign-in says only that it did not work, whatever the reason, so the page never tells whether an account exists. The reason is in the log.
+- tagave checks the state (bound to your browser), PKCE, the id_token's signature, issuer, audience and nonce, and that the discovery document names exactly the issuer you entered. It keeps none of the login service's tokens.
+- **Confirming it is you** can go through the login service: it asks you to sign in again (`prompt=login`, `max_age=0`) and counts only if the service reports a fresh sign-in time (`auth_time`). Dex does not send one, so with Dex this option never succeeds.
+- Changing the issuer unlinks everyone (an identity at one service means nothing at another); tagave asks before saving. If the issuer does not answer when tagave starts, the button stays hidden and tagave tries again when someone opens the sign-in page.
+- On an iPhone home-screen app, the login service opens in a browser sheet with its own cookies; a passkey stays the smoother sign-in there.
 
 ## Backup security
 
