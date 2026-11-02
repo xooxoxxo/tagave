@@ -232,3 +232,6 @@ export type {
   Decider, DeciderInput, DeciderAnswer, DeciderRequest,
   JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack, NotSendableReason, AlbumRequest, RequestOptions,
 } from './decider/index.js';
+
+// Spot-check statistics: the one-sided Clopper–Pearson bound and the per-band gate
+export { clopperPearsonUpper, minCleanChecks, checksStillNeeded, bandGate, type BandGate } from './stats/clopperPearson.js';
