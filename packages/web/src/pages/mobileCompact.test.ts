@@ -163,6 +163,33 @@ describe('touch', () => {
       expect(press.wasTouch()).toBe(true);
     });
 
+    it('swallows the click the lift makes wherever it lands, once', () => {
+      const listeners = new Set<(e: Event) => void>();
+      const clicks = {
+        addEventListener: (_t: 'click', fn: (e: Event) => void) => { listeners.add(fn); },
+        removeEventListener: (_t: 'click', fn: (e: Event) => void) => { listeners.delete(fn); },
+      };
+      const press = createLongPress(() => undefined, clicks);
+      const h = press.bind(() => undefined);
+      h.onPointerDown(finger);
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+      expect(listeners.size).toBe(1);
+      h.onPointerUp();
+      const click = { preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as Event;
+      for (const fn of [...listeners]) fn(click);
+      expect(click.preventDefault).toHaveBeenCalled();
+      expect(click.stopPropagation).toHaveBeenCalled();
+      expect(listeners.size).toBe(0);
+      // the item's own guard does not swallow the next, real tap
+      expect(press.consumeClick()).toBe(false);
+      // a lift with no click after it stops waiting
+      h.onPointerDown(finger);
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+      h.onPointerUp();
+      vi.advanceTimersByTime(400);
+      expect(listeners.size).toBe(0);
+    });
+
     it('a finger that moves is scrolling; a quick tap opens', () => {
       const press = createLongPress(() => undefined);
       const onLong = vi.fn();

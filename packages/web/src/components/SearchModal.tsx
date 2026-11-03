@@ -129,6 +129,9 @@ export function SearchModal({ onClose, scope }: { onClose: () => void; scope?: S
       e.preventDefault();
       setSelected((s) => Math.max(s - 1, 0));
     } else if (e.key === 'Enter' && rows[selected]) {
+      // focus goes back to the header's search key as this closes: the
+      // Enter must not go on to press it and open the search again
+      e.preventDefault();
       open(rows[selected]);
     }
   };

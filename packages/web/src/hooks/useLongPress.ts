@@ -32,16 +32,40 @@ export interface LongPress {
   cancel: () => void;
 }
 
+/** Where the click after a hold is caught: the document (a test passes its own). */
+export interface ClickTarget {
+  addEventListener: (type: 'click', fn: (e: Event) => void, capture: boolean) => void;
+  removeEventListener: (type: 'click', fn: (e: Event) => void, capture: boolean) => void;
+}
+
 /** The long press itself, free of React (one press at a time across the items bound). */
-export function createLongPress(vibrate: (ms: number) => void = (ms) => { globalThis.navigator?.vibrate?.(ms); }): LongPress {
+export function createLongPress(
+  vibrate: (ms: number) => void = (ms) => { globalThis.navigator?.vibrate?.(ms); },
+  clicks: ClickTarget | undefined = globalThis.document,
+): LongPress {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let start: { x: number; y: number } | null = null;
   let fired = false;
   let touch = false;
+  let disarmTimer: ReturnType<typeof setTimeout> | null = null;
   const cancel = () => {
     if (timer) clearTimeout(timer);
     timer = null;
     start = null;
+  };
+  /* The click the lift makes is swallowed wherever it lands: selecting
+     shows the selection bar above the list, which moves the list down, so
+     the click can land on the bar's Clear selection instead of the item. */
+  const swallow = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    disarm();
+  };
+  const disarm = () => {
+    fired = false;
+    clicks?.removeEventListener('click', swallow, true);
+    if (disarmTimer) clearTimeout(disarmTimer);
+    disarmTimer = null;
   };
   return {
     bind: (onLong) => ({
@@ -54,6 +78,7 @@ export function createLongPress(vibrate: (ms: number) => void = (ms) => { global
         timer = setTimeout(() => {
           timer = null;
           fired = true;
+          clicks?.addEventListener('click', swallow, true);
           vibrate(10);
           onLong();
         }, LONG_PRESS_MS);
@@ -61,18 +86,25 @@ export function createLongPress(vibrate: (ms: number) => void = (ms) => { global
       onPointerMove: (e) => {
         if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > LONG_PRESS_SLOP_PX) cancel();
       },
-      onPointerUp: cancel,
-      onPointerCancel: cancel,
+      onPointerUp: () => {
+        cancel();
+        // no click came after the lift (a cancelled touch): stop waiting for one
+        if (fired) disarmTimer = setTimeout(disarm, 400);
+      },
+      onPointerCancel: () => {
+        cancel();
+        if (fired) disarm();
+      },
       // the browser's own long-press menu (copy, open in new tab) would cover the selection
       onContextMenu: (e) => { if (touch) e.preventDefault(); },
     }),
     consumeClick: () => {
       if (!fired) return false;
-      fired = false;
+      disarm();
       return true;
     },
     wasTouch: () => touch,
-    cancel,
+    cancel: () => { cancel(); disarm(); },
   };
 }
 
