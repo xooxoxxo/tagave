@@ -17,6 +17,8 @@ export interface PreviewOutcome {
   notIdentified: { files: number; albumIds: string[] };
   releaseMissing: { files: number; albumIds: string[] };
   notInAlbum: number;
+  /** files in a matched album that are none of its release's tracks */
+  notOnRelease: number;
   notWritable: number;
   errors: { files: number; sample: string | null };
   /** files whose only would-be changes a lock blocked */
@@ -52,6 +54,7 @@ export function explainPreview(stats: Partial<TagPlanStats> | undefined | null):
   let notIdentified = 0;
   let releaseMissing = 0;
   let notInAlbum = 0;
+  let notOnRelease = 0;
   let notWritable = 0;
   let errors = 0;
   let sample: string | null = null;
@@ -66,6 +69,7 @@ export function explainPreview(stats: Partial<TagPlanStats> | undefined | null):
         if (s.localAlbumId) releaseMissingAlbums.add(s.localAlbumId);
         break;
       case 'not_in_album': notInAlbum++; break;
+      case 'track_not_on_release': notOnRelease++; break;
       case 'scan_root_not_writable': notWritable++; break;
       default:
         errors++;
@@ -82,6 +86,7 @@ export function explainPreview(stats: Partial<TagPlanStats> | undefined | null):
     notIdentified: { files: notIdentified, albumIds: [...notIdentifiedAlbums] },
     releaseMissing: { files: releaseMissing, albumIds: [...releaseMissingAlbums] },
     notInAlbum,
+    notOnRelease,
     notWritable,
     errors: { files: errors, sample },
     lockedOnly,

@@ -49,6 +49,14 @@ describe('explainPreview', () => {
     expect(lockedOne.explained).toBe(true);
   });
 
+  it('counts files that are not on the matched release', () => {
+    const o = explainPreview({
+      filesTouched: 8, fieldsModified: 40, lockedFieldsRespected: 0, filesAlreadyCorrect: 0,
+      filesSkipped: [1, 2, 3].map((n) => ({ audioFileId: f(n), reason: 'track_not_on_release' as const, localAlbumId: a1 })),
+    })!;
+    expect(o).toMatchObject({ notOnRelease: 3, explained: true, errors: { files: 0, sample: null } });
+  });
+
   it('an old plan with no detail explains nothing', () => {
     const o = explainPreview({ filesTouched: 0, fieldsModified: 0, lockedFieldsRespected: 0, filesSkipped: [] })!;
     expect(o.explained).toBe(false);

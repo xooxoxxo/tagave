@@ -121,6 +121,8 @@ export const tagPlanSkippedFileSchema = z.object({
     'album_not_identified',
     'not_in_album',
     'release_missing',
+    // the album is matched, but linking placed this file on none of the release's tracks
+    'track_not_on_release',
   ]).describe('Why the file was skipped'),
   message: z.string().optional().describe('Additional error details'),
   localAlbumId: z.string().uuid().optional().describe('Album the file belongs to, so the page can offer to identify it'),
@@ -292,6 +294,31 @@ export const tagPlanItemSchema = z.object({
   status: z.enum(['pending', 'applying', 'applied', 'failed', 'skipped']).optional().describe('Write state of this file within the plan'),
   error: z.string().optional().describe('Why the write failed or was skipped'),
   diffs: z.array(tagDiffEntrySchema).describe('List of field changes for this file'),
+  releaseTrack: z.object({
+    position: z.number().int().nullable().describe('Track position on its medium'),
+    mediumNo: z.number().int().nullable().describe('Medium (disc) number'),
+    media: z.number().int().positive().describe('How many media the release has, so a single-disc release shows no disc number'),
+    title: z.string(),
+    lengthMs: z.number().int().nullable(),
+  }).optional().describe('The release track this file was paired with when the plan was previewed'),
+  matchDistance: z.number().min(0).max(1).optional().describe('How far apart the file and its release track were in title and length (0 = identical); absent when the track came by position alone'),
 }).strict().describe('Per-file diffs in a tag plan');
 
 export type TagPlanItem = z.infer<typeof tagPlanItemSchema>;
+
+/**
+ * Match confidence in percent from a track-link distance: 0 → 100 %.
+ * Below LOW_MATCH_CONFIDENCE the plan page marks the pairing for a look.
+ */
+export function matchConfidence(distance: number): number {
+  return Math.round((1 - Math.min(1, Math.max(0, distance))) * 100);
+}
+
+/**
+ * 70 %: the alignment cost is 0.6 × title distance + 0.4 × length penalty
+ * (none within 10 s, full at 30 s). Spelling variants, "feat." credits and
+ * "Remastered" suffixes at the same length score 75–87 %; an unrelated
+ * title at the same length scores 55–60 %, and a right title 25 s off
+ * about 65 %. Below 70 the pairing is worth a look.
+ */
+export const LOW_MATCH_CONFIDENCE = 70;

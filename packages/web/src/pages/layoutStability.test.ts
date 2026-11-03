@@ -49,7 +49,7 @@ describe('data tables keep their columns still', () => {
   });
 
   it('plan file rows fix every grid track except the path', () => {
-    expect(rule(read('./PlanPage.module.css'), '.fileRow')).toMatch(/grid-template-columns:\s*1\.25rem 6\.5rem minmax\(0, 1fr\) 7rem/);
+    expect(rule(read('./PlanPage.module.css'), '.fileRow')).toMatch(/grid-template-columns:\s*1\.25rem 6\.5rem minmax\(0, 1fr\) 16rem 7rem/);
   });
 });
 

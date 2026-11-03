@@ -35,6 +35,7 @@ import { planStatusView, planUsesId3, diffRowKind, diffValueText } from '../util
 import styles from './PlanPage.module.css';
 import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan } from './planPreviewState';
 import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
+import { pairingOf } from './planPairing';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { useIdentifyAlbums } from '../hooks/useCompilations';
 import { useIdentifyStatus, type IdentifyStatusItem } from '../hooks/useIdentifyStatus';
@@ -155,6 +156,7 @@ function PreviewOutcomeNotice({
           <li>{plural(releaseMissing.files, 'file')} {verb(releaseMissing.files, 'belongs', 'belong')} to albums whose matched release is no longer cached; identifying them again restores it.</li>
         )}
         {outcome.notInAlbum > 0 && <li>{plural(outcome.notInAlbum, 'file')} {verb(outcome.notInAlbum, 'is', 'are')} not part of any album.</li>}
+        {outcome.notOnRelease > 0 && <li>Not on this release: {plural(outcome.notOnRelease, 'file')}</li>}
         {outcome.notWritable > 0 && (
           <li>{plural(outcome.notWritable, 'file')} {verb(outcome.notWritable, 'sits', 'sit')} on a scan root that does not allow writes — <Link to="/settings/library">Settings › Music folders</Link>.</li>
         )}
@@ -856,6 +858,7 @@ export function PlanPage() {
                 const name = (it.relPath ?? it.audioFileId).split('/').pop();
                 const st = (it.status ?? 'pending') as ItemStatus;
                 const fieldList = shortFieldList(rows.map((d) => d.field));
+                const pair = pairingOf(it);
                 return (
                   <div key={it.id} className={styles.file}>
                     <button type="button" className={styles.fileRow} onClick={() => toggle(it.id)} aria-expanded={open}>
@@ -865,6 +868,15 @@ export function PlanPage() {
                         {dir !== prevDir && <span className={styles.pathDir}>{dir}</span>}
                         <span className={styles.pathFile}>{name}</span>
                         {it.error && <span className={styles.fileError} title={it.error}>{it.error}</span>}
+                      </span>
+                      <span className={`${styles.pair} ${pair?.low ? styles.pairLow : ''}`} title={pair ? `Release track: ${pair.text}` : undefined}>
+                        {pair && (
+                          <>
+                            {pair.position && <span className={styles.pairPos}>{pair.position}</span>}
+                            <span className={styles.pairTitle}>{pair.title}</span>
+                            {pair.confidence !== undefined && <span className={styles.pairPct}>{pair.confidence}%</span>}
+                          </>
+                        )}
                       </span>
                       <span className={styles.fileFields}>
                         {rows.length === 0 ? (

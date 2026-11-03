@@ -286,6 +286,8 @@ export {
   type ManualTagValues,
   FINISHED_PLAN_STATUSES,
   isFinishedPlanStatus,
+  matchConfidence,
+  LOW_MATCH_CONFIDENCE,
 } from './tagPlan.js';
 
 // Settings › Storage: disk use and tag-change cleanup
