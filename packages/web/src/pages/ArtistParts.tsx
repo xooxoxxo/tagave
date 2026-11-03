@@ -8,7 +8,8 @@ import { Link } from '@tanstack/react-router';
 import { Button, CoverArt, CoverChip, IconButton, UndoIcon, type CoverChipTone } from '../components/ui';
 import type { ArtistAlbum, ArtistAlbumOwnership, ArtistDetail } from '../hooks';
 import { paragraphs, shortDate, type DetailsState } from './artistPageView';
-import { ListenControl, MissingListenLinks } from '../components/ListenControl';
+import { ListenControl, MissingListenLinks, MissingPrimary, PlayOnControl } from '../components/ListenControl';
+import { splitPrimary } from '@tagave/shared';
 import { LidarrChip, MissingAlbumMenu } from '../components/LidarrControls';
 import styles from './ArtistPage.module.css';
 
@@ -29,6 +30,8 @@ export function AlbumCard({ album, onReopen, reopening }: {
   // Listen elsewhere: a missing album's links (the listen-links module)
   const listen = useContext(MissingListenLinks);
   const links = album.ownership === 'missing' && album.releaseGroupId ? listen?.[album.releaseGroupId] ?? [] : [];
+  // "Play on <primary>", the others in the Listen control
+  const split = splitPrimary(links, useContext(MissingPrimary));
   const cover = (
     <CoverArt src={album.coverUrl} title={album.title} dimmed={away ? (album.ownership as 'missing' | 'ignored') : undefined} interactive={!!album.localAlbumId}>
       {chip && <CoverChip tone={chip[1]}>{chip[0]}</CoverChip>}
@@ -59,7 +62,10 @@ export function AlbumCard({ album, onReopen, reopening }: {
   const more = album.ownership === 'missing' ? <MissingAlbumMenu releaseGroupId={album.releaseGroupId} title={album.title} /> : null;
   return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}
     {more ? <div className={styles.cardHead}><div className={styles.cardText}>{text}</div>{more}</div> : text}
-    {links.length > 0 && <ListenControl links={links} className={styles.cardListen} />}
+    {(split.primary || split.others.length > 0) && <div className={styles.cardListenRow}>
+      {split.primary && <PlayOnControl link={split.primary} />}
+      {split.others.length > 0 && <ListenControl links={split.others} className={split.primary ? undefined : styles.cardListen} />}
+    </div>}
   </li>;
 }
 

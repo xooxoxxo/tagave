@@ -108,6 +108,8 @@
 .time { flex: none; min-width: 3rem; text-align: right; font: 400 13px / 1 var(--font-body); font-variant-numeric: tabular-nums; color: var(--ink-3); }
 .row[data-now] .title { color: var(--dew); }
 .row[data-missing] .main { opacity: 0.55; }
+/* a Missing row: "Play on <primary>", always shown */
+.playOn { flex: none; margin-left: 0; }
 .rowMenu { flex: none; display: inline-flex; }
 .rowMenu > button { width: 40px; height: 40px; }
 .rowMenu > button svg { width: 20px; height: 20px; }

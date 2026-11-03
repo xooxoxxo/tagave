@@ -29,7 +29,7 @@ import { ArtistNameFirst, ArtistNameFirstSkeleton } from './ArtistNameFirst';
 import { ArtistLikeAlbums, ArtistLikeAlbumsSkeleton } from './ArtistLikeAlbums';
 import { detailsState, kindLine, pageSections, shelves as shelvesOf } from './artistPageView';
 import { useArtistFlow } from './useArtistFlow';
-import { MissingListenLinks } from '../components/ListenControl';
+import { MissingListenLinks, MissingPrimary } from '../components/ListenControl';
 import { useArtistListenLinks } from '../hooks/useListenLinks';
 import { MissingLidarr } from '../components/LidarrControls';
 import { useArtistLidarr } from '../hooks/useLidarr';
@@ -103,11 +103,11 @@ export function ArtistPage() {
               reopening: reopenMutation.isPending,
               canFollow: canCare,
             };
-            return <MissingLidarr.Provider value={lidarrValue}><MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
+            return <MissingLidarr.Provider value={lidarrValue}><MissingPrimary.Provider value={listen.data?.available ? listen.data.primary ?? null : null}><MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
               {nameFirst
                 ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />
                 : <ArtistLikeAlbums {...props} />}
-            </MissingListenLinks.Provider></MissingLidarr.Provider>;
+            </MissingListenLinks.Provider></MissingPrimary.Provider></MissingLidarr.Provider>;
           })()}
         {maintenance && showReleaseTypes && artist?.followed && (
           <ReleaseTypes libraryId={libraryId} artistId={artistId} onClose={() => setShowReleaseTypes(false)} />

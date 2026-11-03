@@ -532,6 +532,7 @@ export {
   type ArtistListenLinksView,
   type ListenPrefsView,
   listenPrefsSchema,
+  splitPrimary,
   type ListenLinksModuleView,
   listenLinksModuleSchema,
 } from './listenLinks.js';

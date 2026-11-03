@@ -29,3 +29,7 @@
 @media (pointer: coarse) {
   .control { height: 44px; min-height: 44px; }
 }
+
+/* "Play on …": the primary platform, a little stronger than the Listen key */
+.playOn { color: var(--ink); }
+.playOn svg { width: 16px; height: 16px; }

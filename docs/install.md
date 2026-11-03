@@ -279,6 +279,10 @@ On an artist page, a missing album's **⋮ › Get** asks Lidarr for that album 
 
 Lidarr's root folder must be inside one of tagave's music folders, at the same path in both containers (for example both mount the music at `/music`). If it is not, the Lidarr settings say so.
 
+### Play missing albums on your service
+
+With Listen elsewhere on (Settings › Modules), each person picks their streaming platforms in **Settings › Listen elsewhere**, and under **Missing albums** the one to play missing music on. A missing album then shows **▶ Qobuz** (or the platform chosen), which opens the album there; when its own page is not known, the artist's page or a search. A **Missing** row in a playlist gets the same key. The other platforms stay under **Listen**.
+
 ## Manual install (build from source)
 
 The rest of this guide builds the images yourself with `docker-compose.prod.yml`, the way a development checkout runs.

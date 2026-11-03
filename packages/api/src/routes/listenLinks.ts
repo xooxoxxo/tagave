@@ -5,7 +5,7 @@
  *   GET  /api/v1/libraries/:libraryId/release-groups/:rgId/listen-links   catalog.read: the caller's links for one album
  *   GET  /api/v1/libraries/:libraryId/artists/:artistId/listen-links      catalog.read: links for each album a followed artist is missing
  *   GET  /api/v1/me/listen-links                                          self: the caller's platforms
- *   PUT  /api/v1/me/listen-links                                          self: { platforms } in order
+ *   PUT  /api/v1/me/listen-links                                          self: { platforms } in order, { primary } ("Play on …")
  *   GET  /api/v1/settings/listen-links                                    system.manage: the Settings › Modules row
  *   PUT  /api/v1/settings/listen-links                                    system.manage + fresh step-up: { enabled }
  *   POST /api/v1/settings/listen-links/remove-data                        system.manage + fresh step-up: turn it off, delete its rows
@@ -18,7 +18,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
-  listenLinksEnabled, listenPrefsOf, pickedListenPlatforms, removeListenLinksData, setListenLinksEnabled, setListenPrefs,
+  listenLinksEnabled, listenPrefsOf, listenPrimaryOf, pickedListenPlatforms, removeListenLinksData, setListenLinksEnabled, setListenPrefs,
 } from '@tagave/db';
 import { composeListenLinks, listenCheckDue } from '@tagave/core/listen-links';
 import {
@@ -39,6 +39,12 @@ function user(request: FastifyRequest): { id: string } {
 }
 
 const known = (ps: readonly string[]): ListenPlatform[] => ps.filter((p): p is ListenPlatform => (LISTEN_PLATFORMS as readonly string[]).includes(p));
+
+/** The person's primary platform, while it is one of their platforms. */
+async function primaryOf(sql: ReturnType<typeof getAuthHandle>['sql'], userId: string, platforms: readonly ListenPlatform[]): Promise<ListenPlatform | null> {
+  const p = await listenPrimaryOf(sql, userId);
+  return p && (platforms as readonly string[]).includes(p) ? (p as ListenPlatform) : null;
+}
 
 async function library(libraryId: string): Promise<void> {
   if (!UUID_RE.test(libraryId)) throw new ApiError(404, 'Not Found', 'Library not found');
@@ -79,7 +85,7 @@ export async function createListenLinksRoutes(fastify: FastifyInstance) {
     await library(libraryId);
     if (!UUID_RE.test(rgId)) throw new ApiError(404, 'Not Found', 'Release group not found');
     const { sql } = getAuthHandle();
-    if (!(await listenLinksEnabled(sql))) return { available: false, links: [], pending: false };
+    if (!(await listenLinksEnabled(sql))) return { available: false, links: [], pending: false, primary: null };
     const [rg] = await sql<Array<{ title: string; mbid: string | null; artist_id: string | null; artist: string | null }>>`
       select rg.title, rg.mbid::text as mbid, a.id::text as artist_id, coalesce(rga.credited_name, a.name) as artist
         from release_groups rg
@@ -88,7 +94,7 @@ export async function createListenLinksRoutes(fastify: FastifyInstance) {
        where rg.id = ${rgId}`;
     if (!rg) throw new ApiError(404, 'Not Found', 'Release group not found');
     const platforms = known(await listenPrefsOf(sql, me.id));
-    if (platforms.length === 0) return { available: true, links: [], pending: false };
+    if (platforms.length === 0) return { available: true, links: [], pending: false, primary: null };
 
     const album = new Map((await sql<Array<{ platform: string; url: string }>>`
       select platform, url from listen_links where release_group_id = ${rgId}`).map((r) => [r.platform, r.url]));
@@ -104,7 +110,7 @@ export async function createListenLinksRoutes(fastify: FastifyInstance) {
       const [artistCheck] = rg.artist_id ? await sql<Check[]>`select checked_at, found, platforms from listen_artist_checks where artist_id = ${rg.artist_id}` : [];
       if (due(check, picked) || (rg.artist_id && due(artistCheck, picked))) pending = await queue(request, { releaseGroupId: rgId }, `listen:rg:${rgId}`);
     }
-    return { available: true, links, pending };
+    return { available: true, links, pending, primary: await primaryOf(sql, me.id, platforms) };
   });
 
   fastify.get('/libraries/:libraryId/artists/:artistId/listen-links', async (request): Promise<ArtistListenLinksView> => {
@@ -113,11 +119,11 @@ export async function createListenLinksRoutes(fastify: FastifyInstance) {
     await library(libraryId);
     if (!UUID_RE.test(artistId)) throw new ApiError(404, 'Not Found', 'Artist not found');
     const { sql } = getAuthHandle();
-    if (!(await listenLinksEnabled(sql))) return { available: false, albums: {}, pending: false };
+    if (!(await listenLinksEnabled(sql))) return { available: false, albums: {}, pending: false, primary: null };
     const [a] = await sql<Array<{ name: string; mbid: string | null }>>`select name, mbid::text as mbid from artists where id = ${artistId}`;
     if (!a) throw new ApiError(404, 'Not Found', 'Artist not found');
     const platforms = known(await listenPrefsOf(sql, me.id));
-    if (platforms.length === 0) return { available: true, albums: {}, pending: false };
+    if (platforms.length === 0) return { available: true, albums: {}, pending: false, primary: null };
 
     // what the artist page lists under "Not in your library" (lib/artistAlbums.ts: open missing_album gaps)
     const missing = await sql<Array<{ id: string; title: string; checked_at: Date | null; found: number | null; platforms: string[] | null }>>`
@@ -143,24 +149,25 @@ export async function createListenLinksRoutes(fastify: FastifyInstance) {
       const [artistCheck] = await sql<Check[]>`select checked_at, found, platforms from listen_artist_checks where artist_id = ${artistId}`;
       if ((a.mbid && due(artistCheck, picked)) || missing.some((m) => due(m, picked))) pending = await queue(request, { artistId }, `listen:artist:${artistId}`);
     }
-    return { available: true, albums, pending };
+    return { available: true, albums, pending, primary: await primaryOf(sql, me.id, platforms) };
   });
 
   fastify.get('/me/listen-links', async (request): Promise<ListenPrefsView> => {
     const me = user(request);
     const { sql } = getAuthHandle();
-    return { available: await listenLinksEnabled(sql), platforms: known(await listenPrefsOf(sql, me.id)) };
+    const platforms = known(await listenPrefsOf(sql, me.id));
+    return { available: await listenLinksEnabled(sql), platforms, primary: await primaryOf(sql, me.id, platforms) };
   });
 
   fastify.put('/me/listen-links', async (request): Promise<ListenPrefsView> => {
     const me = user(request);
     sameSite(request);
     const parsed = listenPrefsSchema.safeParse(request.body ?? {});
-    if (!parsed.success) throw new ApiError(400, 'Bad Request', 'platforms: a list of platforms, each once');
+    if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message.startsWith('primary') ? parsed.error.issues[0].message : 'platforms: a list of platforms, each once');
     const { sql } = getAuthHandle();
     if (!(await listenLinksEnabled(sql))) throw new ApiError(409, 'Conflict', 'Listen elsewhere is turned off.');
-    await setListenPrefs(sql, me.id, parsed.data.platforms);
-    return { available: true, platforms: parsed.data.platforms };
+    await setListenPrefs(sql, me.id, parsed.data.platforms, parsed.data.primary);
+    return { available: true, platforms: parsed.data.platforms, primary: await primaryOf(sql, me.id, parsed.data.platforms) };
   });
 
   fastify.get('/settings/listen-links', async (): Promise<ListenLinksModuleView> => moduleView());

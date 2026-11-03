@@ -8,8 +8,8 @@
  * "Search". Links open in a new tab, or the platform's app on a phone.
  */
 import { createContext } from 'react';
-import type { ListenLinkView } from '@tagave/shared';
-import { ListenIcon, Menu, embossClassName } from './ui';
+import type { ListenLinkView, ListenPlatform } from '@tagave/shared';
+import { ListenIcon, Menu, PlayIcon, embossClassName } from './ui';
 import styles from './ListenControl.module.css';
 
 /** The artist page's missing albums' links, by release group id (null: none to show). */
@@ -21,6 +21,26 @@ export const LISTEN_KIND_LABEL: Record<ListenLinkView['kind'], string | null> = 
 export function listenLabel(l: ListenLinkView): string {
   const kind = LISTEN_KIND_LABEL[l.kind];
   return `Listen on ${l.name}${kind ? ` (${kind.toLowerCase()})` : ''}`;
+}
+
+/** The person's primary platform ("Play on …", Settings › Listen elsewhere), for the artist page's missing albums. */
+export const MissingPrimary = createContext<ListenPlatform | null>(null);
+
+/**
+ * "Play on Qobuz": the person's primary platform for a missing album or a
+ * Missing playlist row, the embossed play icon with the platform's name. A
+ * link that is not the album itself says so ("Artist page", "Search").
+ */
+export function PlayOnControl({ link, className }: { link: ListenLinkView; className?: string | undefined }) {
+  const kind = LISTEN_KIND_LABEL[link.kind];
+  const label = `Play on ${link.name}${kind ? ` (${kind.toLowerCase()})` : ''}`;
+  return (
+    <a className={embossClassName('page', [styles.control, styles.playOn, className].filter(Boolean).join(' '))} href={link.url} target="_blank" rel="noopener noreferrer" aria-label={label} title={label} data-play-on={link.kind}>
+      <PlayIcon />
+      <span className={styles.word}>{link.name}</span>
+      {kind && <span className={styles.kind}>{kind}</span>}
+    </a>
+  );
 }
 
 export function ListenControl({ links, className }: { links: readonly ListenLinkView[]; className?: string | undefined }) {

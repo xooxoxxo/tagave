@@ -3,6 +3,7 @@
  * tracks, with an export file another tagave can import.
  */
 import { z } from 'zod';
+import type { ListenLinkView } from './listenLinks.js';
 
 export const playlistNameSchema = z.string().trim().min(1).max(200);
 
@@ -27,6 +28,12 @@ export interface PlaylistItemView {
   album: string | null;
   coverUrl: string | null;
   durationMs: number | null;
+  /**
+   * A Missing row: where to play it on the person's primary platform (the
+   * album's link, else a search for the track); null when none is chosen,
+   * the row is in the library, or Listen elsewhere is off.
+   */
+  elsewhere: ListenLinkView | null;
 }
 
 /** GET /api/v1/me/playlists/:id */

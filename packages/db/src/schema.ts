@@ -1922,6 +1922,8 @@ export const listenPrefs = pgTable('listen_prefs', {
   userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   platforms: text().array().notNull().default(sql`'{}'`),
   updatedAt: tstz('updated_at').notNull().defaultNow(),
+  /** "Play on …" (0076): one of `platforms`, or null */
+  primaryPlatform: text('primary_platform'),
 });
 
 // Each person's own preferences that follow them between devices (0059):
