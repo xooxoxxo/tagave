@@ -56,13 +56,15 @@ export interface FileResolution {
   resolved: ResolvedMetadata;
   releaseId: string;
   localAlbumId: string;
-  /** canonical_tracks row matched by position, when one was found */
+  /** the canonical_tracks row the file resolves to: its link, else the one at its position */
   canonicalTrackId: string | null;
+  /** the link's alignment distance (0 = title and length agree); null when the track came by position */
+  matchDistance: number | null;
 }
 
 export type FileResolutionResult =
   | { ok: true; value: FileResolution }
-  | { ok: false; reason: 'not_in_album' | 'album_not_identified' | 'release_missing'; localAlbumId?: string };
+  | { ok: false; reason: 'not_in_album' | 'album_not_identified' | 'release_missing' | 'track_not_on_release'; localAlbumId?: string };
 
 /**
  * Canonical fields for one audio file: its album's matched release, the
@@ -81,6 +83,8 @@ export async function resolveMetadataForFile(
       id: localTracks.id,
       localAlbumId: localTracks.localAlbumId,
       canonicalTrackId: localTracks.canonicalTrackId,
+      matchDistance: localTracks.matchDistance,
+      state: localTracks.state,
       discNo: localTracks.discNo,
       trackNo: localTracks.trackNo,
       origin: localTracks.origin,
@@ -92,11 +96,26 @@ export async function resolveMetadataForFile(
   if (!track || !track.localAlbumId) return { ok: false, reason: 'not_in_album' };
 
   const [album] = await ctx.db
-    .select({ id: localAlbums.id, releaseId: localAlbums.releaseId, state: localAlbums.state, discCount: localAlbums.discCount })
+    .select({
+      id: localAlbums.id, releaseId: localAlbums.releaseId, state: localAlbums.state,
+      discCount: localAlbums.discCount, tracksLinkedAt: localAlbums.tracksLinkedAt,
+    })
     .from(localAlbums)
     .where(and(eq(localAlbums.id, track.localAlbumId), eq(localAlbums.libraryId, libraryId)));
   if (!album) return { ok: false, reason: 'not_in_album' };
   if (!album.releaseId || album.state !== 'matched') return { ok: false, reason: 'album_not_identified', localAlbumId: album.id };
+
+  // A file the linking left out while it placed others of the album is not
+  // on the release (a folder that also holds tracks of other albums): its
+  // position would pick some other track, and the album's fields would
+  // stamp it as this release. When linking placed nothing (no tracklist,
+  // too many tracks to align) the position fallback below still applies.
+  if (album.tracksLinkedAt && !track.canonicalTrackId && track.state === 'unmatched') {
+    const [placed] = await ctx.sql`
+      select 1 from local_tracks
+       where local_album_id = ${album.id} and canonical_track_id is not null limit 1`;
+    if (placed) return { ok: false, reason: 'track_not_on_release', localAlbumId: album.id };
+  }
 
   const [releaseRow] = await ctx.db.select().from(releases).where(eq(releases.id, album.releaseId));
   if (!releaseRow) return { ok: false, reason: 'release_missing', localAlbumId: album.id };
@@ -105,6 +124,7 @@ export async function resolveMetadataForFile(
 
   // 0026: use canonicalTrackId link if present; fall back to position-based lookup
   let canonicalTrack: typeof canonicalTracks.$inferSelect | null = null;
+  let matchDistance: number | null = null;
 
   if (track.canonicalTrackId) {
     // Direct link (0026)
@@ -112,7 +132,10 @@ export async function resolveMetadataForFile(
       .select()
       .from(canonicalTracks)
       .where(eq(canonicalTracks.id, track.canonicalTrackId));
-    if (linked) canonicalTrack = linked;
+    if (linked) {
+      canonicalTrack = linked;
+      if (track.matchDistance !== null && track.matchDistance !== undefined) matchDistance = Number(track.matchDistance);
+    }
   }
 
   // Fallback: position-based lookup (old behavior when link is missing)
@@ -240,6 +263,7 @@ export async function resolveMetadataForFile(
       releaseId: album.releaseId,
       localAlbumId: album.id,
       canonicalTrackId: canonicalTrack?.id ?? null,
+      matchDistance,
     },
   };
 }

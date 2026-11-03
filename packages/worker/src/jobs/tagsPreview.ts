@@ -340,6 +340,8 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
       const before = currentFieldsFrom(file.tagsRaw);
       /** per field: the value to compare against, and whether a lock holds it */
       let target: (field: CanonicalField, current: Value) => { canonical: Value; locked: boolean };
+      /** the release track the file was paired with, shown on its row (0077) */
+      let pairing: { canonicalTrackId: string | null; matchDistance: string | null } = { canonicalTrackId: null, matchDistance: null };
       if (manual) {
         const locked = await manualLocksFor(ctx, libraryId, audioFileId);
         target = (field, current) => ({ canonical: manualCanonical(policy.values, field, current), locked: locked.has(field) });
@@ -355,6 +357,8 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
           continue;
         }
         const resolved = resolution.value.resolved;
+        const { canonicalTrackId, matchDistance } = resolution.value;
+        pairing = { canonicalTrackId, matchDistance: matchDistance === null ? null : matchDistance.toFixed(4) };
         target = (field) => {
           const r = resolved[field];
           return { canonical: r?.value === undefined ? null : r.value, locked: r?.source === 'lock' };
@@ -396,6 +400,7 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
         after,
         diff: diffs,
         status: 'pending',
+        ...pairing,
       });
     } catch (err) {
       filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: err instanceof Error ? err.message : String(err) });

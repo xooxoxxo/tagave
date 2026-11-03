@@ -13,6 +13,7 @@ import {
   artists,
   images,
   releaseGroupArtists,
+  canonicalTracks,
 } from '@tagave/db';
 import {
   type CreateTagPlan,
@@ -696,9 +697,17 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
             status: tagPlanItems.status,
             error: tagPlanItems.error,
             diffs: tagPlanItems.diff,
+            matchDistance: tagPlanItems.matchDistance,
+            ctPosition: canonicalTracks.position,
+            ctMediumNo: canonicalTracks.mediumNo,
+            ctTitle: canonicalTracks.title,
+            ctLengthMs: canonicalTracks.lengthMs,
+            ctMedia: sql<number | null>`(select count(distinct coalesce(m.medium_no, 1))::int from canonical_tracks m where m.release_id = ${canonicalTracks.releaseId})`,
           })
           .from(tagPlanItems)
           .innerJoin(files, eq(files.id, tagPlanItems.audioFileId))
+          // 0077: the release track the preview paired the file with
+          .leftJoin(canonicalTracks, eq(canonicalTracks.id, tagPlanItems.canonicalTrackId))
           .where(where)
           .orderBy(files.relPath)
           .limit(limit)
@@ -713,6 +722,18 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         status: (item.status ?? 'pending') as TagPlanItem['status'],
         ...(item.error ? { error: item.error } : {}),
         diffs: ((item.diffs as any[]) || []).filter((d: any) => !field || d.field === field),
+        ...(item.ctTitle !== null && item.ctTitle !== undefined
+          ? {
+              releaseTrack: {
+                position: item.ctPosition ?? null,
+                mediumNo: item.ctMediumNo ?? null,
+                media: Math.max(1, Number(item.ctMedia ?? 1)),
+                title: item.ctTitle,
+                lengthMs: item.ctLengthMs ?? null,
+              },
+              ...(item.matchDistance !== null && item.matchDistance !== undefined ? { matchDistance: Number(item.matchDistance) } : {}),
+            }
+          : {}),
       }));
 
       reply.send({ items: formatted, total: count?.n ?? 0, limit, offset });

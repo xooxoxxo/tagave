@@ -238,6 +238,51 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     expect((a.before as any).common).toBeUndefined();
   });
 
+  it('pairs each file with its own release track and skips files that are not on the release', async () => {
+    // A folder with the release's two tracks and one track of another
+    // album, stored out of track order (the Vertebrae case).
+    const mixed = randomUUID();
+    await db.insert(localAlbums).values({
+      id: mixed, libraryId, clusterKey: `mixed-${mixed}`, dirPaths: ['Canon/Mixed'], state: 'matched', releaseId, releaseGroupId, trackCount: 3, discCount: 1,
+    });
+    const [one, two, stray] = [randomUUID(), randomUUID(), randomUUID()];
+    const tags = (title: string, no: number) => ({ common: { title, track: { no, of: null }, disk: { no: 1, of: null } } });
+    await db.insert(files).values([
+      { handler: 'audio', id: stray, libraryId, scanRootId: rootId, relPath: 'Canon/Mixed/01 Isa.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: tags('Isa', 1) },
+      { handler: 'audio', id: two, libraryId, scanRootId: rootId, relPath: 'Canon/Mixed/02 Canon Two.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: tags('Canon Two', 2) },
+      { handler: 'audio', id: one, libraryId, scanRootId: rootId, relPath: 'Canon/Mixed/01 Canon One.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: tags('Canon One', 1) },
+    ]);
+    await db.insert(localTracks).values([
+      { localAlbumId: mixed, audioFileId: two, discNo: 1, trackNo: 2, titleGuess: 'Canon Two' },
+      { localAlbumId: mixed, audioFileId: stray, discNo: 1, trackNo: 1, titleGuess: 'Isa' },
+      { localAlbumId: mixed, audioFileId: one, discNo: 1, trackNo: 1, titleGuess: 'Canon One' },
+    ]);
+    const mixedPlan = randomUUID();
+    planIds.push(mixedPlan);
+    await db.insert(tagPlans).values({
+      id: mixedPlan, libraryId, name: 'mixed folder', scope: { type: 'albumIds', albumIds: [mixed] },
+      policy: { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' }, status: 'draft', stats: {}, createdBy: userId,
+    });
+    try {
+      await tagsPreviewJob(ctx, mixedPlan);
+      const [plan] = await db.select().from(tagPlans).where(eq(tagPlans.id, mixedPlan));
+      expect((plan.stats as any).filesSkipped).toEqual([
+        { audioFileId: stray, reason: 'track_not_on_release', message: 'track not on release', localAlbumId: mixed },
+      ]);
+      const items = await itemsOf(mixedPlan);
+      expect(items.map((i: any) => i.audioFileId).sort()).toEqual([one, two].sort());
+      const titles = new Map((await db.select().from(canonicalTracks).where(eq(canonicalTracks.releaseId, releaseId))).map((c: any) => [c.id, c.title]));
+      for (const item of items) {
+        expect(titles.get(item.canonicalTrackId)).toBe(item.audioFileId === one ? 'Canon One' : 'Canon Two');
+        expect(Number(item.matchDistance)).toBe(0);
+        expect(diffMap(item).musicbrainz_recordingid.after).toBe(item.audioFileId === one ? 'rec-mbid-1' : 'rec-mbid-2');
+      }
+    } finally {
+      await db.delete(tagPlanItems).where(eq(tagPlanItems.tagPlanId, mixedPlan));
+      await db.delete(localTracks).where(eq(localTracks.localAlbumId, mixed));
+    }
+  });
+
   it('touches only the albums in scope and records itself in job_runs', async () => {
     // A matched album elsewhere in the library, never linked, on an MB release
     // nobody has checked. The preview of another album must leave both alone

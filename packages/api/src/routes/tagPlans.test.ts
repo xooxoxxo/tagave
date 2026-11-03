@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { files, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users } from '@tagave/db';
+import { canonicalTracks, files, libraries, localAlbums, localTracks, releaseGroups, releases, scanRoots, tagPlanItems, tagPlans, users } from '@tagave/db';
 
 const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
 vi.mock('../boss.js', () => ({
@@ -439,5 +439,39 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
     expect(row.progress).toEqual({ applied: 1, failed: 0 });
     const draftRow = res.json().items.find((p: { id: string }) => p.id === previewed);
     expect(draftRow.progress).toBeUndefined();
+  });
+
+  it('items carry the release track they were paired with and the match distance', async () => {
+    const rgId = randomUUID();
+    const relId = randomUUID();
+    const ctId = randomUUID();
+    await db.insert(releaseGroups).values({ id: rgId, mbid: rgId, title: 'Vertebrae', artistCredit: [] });
+    await db.insert(releases).values({ id: relId, releaseGroupId: rgId, mbid: relId, title: 'Vertebrae' });
+    await db.insert(canonicalTracks).values([
+      { id: ctId, releaseId: relId, mediumNo: 1, position: 1, number: '1', title: 'Clouds', artistCredit: [], lengthMs: 368_000 },
+      { releaseId: relId, mediumNo: 2, position: 1, number: '1', title: 'Bonus', artistCredit: [], lengthMs: 100_000 },
+    ]);
+    try {
+      await db.update(tagPlanItems).set({ canonicalTrackId: ctId, matchDistance: '0.0200' }).where(eq(tagPlanItems.tagPlanId, previewed));
+      const res = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${previewed}/items`, headers: { 'x-test-user': ownerId } });
+      expect(res.json().items[0]).toMatchObject({
+        releaseTrack: { position: 1, mediumNo: 1, media: 2, title: 'Clouds', lengthMs: 368_000 },
+        matchDistance: 0.02,
+      });
+      // a track found by position carries no distance
+      await db.update(tagPlanItems).set({ matchDistance: null }).where(eq(tagPlanItems.tagPlanId, previewed));
+      const byPos = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${previewed}/items`, headers: { 'x-test-user': ownerId } });
+      expect(byPos.json().items[0].releaseTrack.title).toBe('Clouds');
+      expect(byPos.json().items[0]).not.toHaveProperty('matchDistance');
+    } finally {
+      await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, relId));
+      await db.delete(releases).where(eq(releases.id, relId));
+      await db.delete(releaseGroups).where(eq(releaseGroups.id, rgId));
+    }
+  });
+
+  it('items without a pairing carry no release track', async () => {
+    const res = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${previewed}/items`, headers: { 'x-test-user': ownerId } });
+    expect(res.json().items[0]).not.toHaveProperty('releaseTrack');
   });
 });
