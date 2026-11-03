@@ -119,7 +119,7 @@
   display: grid;
   /* every row is its own grid, so every track is fixed except the path:
      "12 changes" and "No changes" line up down the list */
-  grid-template-columns: 1.25rem 6.5rem minmax(0, 1fr) minmax(0, 18rem) 7rem;
+  grid-template-columns: 1.25rem 6.5rem minmax(0, 1fr) 16rem 7rem;
   align-items: center;
   gap: var(--space-md);
   width: 100%;
