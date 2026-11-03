@@ -90,6 +90,26 @@ export function apiSearchParams(query: AlbumsQuery, extra: Record<string, string
   return params;
 }
 
+const CHIP_PREFIX: Record<string, string> = {
+  artist: 'artist', folder: 'folder', state: 'state', decided: 'match', review: 'reviews', label: 'label', owned: 'collection', gap: 'attention',
+};
+const STATE_WORD: Record<string, string> = {
+  matched: 'Matched', needs_review: 'Needs review', unidentified: 'Unidentified', pending: 'Pending', as_is: 'Kept as-is', ignored: 'Ignored',
+};
+
+/**
+ * A filter chip's words. The value alone where it cannot be mistaken for
+ * another filter (a search in quotes, a format, a decade, a genre); the
+ * filter's name first where it could (an artist, a label, a folder).
+ */
+export function chipText(key: string, value: string | number): string {
+  if (key === 'q') return `“${value}”`;
+  if (key === 'decade') return `${value}s`;
+  if (key === 'format' || key === 'genre') return String(value);
+  const shown = key === 'state' ? STATE_WORD[String(value)] ?? String(value) : String(value);
+  return `${CHIP_PREFIX[key] ?? key}: ${shown}`;
+}
+
 /**
  * Filters that are curation detail (match state, library issues, match
  * kind): offered only in Maintenance, and dropped from the list when

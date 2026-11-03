@@ -7,19 +7,18 @@
  * render as an empty box.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ARTIST_GROUP_ORDER, artistGroupLabel, artistLabel, cleanArtistName } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsInfinite, type ArtistListItem, type ArtistSort } from '../hooks/useArtists';
-import { Button, EmptyState, PageShell, SearchField, Select, SegmentedControl, type SegmentedOption } from '../components/ui';
+import { Button, Chip, EmptyState, PageShell } from '../components/ui';
+import { ListToolbar } from '../components/ListToolbar';
 import { ArtistArtwork, IdentityMark } from '../components/ArtistArtwork';
 import {
   ARTIST_SORT_OPTIONS, artistMeta, readArtistsView, writeArtistsView, yearsLabel, type ArtistsView,
 } from './artistsView';
 import styles from './ArtistsPage.module.css';
-
-const VIEW_OPTIONS: SegmentedOption<'grid' | 'list'>[] = [{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }];
 
 const MIN_CARD = 150;
 const MIN_CARD_NARROW = 132;
@@ -46,15 +45,12 @@ function ArtistLink({ artist, className, children }: { artist: ArtistListItem; c
 export function ArtistsPage() {
   const { libraryId } = useCurrentLibrary();
   const [view, setViewState] = useState<ArtistsView>(readArtistsView);
-  const [q, setQ] = useState('');
-  const [search, setSearch] = useState('');
+  // the words the header's search narrowed the list to ("In artists"), in the URL
+  const search = (useSearch({ strict: false }) as { q?: string }).q ?? '';
+  const navigate = useNavigate();
+  const clearSearch = () => void navigate({ to: '/artists', search: {} as never });
   const [sort, setSort] = useState<ArtistSort>('name');
   const [group, setGroup] = useState<string | null>(null);
-
-  useEffect(() => {
-    const t = setTimeout(() => setSearch(q.trim()), 200);
-    return () => clearTimeout(t);
-  }, [q]);
 
   const setView = (next: ArtistsView) => { setViewState(next); writeArtistsView(next); };
 
@@ -123,28 +119,18 @@ export function ArtistsPage() {
   const showEmpty = !!first && items.length === 0;
 
   return (
-    <PageShell
-      fill
-      title="Artists"
-      aside={<span aria-live="polite">{countText}{isFetching && !isFetchingNextPage && first ? <span className={styles.updating}> · updating</span> : null}</span>}
-    >
+    <PageShell fill title="Artists">
       <div className={styles.header}>
-        <div className={styles.toolbar}>
-          <SearchField
-            dense
-            className={styles.search}
-            label="Search artists"
-            placeholder="Search artists"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <Select dense className={styles.sort} aria-label="Sort artists" value={sort} onChange={(e) => setSort(e.target.value as ArtistSort)}>
-            {ARTIST_SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </Select>
-          <div className={styles.viewToggle}>
-            <SegmentedControl size="sm" label="View mode" name="view-mode" value={view} onChange={(next) => (next === 'grid' ? setView('grid') : setView('list'))} options={VIEW_OPTIONS} />
+        <ListToolbar
+          count={<>{countText}{isFetching && !isFetchingNextPage && first ? <span className={styles.updating}> · updating</span> : null}</>}
+          sort={{ value: sort, options: ARTIST_SORT_OPTIONS, noun: 'artists', onChange: setSort }}
+          view={{ value: view, onChange: setView }}
+        />
+        {search && (
+          <div className={styles.chips}>
+            <Chip active aria-pressed={undefined} onClick={clearSearch} aria-label={`Remove “${search}”`}>“{search}” <span aria-hidden="true">✕</span></Chip>
           </div>
-        </div>
+        )}
         {/* One tab stop: arrow keys, Home and End move between letters. */}
         <nav className={styles.jumpBar} aria-label="Filter by first letter" onKeyDown={onJumpKey}>
           <button type="button" className={styles.jump} aria-pressed={group === null} tabIndex={group === null ? 0 : -1} onClick={() => setGroup(null)}
@@ -173,7 +159,7 @@ export function ArtistsPage() {
         title={search || group ? 'No matching artists' : 'No artists yet'}
       />}
       {showEmpty && (search || group) && <p className={styles.clear}>
-        <Button variant="secondary" size="sm" onClick={() => { setQ(''); setSearch(''); setGroup(null); }}>Show all</Button>
+        <Button variant="secondary" size="sm" onClick={() => { clearSearch(); setGroup(null); }}>Show all</Button>
       </p>}
 
       {view === 'list' && items.length > 0 && <div className={styles.listHead} aria-hidden="true">

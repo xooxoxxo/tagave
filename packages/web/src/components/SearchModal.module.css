@@ -214,3 +214,9 @@ so it follows the app theme. */
   text-align: center;
 }
 
+/* Phone: the palette sits just under the top edge, the full width less a
+   small margin, so the keyboard leaves the results in view. */
+@media (max-width: 720px) {
+  .overlay { padding: max(.5rem, env(safe-area-inset-top)) .5rem 0; }
+  .modal { width: 100%; max-height: 70dvh; }
+}
