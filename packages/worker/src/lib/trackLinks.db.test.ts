@@ -550,6 +550,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracksLinkJob sweep (db)', () =
   let libraryId: string;
   let rootId: string;
   let releaseGroupId: string;
+  const sent: Array<{ name: string; data: unknown; opts: unknown }> = [];
 
   beforeAll(async () => {
     const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -557,7 +558,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracksLinkJob sweep (db)', () =
     const made = await makeDb(databaseUrl);
     db = made.db;
     client = made.client;
-    ctx = { db: made.db, sql: made.client, boss: {} as any, logger: pino({ level: 'silent' }) };
+    const boss = { send: async (name: string, data: unknown, opts: unknown) => { sent.push({ name, data, opts }); return 'job'; } };
+    ctx = { db: made.db, sql: made.client, boss: boss as any, logger: pino({ level: 'silent' }) };
 
     userId = randomUUID();
     await db.insert(users).values({ id: userId, email: `sweeptest-${userId}@test.com`, passwordHash: 'x' });
@@ -667,5 +669,25 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracksLinkJob sweep (db)', () =
     await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, rel2Id));
     await db.delete(releases).where(eq(releases.id, rel1Id));
     await db.delete(releases).where(eq(releases.id, rel2Id));
+  });
+
+  it('queues the next pass while a backlog remains', async () => {
+    const { tracksLinkJob } = await import('../jobs/tracksLink.js');
+    const relId = randomUUID();
+    await db.insert(releases).values({ id: relId, releaseGroupId, mbid: `sweep-rel-chain-${RUN}`, title: 'Chain' });
+    await db.insert(canonicalTracks).values({ id: randomUUID(), releaseId: relId, mediumNo: 1, position: 1, number: '1', title: 'T', artistCredit: [], lengthMs: 1000, trackMbid: 'tm-c' });
+    const albumIds = [randomUUID(), randomUUID(), randomUUID()];
+    await db.insert(localAlbums).values(albumIds.map((id) => ({
+      id, libraryId, clusterKey: `chain-${id}`, dirPaths: [`/sweep-test/${id}`], titleGuess: 'Chain', artistGuess: 'A',
+      state: 'matched', releaseId: relId, trackCount: 1, discCount: 1, identifiedAt: new Date(), tracksLinkedAt: null,
+    })));
+
+    sent.length = 0;
+    await tracksLinkJob(ctx, { sweep: true, limit: 1 });
+    expect(sent).toEqual([{ name: 'tracks.link', data: { sweep: true, limit: 1 }, opts: expect.objectContaining({ singletonKey: 'tracks.link:sweep' }) }]);
+
+    await db.delete(localAlbums).where(inArray(localAlbums.id, albumIds));
+    await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, relId));
+    await db.delete(releases).where(eq(releases.id, relId));
   });
 });

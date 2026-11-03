@@ -490,8 +490,11 @@ async function main() {
         await tracksLinkJob(ctx, job.data);
       }
     });
-    // Sweep every 5 minutes to link unlinked albums
+    // Sweep every 5 minutes to link unlinked albums, and once at boot: after
+    // an upgrade that asks for a relink (0077) the work starts right away and
+    // each pass queues the next until nothing is left (jobs/tracksLink.ts).
     await boss.schedule('tracks.link', '*/5 * * * *', { sweep: true }, { singletonKey: 'tracks.link:sweep' });
+    await boss.send('tracks.link', { sweep: true }, { singletonKey: 'tracks.link:sweep' });
   }
 
   // IDN-5 (XO-372): fingerprints on the file worker (needs the mount and fpcalc),

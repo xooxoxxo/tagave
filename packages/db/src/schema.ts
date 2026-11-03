@@ -1029,6 +1029,10 @@ export const tagPlanItems = pgTable(
     sizeAfter: integer('size_after'),
     mtimeAfter: integer('mtime_after'),
     appliedAt: timestamp('applied_at', { withTimezone: true }),
+    // 0077: the release track the file was paired with at preview, and the
+    // pairing's distance (local_tracks.match_distance). No FK, see 0077.
+    canonicalTrackId: uuid('canonical_track_id'),
+    matchDistance: numeric('match_distance', { precision: 5, scale: 4 }),
   },
   (table) => ({
     planIdx: index('idx_tag_plan_items_plan').on(table.tagPlanId),
