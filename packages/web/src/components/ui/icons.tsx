@@ -249,3 +249,25 @@ export function ListenIcon() {
     </svg>
   );
 }
+
+/* The list pages' toolbar: sort, filter, grid and list (2026-11-03). */
+
+/** Two arrows, up and down: sort. */
+export function SortIcon() {
+  return <svg {...LINE}><path d="M8 19V5M4.5 8.5 8 5l3.5 3.5" /><path d="M16 5v14M12.5 15.5 16 19l3.5-3.5" /></svg>;
+}
+
+/** A funnel: filter. */
+export function FilterIcon() {
+  return <svg {...LINE}><path d="M4 5.5h16l-6.2 7.3v5.4l-3.6 1.8v-7.2z" /></svg>;
+}
+
+/** Four squares: the grid view. */
+export function GridIcon() {
+  return <svg {...LINE}><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></svg>;
+}
+
+/** Rows, a square leading each: the list view. */
+export function ListIcon() {
+  return <svg {...LINE}><rect x="4" y="4.5" width="4" height="4" rx="1" /><rect x="4" y="10" width="4" height="4" rx="1" /><rect x="4" y="15.5" width="4" height="4" rx="1" /><path d="M11 6.5h9M11 12h9M11 17.5h9" /></svg>;
+}
