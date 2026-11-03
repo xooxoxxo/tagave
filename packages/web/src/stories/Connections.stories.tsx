@@ -72,5 +72,5 @@ export const Refused: Story = {
 };
 export const TurnedOff: Story = {
   name: 'Module turned off',
-  render: () => <ConnectionsOff modules={<a href="#modules">Settings › Modules</a>} />,
+  render: () => <ConnectionsOff modules={<a href="#modules">Modules</a>} />,
 };

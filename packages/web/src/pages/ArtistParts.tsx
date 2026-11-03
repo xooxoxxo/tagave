@@ -64,7 +64,7 @@ export function AlbumCard({ album, onReopen, reopening }: {
     {more ? <div className={styles.cardHead}><div className={styles.cardText}>{text}</div>{more}</div> : text}
     {(split.primary || split.others.length > 0) && <div className={styles.cardListenRow}>
       {split.primary && <PlayOnControl link={split.primary} />}
-      {split.others.length > 0 && <ListenControl links={split.others} className={split.primary ? undefined : styles.cardListen} />}
+      {split.others.length > 0 && <ListenControl links={split.others} beside={!!split.primary} className={split.primary ? undefined : styles.cardListen} />}
     </div>}
   </li>;
 }

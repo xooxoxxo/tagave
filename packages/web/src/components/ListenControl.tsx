@@ -28,8 +28,9 @@ export const MissingPrimary = createContext<ListenPlatform | null>(null);
 
 /**
  * "Play on Qobuz": the person's primary platform for a missing album or a
- * Missing playlist row, the embossed play icon with the platform's name. A
- * link that is not the album itself says so ("Artist page", "Search").
+ * Missing playlist row, the embossed play icon with the platform's name and
+ * nothing else, so it stays one short key. A link that is not the album
+ * itself says so in its name and tooltip only ("Play on Qobuz (search)").
  */
 export function PlayOnControl({ link, className }: { link: ListenLinkView; className?: string | undefined }) {
   const kind = LISTEN_KIND_LABEL[link.kind];
@@ -38,15 +39,19 @@ export function PlayOnControl({ link, className }: { link: ListenLinkView; class
     <a className={embossClassName('page', [styles.control, styles.playOn, className].filter(Boolean).join(' '))} href={link.url} target="_blank" rel="noopener noreferrer" aria-label={label} title={label} data-play-on={link.kind}>
       <PlayIcon />
       <span className={styles.word}>{link.name}</span>
-      {kind && <span className={styles.kind}>{kind}</span>}
     </a>
   );
 }
 
-export function ListenControl({ links, className }: { links: readonly ListenLinkView[]; className?: string | undefined }) {
+/**
+ * `beside`: the Listen key next to "Play on …" on a missing album: always the
+ * "Listen" menu (even for one platform, so no "· Search" text), and only its
+ * icon when the row is too narrow for both words (a phone's two-column grid).
+ */
+export function ListenControl({ links, className, beside = false }: { links: readonly ListenLinkView[]; className?: string | undefined; beside?: boolean }) {
   if (links.length === 0) return null;
-  const cls = embossClassName('page', [styles.control, className].filter(Boolean).join(' '));
-  if (links.length === 1) {
+  const cls = embossClassName('page', [styles.control, beside ? styles.beside : null, className].filter(Boolean).join(' '));
+  if (links.length === 1 && !beside) {
     const l = links[0]!;
     const kind = LISTEN_KIND_LABEL[l.kind];
     return (
@@ -63,7 +68,7 @@ export function ListenControl({ links, className }: { links: readonly ListenLink
       heading="Listen on"
       className={styles.anchor ?? ''}
       triggerClassName={cls}
-      icon={<><ListenIcon /><span className={styles.word} aria-hidden="true">Listen</span></>}
+      icon={<><ListenIcon /><span className={[styles.word, beside ? styles.besideWord : null].filter(Boolean).join(' ')} aria-hidden="true">Listen</span></>}
       items={links.map((l) => {
         const kind = LISTEN_KIND_LABEL[l.kind];
         return { key: l.platform, label: l.name, href: l.url, ...(kind ? { hint: kind } : {}) };

@@ -94,7 +94,10 @@
 /* Listen elsewhere, under a missing album's title and year */
 .cardListen { margin-top: 2px; }
 /* "Play on <primary>" and the Listen key for the other platforms, side by side, wrapping on a narrow card */
-.cardListenRow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; min-width: 0; margin-top: 2px; }
+.cardListenRow { container: listenrow / inline-size; display: flex; flex-wrap: nowrap; align-items: center; column-gap: 10px; min-width: 0; margin-top: 2px; }
+/* the ▶ key gives way last: a long platform name shortens before the row wraps */
+.cardListenRow > a:first-child { min-width: 0; overflow: hidden; }
+.cardListenRow > a:first-child > span { overflow: hidden; text-overflow: ellipsis; }
 /* a missing album's title and year, its ⋮ (Get through Lidarr) at the end of the title line */
 .cardHead { display: flex; align-items: flex-start; gap: 2px; min-width: 0; }
 .cardText { flex: 1; min-width: 0; }

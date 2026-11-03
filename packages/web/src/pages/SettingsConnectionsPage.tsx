@@ -79,7 +79,7 @@ export function ConnectionsPanel(props: ConnectionsPanelProps) {
   const linkedOne = returned && 'linked' in returned ? links.find((l) => l.id === returned.linked) : undefined;
   return (
     <>
-      <h2>Connections</h2>
+      <h2>Music Connections</h2>
 
       {returned && 'linked' in returned && <Banner tone="success">Linked{linkedOne?.service ? ` to ${linkedOne.service}` : ''}</Banner>}
       {returned && 'error' in returned && <Banner tone="danger">{returnError(returned.error)}</Banner>}
@@ -112,19 +112,16 @@ export function ConnectionsPanel(props: ConnectionsPanelProps) {
 
 /**
  * Music Connections turned off (Settings › Modules, off by default): nothing
- * links or syncs. `modules` is the way to Settings › Modules for someone who
- * may turn it on (the owner); everyone else is told to ask.
+ * links or syncs. Its own compartment says only "Off", with `modules` (the
+ * way to Settings › Modules, for the owner) beside it, so nothing reads as
+ * if the sections under it (Lidarr) were off too.
  */
 export function ConnectionsOff({ modules = null }: { modules?: ReactNode }) {
   return (
-    <>
-      <h2>Connections</h2>
-      <Banner tone="info">
-        Music Connections is turned off.{' '}
-        {modules ? <>Turn it on in {modules}.</> : 'Ask the owner to turn it on in Settings › Modules.'}
-      </Banner>
-
-    </>
+    <section className={styles.offSection} aria-labelledby="connections-mc">
+      <h2 id="connections-mc">Music Connections</h2>
+      <p className={styles.offValue}>Off{modules && <> · {modules}</>}</p>
+    </section>
   );
 }
 

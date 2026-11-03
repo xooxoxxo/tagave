@@ -133,7 +133,7 @@ export function SettingsPage() {
         {section === 'activity' && <><h2>Background activity</h2><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         {section === 'listening' && <SettingsListeningContent />}
-        {section === 'connections' && (mcOn === false ? <ConnectionsOff modules={can(role, 'system.manage') ? <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link> : null} /> : <SettingsConnectionsContent />)}
+        {section === 'connections' && (mcOn === false ? <ConnectionsOff modules={can(role, 'system.manage') ? <Link to="/settings/$section" params={{ section: 'modules' }}>Modules</Link> : null} /> : <SettingsConnectionsContent />)}
         {/* Lidarr: the owner's, for Get on missing albums (the lidarr module) */}
         {section === 'connections' && can(role, 'system.manage') && <LidarrSettings headingClassName={styles.modeSetting} />}
         {section === 'security' && <><h2>Security</h2><SettingsSecurityPage /></>}

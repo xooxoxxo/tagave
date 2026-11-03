@@ -33,3 +33,11 @@
 /* "Play on …": the primary platform, a little stronger than the Listen key */
 .playOn { color: var(--ink); }
 .playOn svg { width: 16px; height: 16px; }
+
+/* Listen beside "Play on …" (a missing album's row): one line always; in a
+   row narrower than both keys with their words, Listen keeps only its icon */
+.beside { flex: none; }
+@container listenrow (max-width: 219px) {
+  .besideWord { display: none; }
+  .beside { padding: 0 6px; }
+}
