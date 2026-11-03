@@ -532,6 +532,7 @@ export {
   type ArtistListenLinksView,
   type ListenPrefsView,
   listenPrefsSchema,
+  splitPrimary,
   type ListenLinksModuleView,
   listenLinksModuleSchema,
 } from './listenLinks.js';
@@ -545,3 +546,6 @@ export * from './userPrefs.js';
 
 // Deleting songs and albums: Mark or Trash, Library care › Deleting
 export * from './deletions.js';
+
+// Get missing albums through Lidarr (the lidarr module)
+export * from './lidarr.js';

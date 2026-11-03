@@ -13,6 +13,7 @@ import {
   CoverArt, EmbossIconButton, EmptyState, ExportIcon, GripIcon, KebabIcon, PageShell, PauseIcon, PlayIcon, ShuffleIcon, TrashIcon, CloseIcon, confirmDialog, showToast,
 } from '../components/ui';
 import { InlineRename } from '../components/InlineRename';
+import { PlayOnControl } from '../components/ListenControl';
 import { PlaylistCover } from '../components/playlists/PlaylistCover';
 import { TrackActions } from '../components/player/TrackActions';
 import { useDragReorder } from '../components/player/useDragReorder';
@@ -125,6 +126,8 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
                   <span className={styles.album} dir="auto">{it.album}</span>
                   <span className={styles.time}>{it.durationMs ? clock(it.durationMs / 1000) : ''}</span>
                 </button>
+                {/* a Missing row: "Play on <primary>" (Settings › Listen elsewhere › Missing albums) */}
+                {missing && it.elsewhere && <PlayOnControl link={it.elsewhere} className={styles.playOn} />}
                 <span className={styles.rowMenu}>
                   {missing ? (
                     <EmbossIconButton label={`Remove ${it.title}`} onClick={() => p.onRemove(it)}><CloseIcon /></EmbossIconButton>

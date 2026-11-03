@@ -6,10 +6,11 @@
  * that left the library still has a name ("Missing").
  */
 import type postgres from 'postgres';
-import { trackLiveSql } from '@tagave/db';
+import { listenLinksEnabled, listenPrefsOf, listenPrimaryOf, trackLiveSql } from '@tagave/db';
 import { normalizeKey, pickByNames, type MatchCandidate, type ParsedItem, type ParsedPlaylist } from '@tagave/core/playlists';
 import {
-  PLAYLIST_FILE_FORMAT, PLAYLIST_FILE_VERSION,
+  LISTEN_PLATFORMS, LISTEN_PLATFORM_NAMES, PLAYLIST_FILE_FORMAT, PLAYLIST_FILE_VERSION, displayArtistName, listenSearchUrl,
+  type ListenLinkView, type ListenPlatform,
   type PlaylistFile, type PlaylistImportResult, type PlaylistItemView, type PlaylistSummary, type PlaylistView,
 } from '@tagave/shared';
 
@@ -113,13 +114,40 @@ export async function getPlaylist(sql: Sql, userId: string, id: string): Promise
       from playlist_items i left join local_tracks lt on lt.id = i.local_track_id and ${sql.unsafe(trackLiveSql('lt.audio_file_id'))}
      where i.playlist_id = ${id}
      order by i.position, i.added_at`;
+  const elsewhere = await missingElsewhere(sql, userId, items.filter((r) => !r.local_track_id).map((r) => r.id));
   return {
     ...summary,
     items: items.map((r): PlaylistItemView => ({
       id: r.id, localTrackId: r.local_track_id, albumId: r.album_id, title: r.title, artist: r.artist, album: r.album,
-      coverUrl: cover(r.album_id, r.has_art), durationMs: r.duration_ms,
+      coverUrl: cover(r.album_id, r.has_art), durationMs: r.duration_ms, elsewhere: elsewhere.get(r.id) ?? null,
     })),
   };
+}
+
+/**
+ * "Play on <primary>" for Missing rows (vault "tagave - Get Missing Albums",
+ * part A): the album's link on the person's primary platform when Listen
+ * elsewhere found one for the release the row remembers, else a search for
+ * the track. Nothing while Listen elsewhere is off or no primary is chosen.
+ */
+async function missingElsewhere(sql: Sql, userId: string, itemIds: readonly string[]): Promise<Map<string, ListenLinkView>> {
+  const out = new Map<string, ListenLinkView>();
+  if (itemIds.length === 0 || !(await listenLinksEnabled(sql))) return out;
+  const primary = await listenPrimaryOf(sql, userId);
+  if (!primary || !(await listenPrefsOf(sql, userId)).includes(primary) || !(LISTEN_PLATFORMS as readonly string[]).includes(primary)) return out;
+  const platform = primary as ListenPlatform;
+  const rows = await sql<Array<{ id: string; title: string; artist: string | null; url: string | null }>>`
+    select i.id::text as id, i.title, i.artist, ll.url
+      from playlist_items i
+      left join releases r on r.mbid = i.release_mbid
+      left join listen_links ll on ll.release_group_id = r.release_group_id and ll.platform = ${platform}
+     where i.id = any(${itemIds as string[]}::uuid[])`;
+  for (const r of rows) {
+    out.set(r.id, r.url
+      ? { platform, name: LISTEN_PLATFORM_NAMES[platform], url: r.url, kind: 'exact' }
+      : { platform, name: LISTEN_PLATFORM_NAMES[platform], url: listenSearchUrl(platform, [displayArtistName(r.artist) ?? r.artist ?? '', r.title].join(' ')), kind: 'search' });
+  }
+  return out;
 }
 
 export async function createPlaylist(sql: Sql, userId: string, name: string, trackIds: readonly string[] = [], source: 'tagave' | 'import' = 'tagave'): Promise<string> {

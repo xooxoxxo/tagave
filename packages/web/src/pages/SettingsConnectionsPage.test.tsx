@@ -96,15 +96,17 @@ describe('ConnectionsPanel', () => {
 });
 
 describe('ConnectionsOff', () => {
-  it('says the module is off and points the owner to Settings › Modules', () => {
-    const html = renderToStaticMarkup(<ConnectionsOff modules={<a href="/settings/modules">Settings › Modules</a>} />);
-    expect(html).toContain('Music Connections is turned off');
-    expect(html).toContain('href="/settings/modules"');
+  it('its own heading and one value: Off, with the way to Modules for the owner', () => {
+    const html = renderToStaticMarkup(<ConnectionsOff modules={<a href="/settings/modules">Modules</a>} />);
+    expect(html).toContain('>Music Connections</h2>');
+    expect(html).toContain('Off · <a href="/settings/modules">Modules</a>');
     expect(html).not.toContain('Add connection');
+    expect(html).not.toContain('turned off');
   });
 
-  it('tells anyone else to ask the owner', () => {
+  it('anyone else sees Off alone', () => {
     const html = renderToStaticMarkup(<ConnectionsOff />);
-    expect(html).toContain('Ask the owner to turn it on in Settings › Modules.');
+    expect(html).toContain('>Off</p>');
+    expect(html).not.toContain('Modules');
   });
 });

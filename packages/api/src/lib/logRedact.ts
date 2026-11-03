@@ -6,7 +6,7 @@
  * not be able to use them.
  */
 const TOKEN_PATH = /(\/invites?\/)[^/?#]+/;
-const SECRET_QUERY = new Set(['token', 'state', 'code', 'code_verifier', 'refresh_token', 'access_token', 'client_secret']);
+const SECRET_QUERY = new Set(['token', 'state', 'code', 'code_verifier', 'refresh_token', 'access_token', 'client_secret', 'apikey', 'api_key']);
 
 export function redactUrl(url: string): string {
   const q = url.indexOf('?');

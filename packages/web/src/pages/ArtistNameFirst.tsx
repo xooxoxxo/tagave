@@ -16,6 +16,7 @@ import { AlbumGrid, Bar, Biography, DetailsNote, FollowButton, ProviderLinks, Sk
 import { Button } from '../components/ui';
 import { kickerLine, ownedLine, SECTION_IDS, type ArtistShelves, type DetailsState, type PageSection } from './artistPageView';
 import { shownAliases } from './artistAliases';
+import { MissingHeadingMenu } from '../components/LidarrControls';
 import styles from './ArtistPage.module.css';
 
 export interface ArtistLayoutProps {
@@ -72,10 +73,11 @@ function SectionLinks({ sections, active, goTo, className, label, followActive =
   </nav>;
 }
 
-function Section({ id, title, count, children, className }: { id: string; title: string; count?: number; children: ReactNode; className?: string | undefined }) {
+function Section({ id, title, count, children, className, action }: { id: string; title: string; count?: number; children: ReactNode; className?: string | undefined; action?: ReactNode }) {
   const headingId = `${id}-h`;
+  const h2 = <h2 id={headingId} tabIndex={-1} className={styles.h2}>{title}{count !== undefined && <small>{count}</small>}</h2>;
   return <section id={id} className={`${styles.section} ${className ?? ''}`} aria-labelledby={headingId}>
-    <h2 id={headingId} tabIndex={-1} className={styles.h2}>{title}{count !== undefined && <small>{count}</small>}</h2>
+    {action ? <div className={styles.headRow}>{h2}{action}</div> : h2}
     {children}
   </section>;
 }
@@ -132,7 +134,7 @@ export function ArtistNameFirst(p: NameFirstProps) {
         {s.owned.length > 0
           ? <Section id={SECTION_IDS.owned} title="In your library" count={s.owned.length}><AlbumGrid albums={s.owned} /></Section>
           : <Section id={SECTION_IDS.owned} title="In your library"><p className={styles.empty}>Nothing in your library</p></Section>}
-        {s.missing.length > 0 && <Section id={SECTION_IDS.missing} title="Not in your library" count={s.missing.length}><AlbumGrid albums={s.missing} /></Section>}
+        {s.missing.length > 0 && <Section id={SECTION_IDS.missing} title="Not in your library" count={s.missing.length} action={<MissingHeadingMenu />}><AlbumGrid albums={s.missing} /></Section>}
         {maintenance && s.skipped.length > 0 && <Section id={SECTION_IDS.skipped} title="Skipped" count={s.skipped.length}>
           <AlbumGrid albums={s.skipped} onReopen={p.onReopen} reopening={p.reopening} />
         </Section>}

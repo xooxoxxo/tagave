@@ -8,6 +8,8 @@ import { useSearch, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useCan, useCurrentLibrary, useIdentifyStats, useGapCounts } from '../hooks';
 import { DeletingPanel } from './DeletingPage';
+import { GettingPanel } from './GettingPage';
+import { useModuleOn } from '../hooks/useFacets';
 import { api } from '../services/api';
 import { PageShell, TabItem } from '../components/ui';
 import { ReviewPanel } from './QueuePage';
@@ -26,6 +28,9 @@ export function WorkPage() {
   const navigate = useNavigate();
   const { tab } = useSearch({ strict: false }) as { tab?: string };
   const owner = useCan('system.manage');
+  // albums asked of Lidarr: the owner's, while the lidarr module is on
+  const lidarrOn = useModuleOn('lidarr');
+  const getting = owner && lidarrOn === true;
   const activeTab = tab || 'review';
 
   // Fetch queue length for review tab count
@@ -75,12 +80,13 @@ export function WorkPage() {
       },
       // deleted songs and albums: the owner's (a deletion reaches the music folder)
       ...(owner ? [{ label: 'Deleting', value: 'deleting' }] : []),
+      ...(getting ? [{ label: 'Getting', value: 'getting' }] : []),
     ],
-    [queueCount, identifyCount, attentionTotal, taskCount, owner],
+    [queueCount, identifyCount, attentionTotal, taskCount, owner, getting],
   );
 
   const handleTabChange = (newTab: string) => {
-    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' } });
+    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'getting' } });
   };
 
   const renderPanel = () => {
@@ -93,6 +99,8 @@ export function WorkPage() {
         return <TasksPanel />;
       case 'deleting':
         return owner ? <DeletingPanel /> : <ReviewPanel />;
+      case 'getting':
+        return getting ? <GettingPanel /> : <ReviewPanel />;
       default:
         return <ReviewPanel />;
     }

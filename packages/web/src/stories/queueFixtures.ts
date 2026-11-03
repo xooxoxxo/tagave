@@ -48,10 +48,10 @@ export const PLAYLIST: PlaylistView = {
   tracks: 5,
   durationMs: 1_632_000,
   items: [
-    { id: 'i1', localTrackId: 'l1', albumId: 'album-kob', title: 'Blue in Green', artist: 'Miles Davis', album: 'Kind of Blue', coverUrl: COVERS.kob, durationMs: 337_000 },
-    { id: 'i2', localTrackId: 'l2', albumId: 'album-chet', title: 'Alone Together', artist: 'Chet Baker', album: 'Chet', coverUrl: COVERS.chet, durationMs: 413_000 },
-    { id: 'i3', localTrackId: 'l3', albumId: 'album-timeOut', title: 'Take Five', artist: 'The Dave Brubeck Quartet', album: 'Time Out', coverUrl: COVERS.timeOut, durationMs: 324_000 },
-    { id: 'i4', localTrackId: null, albumId: null, title: 'Gone Soon', artist: 'Someone', album: 'Elsewhere', coverUrl: null, durationMs: 262_000 },
-    { id: 'i5', localTrackId: 'l5', albumId: 'album-debby', title: 'My Foolish Heart', artist: 'Bill Evans Trio', album: 'Waltz for Debby', coverUrl: COVERS.debby, durationMs: 296_000 },
+    { id: 'i1', localTrackId: 'l1', albumId: 'album-kob', title: 'Blue in Green', artist: 'Miles Davis', album: 'Kind of Blue', coverUrl: COVERS.kob, durationMs: 337_000, elsewhere: null },
+    { id: 'i2', localTrackId: 'l2', albumId: 'album-chet', title: 'Alone Together', artist: 'Chet Baker', album: 'Chet', coverUrl: COVERS.chet, durationMs: 413_000, elsewhere: null },
+    { id: 'i3', localTrackId: 'l3', albumId: 'album-timeOut', title: 'Take Five', artist: 'The Dave Brubeck Quartet', album: 'Time Out', coverUrl: COVERS.timeOut, durationMs: 324_000, elsewhere: null },
+    { id: 'i4', localTrackId: null, albumId: null, title: 'Gone Soon', artist: 'Someone', album: 'Elsewhere', coverUrl: null, durationMs: 262_000, elsewhere: { platform: 'qobuz', name: 'Qobuz', url: 'https://play.qobuz.com/search?q=Someone%20Gone%20Soon', kind: 'search' } },
+    { id: 'i5', localTrackId: 'l5', albumId: 'album-debby', title: 'My Foolish Heart', artist: 'Bill Evans Trio', album: 'Waltz for Debby', coverUrl: COVERS.debby, durationMs: 296_000, elsewhere: null },
   ],
 };

@@ -28,6 +28,7 @@ import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
 import { listenLinksResolveJob, type ListenLinksResolveJobData } from './jobs/listenLinksResolve.js';
+import { lidarrGetJob, lidarrPollJob, type LidarrGetJobData, type LidarrPollJobData } from './jobs/lidarr.js';
 import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
@@ -104,6 +105,9 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'connections.pull': 'stately',
   // one queued per album or artist (singletonKey listen:rg:<id> / listen:artist:<id>)
   'listenLinks.resolve': 'stately',
+  // one poll queued behind the running one (singletonKey lidarr.poll); one Get all missing per artist
+  'lidarr.poll': 'stately',
+  'lidarr.get': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -333,6 +337,21 @@ async function main() {
       for (const job of jobs) await listenLinksResolveJob(ctx, job.data);
     });
     await boss.schedule('listenLinks.resolve', '40 3 * * *', { sweep: true }, { singletonKey: 'listen:sweep' });
+  }
+  // Get missing albums through Lidarr (the lidarr module), on the identify
+  // worker: calls to the owner's Lidarr. The poll every 5 minutes asks
+  // nothing while no request is open; a Get sends one soon after.
+  if (wants('identify.album')) {
+    await boss.work<LidarrPollJobData>('lidarr.poll', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) {
+        const out = await lidarrPollJob(ctx, job.data ?? {});
+        if (!('skipped' in out) || out.skipped !== 'nothing open') logger.info({ jobId: job.id, ...out }, 'lidarr.poll');
+      }
+    });
+    await boss.schedule('lidarr.poll', '*/5 * * * *', {}, { singletonKey: 'lidarr.poll' });
+    await boss.work<LidarrGetJobData>('lidarr.get', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) logger.info({ jobId: job.id, artistId: job.data.artistId, ...(await lidarrGetJob(ctx, job.data)) }, 'lidarr.get');
+    });
   }
   if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));

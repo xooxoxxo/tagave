@@ -152,7 +152,29 @@ export const PLAYLISTS_MODULE = defineModule({
   defaultEnabled: true,
 });
 
-export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE];
+/**
+ * Get missing albums through Lidarr (vault "tagave - Get Missing Albums",
+ * part B): a missing album's Get asks the owner's Lidarr for it, a poll
+ * follows it until tagave's scan finds it. Off: the jobs skip and Get
+ * hides; the requests stay until "Delete its data" (api › routes/lidarr.ts).
+ * The connection (address, sealed key, root folder, profiles) is its own
+ * setting (installed_modules.settings), which stays with the switch.
+ */
+export const LIDARR_MODULE = defineModule({
+  id: 'lidarr',
+  version: '1.0.0',
+  compatibleWith: MUSIC_1,
+  provides: [],
+  consumes: [],
+  jobs: ['lidarr.poll', 'lidarr.get'],
+  prefix: 'lidarr_',
+  tables: ['lidarr_requests'],
+  settingsKeys: ['url', 'apiKey', 'rootFolderPath', 'qualityProfileId', 'metadataProfileId', 'version', 'qualityProfileName', 'metadataProfileName'],
+  // off until the owner turns it on: it asks a server of theirs to download
+  defaultEnabled: false,
+});
+
+export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE, LIDARR_MODULE];
 
 /** A ledger row (installed_modules) for every app and in-process module: what a boot syncs. */
 export interface LedgerEntry {

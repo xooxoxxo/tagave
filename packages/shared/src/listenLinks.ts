@@ -65,6 +65,8 @@ export interface AlbumListenLinksView {
   links: ListenLinkView[];
   /** a lookup is on its way: ask again in a little while */
   pending: boolean;
+  /** the person's primary platform ("Play on …"), when one of the links is it */
+  primary: ListenPlatform | null;
 }
 
 /** GET …/artists/:artistId/listen-links: links for each album the artist is missing, by release group id. */
@@ -72,17 +74,29 @@ export interface ArtistListenLinksView {
   available: boolean;
   albums: Record<string, ListenLinkView[]>;
   pending: boolean;
+  /** the person's primary platform ("Play on …") */
+  primary: ListenPlatform | null;
 }
 
 /** GET/PUT /api/v1/me/listen-links: the person's own platforms, in order. */
 export interface ListenPrefsView {
   available: boolean;
   platforms: ListenPlatform[];
+  /** "Play on …" on missing albums and Missing playlist rows: one of `platforms`, or none */
+  primary: ListenPlatform | null;
 }
 
+/** `primary` left out keeps the one chosen while it is still among `platforms`. */
 export const listenPrefsSchema = z.object({
   platforms: z.array(listenPlatformSchema).max(LISTEN_PLATFORMS.length).refine((p) => new Set(p).size === p.length, 'each platform once'),
-}).strict();
+  primary: listenPlatformSchema.nullable().optional(),
+}).strict().refine((b) => !b.primary || b.platforms.includes(b.primary), { message: 'primary: one of your platforms' });
+
+/** The person's primary platform's link among an album's links, and the others (the Listen control). */
+export function splitPrimary<T extends { platform: ListenPlatform }>(links: readonly T[], primary: ListenPlatform | null | undefined): { primary: T | null; others: T[] } {
+  const hit = primary ? links.find((l) => l.platform === primary) ?? null : null;
+  return { primary: hit, others: hit ? links.filter((l) => l !== hit) : [...links] };
+}
 
 /** Settings › Modules: the Listen elsewhere row. */
 export interface ListenLinksModuleView {

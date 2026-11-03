@@ -40,3 +40,4 @@ export * from './listenLinks.js';
 export * from './playlistsModule.js';
 export * from './deletions.js';
 export * from './modules.js';
+export * from './lidarr.js';

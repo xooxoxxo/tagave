@@ -228,6 +228,7 @@ describe('manifest v2: apps, compatibility, the module ledger', () => {
       { id: 'mc', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
       { id: 'listen-links', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
       { id: 'playlists', kind: 'in-process', version: '1.0.0', defaultEnabled: true },
+      { id: 'lidarr', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
     ]);
   });
 });

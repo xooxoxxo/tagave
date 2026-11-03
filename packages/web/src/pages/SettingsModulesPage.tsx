@@ -6,13 +6,14 @@
  */
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { moduleCommand, type ListenLinksModuleView, type McModuleView, type PlaylistsModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
+import { moduleCommand, type LidarrSettingsView, type ListenLinksModuleView, type McModuleView, type PlaylistsModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
 import { Badge, Banner, Button, confirmDialog, type BadgeTone } from '../components/ui';
 import { StepList, RunLog, clock, sentence, useNow } from '../components/InAppUpdate';
 import { StepUpDialog } from '../components/StepUpDialog';
 import { useModuleAction, useModules, modulesKey } from '../hooks/useModules';
 import { useMcModule, useRemoveMcData, useSetMcModule } from '../hooks/useMcModule';
 import { useListenLinksModule, useRemoveListenLinksData, useSetListenLinksModule } from '../hooks/useListenLinks';
+import { useLidarrSettings, useRemoveLidarrData, useSetLidarrModule } from '../hooks/useLidarr';
 import { allPlaylistsExportUrl, download, usePlaylistsModule, useRemovePlaylistsData, useSetPlaylistsModule } from '../hooks/usePlaylists';
 import { getStepUp } from '../services/stepUp';
 import runStyles from '../components/InAppUpdate.module.css';
@@ -625,6 +626,101 @@ function PlaylistsModuleSection() {
   );
 }
 
+/* ---------- Lidarr: a module switched by a setting ---------- */
+
+export interface LidarrModuleRowProps {
+  view: LidarrSettingsView;
+  pending?: boolean;
+  error?: string | null;
+  onTurnOn: () => void;
+  onTurnOff: () => void;
+}
+
+/** The Lidarr row: the same shape as Listen elsewhere's. */
+export function LidarrModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: LidarrModuleRowProps) {
+  return (
+    <ul className={styles.list} aria-label="Lidarr">
+      <li className={styles.item}>
+        <div className={styles.head}>
+          <h3 className={styles.name}>Lidarr</h3>
+          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
+        </div>
+        <p className={styles.purpose}>Gets missing albums through your Lidarr.</p>
+        <p className={styles.meta}>
+          {view.connection ? `Lidarr ${view.connection.version ?? ''}`.trim() : 'Not connected'} · {view.open === 1 ? '1 getting' : `${view.open} getting`}
+        </p>
+        <div className={styles.actions}>
+          {view.enabled
+            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
+            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
+        </div>
+        {error && <p className={styles.error} role="alert">{error}</p>}
+      </li>
+    </ul>
+  );
+}
+
+type LidarrAction = { kind: 'on' } | { kind: 'off' } | { kind: 'remove' };
+
+function LidarrModuleSection() {
+  const mod = useLidarrSettings();
+  const setOn = useSetLidarrModule();
+  const remove = useRemoveLidarrData();
+  const [error, setError] = useState<string | null>(null);
+  const [stepUp, setStepUp] = useState<{ act: LidarrAction; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
+
+  const run = async (act: LidarrAction) => {
+    setError(null);
+    try {
+      if (act.kind === 'remove') await remove.mutateAsync();
+      else await setOn.mutateAsync(act.kind === 'on');
+    } catch (err) {
+      const e = err as { status?: number; title?: string; detail?: string };
+      if (e.status === 403 && e.title === 'Step-up required') {
+        const s = await getStepUp();
+        setStepUp({ act, methods: s.methods, oidcName: s.oidcName ?? null });
+      } else {
+        setError(sentence(e.detail ?? e.title) || 'Lidarr could not be changed.');
+      }
+    }
+  };
+
+  const turnOff = async () => {
+    let deleteData = false;
+    const ok = await confirmDialog({
+      title: 'Turn off Lidarr?',
+      message: (
+        <>
+          <p>Its requests are kept unless you tick the box.</p>
+          <label className={styles.check}>
+            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
+            <span>Also delete its data. This cannot be undone.</span>
+          </label>
+        </>
+      ),
+      confirmLabel: 'Turn off',
+      tone: 'danger',
+    });
+    if (ok) await run(deleteData ? { kind: 'remove' } : { kind: 'off' });
+  };
+
+  if (!mod.data) return null;
+  return (
+    <>
+      <LidarrModuleRow view={mod.data} pending={setOn.isPending || remove.isPending} error={error} onTurnOn={() => void run({ kind: 'on' })} onTurnOff={() => void turnOff()} />
+      {stepUp && (
+        <StepUpDialog
+          action={stepUp.act.kind === 'on' ? 'Turning on Lidarr' : 'Turning off Lidarr'}
+          methods={stepUp.methods}
+          oidcName={stepUp.oidcName}
+          onCancel={() => setStepUp(null)}
+          onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
+        />
+      )}
+    </>
+  );
+}
+
 export function SettingsModulesContent() {
   return (
     <div className={styles.page}>
@@ -632,6 +728,7 @@ export function SettingsModulesContent() {
       <McModuleSection />
       <ListenLinksModuleSection />
       <PlaylistsModuleSection />
+      <LidarrModuleSection />
     </div>
   );
 }
