@@ -92,7 +92,8 @@ describe('phone top bar: the page name in place of the wordmark', () => {
     expect(phone).toMatch(/\.wordmark \{ display: none; \}/);
     expect(phone).toMatch(/\.pageTitle \{ display: block;/);
     expect(phone).toMatch(/\.page \[data-page-title\] \{ position: absolute;/);
-    expect(phone).toMatch(/\.page \[data-title-only\] \{ padding: var\(--page-top\) 0 0;/);
+    // a step under the bar, not the page's full top padding (the compact pass)
+    expect(phone).toMatch(/\.page \[data-title-only\] \{ padding: \.5rem 0 0;/);
     // a detail page (back key) and a sub-page trade the mark and the name for the back bar
     expect(css).toMatch(/\.navDetail \.brand, \.navDetail \.pageTitle \{ display: none; \}/);
   });

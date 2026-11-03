@@ -128,15 +128,29 @@
   flex-direction: column;
   gap: var(--space-lg);
 }
+/* No bottom padding: the list scrolls right down to the player bar (or the
+   pane's foot); its own scroller pads the last row clear of it. A padding
+   here showed as a band of empty page between the list and the bar. */
 .pageShellFill .content {
   min-height: 0;
-  padding: 0 var(--shell-gutter) var(--page-pad);
+  padding: 0 var(--shell-gutter);
   gap: var(--space-md);
+}
+/* A phone, a list page whose header held only the heading (the top bar
+   names the page): the toolbar starts a step under the bar. */
+@media (max-width: 720px) {
+  .pageShellFill > .header[data-title-only] { padding: 0; }
+  .pageShellFill .content { gap: var(--space-sm); }
 }
 
 .tabs { padding-inline: var(--shell-gutter); }
 
 @media (max-width: 640px) { .header { flex-direction: column; gap: 1rem; } .titleBlock { flex: 0 0 auto; width: 100%; } .actions { flex-wrap: wrap; } }
+
+/* Phone: less air above and below a page's content (the compact pass, 2026-11-03). */
+@media (max-width: 720px) {
+  .content { padding-top: 1rem; padding-bottom: 1.5rem; }
+}
 
 /* Phone: the back button lives in the top bar (Layout), not in the page. */
 @media (max-width: 720px) { .back { display: none; } }

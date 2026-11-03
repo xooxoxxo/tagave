@@ -106,43 +106,56 @@ not as a drop. */
    (about 60px). The links and sign out open as a sheet under the bar; two
    rows of links plus a fixed footer had taken 180px of an 860px screen. */
 @media (max-width: 720px) {
-  .nav { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: .5rem; padding: .55rem 1rem; border-bottom: 1px solid var(--line); }
+  .nav { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: .25rem; padding: .3rem .5rem .3rem 1rem; border-bottom: 1px solid var(--line); }
   .brand { grid-column: 1; grid-row: 1; font-size: 1.3rem; gap: .5rem; }
   .wordmark { display: none; }
   .pageTitle { display: block; grid-column: 2; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 var(--font-size-lg) / 1.2 var(--font-body); color: var(--ink); }
-  /* the same height as the search and menu circles beside it */
-  .brandMark, .brandRowBeside .brandMark { width: 2.75rem; height: 2.75rem; }
+  /* a step under the 44px keys beside it */
+  .brandMark, .brandRowBeside .brandMark { width: 2.25rem; height: 2.25rem; }
   /* The bar names the page, so the page's own heading is left to screen
      readers, and a header that held only the heading keeps just the page's
      top margin (tabs and toolbars would otherwise touch the bar). */
   .page [data-page-title] { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-  .page [data-title-only] { padding: var(--page-top) 0 0; gap: 0; }
+  .page [data-title-only] { padding: .5rem 0 0; gap: 0; }
   .page [data-title-only] > * { margin: 0; }
-  .searchButton { grid-column: 3; grid-row: 1; width: 2.75rem; min-height: 2.75rem; padding: 0; justify-content: center; }
+  /* Search and the menu: embossed keys, no circles (the app's icon buttons,
+     ui/EmbossIconButton), 44px to the touch. */
+  .searchButton,
+  .searchButton:hover:not(:disabled),
+  .searchButton:active:not(:disabled),
+  .menuButton,
+  .menuButton:hover:not(:disabled),
+  .menuButton:active:not(:disabled) { background: transparent; border: 0; box-shadow: none; }
+  .searchButton { grid-column: 3; grid-row: 1; width: 2.75rem; min-height: 2.75rem; padding: 0; justify-content: center; color: var(--ink-2); }
   .searchLabel, .searchButton kbd { display: none; }
-  .searchIcon { width: 1.1rem; height: 1.1rem; }
+  .searchIcon, .menuButton svg { width: 1.375rem; height: 1.375rem; filter: drop-shadow(0 -0.5px 0 var(--emboss-hi)) drop-shadow(0 1px 1px var(--emboss-lo)); }
+  .searchButton:active:not(:disabled) .searchIcon, .menuButton:active:not(:disabled) svg { opacity: .7; transform: translateY(1px); }
   .menuButton { display: inline-flex; grid-column: 4; grid-row: 1; }
+  .searchButton:focus-visible, .menuButton:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; border-radius: var(--r-inner); }
   .navSheet { display: none; }
+  /* The menu: the whole screen under the bar, down to the player bar (or the
+     foot), opaque, so no page shows through or below it. The links on top,
+     the account at the bottom, its compartment opening upward from it. */
   .navOpen .navSheet {
     display: flex;
     flex-direction: column;
-    position: absolute;
-    top: 100%;
+    position: fixed;
+    top: var(--nav-bar-h, 3.5rem);
     left: 0;
     right: 0;
-    max-height: calc(100dvh - 3.9rem);
+    bottom: 0;
     overflow-y: auto;
-    padding: .75rem 1rem 1rem;
+    overscroll-behavior: contain;
+    gap: .75rem;
+    padding: .5rem 1rem 0;
     background: var(--bg-nav);
-    border-bottom: 1px solid var(--line);
-    box-shadow: 0 24px 40px -24px rgba(var(--shadow-tint), .45);
   }
   /* the player bar holds the foot of the screen: the sheet ends above it */
-  :global(html[data-player-bar]) .navOpen .navSheet { max-height: calc(100dvh - 3.9rem - var(--player-bar-h, 0px)); }
-  .navOpen .navLinks { flex-direction: column; flex-wrap: nowrap; gap: .15rem; }
-  .navOpen .navLink { padding: .8rem 1rem; font-size: 1rem; }
-  /* phone: the account row ends the sheet, set off by space, not a rule */
-  .navOpen .account { display: flex; position: relative; margin: 1rem 0 0; }
+  :global(html[data-player-bar]) .navOpen .navSheet { bottom: var(--player-bar-h, 0px); }
+  .navOpen .navLinks { flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+  .navOpen .navLink { padding: .6rem 1rem; font-size: .9375rem; }
+  /* phone: the account row ends the sheet, on its bottom edge */
+  .navOpen .account { display: flex; position: sticky; bottom: 0; margin: auto 0 0; }
 }
 
 /* ---- context-aware bar ---- */
