@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { localTrackViews, canonicalTrackViews } from './trackLinks.js';
+import { localTrackViews, canonicalTrackViews, planTrackLinks } from './trackLinks.js';
 
 describe('localTrackViews', () => {
   it('should sort by (disc??1, track??0) and build LocalTrack array', () => {
@@ -160,5 +160,75 @@ describe('canonicalTrackViews', () => {
     canonicalTrackViews(rows);
 
     expect(rows).toEqual(originalOrder);
+  });
+});
+
+describe('planTrackLinks', () => {
+  // Enslaved, Vertebrae: the release's eight tracks (seconds), and a folder
+  // holding those eight plus eight tracks of other albums.
+  const RELEASE: Array<[string, number]> = [
+    ['Clouds', 368], ['To the Coast', 387], ['Ground', 397], ['Vertebrae', 300],
+    ['New Dawn', 322], ['Reflection', 464], ['Center', 452], ['The Watcher', 251],
+  ];
+  const OTHERS: Array<[string, number]> = [
+    ['Isa', 250], ['Lunar Force', 359], ['Ruun', 425], ['Fusion of Sense and Earth', 412],
+    ['Return to Yggdrasill', 401], ['Path to Vanir', 336], ['Bounded by Allegiance', 381], ['Heir to the Cosmic Seed', 492],
+  ];
+  const canonicalRows = RELEASE.map(([title, s], i) => ({
+    id: `ct-${i + 1}`, mediumNo: 1, position: i + 1, title, artistCredit: [], lengthMs: s * 1000, recordingMbid: null, trackMbid: null,
+  }));
+  const localRows = [
+    ...RELEASE.map(([title, s], i) => ({ id: `lt-${title}`, discNo: 1, trackNo: i + 1, titleGuess: title, artistGuess: 'Enslaved', durationMs: s * 1000 + 400 })),
+    ...OTHERS.map(([title, s], i) => ({ id: `lt-${title}`, discNo: 1, trackNo: i + 1, titleGuess: title, artistGuess: 'Enslaved', durationMs: s * 1000 })),
+  ];
+  const titleOf = new Map(canonicalRows.map((c) => [c.id, c.title]));
+
+  /** deterministic shuffle (the order a heap scan might return) */
+  const shuffled = <T,>(xs: T[], seed: number): T[] => {
+    const out = [...xs];
+    let s = seed;
+    for (let i = out.length - 1; i > 0; i--) {
+      s = (s * 1103515245 + 12345) % 2147483648;
+      const j = s % (i + 1);
+      [out[i], out[j]] = [out[j]!, out[i]!];
+    }
+    return out;
+  };
+
+  it.each([1, 7, 42, 1234])('links each file to the release track with its own title (rows shuffled, seed %i)', (seed) => {
+    const links = planTrackLinks(shuffled(localRows, seed), shuffled(canonicalRows, seed + 1));
+    expect(links).toHaveLength(16);
+    const byId = new Map(links.map((l) => [l.id, l]));
+    for (const [title] of RELEASE) {
+      const l = byId.get(`lt-${title}`)!;
+      expect(l.state).toBe('matched');
+      expect(titleOf.get(l.canonicalTrackId!)).toBe(title);
+      expect(l.distance).toBeLessThan(0.01);
+    }
+    for (const [title] of OTHERS) {
+      expect(byId.get(`lt-${title}`)).toMatchObject({ state: 'unmatched', canonicalTrackId: null });
+    }
+  });
+
+  it('gives every row exactly one entry', () => {
+    const links = planTrackLinks(shuffled(localRows, 3), canonicalRows);
+    expect(new Set(links.map((l) => l.id)).size).toBe(localRows.length);
+  });
+
+  it('pairs multi-disc rows returned out of order', () => {
+    const can = [
+      { id: 'c11', mediumNo: 1, position: 1, title: 'One', artistCredit: [], lengthMs: 200_000, recordingMbid: null, trackMbid: null },
+      { id: 'c12', mediumNo: 1, position: 2, title: 'Two', artistCredit: [], lengthMs: 240_000, recordingMbid: null, trackMbid: null },
+      { id: 'c21', mediumNo: 2, position: 1, title: 'Three', artistCredit: [], lengthMs: 180_000, recordingMbid: null, trackMbid: null },
+      { id: 'c22', mediumNo: 2, position: 2, title: 'Four', artistCredit: [], lengthMs: 300_000, recordingMbid: null, trackMbid: null },
+    ];
+    const loc = [
+      { id: 'l22', discNo: 2, trackNo: 2, titleGuess: 'Four', artistGuess: null, durationMs: 300_000 },
+      { id: 'l11', discNo: 1, trackNo: 1, titleGuess: 'One', artistGuess: null, durationMs: 200_000 },
+      { id: 'l21', discNo: 2, trackNo: 1, titleGuess: 'Three', artistGuess: null, durationMs: 180_000 },
+      { id: 'l12', discNo: 1, trackNo: 2, titleGuess: 'Two', artistGuess: null, durationMs: 240_000 },
+    ];
+    const got = Object.fromEntries(planTrackLinks(loc, [can[3]!, can[0]!, can[2]!, can[1]!]).map((l) => [l.id, l.canonicalTrackId]));
+    expect(got).toEqual({ l11: 'c11', l12: 'c12', l21: 'c21', l22: 'c22' });
   });
 });

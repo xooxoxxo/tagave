@@ -244,6 +244,101 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     await db.delete(releases).where(eq(releases.id, testReleaseId));
   });
 
+  it('links every row to the canonical track with its own title when rows are stored out of track order', async () => {
+    // Enslaved, Vertebrae: the folder holds the release's eight tracks and
+    // eight tracks of other albums. Before the fix the alignment (sorted by
+    // track) was written onto the rows in heap order: Clouds got Vertebrae.
+    const release: Array<[string, number]> = [
+      ['Clouds', 368], ['To the Coast', 387], ['Ground', 397], ['Vertebrae', 300],
+      ['New Dawn', 322], ['Reflection', 464], ['Center', 452], ['The Watcher', 251],
+    ];
+    const others: Array<[string, number]> = [
+      ['Isa', 250], ['Lunar Force', 359], ['Ruun', 425], ['Fusion of Sense and Earth', 412],
+      ['Return to Yggdrasill', 401], ['Path to Vanir', 336], ['Bounded by Allegiance', 381], ['Heir to the Cosmic Seed', 492],
+    ];
+    const aId = randomUUID();
+    const relId = randomUUID();
+    await db.insert(releases).values({ id: relId, releaseGroupId, mbid: `link-rel-shuffled-${RUN}`, title: 'Vertebrae' });
+    await db.insert(localAlbums).values({
+      id: aId, libraryId, clusterKey: `vertebrae-${aId}`, dirPaths: ['/link-test/vertebrae'], titleGuess: 'Vertebrae', artistGuess: 'Enslaved',
+      state: 'matched', releaseId: relId, trackCount: 16, discCount: 1,
+    });
+    // Canonical rows stored out of order too.
+    const canonical = release.map(([title, s], i) => ({
+      id: randomUUID(), releaseId: relId, mediumNo: 1, position: i + 1, number: String(i + 1), title, artistCredit: [], lengthMs: s * 1000,
+    }));
+    await db.insert(canonicalTracks).values([4, 1, 7, 0, 5, 2, 6, 3].map((i) => canonical[i]!));
+    const titleOfCanonical = new Map(canonical.map((c) => [c.id, c.title]));
+
+    const local = [
+      ...release.map(([title, s], i) => ({ title, ms: s * 1000 + 500, trackNo: i + 1 })),
+      ...others.map(([title, s], i) => ({ title, ms: s * 1000, trackNo: i + 1 })),
+    ].map((t) => ({ ...t, id: randomUUID(), fileId: randomUUID() }));
+    // Rows inserted in an order unrelated to track numbers, so a plain
+    // select returns them that way.
+    const order = [3, 12, 0, 9, 6, 15, 1, 10, 7, 13, 4, 8, 2, 14, 5, 11];
+    await db.insert(files).values(order.map((i) => ({
+      handler: 'audio', id: local[i]!.fileId, libraryId, scanRootId: rootId, relPath: `vertebrae/${i}.flac`, sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {},
+    })));
+    await db.insert(localTracks).values(order.map((i) => ({
+      id: local[i]!.id, localAlbumId: aId, audioFileId: local[i]!.fileId, discNo: 1, trackNo: local[i]!.trackNo, titleGuess: local[i]!.title, durationMs: local[i]!.ms,
+    })));
+    const stored = await db.select({ id: localTracks.id }).from(localTracks).where(eq(localTracks.localAlbumId, aId));
+    expect(stored.map((r: { id: string }) => r.id)).not.toEqual([...local].sort((a, b) => a.trackNo - b.trackNo).map((t) => t.id));
+
+    const result = await linkAlbumTracks(ctx, aId);
+    expect(result).toMatchObject({ total: 16, linked: 8, unaligned: 8 });
+
+    const rows = await db.select().from(localTracks).where(eq(localTracks.localAlbumId, aId));
+    const byId = new Map(rows.map((r: any) => [r.id, r]));
+    for (const t of local.slice(0, 8)) {
+      const row: any = byId.get(t.id);
+      expect(row.state).toBe('matched');
+      expect(titleOfCanonical.get(row.canonicalTrackId)).toBe(t.title);
+      expect(Number(row.matchDistance)).toBeLessThan(0.01);
+    }
+    for (const t of local.slice(8)) {
+      const row: any = byId.get(t.id);
+      expect(row).toMatchObject({ state: 'unmatched', canonicalTrackId: null });
+    }
+
+    await db.delete(localTracks).where(eq(localTracks.localAlbumId, aId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
+    await db.delete(localAlbums).where(eq(localAlbums.id, aId));
+    await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, relId));
+    await db.delete(releases).where(eq(releases.id, relId));
+  });
+
+  it('clears old links when the release has no tracks', async () => {
+    const aId = randomUUID();
+    const relId = randomUUID();
+    const otherRel = randomUUID();
+    await db.insert(releases).values([
+      { id: relId, releaseGroupId, mbid: `link-rel-empty-${RUN}`, title: 'Empty' },
+      { id: otherRel, releaseGroupId, mbid: `link-rel-before-${RUN}`, title: 'Before' },
+    ]);
+    const oldCt = randomUUID();
+    await db.insert(canonicalTracks).values({ id: oldCt, releaseId: otherRel, mediumNo: 1, position: 1, number: '1', title: 'Old', artistCredit: [], lengthMs: 1000 });
+    await db.insert(localAlbums).values({
+      id: aId, libraryId, clusterKey: `empty-${aId}`, dirPaths: ['/link-test/empty'], titleGuess: 'Empty', artistGuess: 'A',
+      state: 'matched', releaseId: relId, trackCount: 1, discCount: 1,
+    });
+    const fileId = randomUUID();
+    await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: 'empty/1.flac', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} });
+    const ltId = randomUUID();
+    await db.insert(localTracks).values({ id: ltId, localAlbumId: aId, audioFileId: fileId, trackNo: 1, titleGuess: 'Old', durationMs: 1000, canonicalTrackId: oldCt, state: 'matched', matchDistance: '0' });
+
+    await linkAlbumTracks(ctx, aId);
+    const [row] = await db.select().from(localTracks).where(eq(localTracks.id, ltId));
+    expect(row).toMatchObject({ canonicalTrackId: null, state: 'unmatched' });
+
+    await db.delete(localTracks).where(eq(localTracks.localAlbumId, aId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
+    await db.delete(localAlbums).where(eq(localAlbums.id, aId));
+    await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, otherRel));
+    await db.delete(releases).where(inArray(releases.id, [relId, otherRel]));
+  });
+
   it('should be idempotent and re-link with same ids after canonical re-fetch', async () => {
     const album4Id = randomUUID();
     const testReleaseId = randomUUID();
