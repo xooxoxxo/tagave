@@ -149,6 +149,7 @@
 
 /* Phone: less air above and below a page's content (the compact pass, 2026-11-03). */
 @media (max-width: 720px) {
+  .header { padding-top: .5rem; padding-bottom: .5rem; }
   .content { padding-top: 1rem; padding-bottom: 1.5rem; }
 }
 
