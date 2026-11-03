@@ -93,6 +93,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/libraries/:libraryId/artists': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/artists/:artistId': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/artists/:artistId/listen-links': 'catalog.read',
+  // Lidarr: the states of an artist's missing albums, and whether Get is set up (Get itself is system.manage)
+  'GET /api/v1/libraries/:libraryId/artists/:artistId/lidarr': 'catalog.read',
+  'GET /api/v1/lidarr': 'catalog.read',
   'POST /api/v1/libraries/:libraryId/release-groups/:rgId/clippings': 'catalog.read',
   'POST /api/v1/libraries/:libraryId/release-groups/:rgId/listens': 'catalog.read',
   'DELETE /api/v1/libraries/:libraryId/release-groups/:rgId/review': 'catalog.read',
@@ -244,6 +247,18 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /api/v1/settings/listen-links': 'system.manage',
   'POST /api/v1/settings/listen-links/remove-data': 'system.manage',
   // Settings › Modules, the Playlists row (routes/playlists.ts): owner; switching and deleting need a fresh step-up.
+  // Get missing albums through Lidarr (routes/lidarr.ts): Get spends disk and bandwidth, so it is the owner's; the settings too (switch, connect, disconnect, delete data need a fresh step-up).
+  'GET /api/v1/libraries/:libraryId/lidarr/requests': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/lidarr/requests': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/lidarr/requests/:id/retry': 'system.manage',
+  'DELETE /api/v1/libraries/:libraryId/lidarr/requests/:id': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/artists/:artistId/lidarr/get-all': 'system.manage',
+  'GET /api/v1/settings/lidarr': 'system.manage',
+  'PUT /api/v1/settings/lidarr': 'system.manage',
+  'POST /api/v1/settings/lidarr/test': 'system.manage',
+  'PUT /api/v1/settings/lidarr/connection': 'system.manage',
+  'DELETE /api/v1/settings/lidarr/connection': 'system.manage',
+  'POST /api/v1/settings/lidarr/remove-data': 'system.manage',
   'GET /api/v1/settings/playlists': 'system.manage',
   'PUT /api/v1/settings/playlists': 'system.manage',
   'GET /api/v1/settings/playlists/export': 'system.manage',

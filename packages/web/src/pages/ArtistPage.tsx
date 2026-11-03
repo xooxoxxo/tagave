@@ -31,6 +31,8 @@ import { detailsState, kindLine, pageSections, shelves as shelvesOf } from './ar
 import { useArtistFlow } from './useArtistFlow';
 import { MissingListenLinks } from '../components/ListenControl';
 import { useArtistListenLinks } from '../hooks/useListenLinks';
+import { MissingLidarr } from '../components/LidarrControls';
+import { useArtistLidarr } from '../hooks/useLidarr';
 import styles from './ArtistPage.module.css';
 
 const NO_GLIDE = { x: 0, y: 0 };
@@ -61,6 +63,9 @@ export function ArtistPage() {
   const [showReleaseTypes, setShowReleaseTypes] = useState(false);
   // Listen elsewhere: links for the albums a followed artist is missing
   const listen = useArtistListenLinks(libraryId, artistId, shelves.missing.length > 0);
+  // Lidarr: each missing album's request and Get (the lidarr module)
+  const lidarr = useArtistLidarr(libraryId, artistId, shelves.missing.length > 0);
+  const lidarrValue = useMemo(() => (lidarr.data?.available ? { view: lidarr.data, libraryId, artistId } : null), [lidarr.data, libraryId, artistId]);
 
   if (error && isNotFound(error)) return <NotFoundPage title="Artist not found" to="/artists" label="Back to artists" />;
   if (error) {
@@ -98,11 +103,11 @@ export function ArtistPage() {
               reopening: reopenMutation.isPending,
               canFollow: canCare,
             };
-            return <MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
+            return <MissingLidarr.Provider value={lidarrValue}><MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
               {nameFirst
                 ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />
                 : <ArtistLikeAlbums {...props} />}
-            </MissingListenLinks.Provider>;
+            </MissingListenLinks.Provider></MissingLidarr.Provider>;
           })()}
         {maintenance && showReleaseTypes && artist?.followed && (
           <ReleaseTypes libraryId={libraryId} artistId={artistId} onClose={() => setShowReleaseTypes(false)} />

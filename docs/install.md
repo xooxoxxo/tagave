@@ -271,6 +271,14 @@ Music keeps playing with the screen locked or another app open. The lock screen,
 
 **In the car.** CarPlay and Android Auto show native apps only. Use a Subsonic app with tagave's Navidrome: Symfonium on Android (Android Auto), Amperfy or play:Sub on iPhone (CarPlay). **Phone apps**, above, says how to sign in.
 
+### Get missing albums (Lidarr)
+
+If you run [Lidarr](https://lidarr.audio), tagave can ask it for the albums a followed artist is missing. In **Settings › Connections › Lidarr** (owner only), enter Lidarr's address and API key (Lidarr's **Settings › General**), press **Test**, pick the root folder and the two profiles, **Save**, and switch it **On**. The key is sealed with `APP_SECRET` and never shown again.
+
+On an artist page, a missing album's **⋮ › Get** asks Lidarr for that album only; the heading's **⋮ › Get all missing** asks for each one. The card shows **Wanted**, **Downloading**, **Importing** or **Not found** (nothing found after three days: **Retry**), and the album joins your library once tagave's scan finds it. **Library care › Getting** lists what is on its way. **Cancel** unmonitors the album in Lidarr; it never deletes files there.
+
+Lidarr's root folder must be inside one of tagave's music folders, at the same path in both containers (for example both mount the music at `/music`). If it is not, the Lidarr settings say so.
+
 ## Manual install (build from source)
 
 The rest of this guide builds the images yourself with `docker-compose.prod.yml`, the way a development checkout runs.

@@ -508,7 +508,7 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
       try {
         expect(await mcEnabled(handle.sql)).toBe(false);
         await expect(setMcEnabled(handle.sql, true)).rejects.toBeInstanceOf(UnknownModuleError);
-        expect(await syncInstalledModules(handle.sql, ledgerEntries())).toEqual(['mc']);
+        expect(await syncInstalledModules(handle.sql, ledgerEntries())).toEqual(['lidarr', 'mc']);
         expect(await mcEnabled(handle.sql)).toBe(false);
         expect((await app.inject({ method: 'GET', url: '/.well-known/music-connections' })).statusCode).toBe(404);
         expect((await register()).statusCode).toBe(404);

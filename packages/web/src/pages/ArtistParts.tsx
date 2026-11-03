@@ -9,6 +9,7 @@ import { Button, CoverArt, CoverChip, IconButton, UndoIcon, type CoverChipTone }
 import type { ArtistAlbum, ArtistAlbumOwnership, ArtistDetail } from '../hooks';
 import { paragraphs, shortDate, type DetailsState } from './artistPageView';
 import { ListenControl, MissingListenLinks } from '../components/ListenControl';
+import { LidarrChip, MissingAlbumMenu } from '../components/LidarrControls';
 import styles from './ArtistPage.module.css';
 
 const CHIP: Partial<Record<ArtistAlbumOwnership, [string, CoverChipTone]>> = {
@@ -31,6 +32,7 @@ export function AlbumCard({ album, onReopen, reopening }: {
   const cover = (
     <CoverArt src={album.coverUrl} title={album.title} dimmed={away ? (album.ownership as 'missing' | 'ignored') : undefined} interactive={!!album.localAlbumId}>
       {chip && <CoverChip tone={chip[1]}>{chip[0]}</CoverChip>}
+      {album.ownership === 'missing' && <LidarrChip releaseGroupId={album.releaseGroupId} />}
       {album.ownership === 'ignored' && album.gapId && onReopen && (
         <IconButton
           size="sm"
@@ -53,7 +55,12 @@ export function AlbumCard({ album, onReopen, reopening }: {
       <Link to="/albums/$albumId" params={{ albumId: album.localAlbumId }} className={styles.cardLink}>{cover}{text}</Link>
     </li>;
   }
-  return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}{text}{links.length > 0 && <ListenControl links={links} className={styles.cardListen} />}</li>;
+  // a missing album: Listen elsewhere and, for the owner, its ⋮ (Get through Lidarr)
+  const more = album.ownership === 'missing' ? <MissingAlbumMenu releaseGroupId={album.releaseGroupId} title={album.title} /> : null;
+  return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}
+    {more ? <div className={styles.cardHead}><div className={styles.cardText}>{text}</div>{more}</div> : text}
+    {links.length > 0 && <ListenControl links={links} className={styles.cardListen} />}
+  </li>;
 }
 
 export function AlbumGrid({ albums, onReopen, reopening }: { albums: ArtistAlbum[]; onReopen?: ((gapId: string) => void) | undefined; reopening?: boolean }) {

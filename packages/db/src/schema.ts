@@ -2022,3 +2022,33 @@ export const fileDeletions = pgTable(
     kindStateCheck: check('file_deletions_kind_state', sql`(kind = 'mark') = (state = 'marked')`),
   })
 );
+
+// Get missing albums through Lidarr (0075, the lidarr module): one row per
+// missing album the owner asked Lidarr for, followed by lidarr.poll until
+// tagave's scan finds the album.
+export const lidarrRequests = pgTable(
+  'lidarr_requests',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    releaseGroupId: uuid('release_group_id').notNull().references(() => releaseGroups.id, { onDelete: 'cascade' }),
+    /** wanted | downloading | imported | done | not_found */
+    state: text().notNull().default('wanted'),
+    progress: smallint(),
+    lidarrAlbumId: integer('lidarr_album_id'),
+    lidarrArtistId: integer('lidarr_artist_id'),
+    lidarrPath: text('lidarr_path'),
+    outsideRoots: boolean('outside_roots').notNull().default(false),
+    scanRequestedAt: tstz('scan_requested_at'),
+    lastError: text('last_error'),
+    requestedBy: uuid('requested_by').references(() => users.id, { onDelete: 'set null' }),
+    requestedAt: tstz('requested_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+    doneAt: tstz('done_at'),
+  },
+  (table) => ({
+    once: unique('lidarr_requests_library_id_release_group_id_key').on(table.libraryId, table.releaseGroupId),
+    openIdx: index('idx_lidarr_requests_open').on(table.libraryId, table.state),
+    stateCheck: check('lidarr_requests_state_check', sql`state in ('wanted', 'downloading', 'imported', 'done', 'not_found')`),
+  })
+);

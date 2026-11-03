@@ -1,0 +1,55 @@
+/* Settings › Connections › Lidarr (LidarrSettings.tsx): the same rhythm as
+   Settings › Users › Sign-in service. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+  max-width: 32rem;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.titleRow > h2 { margin: 0; }
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.field > select { width: 100%; }
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.status {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.warnTitle { display: block; font-weight: 500; }
+.roots { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.roots code { font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}

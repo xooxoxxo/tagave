@@ -113,10 +113,17 @@
 
 .live { color: var(--ink-2); }
 
-.actions { flex: none; display: flex; gap: var(--space-xs); }
+.actions { flex: none; display: flex; align-items: center; gap: var(--space-xs); }
 
 @media (max-width: 640px) {
   .row { padding: var(--space-sm) var(--space-md); }
   .command { flex-direction: column; }
   .code { width: 100%; box-sizing: border-box; }
+}
+
+/* Library care › Getting (GettingPage.tsx): on a phone the state and its
+   actions go under the title, so the title keeps its width */
+@media (max-width: 640px) {
+  .wrapRow { flex-wrap: wrap; row-gap: var(--space-xs); }
+  .wrapRow .actions { flex-basis: 100%; }
 }

@@ -15,6 +15,7 @@ import type { ArtistLayoutProps } from './ArtistNameFirst';
 import { ALBUM_KINDS, KIND_HEADINGS, albumKind, kindLine, mosaicAlbums, ownedLine, paragraphs, regionName, yearsLine } from './artistPageView';
 import type { ArtistAlbum } from '../hooks';
 import { shownAliases } from './artistAliases';
+import { MissingHeadingMenu } from '../components/LidarrControls';
 import styles from './ArtistPage.module.css';
 
 function Mosaic({ albums, name }: { albums: ArtistAlbum[]; name: string }) {
@@ -25,9 +26,9 @@ function Mosaic({ albums, name }: { albums: ArtistAlbum[]; name: string }) {
   </div>;
 }
 
-function Group({ label, children }: { label: string | null; children: ReactNode }) {
+function Group({ label, children, action }: { label: string | null; children: ReactNode; action?: ReactNode }) {
   return <div className={styles.aGroup}>
-    {label && <p className={styles.label}>{label}</p>}
+    {label && (action ? <div className={styles.headRow}><p className={styles.label}>{label}</p>{action}</div> : <p className={styles.label}>{label}</p>)}
     {children}
   </div>;
 }
@@ -115,7 +116,7 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
         : <>
           {groups.map(([k, list]) => <Group key={k} label={heads ? KIND_HEADINGS[k] : null}><AlbumGrid albums={list} /></Group>)}
           {s.owned.length === 0 && <p className={styles.empty}>Nothing in your library</p>}
-          {s.missing.length > 0 && <Group label={`Not in your library · ${s.missing.length}`}><AlbumGrid albums={s.missing} /></Group>}
+          {s.missing.length > 0 && <Group label={`Not in your library · ${s.missing.length}`} action={<MissingHeadingMenu />}><AlbumGrid albums={s.missing} /></Group>}
           {maintenance && s.skipped.length > 0 && <Group label={`Skipped · ${s.skipped.length}`}>
             <AlbumGrid albums={s.skipped} onReopen={p.onReopen} reopening={p.reopening} />
           </Group>}

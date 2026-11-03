@@ -45,6 +45,7 @@ import { createMcConnectionRoutes } from './routes/mcConnections.js';
 import { createMcWantlistRoutes } from './routes/mcWantlist.js';
 import { createFacetRoutes } from './routes/facets.js';
 import { createListenLinksRoutes } from './routes/listenLinks.js';
+import { createLidarrRoutes } from './routes/lidarr.js';
 import { createPlayerQueueRoutes } from './routes/playerQueue.js';
 import { createPlaylistRoutes } from './routes/playlists.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
@@ -196,5 +197,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
     // Deleting songs and albums: Mark or Trash, Library care › Deleting (owner)
     instance.register(createDeletionRoutes, { prefix: '/api/v1' });
+    // Get missing albums through Lidarr: the states, Get (owner), Settings › Connections › Lidarr
+    instance.register(createLidarrRoutes, { prefix: '/api/v1' });
   });
 }

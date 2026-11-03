@@ -27,6 +27,7 @@ import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
 import { SettingsUsersPage } from './SettingsUsersPage';
 import { SignInService } from '../components/users/SignInService';
+import { LidarrSettings } from '../components/LidarrSettings';
 import { SettingsAccountPage } from './SettingsAccountPage';
 import { CUSTOM_THEME_SECTION, CustomThemeScreen, ThemeSetting } from '../themes/ThemeSetting';
 import { NotAvailable } from '../components/access/NotAvailable';
@@ -133,6 +134,8 @@ export function SettingsPage() {
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         {section === 'listening' && <SettingsListeningContent />}
         {section === 'connections' && (mcOn === false ? <ConnectionsOff modules={can(role, 'system.manage') ? <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link> : null} /> : <SettingsConnectionsContent />)}
+        {/* Lidarr: the owner's, for Get on missing albums (the lidarr module) */}
+        {section === 'connections' && can(role, 'system.manage') && <LidarrSettings headingClassName={styles.modeSetting} />}
         {section === 'security' && <><h2>Security</h2><SettingsSecurityPage /></>}
         {section === 'listen-elsewhere' && (listenOn === false ? <ListenElsewhereOff owner={can(role, 'system.manage')} /> : listenOn ? <SettingsListenElsewhereContent /> : null)}
         </>}
