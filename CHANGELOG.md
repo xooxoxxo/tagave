@@ -2,7 +2,27 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.17.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.17.0)
+## [v0.18.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.18.0)
+
+**Minor release (0.17 → 0.18).** Get missing albums through Lidarr, and play what is still missing on your own streaming service.
+
+### Before you update
+
+- **Going back to 0.17 means a restore.** This update changes the database (migrations 0075–0076). The updater takes a backup first and restores it on its own if the update fails; to return to 0.17 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.18.0/docs/operations.md).
+
+### New
+
+- **Get missing albums through Lidarr.** Turn on Lidarr in Settings › Modules, then connect it in Settings › Connections › Lidarr (address, API key, Test, then root folder and profiles). On an artist page, a missing album's ⋮ menu has Get, and the "Not in your library" heading has Get all missing. Lidarr monitors and searches only that album, never the whole discography. Each album shows Wanted, Downloading, Importing or Not found; when Lidarr imports it, tagave scans that folder at once and the album joins your library. Library care › Getting lists open requests with Retry and Cancel; Cancel stops the search and never deletes files. Owner only. See [Get missing albums](https://github.com/xooxoxxo/tagave/blob/v0.18.0/docs/install.md). ([db09110](https://github.com/xooxoxxo/tagave/commit/db09110), [c6d1b16](https://github.com/xooxoxxo/tagave/commit/c6d1b16))
+- **Play missing albums on your service.** Settings › Listen elsewhere › Missing albums picks one service; missing albums and missing playlist songs then get a ▶ key that opens them there. ([1f29ac9](https://github.com/xooxoxxo/tagave/commit/1f29ac9), [2d83ca0](https://github.com/xooxoxxo/tagave/commit/2d83ca0))
+
+### For self-hosters
+
+- **Migrations:** 0075 (Lidarr requests), 0076 (primary listen service).
+- **Lidarr's root folder must be one of tagave's scan roots** (the same folder, mounted in both), or tagave can't pick up what Lidarr imports; Settings › Connections › Lidarr warns when it isn't.
+
+**All changes:** [v0.17.0...v0.18.0](https://github.com/xooxoxxo/tagave/compare/v0.17.0...v0.18.0)
+
+## [v0.17.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.17.0) (2026-11-02)
 
 **Minor release (0.16 → 0.17).** Delete songs and albums, by marking them or moving them to a trash, and sign in with your own login service, such as Zitadel.
 
