@@ -315,10 +315,10 @@ export function matchConfidence(distance: number): number {
 }
 
 /**
- * 80 %: the alignment cost is 0.6 × title distance + 0.4 × length penalty
- * (none within 10 s, full at 30 s). An exact title more than 20 s off, or a
- * matching length with a third of the title different, lands right here:
- * either is worth a look. Ordinary differences (feat. credits, "Remastered",
- * a few seconds of silence) stay above it.
+ * 70 %: the alignment cost is 0.6 × title distance + 0.4 × length penalty
+ * (none within 10 s, full at 30 s). Spelling variants, "feat." credits and
+ * "Remastered" suffixes at the same length score 75–87 %; an unrelated
+ * title at the same length scores 55–60 %, and a right title 25 s off
+ * about 65 %. Below 70 the pairing is worth a look.
  */
-export const LOW_MATCH_CONFIDENCE = 80;
+export const LOW_MATCH_CONFIDENCE = 70;
