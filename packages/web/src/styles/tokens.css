@@ -220,6 +220,12 @@
   --font-size-md: var(--font-size-base);
 }
 
+/* A phone: 40px controls instead of 48 (owner, 2026-11-03: "let's make
+   things a bit more compact"); still a finger's target with the row gaps. */
+@media (max-width: 720px) {
+  :root { --h-control: 40px; }
+}
+
 /* ---- Dark palette: follows the OS unless the viewer chose light ---- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

@@ -1,6 +1,8 @@
 /**
  * ⌘K search (BRW-4): one box over albums, artists, tracks; arrow keys to
- * move, Enter to open, Esc to close.
+ * move, Enter to open, Esc to close. On a list page (Albums, Artists) the
+ * first row narrows that list to the words typed ("In albums"), so the
+ * header's search is the page's search too (utils/pageSearch.ts).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -10,18 +12,54 @@ import { api } from '../services/api';
 import { Button } from './ui';
 import styles from './SearchModal.module.css';
 
-interface SearchResult {
+export interface SearchResult {
   albums: { id: string; title: string; artist: string | null; year: number | null; trackCount: number }[];
   artists: { id: string | null; name: string; albumCount: number }[];
   tracks: { id: string; title: string; albumId: string; albumTitle: string; artist: string | null }[];
 }
 
-type Row =
+export type Row =
+  | { type: 'scope'; primary: string; secondary: string }
   | { type: 'album'; id: string; primary: string; secondary: string }
   | { type: 'artist'; id: string | null; primary: string; secondary: string }
   | { type: 'track'; albumId: string; primary: string; secondary: string };
 
-export function SearchModal({ onClose }: { onClose: () => void }) {
+export interface SearchScope {
+  /** the group's heading: "In albums" */
+  label: string;
+  /** narrow the page's list to these words */
+  onPick: (q: string) => void;
+}
+
+/**
+ * The rows, in order: the page's own list first ("In albums", as soon as a
+ * word is typed), then albums, artists and tracks once the search for the
+ * words typed has answered (`settled`: the box holds what was searched).
+ */
+export function searchRows(data: SearchResult | undefined, words: string, settled: boolean, scoped: boolean): Row[] {
+  const first: Row[] = scoped && words ? [{ type: 'scope', primary: `“${words}”`, secondary: '' }] : [];
+  if (!data || words.length < 2 || !settled) return first;
+  return [
+    ...first,
+    ...data.albums.map<Row>((a) => ({
+      type: 'album', id: a.id,
+      primary: a.title,
+      secondary: `${a.artist ?? 'Unknown'}${a.year ? ` · ${a.year}` : ''} · ${a.trackCount} ${a.trackCount === 1 ? 'track' : 'tracks'}`,
+    })),
+    ...data.artists.map<Row>((a) => ({
+      type: 'artist', id: a.id,
+      primary: a.name,
+      secondary: `${a.albumCount} album${a.albumCount === 1 ? '' : 's'}${a.id ? '' : ' · from tags'}`,
+    })),
+    ...data.tracks.map<Row>((t) => ({
+      type: 'track', albumId: t.albumId,
+      primary: t.title,
+      secondary: `${t.artist ?? 'Unknown'} — ${t.albumTitle}`,
+    })),
+  ];
+}
+
+export function SearchModal({ onClose, scope }: { onClose: () => void; scope?: SearchScope | null | undefined }) {
   const { libraryId } = useCurrentLibrary();
   const navigate = useNavigate();
   const [q, setQ] = useState('');
@@ -46,26 +84,8 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
     enabled: !!libraryId && debounced.trim().length >= 2,
   });
 
-  const rows: Row[] = useMemo(() => {
-    if (!data || q.trim().length < 2 || q !== debounced) return [];
-    return [
-      ...data.albums.map<Row>((a) => ({
-        type: 'album', id: a.id,
-        primary: a.title,
-        secondary: `${a.artist ?? 'Unknown'}${a.year ? ` · ${a.year}` : ''} · ${a.trackCount} ${a.trackCount === 1 ? 'track' : 'tracks'}`,
-      })),
-      ...data.artists.map<Row>((a) => ({
-        type: 'artist', id: a.id,
-        primary: a.name,
-        secondary: `${a.albumCount} album${a.albumCount === 1 ? '' : 's'}${a.id ? '' : ' · from tags'}`,
-      })),
-      ...data.tracks.map<Row>((t) => ({
-        type: 'track', albumId: t.albumId,
-        primary: t.title,
-        secondary: `${t.artist ?? 'Unknown'} — ${t.albumTitle}`,
-      })),
-    ];
-  }, [data, q, debounced]);
+  const words = q.trim();
+  const rows: Row[] = useMemo(() => searchRows(data, words, q === debounced, !!scope), [data, q, debounced, scope, words]);
 
   useEffect(() => setSelected(0), [rows.length, debounced]);
 
@@ -80,7 +100,9 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
 
   const open = (row: Row) => {
     onClose();
-    if (row.type === 'artist' && row.id) {
+    if (row.type === 'scope') {
+      scope?.onPick(words);
+    } else if (row.type === 'artist' && row.id) {
       navigate({ to: '/artists/$artistId', params: { artistId: row.id } as never });
     } else if (row.type === 'artist') {
       // Tag-only artist (no linked identity yet): open their albums.
@@ -107,6 +129,9 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
       e.preventDefault();
       setSelected((s) => Math.max(s - 1, 0));
     } else if (e.key === 'Enter' && rows[selected]) {
+      // focus goes back to the header's search key as this closes: the
+      // Enter must not go on to press it and open the search again
+      e.preventDefault();
       open(rows[selected]);
     }
   };
@@ -114,14 +139,16 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
   const sections: { label: string; rows: { row: Row; index: number }[] }[] = useMemo(() => {
     const indexed = rows.map((row, index) => ({ row, index }));
     return [
+      { label: scope?.label ?? '', rows: indexed.filter((r) => r.row.type === 'scope') },
       { label: 'Albums', rows: indexed.filter((r) => r.row.type === 'album') },
       { label: 'Artists', rows: indexed.filter((r) => r.row.type === 'artist') },
       { label: 'Tracks', rows: indexed.filter((r) => r.row.type === 'track') },
     ].filter((s) => s.rows.length > 0);
-  }, [rows]);
+  }, [rows, scope]);
 
-  const shouldShowResults = q.trim().length >= 2 && (rows.length > 0 || !isFetching);
-  const hasSearched = q === debounced && q.trim().length >= 2;
+  const shouldShowResults = (!!scope && words.length > 0) || (words.length >= 2 && (rows.length > 0 || !isFetching));
+  const hasSearched = q === debounced && words.length >= 2;
+  const found = rows.some((r) => r.type !== 'scope');
 
   return (
     <div className={styles.overlay} onClick={onClose}>
@@ -168,12 +195,12 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
                     onClick={() => open(row)}
                   >
                     <span className={styles.primary}>{row.primary}</span>
-                    <span className={styles.secondary}>{row.secondary}</span>
+                    {row.secondary && <span className={styles.secondary}>{row.secondary}</span>}
                   </div>
                 ))}
               </div>
             ))}
-            {hasSearched && rows.length === 0 && !isFetching && !isError && (
+            {hasSearched && !found && !isFetching && !isError && (
               <div className={styles.noResults}>No results for "{debounced}"</div>
             )}
           </div>

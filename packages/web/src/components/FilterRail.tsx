@@ -26,6 +26,8 @@ interface FilterRailProps {
   onDeleteView: (id: string) => void;
   /** Maintenance: offer the curation filters (identification, needs attention, match kind) */
   curation?: boolean;
+  /** beside the list (a desktop), or the body of the phone's filter sheet */
+  variant?: 'rail' | 'sheet';
 }
 
 const STATE_LABEL: Record<string, string> = {
@@ -128,7 +130,7 @@ function SingleOptions({ items, labels, current, onPick, hideZero = true }: {
   );
 }
 
-export function FilterRail({ query, facets, savedViews, activeCount, onToggle, onSet, onClear, onApplyView, onSaveView, onDeleteView, curation = true }: FilterRailProps) {
+export function FilterRail({ query, facets, savedViews, activeCount, onToggle, onSet, onClear, onApplyView, onSaveView, onDeleteView, curation = true, variant = 'rail' }: FilterRailProps) {
   const [genreQuery, setGenreQuery] = useState('');
   const [labelQuery, setLabelQuery] = useState('');
   const genres = facets?.genres.filter((g) => !genreQuery || g.value.toLowerCase().includes(genreQuery.toLowerCase()));
@@ -138,7 +140,7 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
   const len = (key: MultiFilterKey) => (query[key]?.length ?? 0);
 
   return (
-    <aside className={styles.rail}>
+    <aside className={variant === 'sheet' ? styles.railSheet : styles.rail}>
       <div className={styles.railHead}>
         <span className={styles.total}>{facets ? plural(facets.total, 'album') : '…'}</span>
         {activeCount > 0 && <Button variant="quiet" size="sm" onClick={onClear}>Clear {activeCount}</Button>}

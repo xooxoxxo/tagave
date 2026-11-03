@@ -7,6 +7,16 @@
   font-size: var(--font-size-sm);
 }
 
+/* the phone's filter sheet: the sheet's width, the page's inset, no rule */
+.railSheet {
+  composes: rail;
+  width: auto;
+  flex: none;
+  overflow: visible;
+  padding: 0 1rem 1rem;
+  border-right: 0;
+}
+
 .railHead {
   display: flex;
   align-items: center;

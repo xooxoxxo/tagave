@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useRouter } from '@tanstack/react-router';
 import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan } from '../hooks';
-import { SearchModal } from './SearchModal';
+import { SearchModal, type SearchScope } from './SearchModal';
+import { pageSearchScope } from '../utils/pageSearch';
 import { IconButton } from './ui';
 import { AccountCompartment, type CompartmentLink } from './AccountCompartment';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
@@ -36,6 +37,7 @@ export function Layout() {
   const searchButton = useRef<HTMLButtonElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const main = useRef<HTMLElement>(null);
+  const navRef = useRef<HTMLElement>(null);
   const router = useRouter();
   const navigate = useNavigate();
   const [maintenance, setMaintenance] = useMaintenance();
@@ -63,6 +65,17 @@ export function Layout() {
   const albumsReturnSearch = useAlbumsReturnSearch();
 
   useEffect(() => { main.current?.scrollTo(0, 0); setMenuOpen(false); }, [pathname]);
+  // the phone's menu opens under the bar, to the foot: it needs the bar's height
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!menuOpen || !nav) return;
+    const write = () => nav.style.setProperty('--nav-bar-h', `${nav.getBoundingClientRect().bottom}px`);
+    write();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(write);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, [menuOpen]);
   // the audio lives outside React: signed out (or the session ended), it stops
   useEffect(() => { if (!user) stopPlayback(); }, [user]);
   useEffect(() => {
@@ -93,6 +106,12 @@ export function Layout() {
   if (!user) return <Outlet />;
   const linkClass = (active: boolean) => active ? styles.navLinkActive : styles.navLink;
   const closeSearch = () => { setSearchOpen(false); searchButton.current?.focus(); };
+  // a list page (Albums, Artists): the search narrows its list first
+  const listScope = pageSearchScope(pathname);
+  const searchScope: SearchScope | null = listScope && {
+    label: listScope.label,
+    onPick: (q) => void navigate({ to: listScope.path, search: ((prev: Record<string, unknown>) => ({ ...prev, q })) as never }),
+  };
   const canGoBack = router.history.canGoBack();
   const back = backAction(pathname, canGoBack);
   const backLabel = back?.kind === 'navigate' && parent ? `Back to ${parentLabel(parent)}` : 'Back';
@@ -137,7 +156,7 @@ export function Layout() {
   return (
     <div className={styles.container}>
       <a href="#main-content" className={styles.skipLink}>Skip to content</a>
-      <aside className={`${styles.nav} ${menuOpen ? styles.navOpen : ''} ${back || upButton ? styles.navDetail : ''}`}>
+      <aside ref={navRef} className={`${styles.nav} ${menuOpen ? styles.navOpen : ''} ${back || upButton ? styles.navDetail : ''}`}>
         {back && (
           <div className={styles.phoneBar}>
             {backButton}
@@ -235,7 +254,7 @@ export function Layout() {
       </div>
       {/* while the app is down for an update: a screen over the page, under the player */}
       <AppDownHost />
-      {searchOpen && <SearchModal onClose={closeSearch} />}
+      {searchOpen && <SearchModal onClose={closeSearch} scope={searchScope} />}
       <AlbumSelectionGuard />
     </div>
   );

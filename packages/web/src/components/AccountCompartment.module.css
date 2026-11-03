@@ -328,7 +328,7 @@
 /* phone: the row ends the menu sheet as its own strip; the compartment
    opens above it inside the sheet */
 @media (max-width: 720px) {
-  .root { margin: 0 -1rem -1rem; }
+  .root { margin: 0 -1rem; }
   .row,
   :global(html[data-player-bar]) .row { height: 64px; padding-inline: 1rem; }
   .panel { padding-inline: 1rem; }

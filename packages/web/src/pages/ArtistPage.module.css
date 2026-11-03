@@ -389,6 +389,30 @@
 .bioFull { max-width: 68ch; }
 .bioFull p { margin: 0 0 1em; color: var(--ink); }
 
+/* A phone: a smaller name, the kind and years on one line with Follow at
+   its end, and less air around the band, so the sections start in the
+   first screen (owner, 2026-11-03: "let's make things a bit more compact"). */
+@media (max-width: 720px) {
+  .page { --a-gutter: 16px; }
+  .band { padding: 64px var(--a-gutter) 16px; }
+  .bandText {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "kicker acts" "name name" "sub sub" "note note";
+    align-items: center;
+    column-gap: 12px;
+  }
+  .bandText > .kicker { grid-area: kicker; letter-spacing: .1em; line-height: 1.35; }
+  .bandText > .bName { grid-area: name; margin-top: 6px; font-size: 40px; line-height: 1.02; }
+  .bandText > .sub { grid-area: sub; margin-top: 8px; font-size: 15px; line-height: 1.45; }
+  .bandText > .bandActs { grid-area: acts; margin: 0; }
+  .bandText > :not(.kicker, .bName, .sub, .bandActs) { grid-area: note; }
+  .cols { gap: 24px; padding: 16px var(--a-gutter) 40px; }
+  .strip ul { padding: 6px var(--a-gutter); }
+  .strip a { height: 32px; padding: 0 12px; }
+  .section { scroll-margin-top: 120px; }
+}
+
 @media (max-width: 900px) {
   .hero { grid-template-columns: minmax(0, 1fr); padding: 72px var(--a-gutter) 0; gap: 0; }
   .art { width: 100%; }

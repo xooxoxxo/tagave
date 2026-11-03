@@ -135,6 +135,9 @@ const artistsRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/artists',
   component: ArtistsPage,
+  // the words the header's search narrowed the list to ("In artists")
+  validateSearch: (search: Record<string, unknown>): { q?: string } =>
+    (typeof search['q'] === 'string' && search['q'].trim() ? { q: search['q'].trim() } : {}),
 });
 
 const artistDetailRoute = new Route({
