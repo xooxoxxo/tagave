@@ -232,3 +232,24 @@ describe('planTrackLinks', () => {
     expect(got).toEqual({ l11: 'c11', l12: 'c12', l21: 'c21', l22: 'c22' });
   });
 });
+
+describe('planTrackLinks: weak pairs', () => {
+  const canonical = [
+    { id: 'ct-1', mediumNo: 1, position: 1, title: 'Clouds', artistCredit: [], lengthMs: 368_000, recordingMbid: null, trackMbid: null },
+    { id: 'ct-2', mediumNo: 1, position: 2, title: 'The Watcher', artistCredit: [], lengthMs: 251_000, recordingMbid: null, trackMbid: null },
+  ];
+  const row = (id: string, trackNo: number | null, titleGuess: string, s: number) =>
+    ({ id, discNo: 1, trackNo, titleGuess, artistGuess: null, durationMs: s * 1000 });
+
+  it('keeps an untitled rip whose track number agrees', () => {
+    const links = planTrackLinks([row('a', 1, 'Track 01', 368), row('b', 2, 'Track 02', 251)], canonical);
+    expect(links.find((l) => l.id === 'a')).toMatchObject({ canonicalTrackId: 'ct-1', state: 'matched' });
+    expect(links.find((l) => l.id === 'b')).toMatchObject({ canonicalTrackId: 'ct-2', state: 'matched' });
+  });
+
+  it('drops a stray from another album that only fills a free slot', () => {
+    const links = planTrackLinks([row('clouds', 1, 'Clouds', 368), row('isa', 14, 'Isa', 230)], canonical);
+    expect(links.find((l) => l.id === 'clouds')).toMatchObject({ canonicalTrackId: 'ct-1', state: 'matched' });
+    expect(links.find((l) => l.id === 'isa')).toMatchObject({ canonicalTrackId: null, state: 'unmatched' });
+  });
+});

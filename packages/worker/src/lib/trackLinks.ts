@@ -155,6 +155,14 @@ type CanonicalRowForView = Parameters<typeof canonicalTrackViews>[0][number];
  * localIndex and canonicalIndex into those sorted lists, never by its place
  * in the input arrays (which come in whatever order the database returns).
  */
+/** Above this distance (below 65 % confidence) a pair needs its track number to agree. */
+export const WEAK_PAIR_DISTANCE = 0.35;
+
+function samePosition(row: LocalTrackRowForView, canonical: CanonicalRowForView): boolean {
+  if (row.trackNo == null || canonical.position == null) return false;
+  return (row.discNo ?? 1) === (canonical.mediumNo ?? 1) && row.trackNo === canonical.position;
+}
+
 export function planTrackLinks(
   localRows: LocalTrackRowForView[],
   canonicalRows: CanonicalRowForView[],
@@ -166,7 +174,12 @@ export function planTrackLinks(
   for (const a of alignment) {
     const row = localView.order[a.localIndex];
     if (!row) continue;
-    const canonical = a.canonicalIndex === null ? undefined : canonicalView.order[a.canonicalIndex];
+    let canonical = a.canonicalIndex === null ? undefined : canonicalView.order[a.canonicalIndex];
+    // A weak pair (title and length mostly disagree) only stands when the
+    // file's own disc and track number say the same: an untitled rip
+    // ("Track 01", right length) keeps its slot, a stray from another album
+    // that merely fills a free slot does not.
+    if (canonical && a.distance > WEAK_PAIR_DISTANCE && !samePosition(row, canonical)) canonical = undefined;
     byId.set(row.id, canonical
       ? { id: row.id, canonicalTrackId: canonical.id, distance: a.distance, state: 'matched' }
       : { id: row.id, canonicalTrackId: null, distance: 1, state: 'unmatched' });
