@@ -62,10 +62,10 @@ export function AlbumCard({ album, onReopen, reopening }: {
   const more = album.ownership === 'missing' ? <MissingAlbumMenu releaseGroupId={album.releaseGroupId} title={album.title} /> : null;
   return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}
     {more ? <div className={styles.cardHead}><div className={styles.cardText}>{text}</div>{more}</div> : text}
-    {(split.primary || split.others.length > 0) && <div className={styles.cardListenRow}>
-      {split.primary && <PlayOnControl link={split.primary} />}
-      {split.others.length > 0 && <ListenControl links={split.others} beside={!!split.primary} className={split.primary ? undefined : styles.cardListen} />}
-    </div>}
+    {split.primary ? <div className={styles.cardListenRow}>
+      <PlayOnControl link={split.primary} />
+      {split.others.length > 0 && <ListenControl links={split.others} beside />}
+    </div> : split.others.length > 0 && <ListenControl links={split.others} className={styles.cardListen} />}
   </li>;
 }
 

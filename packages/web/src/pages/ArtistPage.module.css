@@ -101,7 +101,7 @@
 /* a missing album's title and year, its ⋮ (Get through Lidarr) at the end of the title line */
 .cardHead { display: flex; align-items: flex-start; gap: 2px; min-width: 0; }
 .cardText { flex: 1; min-width: 0; }
-.cardHead > :last-child { flex: none; margin-top: 4px; margin-right: -8px; }
+.cardHead > :last-child:not(.cardText) { flex: none; margin-top: 4px; margin-right: -8px; }
 /* a heading with its ⋮ (Get all missing) at the end of the line */
 .headRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
 .headRow > .h2 { margin-bottom: 0; }
