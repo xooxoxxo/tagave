@@ -7,6 +7,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
@@ -124,7 +126,7 @@ describe.skipIf(!adminUrl)('lidarr: connect, Get, Retry, Cancel, the views, who 
     });
     const wrong = await call(owner, 'POST', '/settings/lidarr/test', { url: lidarr.url, apiKey: 'notthekey123' });
     expect(wrong.statusCode).toBe(400);
-    expect(wrong.json().detail).toBe('API key refused');
+    expect(wrong.json().detail).toBe('Wrong API key');
     expect((await call(owner, 'POST', '/settings/lidarr/test', { url: 'file:///etc/passwd', apiKey: KEY })).statusCode).toBe(400);
     expect((await call(owner, 'POST', '/settings/lidarr/test', { url: lidarr.url })).json().detail).toBe('Enter the API key');
     // a page elsewhere cannot use the owner's session
@@ -151,6 +153,46 @@ describe.skipIf(!adminUrl)('lidarr: connect, Get, Retry, Cancel, the views, who 
     const audits = await sql`select action, payload from audit_log where action = 'lidarr.connect' order by at`;
     expect(audits.map((a) => a['payload']['key'])).toEqual(['set', 'kept', 'kept']);
     expect(JSON.stringify(audits)).not.toContain(KEY);
+  });
+
+  it('Test is no window onto other services: a fixed answer, no redirect, the saved key only for the saved address', async () => {
+    const seen: Array<{ url: string; key: string | undefined }> = [];
+    const other = createServer((req, res) => {
+      seen.push({ url: req.url ?? '', key: req.headers['x-api-key'] as string | undefined });
+      if (req.url?.startsWith('/hop/api/v1/')) { res.writeHead(302, { location: `${lidarr.url}/api/v1/system/status` }); res.end(); return; }
+      if (req.url?.startsWith('/json/api/v1/')) { res.writeHead(200, { 'content-type': 'application/json', 'x-internal': 'TOPSECRET' }); res.end('{"secret":"TOPSECRET"}'); return; }
+      res.writeHead(500, { 'content-type': 'text/html' });
+      res.end('<html>TOPSECRET router admin</html>');
+    });
+    await new Promise<void>((r) => other.listen(0, '127.0.0.1', r));
+    const otherUrl = `http://127.0.0.1:${(other.address() as AddressInfo).port}`;
+    try {
+      // 1. never the remote body: an HTML page, and JSON that is not Lidarr's status
+      for (const [path, detail] of [['', 'Not Lidarr'], ['/json', 'Not Lidarr']] as const) {
+        const res = await call(owner, 'POST', '/settings/lidarr/test', { url: `${otherUrl}${path}`, apiKey: 'attackerkey123' });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().detail).toBe(detail);
+        expect(res.body).not.toContain('TOPSECRET');
+      }
+      // 2. a redirect is not followed, even to a real Lidarr
+      const before = lidarr.calls.length;
+      const hop = await call(owner, 'POST', '/settings/lidarr/test', { url: `${otherUrl}/hop`, apiKey: KEY });
+      expect(hop.json().detail).toBe('Not Lidarr');
+      expect(lidarr.calls.length).toBe(before);
+      // 3. no key typed: the saved key goes to the saved address only
+      seen.length = 0;
+      const steal = await call(owner, 'POST', '/settings/lidarr/test', { url: otherUrl });
+      expect(steal.statusCode).toBe(400);
+      expect(steal.json().detail).toBe('Enter the API key');
+      expect(seen).toEqual([]);
+      const save = await call(owner, 'PUT', '/settings/lidarr/connection', { url: otherUrl, rootFolderPath: '/music', qualityProfileId: 2, metadataProfileId: 1 });
+      expect(save.statusCode).toBe(400);
+      expect(seen.every((s) => s.key !== KEY)).toBe(true);
+      // the same address with a trailing slash is the saved one
+      expect((await call(owner, 'POST', '/settings/lidarr/test', { url: `${lidarr.url}/` })).statusCode).toBe(200);
+    } finally {
+      await new Promise<void>((r) => other.close(() => r()));
+    }
   });
 
   it('the artist page: which missing albums Get can ask for (an album with no MBID cannot)', async () => {
@@ -215,7 +257,8 @@ describe.skipIf(!adminUrl)('lidarr: connect, Get, Retry, Cancel, the views, who 
     const res = await call(owner, 'POST', `/libraries/${libraryId}/lidarr/requests`, { releaseGroupId: rgSecond });
     lidarr.failWith = null;
     expect(res.statusCode).toBe(502);
-    expect(res.json().detail).toBe('fake failure');
+    expect(res.json().detail).toBe('Lidarr refused it');
+    expect(res.body).not.toContain('fake failure');
     expect(await sql`select 1 from lidarr_requests`).toHaveLength(0);
   });
 
@@ -232,5 +275,11 @@ describe.skipIf(!adminUrl)('lidarr: connect, Get, Retry, Cancel, the views, who 
     expect(removed.json()).toMatchObject({ enabled: false, removed: { lidarr_requests: 1 } });
     expect(await sql`select 1 from release_groups`).toHaveLength(3);
     expect(await sql`select 1 from gaps`).toHaveLength(3);
+  });
+
+  it('Test is limited per owner (10 a minute)', async () => {
+    const codes: number[] = [];
+    for (let i = 0; i < 12; i++) codes.push((await call(owner, 'POST', '/settings/lidarr/test', { url: lidarr.url, apiKey: KEY })).statusCode);
+    expect(codes).toContain(429);
   });
 });

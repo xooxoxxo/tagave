@@ -20,11 +20,20 @@
  * route table), checked here again. The key is sealed with APP_SECRET and
  * never answered or logged; Lidarr is called from here and the worker only.
  * Connect, disconnect, Get and Cancel write audit_log rows.
+ *
+ * Test is the one call to an address that is not saved yet, so it is kept
+ * from being a way to read other services (SSRF): LAN and loopback stay
+ * allowed (Lidarr lives there), but the answer is only the version from a
+ * zod-checked /api/v1/system/status (with the folders and profiles that
+ * same Lidarr lists) or one fixed error (LIDARR_ERRORS); no redirect is
+ * followed; the saved key goes only to the saved address, exactly; and each
+ * owner may test 10 times a minute. Every other call goes to the saved
+ * address only.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { sealSecret } from '@tagave/core';
 import {
-  LidarrClient, LidarrError, getAlbumInLidarr, inScanRoot, lidarrConnectionOf, lidarrErrorText, normalizeLidarrUrl,
+  LIDARR_ERRORS, LidarrClient, LidarrError, getAlbumInLidarr, inScanRoot, lidarrConnectionOf, lidarrErrorText, normalizeLidarrUrl,
   type LidarrConnection, type LidarrSettings,
 } from '@tagave/core/lidarr';
 import {
@@ -36,12 +45,15 @@ import {
   type ArtistLidarrView, type LidarrGettingView, type LidarrRequestView, type LidarrSettingsView, type LidarrStatusView, type LidarrTestResult,
 } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
+import { RateLimiter } from '../lib/rateLimit.js';
 import { getAuthHandle } from '../middleware/auth.js';
 import { getBoss } from '../boss.js';
 import { requireFreshStepUp } from './stepUp.js';
 import { sameSite } from './mcConnections.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Test, per owner: 10 a minute. */
+export const lidarrTestLimit = new RateLimiter(10, 60_000);
 type Sql = ReturnType<typeof getAuthHandle>['sql'];
 
 const client = (conn: { server: LidarrConnection['server'] }) => new LidarrClient(conn.server);
@@ -155,13 +167,18 @@ async function test(server: { url: string; apiKey: string }): Promise<LidarrTest
       metadataProfiles: metadata.map((p) => ({ id: p.id, name: p.name })),
     };
   } catch (err) {
-    if (err instanceof LidarrError) throw new ApiError(400, 'Bad Request', err.message);
+    // one of the four fixed answers, never anything the address sent
+    if (err instanceof LidarrError) throw new ApiError(400, 'Bad Request', err.code === 'refused' ? LIDARR_ERRORS.notLidarr : err.message);
     throw err;
   }
 }
 
-/** The key to test or save with: the one typed, or the saved one while the address is the same. */
-async function keyFor(sql: Sql, url: string, typed: string | undefined): Promise<string> {
+/**
+ * The key to test or save with: the one typed, or the saved one only when
+ * `url` (normalized) is exactly the saved address. Any other address needs
+ * its key typed: the saved key never goes anywhere else.
+ */
+export async function keyFor(sql: Sql, url: string, typed: string | undefined): Promise<string> {
   if (typed) return typed;
   const s = await lidarrStoredSettings(sql);
   if (typeof s['url'] === 'string' && s['url'] === url && typeof s['apiKey'] === 'string') {
@@ -350,8 +367,9 @@ export async function createLidarrRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/settings/lidarr/test', async (request): Promise<LidarrTestResult> => {
-    owner(request);
+    const me = owner(request);
     sameSite(request);
+    lidarrTestLimit.check(me.id);
     const parsed = lidarrTestSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'url is required');
     const { sql } = getAuthHandle();

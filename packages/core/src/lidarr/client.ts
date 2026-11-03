@@ -20,7 +20,10 @@
  * a log line or an error message. Every call has a timeout, refuses a
  * redirect (fetch would carry the header to the next host), reads at most
  * MAX_BODY bytes and is parsed with zod; fields tagave does not use are
- * dropped and text is length-capped.
+ * dropped and text is length-capped. A failure is one of a few fixed
+ * messages (LIDARR_ERRORS): nothing the other end sent (its status text,
+ * headers, body or HTML) is ever put into an error, so an address that is
+ * not Lidarr cannot be read through tagave.
  */
 import { z } from 'zod';
 
@@ -28,9 +31,22 @@ export const LIDARR_TIMEOUT_MS = 10_000;
 /** The largest answer read: a queue page or an album with its releases fits easily. */
 export const MAX_BODY = 2 * 1024 * 1024;
 
+/** The only words a Lidarr failure is ever told in. */
+export const LIDARR_ERRORS = {
+  unreachable: "Can't reach",
+  notLidarr: 'Not Lidarr',
+  key: 'Wrong API key',
+  timeout: 'Timed out',
+  /** Lidarr answered, but refused what was asked (a 4xx or 5xx other than the key) */
+  refused: 'Lidarr refused it',
+  /** an address the owner typed that is not one */
+  address: 'Not an address',
+} as const;
+export type LidarrErrorCode = keyof typeof LIDARR_ERRORS;
+
 export class LidarrError extends Error {
-  constructor(message: string, readonly status: number | null = null) {
-    super(message);
+  constructor(readonly code: LidarrErrorCode, readonly status: number | null = null) {
+    super(LIDARR_ERRORS[code]);
     this.name = 'LidarrError';
   }
 }
@@ -46,11 +62,10 @@ export function normalizeLidarrUrl(input: string): string {
   try {
     u = new URL(input.trim());
   } catch {
-    throw new LidarrError('Not an address');
+    throw new LidarrError('address');
   }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new LidarrError('Use an http or https address');
-  if (u.username || u.password) throw new LidarrError('Leave the user and password out of the address');
-  if (u.search || u.hash) throw new LidarrError('Leave the query out of the address');
+  // http(s) only, no user or password, no query: anything else is not an address of a Lidarr
+  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.username || u.password || u.search || u.hash) throw new LidarrError('address');
   const path = u.pathname.replace(/\/+$/, '').replace(/\/api\/v1$/, '');
   return `${u.protocol}//${u.host}${path}`;
 }
@@ -89,7 +104,6 @@ export const lidarrQueueItemSchema = z.object({
   sizeleft: z.number().nonnegative().nullish(),
   status: text(40).nullish(),
   trackedDownloadState: text(40).nullish(),
-  errorMessage: text(300).nullish(),
 });
 export const lidarrQueuePageSchema = z.object({ totalRecords: z.number().int().nonnegative(), records: z.array(lidarrQueueItemSchema).max(1000) });
 export const lidarrTrackFileSchema = z.object({ id, path: text(4096), albumId: id.optional() });
@@ -124,23 +138,11 @@ async function readCapped(res: Response): Promise<string> {
     size += value.byteLength;
     if (size > MAX_BODY) {
       await reader.cancel().catch(() => undefined);
-      throw new LidarrError('Lidarr answered with too much data');
+      throw new LidarrError('notLidarr');
     }
     chunks.push(value);
   }
   return Buffer.concat(chunks).toString('utf8');
-}
-
-/** Lidarr's validation answer ([{ errorMessage }]) or { message }, as one short line. */
-function lidarrMessage(body: string): string | null {
-  try {
-    const j: unknown = JSON.parse(body);
-    const first = Array.isArray(j) ? j[0] : j;
-    const m = first && typeof first === 'object' ? ((first as Record<string, unknown>)['errorMessage'] ?? (first as Record<string, unknown>)['message']) : null;
-    return typeof m === 'string' && m.trim() ? m.trim().replace(/\s+/g, ' ').slice(0, 200) : null;
-  } catch {
-    return null;
-  }
 }
 
 export class LidarrClient {
@@ -166,24 +168,35 @@ export class LidarrClient {
       });
     } catch (err) {
       const name = (err as Error).name;
-      if (name === 'TimeoutError' || name === 'AbortError') throw new LidarrError('Lidarr did not answer in time');
-      throw new LidarrError('Lidarr could not be reached');
+      if (name === 'TimeoutError' || name === 'AbortError') throw new LidarrError('timeout');
+      throw new LidarrError('unreachable');
     }
+    // a redirect is not followed (it would carry the key elsewhere): not a Lidarr tagave talks to
     if (res.status >= 300 && res.status < 400) {
       await res.body?.cancel().catch(() => undefined);
-      throw new LidarrError('Lidarr redirected; use the address it redirects to', res.status);
+      throw new LidarrError('notLidarr', res.status);
     }
-    const raw = await readCapped(res);
-    if (res.status === 401 || res.status === 403) throw new LidarrError('API key refused', res.status);
-    if (!res.ok) throw new LidarrError(lidarrMessage(raw) ?? `Lidarr answered ${res.status}`, res.status);
+    if (res.status === 401 || res.status === 403) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new LidarrError('key', res.status);
+    }
+    let raw: string;
+    try {
+      raw = await readCapped(res);
+    } catch (err) {
+      if (err instanceof LidarrError) throw err;
+      const name = (err as Error).name;
+      throw new LidarrError(name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'unreachable');
+    }
+    if (!res.ok) throw new LidarrError(res.status === 404 ? 'notLidarr' : 'refused', res.status);
     let json: unknown;
     try {
       json = raw === '' ? null : JSON.parse(raw);
     } catch {
-      throw new LidarrError('Not a Lidarr answer');
+      throw new LidarrError('notLidarr');
     }
     const parsed = schema.safeParse(json);
-    if (!parsed.success) throw new LidarrError('Not a Lidarr answer');
+    if (!parsed.success) throw new LidarrError('notLidarr');
     return parsed.data;
   }
 

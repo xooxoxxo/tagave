@@ -6,7 +6,7 @@
  */
 import path from 'node:path';
 import { openSecret } from '../crypto/secretbox.js';
-import { LidarrClient, LidarrError, type LidarrAlbum, type LidarrQueueItem, type LidarrServer } from './client.js';
+import { LIDARR_ERRORS, LidarrClient, LidarrError, type LidarrAlbum, type LidarrQueueItem, type LidarrServer } from './client.js';
 
 export * from './client.js';
 
@@ -129,7 +129,8 @@ export function observeLidarr(album: LidarrAlbum | null, queued: readonly Lidarr
     }
     const progress = size > 0 ? Math.max(0, Math.min(100, Math.round(((size - left) / size) * 100))) : null;
     const failed = queued.find((q) => q.trackedDownloadState === 'importFailed' || q.trackedDownloadState === 'failed' || q.status === 'failed');
-    return { state: 'downloading', progress, error: failed?.errorMessage ?? null };
+    // Lidarr's own words stay in Lidarr: the card says only that the import failed
+    return { state: 'downloading', progress, error: failed ? 'Import failed' : null };
   }
   if (files > 0) return { state: 'imported', progress: null, error: null };
   if (now - requestedAt.getTime() > LIDARR_NOT_FOUND_AFTER_MS) return { state: 'not_found', progress: null, error: null };
@@ -184,6 +185,6 @@ export function albumFolderOf(filePaths: readonly string[]): string | null {
 /** A Lidarr failure as the card and the Getting list show it: one short line, never the key. */
 export function lidarrErrorText(err: unknown): string {
   if (err instanceof LidarrError) return err.message;
-  return 'Lidarr could not be reached';
+  return LIDARR_ERRORS.unreachable;
 }
 

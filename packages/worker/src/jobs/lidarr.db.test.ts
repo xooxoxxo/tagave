@@ -127,7 +127,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('lidarr.poll and lidarr.get (db)
     await lidarrPollJob(ctx, { now });
     expect((await sql`select state from lidarr_requests where release_group_id = ${rg[2]}`)[0]).toMatchObject({ state: 'not_found' });
     lidarr.failWith = 503;
-    expect(await lidarrPollJob(ctx)).toMatchObject({ skipped: 'fake failure' });
+    expect(await lidarrPollJob(ctx)).toMatchObject({ skipped: 'Lidarr refused it' });
     lidarr.failWith = null;
   });
 

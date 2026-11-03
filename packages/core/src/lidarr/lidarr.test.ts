@@ -37,7 +37,7 @@ describe('the client against a fake Lidarr', () => {
   });
 
   it('a wrong key is "API key refused"', async () => {
-    await expect(new LidarrClient({ url: lidarr.url, apiKey: 'wrongwrongwrong' }).status()).rejects.toThrow('API key refused');
+    await expect(new LidarrClient({ url: lidarr.url, apiKey: 'wrongwrongwrong' }).status()).rejects.toThrow('Wrong API key');
   });
 
   it('Get: a new artist is added for this album only, then searched', async () => {
@@ -59,9 +59,9 @@ describe('the client against a fake Lidarr', () => {
     expect(lidarr.calls.filter((c) => c.method === 'POST' && c.url === '/api/v1/album')).toHaveLength(1);
   });
 
-  it('a Lidarr validation message comes back as one line', async () => {
+  it('a refusal is one fixed line, never what Lidarr said', async () => {
     const c = new LidarrClient({ url: lidarr.url, apiKey: KEY });
-    await expect(c.addAlbum({ foreignAlbumId: RG, artist: { foreignArtistId: ARTIST } })).rejects.toThrow('This album has already been added.');
+    await expect(c.addAlbum({ foreignAlbumId: RG, artist: { foreignArtistId: ARTIST } })).rejects.toThrow('Lidarr refused it');
   });
 });
 
@@ -74,6 +74,8 @@ describe('the client refuses what a Lidarr should not send', () => {
       if (req.url?.includes('big')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ version: 'x'.repeat(3 * 1024 * 1024) })); return; }
       if (req.url?.includes('html')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<script>alert(1)</script>'); return; }
       if (req.url?.includes('slow')) return; // never answers
+      if (req.url?.includes('secret-page')) { res.writeHead(500, { 'content-type': 'text/html', 'x-internal': 'TOPSECRET' }); res.end('<h1>TOPSECRET admin panel</h1>'); return; }
+      if (req.url?.includes('json-err')) { res.writeHead(400, { 'content-type': 'application/json' }); res.end('[{"errorMessage":"TOPSECRET"}]'); return; }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ version: `<b>${'9'.repeat(100)}</b>` }));
     });
@@ -84,11 +86,21 @@ describe('the client refuses what a Lidarr should not send', () => {
   afterAll(async () => { await close(); });
 
   it('no redirect, no oversized body, no HTML, a timeout, text capped', async () => {
-    await expect(new LidarrClient({ url: `${url}/redirect`, apiKey: KEY }).status()).rejects.toThrow('redirected');
-    await expect(new LidarrClient({ url: `${url}/big`, apiKey: KEY }).status()).rejects.toThrow('too much data');
-    await expect(new LidarrClient({ url: `${url}/html`, apiKey: KEY }).status()).rejects.toThrow('Not a Lidarr answer');
-    await expect(new LidarrClient({ url: `${url}/slow`, apiKey: KEY }, { timeoutMs: 200 }).status()).rejects.toThrow('did not answer in time');
+    await expect(new LidarrClient({ url: `${url}/redirect`, apiKey: KEY }).status()).rejects.toThrow('Not Lidarr');
+    await expect(new LidarrClient({ url: `${url}/big`, apiKey: KEY }).status()).rejects.toThrow('Not Lidarr');
+    await expect(new LidarrClient({ url: `${url}/html`, apiKey: KEY }).status()).rejects.toThrow('Not Lidarr');
+    await expect(new LidarrClient({ url: `${url}/slow`, apiKey: KEY }, { timeoutMs: 200 }).status()).rejects.toThrow('Timed out');
     expect((await new LidarrClient({ url, apiKey: KEY }).status()).version).toHaveLength(40);
+  });
+
+  it('nothing the other end sent reaches an error: no status text, header or body', async () => {
+    for (const path of ['secret-page', 'json-err']) {
+      const err = await new LidarrClient({ url: `${url}/${path}`, apiKey: KEY }).status().catch((e: unknown) => e as LidarrError);
+      expect(err).toBeInstanceOf(LidarrError);
+      expect(['Not Lidarr', 'Lidarr refused it']).toContain((err as LidarrError).message);
+      expect(JSON.stringify({ m: (err as Error).message, s: String(err) })).not.toContain('TOPSECRET');
+    }
+    await expect(new LidarrClient({ url: 'http://127.0.0.1:1', apiKey: KEY }).status()).rejects.toThrow("Can't reach");
   });
 });
 
