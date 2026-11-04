@@ -44,6 +44,8 @@ import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
 import { filesTrashJob, type FilesTrashJobData } from './lib/deletions.js';
 import { filesSplitJob } from './jobs/filesSplit.js';
 import type { FilesSplitJobData } from '@tagave/shared';
+import { filesMoveJob } from './jobs/filesMove.js';
+import type { FilesMoveJobData } from '@tagave/shared';
 import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefresh.js';
 import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
@@ -99,6 +101,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'files.trash': 'stately',
   // one queued per split and action (singletonKey files.split:<id>:<action>)
   'files.split': 'stately',
+  // one queued per move and step (singletonKey files.move:<id>:<action>)
+  'files.move': 'stately',
   'tags.revert': 'stately',
   'facets.refresh': 'stately',
   'fingerprint.album': 'stately',
@@ -135,6 +139,8 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   // re-encodes a whole album (a 2 GB 24/192 image takes minutes); a failed
   // split leaves nothing behind and the owner presses Split again
   'files.split': { expireInSeconds: 3 * 3600, retryLimit: 0 },
+  // a move that stops has put back what it did; the owner presses Move again
+  'files.move': { expireInSeconds: 3600, retryLimit: 0 },
 };
 
 /**
@@ -596,6 +602,15 @@ async function main() {
       for (const job of jobs) {
         logger.info({ jobId: job.id, splitId: job.data.splitId, action: job.data.action }, 'files.split start');
         results.push(await filesSplitJob(ctx, job.data));
+      }
+      return results.length === 1 ? results[0] : results;
+    });
+    // Move to album (0080): the release search, the plan, the move and its undo
+    await boss.work<FilesMoveJobData>('files.move', { batchSize: 1 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, moveId: job.data.moveId, action: job.data.action }, 'files.move start');
+        results.push(await filesMoveJob(ctx, job.data));
       }
       return results.length === 1 ? results[0] : results;
     });

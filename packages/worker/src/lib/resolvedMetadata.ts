@@ -180,6 +180,44 @@ export async function resolveMetadataForFile(
     if (counts?.local_n) localMediumTrackCount = counts.local_n;
   }
 
+  const resolved = await resolvedFor(ctx, libraryId, {
+    releaseRow, releaseGroup, canonicalTrack,
+    lockScopes: { file: [audioFileId, track.id], album: [album.id] },
+    ...(mediumTrackCount !== undefined ? { mediumTrackCount } : {}),
+    ...(localMediumTrackCount !== undefined ? { localMediumTrackCount } : {}),
+  });
+
+  return {
+    ok: true,
+    value: {
+      resolved,
+      releaseId: album.releaseId,
+      localAlbumId: album.id,
+      canonicalTrackId: canonicalTrack?.id ?? null,
+      matchDistance,
+    },
+  };
+}
+
+type ReleaseRow = typeof releases.$inferSelect;
+type ReleaseGroupRow = typeof releaseGroups.$inferSelect;
+type CanonicalRow = typeof canonicalTracks.$inferSelect;
+
+/**
+ * The resolution itself, for a release and one of its tracks: the release
+ * group's effective genres through the library's map, the locks of the given
+ * scopes (file: an audio file or local track id; album: a local album id),
+ * and the disc counts that make totaltracks trusted.
+ */
+async function resolvedFor(ctx: WorkerContext, libraryId: string, a: {
+  releaseRow: ReleaseRow;
+  releaseGroup: ReleaseGroupRow;
+  canonicalTrack: CanonicalRow | null;
+  lockScopes: { file: string[]; album: string[] };
+  mediumTrackCount?: number;
+  localMediumTrackCount?: number;
+}): Promise<ResolvedMetadata> {
+  const { releaseRow, releaseGroup, canonicalTrack, mediumTrackCount, localMediumTrackCount } = a;
   // Effective genres through the library's map (Settings › Genres).
   const [lib] = await ctx.db.select({ settings: libraries.settings }).from(libraries).where(eq(libraries.id, libraryId));
   const settings = (typeof lib?.settings === 'string' ? JSON.parse(lib.settings) : lib?.settings ?? {}) as Record<string, unknown>;
@@ -200,10 +238,10 @@ export async function resolveMetadataForFile(
     .from(fieldLocks)
     .where(and(
       eq(fieldLocks.libraryId, libraryId),
-      inArray(fieldLocks.scopeId, [audioFileId, track.id, album.id]),
+      inArray(fieldLocks.scopeId, [...a.lockScopes.file, ...a.lockScopes.album, '00000000-0000-0000-0000-000000000000']),
     ));
   const locks: NonNullable<ResolutionInput['locks']> = lockRows
-    .filter((l) => (l.scope === 'track' && (l.scopeId === audioFileId || l.scopeId === track.id)) || (l.scope === 'album' && l.scopeId === album.id))
+    .filter((l) => (l.scope === 'track' && a.lockScopes.file.includes(l.scopeId)) || (l.scope === 'album' && a.lockScopes.album.includes(l.scopeId)))
     .map((l) => ({
       field: l.field,
       value: l.value as string | string[] | undefined,
@@ -255,17 +293,38 @@ export async function resolveMetadataForFile(
     ...(mediumTrackCount !== undefined ? { mediumTrackCount } : {}),
     ...(localMediumTrackCount !== undefined ? { localMediumTrackCount } : {}),
   };
+  return resolveFields(input);
+}
 
-  return {
-    ok: true,
-    value: {
-      resolved: resolveFields(input),
-      releaseId: album.releaseId,
-      localAlbumId: album.id,
-      canonicalTrackId: canonicalTrack?.id ?? null,
-      matchDistance,
-    },
-  };
+/**
+ * Canonical fields for a file as a track of another release (Move to album,
+ * 0080): the release, the track it pairs with, the file's own locks and the
+ * target album's (none for a new album), and the counts of the target disc.
+ */
+export async function resolveForTarget(ctx: WorkerContext, libraryId: string, t: {
+  releaseId: string;
+  canonicalTrackId: string;
+  /** the audio file and its local track: their locks come along */
+  fileScopes: string[];
+  targetAlbumId: string | null;
+  /** the target disc's tracks after the move */
+  localMediumTrackCount: number;
+}): Promise<ResolvedMetadata | null> {
+  const [releaseRow] = await ctx.db.select().from(releases).where(eq(releases.id, t.releaseId));
+  if (!releaseRow) return null;
+  const [releaseGroup] = await ctx.db.select().from(releaseGroups).where(eq(releaseGroups.id, releaseRow.releaseGroupId));
+  if (!releaseGroup) return null;
+  const [canonicalTrack] = await ctx.db.select().from(canonicalTracks).where(eq(canonicalTracks.id, t.canonicalTrackId));
+  if (!canonicalTrack) return null;
+  const [counts] = (await ctx.sql`
+    select count(*)::int as n from canonical_tracks
+     where release_id = ${t.releaseId} and coalesce(medium_no, 1) = ${canonicalTrack.mediumNo ?? 1}`) as unknown as Array<{ n: number }>;
+  return resolvedFor(ctx, libraryId, {
+    releaseRow, releaseGroup, canonicalTrack,
+    lockScopes: { file: t.fileScopes, album: t.targetAlbumId ? [t.targetAlbumId] : [] },
+    ...(counts?.n ? { mediumTrackCount: counts.n } : {}),
+    localMediumTrackCount: t.localMediumTrackCount,
+  });
 }
 
 /**
