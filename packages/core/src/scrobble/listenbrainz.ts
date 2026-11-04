@@ -81,6 +81,33 @@ export function listenbrainzScrobbleBatch(token: string, items: Array<{ track: S
   }, opts);
 }
 
+/**
+ * A liked song: recording feedback, score 1 (love); unliked: score 0 (no
+ * feedback). ListenBrainz knows a recording by its MBID, so a song without
+ * one is not sent ('ignored').
+ * https://listenbrainz.readthedocs.io/en/latest/users/api/recordings.html
+ */
+export async function listenbrainzFeedback(token: string, recordingMbid: string | null, love: boolean, opts: Opts = {}): Promise<SendOutcome> {
+  if (!recordingMbid) return { kind: 'ignored', reason: 'The song has no MusicBrainz recording id' };
+  let res: Response;
+  try {
+    res = await (opts.fetchImpl ?? fetch)(`${base(opts)}/1/feedback/recording-feedback`, {
+      method: 'POST',
+      headers: { authorization: `Token ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ recording_mbid: recordingMbid, score: love ? 1 : 0 }),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
+    });
+  } catch (err) {
+    return { kind: 'retry', reason: `ListenBrainz could not be reached (${(err as Error).message})` };
+  }
+  if (res.ok) return { kind: 'sent' };
+  const answer = (await res.json().catch(() => null)) as { error?: string } | null;
+  const why = answer?.error ?? `ListenBrainz answered ${res.status}`;
+  if (res.status === 401) return { kind: 'auth', reason: 'ListenBrainz no longer accepts this token; paste a new one' };
+  if (res.status === 429 || res.status >= 500) return { kind: 'retry', reason: why };
+  return { kind: 'failed', reason: why };
+}
+
 export function listenbrainzNowPlaying(token: string, track: ScrobbleTrack, opts: Opts = {}): Promise<SendOutcome> {
   return submit(token, { listen_type: 'playing_now', payload: [{ track_metadata: metadata(track) }] }, opts);
 }

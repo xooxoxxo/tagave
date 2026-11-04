@@ -166,6 +166,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     await plays.pollPerson(deps, backend, ben);
     await plays.deriveListens(sql, ben);
     await ratings.syncPersonRatings({ sql }, backend, anna);
+    // Anna likes a song: a love queued for ListenBrainz, a star on her account (0085)
+    const likes = await import('../lib/likes.js');
+    await sql`delete from likes where user_id = ${anna}`;
+    expect(await likes.addLike(sql, anna, (await likes.targetOf(sql, 'song', t.three))!)).toBe(true);
+    await (await import('../lib/playerLikes.js')).syncPersonLikes({ sql }, backend, anna);
     // a scan after a tag write (its status lands in the library's settings), and one still waiting
     await player.requestPlayerScan(sql, null, libraryId, ['The Plugs/Unplug Album']);
     await player.runPlayerScan(sql, libraryId);

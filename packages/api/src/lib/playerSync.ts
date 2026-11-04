@@ -7,7 +7,10 @@
  *   other apps' "now playing" forwarded (every 20 s)
  *
  *   every minute: the bundled server's accounts kept in step with tagave's
- *   people; each person's plays from other apps read back; ratings pushed
+ *   people; each person's plays from other apps read back; ratings pushed;
+ *   likes and the server's stars brought together (playerLikes.ts)
+ *
+ *   loves (liked songs to Last.fm and ListenBrainz) go with the fast part
  *
  * Correctness never depends on there being one runner: plays are unique per
  * person and key, scrobbles per play and service, and every step takes its
@@ -19,6 +22,7 @@ import { backendFor, firstLibrary, libraryById, parseSettings } from './player.j
 import { syncBundledUsers } from './playerPeople.js';
 import { deriveListens, forwardServerNowPlaying, pollServerPlays, processPlayEvents, reportWebPlays, type PlaysDeps } from './playerPlays.js';
 import { syncRatings } from './playerRatings.js';
+import { sendDueLoves, syncLikes } from './playerLikes.js';
 import { sendDueScrobbles } from './scrobbling.js';
 
 type Sql = postgres.Sql;
@@ -73,6 +77,7 @@ export async function runPlayerFastSync(o: SyncOptions): Promise<void> {
   }
   await reportWebPlays(deps);
   await sendDueScrobbles(deps);
+  await sendDueLoves(deps);
 }
 
 /** The minute part: accounts, plays from other apps, ratings. */
@@ -84,6 +89,7 @@ export async function runPlayerMinuteSync(o: SyncOptions): Promise<void> {
       const polled = await pollServerPlays(deps, backend);
       for (const userId of polled.newPlayUsers) await deriveListens(o.sql, userId);
       await syncRatings(deps, backend);
+      await syncLikes(deps, backend);
     } catch (err) {
       o.log?.warn({ server: backend.key, err: (err as Error).message }, 'player sync');
     }

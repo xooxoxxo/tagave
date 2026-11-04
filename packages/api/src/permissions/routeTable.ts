@@ -83,6 +83,11 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/me/playlists/:id/items': 'catalog.read',
   'DELETE /api/v1/me/playlists/:id/items/:itemId': 'catalog.read',
   'GET /api/v1/me/playlists/:id/export': 'catalog.read',
+  // Likes (routes/likes.ts): each person's own hearts and Liked songs.
+  'GET /api/v1/me/likes': 'catalog.read',
+  'GET /api/v1/me/likes/songs': 'catalog.read',
+  'PUT /api/v1/me/likes/:kind/:id': 'catalog.read',
+  'DELETE /api/v1/me/likes/:kind/:id': 'catalog.read',
   // catalog.read: Listener and up: the catalogue, and the caller's own reviews, listens, clippings and saved views (the handlers filter by request.user.id).
   'DELETE /api/v1/clippings/:clippingId': 'catalog.read',
   'GET /api/v1/images/album/:albumId': 'catalog.read',

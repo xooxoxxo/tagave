@@ -153,13 +153,14 @@ interface AccountRow {
   last_ok_at: Date | null;
   last_error: string | null;
   last_error_at: Date | null;
+  send_loves: boolean;
 }
 
 const iso = (d: Date | null | undefined) => (d ? new Date(d).toISOString() : null);
 
 export async function accountViews(sql: Sql, userId: string): Promise<ScrobbleAccountView[]> {
   const rows = await sql<AccountRow[]>`
-    select service, account_name, secret_sealed, connected_at, last_ok_at, last_error, last_error_at
+    select service, account_name, secret_sealed, connected_at, last_ok_at, last_error, last_error_at, send_loves
     from scrobble_accounts where user_id = ${userId}`;
   const pending = await sql<{ service: ScrobbleService; n: number }[]>`
     select s.service, count(*)::int as n from player_scrobbles s join player_plays p on p.id = s.play_id
@@ -175,6 +176,7 @@ export async function accountViews(sql: Sql, userId: string): Promise<ScrobbleAc
       lastError: r?.last_error ?? null,
       lastErrorAt: iso(r?.last_error_at),
       pending: r ? pending.find((p) => p.service === service)?.n ?? 0 : 0,
+      loves: r ? r.send_loves : true,
     };
   });
 }
@@ -223,9 +225,17 @@ export async function backfillScrobbles(sql: Sql, userId: string, service: Scrob
   return rows.length;
 }
 
+/** Liked songs as loves on this connection: Off or On (on from the start). */
+export async function setSendLoves(sql: Sql, userId: string, service: ScrobbleService, on: boolean): Promise<boolean> {
+  const rows = await sql`update scrobble_accounts set send_loves = ${on} where user_id = ${userId} and service = ${service} returning 1`;
+  if (!on) await sql`update player_loves set status = 'failed', last_error = 'Loves turned off before it was sent' where user_id = ${userId} and service = ${service} and status = 'pending'`;
+  return rows.length > 0;
+}
+
 /** Disconnecting drops what was still waiting for that service: it is not sent later. */
 export async function disconnectAccount(sql: Sql, userId: string, service: ScrobbleService): Promise<void> {
   await sql`delete from scrobble_accounts where user_id = ${userId} and service = ${service}`;
+  await sql`update player_loves set status = 'failed', last_error = 'Disconnected before it was sent' where user_id = ${userId} and service = ${service} and status in ('pending', 'sending')`;
   await sql`
     update player_scrobbles s set status = 'failed', last_error = 'Disconnected before it was sent'
     from player_plays p where p.id = s.play_id and p.user_id = ${userId} and s.service = ${service} and s.status in ('pending', 'sending')`;

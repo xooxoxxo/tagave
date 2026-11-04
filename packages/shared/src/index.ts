@@ -551,6 +551,9 @@ export * from './playQueue.js';
 export * from './playerDevices.js';
 export * from './playlists.js';
 
+// Likes: hearts on songs, albums and artists
+export * from './likes.js';
+
 // Each person's own preferences that follow them between devices (the colour theme)
 export * from './userPrefs.js';
 

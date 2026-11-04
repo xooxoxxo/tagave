@@ -9,7 +9,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 
 export interface FakeSong { id: string; title: string; track: number; discNumber: number; path: string; musicBrainzId?: string; duration: number; albumId?: string; artist?: string; album?: string }
-export interface FakeAlbum { id: string; name: string; artist: string; musicBrainzId: string; songs: FakeSong[] }
+export interface FakeAlbum { id: string; name: string; artist: string; musicBrainzId: string; songs: FakeSong[]; artistId?: string; artistMbid?: string }
 
 interface UserState {
   id: string;
@@ -19,6 +19,8 @@ interface UserState {
   plays: Map<string, { count: number; played: number }>;
   ratings: Map<string, number>;
   starred: Set<string>;
+  /** when each was starred (ms); a star without one reads as 2026-10-16 */
+  starredAt?: Map<string, number>;
 }
 
 const AUDIO = Buffer.from(Array.from({ length: 4096 }, (_, i) => i % 251));
@@ -66,13 +68,18 @@ export function fakeNavidrome(adminPassword: string) {
   const allSongs = () => allAlbums().flatMap((a) => a.songs.map((s) => ({ ...s, albumId: a.id, album: a.name, artist: s.artist ?? a.artist })));
   const songView = (u: UserState, s: FakeSong & { albumId: string }) => {
     const p = u.plays.get(s.id);
-    return { ...s, ...(p ? { playCount: p.count, played: new Date(p.played).toISOString() } : {}), ...(u.starred.has(s.id) ? { starred: '2026-10-16T00:00:00Z' } : {}), ...(u.ratings.has(s.id) ? { userRating: u.ratings.get(s.id) } : {}) };
+    return { ...s, ...(p ? { playCount: p.count, played: new Date(p.played).toISOString() } : {}), ...(u.starred.has(s.id) ? { starred: starredIso(u, s.id) } : {}), ...(u.ratings.has(s.id) ? { userRating: u.ratings.get(s.id) } : {}) };
+  };
+  const starredIso = (u: UserState, id: string) => new Date(u.starredAt?.get(id) ?? Date.parse('2026-10-16T00:00:00Z')).toISOString();
+  const star = (u: UserState, id: string, on: boolean, at = Date.now()) => {
+    if (on) { u.starred.add(id); (u.starredAt ??= new Map()).set(id, at); } else { u.starred.delete(id); u.starredAt?.delete(id); }
   };
   const albumView = (u: UserState, a: FakeAlbum) => {
     const plays = a.songs.map((s) => u.plays.get(s.id)).filter((p): p is { count: number; played: number } => !!p);
     const played = plays.length ? Math.max(...plays.map((p) => p.played)) : null;
     return {
-      id: a.id, name: a.name, artist: a.artist, songCount: a.songs.length, musicBrainzId: a.musicBrainzId,
+      id: a.id, name: a.name, artist: a.artist, songCount: a.songs.length, musicBrainzId: a.musicBrainzId, ...(a.artistId ? { artistId: a.artistId } : {}),
+      ...(u.starred.has(a.id) ? { starred: starredIso(u, a.id) } : {}),
       ...(played ? { played: new Date(played).toISOString(), playCount: plays.reduce((n, p) => n + p.count, 0) } : {}),
       userRating: u.ratings.get(a.id) ?? 0,
     };
@@ -190,8 +197,16 @@ export function fakeNavidrome(adminPassword: string) {
         if (r === 0) u.ratings.delete(q.get('id')!); else u.ratings.set(q.get('id')!, r);
         return ok(res, {});
       }
-      case 'star': for (const id of q.getAll('id')) u.starred.add(id); return ok(res, {});
-      case 'unstar': for (const id of q.getAll('id')) u.starred.delete(id); return ok(res, {});
+      case 'star': for (const id of [...q.getAll('id'), ...q.getAll('albumId'), ...q.getAll('artistId')]) star(u, id, true); return ok(res, {});
+      case 'unstar': for (const id of [...q.getAll('id'), ...q.getAll('albumId'), ...q.getAll('artistId')]) star(u, id, false); return ok(res, {});
+      case 'getStarred2': {
+        const artists = new Map(albums.filter((a) => a.artistId).map((a) => [a.artistId!, { id: a.artistId!, name: a.artist, ...(a.artistMbid ? { musicBrainzId: a.artistMbid } : {}) }]));
+        return ok(res, { starred2: {
+          song: allSongs().filter((x) => u.starred.has(x.id)).map((x) => songView(u, x)),
+          album: albums.filter((a) => u.starred.has(a.id)).map((a) => albumView(u, a)),
+          artist: [...artists.values()].filter((a) => u.starred.has(a.id)).map((a) => ({ ...a, starred: starredIso(u, a.id) })),
+        } });
+      }
       case 'getScanStatus': return ok(res, { scanStatus: { scanning: state.scanning, count: 3, ...(state.lastScan ? { lastScan: state.lastScan } : {}) } });
       case 'getMusicFolders': return ok(res, { musicFolders: { musicFolder: [{ id: 1, name: 'Music' }] } });
       case 'startScan': state.scans.push(q.getAll('target')); return ok(res, { scanStatus: { scanning: true, count: 0 } });
@@ -213,7 +228,9 @@ export function fakeNavidrome(adminPassword: string) {
       default: return fail(res, 0, `unknown method ${method}`);
     }
   });
-  return { server, state, phonePlay, AUDIO };
+  /** what a Subsonic app does when the person taps its star (or takes it off) */
+  const appStar = (user: string, id: string, on: boolean, at = Date.now()) => star(users.get(user)!, id, on, at);
+  return { server, state, phonePlay, appStar, AUDIO };
 }
 
 /** A Last.fm that checks signatures and records what it was sent. */
@@ -224,6 +241,8 @@ export function fakeLastfm(apiKey: string, secret: string) {
     /** one entry per track.scrobble request */
     calls: [] as Array<Record<string, string>>,
     nowPlaying: [] as Array<Record<string, string>>,
+    /** track.love and track.unlove, as sent */
+    loves: [] as Array<Record<string, string>>,
     sessions: new Map<string, string>([['good-token', 'sk-anna']]),
     /** answer the next n scrobbles with error 11 (service offline) */
     failNext: 0,
@@ -263,6 +282,11 @@ export function fakeLastfm(apiKey: string, secret: string) {
           }
           state.scrobbles.push(p);
           return send({ scrobbles: { '@attr': { accepted: 1, ignored: 0 }, scrobble: { ignoredMessage: { code: '0', '#text': '' } } } });
+        case 'track.love':
+        case 'track.unlove':
+          if (!p['sk']?.startsWith('sk-')) return send({ error: 9, message: 'Invalid session key' });
+          state.loves.push(p);
+          return send({});
         case 'track.updateNowPlaying':
           state.nowPlaying.push(p);
           return send({ nowplaying: {} });
@@ -275,12 +299,25 @@ export function fakeLastfm(apiKey: string, secret: string) {
 
 /** A ListenBrainz with one valid token per user. */
 export function fakeListenbrainz(tokens: Record<string, string>) {
-  const state = { listens: [] as Array<{ user: string; body: { listen_type: string; payload: Array<Record<string, unknown>> } }> };
+  const state = {
+    listens: [] as Array<{ user: string; body: { listen_type: string; payload: Array<Record<string, unknown>> } }>,
+    feedback: [] as Array<{ user: string; body: { recording_mbid?: string; score: number } }>,
+  };
   const server = createServer((req, res) => {
     const auth = String(req.headers.authorization ?? '').replace(/^Token /, '');
     const user = tokens[auth];
     const send = (status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (req.url === '/1/validate-token') return send(200, user ? { code: 200, valid: true, user_name: user } : { code: 200, valid: false, message: 'Token invalid.' });
+    if (req.url === '/1/feedback/recording-feedback' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        if (!user) return send(401, { code: 401, error: 'Invalid authorization token.' });
+        state.feedback.push({ user, body: JSON.parse(raw) });
+        send(200, { status: 'ok' });
+      });
+      return;
+    }
     if (req.url === '/1/submit-listens' && req.method === 'POST') {
       let raw = '';
       req.on('data', (c) => { raw += c; });

@@ -54,6 +54,7 @@ import { createLidarrRoutes } from './routes/lidarr.js';
 import { createPlayerQueueRoutes } from './routes/playerQueue.js';
 import { createPlayerDeviceRoutes } from './routes/playerDevices.js';
 import { createPlaylistRoutes } from './routes/playlists.js';
+import { createLikeRoutes } from './routes/likes.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -205,6 +206,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createPlayerDeviceRoutes, { prefix: '/api/v1' });
     // Playlists: each person's own lists, export and import, the module row
     instance.register(createPlaylistRoutes, { prefix: '/api/v1' });
+    // Likes: each person's hearts on songs, albums and artists, Liked songs
+    instance.register(createLikeRoutes, { prefix: '/api/v1' });
     // Each person's own preferences that follow them between devices (the colour theme)
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
     // Deleting songs and albums: Mark or Trash, Library care › Deleting (owner)

@@ -103,6 +103,10 @@ export function albumQueryParts(
   };
   const reviewClause = str(q['review']) ? REVIEW_CLAUSES[str(q['review'])!] : undefined;
   if (reviewClause) conds.push(reviewClause);
+  // Liked (0085): the person liked its release group, or the album itself before it was identified
+  const likedSql = sql`exists (select 1 from likes lk where lk.user_id = ${userId} and lk.kind = 'album'
+    and (lk.release_group_id = ${localAlbums.releaseGroupId} or lk.local_album_id = ${localAlbums.id}))`;
+  if (str(q['liked']) === 'yes') conds.push(likedSql);
 
   const genres = arr(q['genre']);
   if (genres.length) {
@@ -152,7 +156,7 @@ export function albumQueryParts(
     rating: sql`${ownRatingSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
     listened: sql`${lastListenSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
   };
-  return { conds, orderings, REVIEW_CLAUSES, ownedSql, openGap };
+  return { conds, orderings, REVIEW_CLAUSES, ownedSql, openGap, likedSql };
 }
 
 /**
@@ -217,7 +221,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       return reply.send(body);
     }
     reply.header('x-tagave-facets', 'live');
-    const { conds, REVIEW_CLAUSES, ownedSql, openGap } = albumQueryParts(libraryId, userId, rawQuery);
+    const { conds, REVIEW_CLAUSES, ownedSql, openGap, likedSql } = albumQueryParts(libraryId, userId, rawQuery);
     const where = and(...conds)!;
     // A dimension's own filter is dropped from its own counts, so a checked
     // box still shows what its siblings would add (standard faceted search).
@@ -240,6 +244,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
                count(*) filter (where ${REVIEW_CLAUSES['reviewed']})::int as reviewed,
                count(*) filter (where ${REVIEW_CLAUSES['rated']})::int as rated,
                count(*) filter (where ${REVIEW_CLAUSES['listened']})::int as listened,
+               count(*) filter (where ${likedSql})::int as liked,
                count(*) filter (where not ${openGap(sql``)})::int as no_gap,
                ${sql.join(Object.entries(DECIDED_CLAUSES).map(([k, c]) => sql`count(*) filter (where ${decidedExists(c)})::int as ${sql.raw(`decided_${k}`)}`), sql`, `)}
         from local_albums where ${where}`),
@@ -294,6 +299,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       gaps: [...facet(gapRows, 'kind'), { value: 'none', count: Number(gapNone?.['n'] ?? 0) }],
       owned: [{ value: 'both', count: n('owned_both') }, { value: 'digital', count: total - n('owned_both') }],
       decided: Object.keys(DECIDED_CLAUSES).map((k) => ({ value: k, count: n(`decided_${k}`) })),
+      liked: [{ value: 'yes', count: n('liked') }],
     };
     storeFilterCountsCache(cacheKey, libraryId, body);
     reply.header('x-tagave-cache', 'miss');
