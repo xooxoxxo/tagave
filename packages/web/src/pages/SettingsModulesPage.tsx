@@ -16,7 +16,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { can, moduleCommand, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
-import { Banner, Button, ChevronRightIcon, SegmentedControl, confirmDialog } from '../components/ui';
+import { Banner, Button, ChevronRightIcon, SegmentedControl, confirmDialog, updateConfirm } from '../components/ui';
 import { StepList, RunLog, clock, sentence, useNow } from '../components/InAppUpdate';
 import { StepUpDialog } from '../components/StepUpDialog';
 import { useStepUpAction } from '../components/users/useStepUpAction';
@@ -170,6 +170,26 @@ export function SettingsModulesContent() {
 
 const ON_OFF = (disabled: boolean) => [{ value: 'off' as const, label: 'Off', disabled }, { value: 'on' as const, label: 'On', disabled }];
 
+/** A choice inside a dialog: its label, then Off | On (never a checkbox). */
+export function OffOnField({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <div className={styles.field}>
+      <span className={styles.fieldLabel} aria-hidden="true">{label}</span>
+      <SegmentedControl label={label} value={on ? 'on' : 'off'} onChange={(v) => onChange(v === 'on')} options={ON_OFF(false)} />
+    </div>
+  );
+}
+
+/** One labels-and-values line: Kept · its requests. */
+function ValueLine({ label, value }: { label: string; value: ReactNode }) {
+  return <p className={styles.value}><span className={styles.valueLabel}>{label}</span> · {value}</p>;
+}
+
+/** Turn off's confirm key: deleting the data is the danger key, and says so. */
+export function turnOffKey(deleteData: boolean): { confirmLabel: string; tone: 'primary' | 'danger' } {
+  return deleteData ? { confirmLabel: 'Turn off and delete', tone: 'danger' } : { confirmLabel: 'Turn off', tone: 'primary' };
+}
+
 export interface ModuleSwitchViewProps {
   /** the module's name: the control's name for screen readers */
   name: string;
@@ -249,10 +269,10 @@ export function ModuleRunView({ run, disconnected, onDismiss }: { run: ModuleRun
 export interface TurnOffChoice { deleteData: boolean; deleteHistory: boolean }
 
 /**
- * What Turn off keeps and what the boxes delete. For a module with rows in
- * tagave's database (the player), the catalogue says plainly what goes and
- * what stays, and offers its history (the player's listens) as a second box,
- * unticked.
+ * Turn off's choices for a catalogue module: what it keeps, and Delete its
+ * data as Off | On (Off first). For a module with rows in tagave's database
+ * (the player), On says what goes and what stays, and offers its history
+ * (the player's listens) as a second Off | On.
  */
 export function TurnOffChoices({ m, onChange, initial }: { m: ModuleStatus; onChange: (c: TurnOffChoice) => void; initial?: TurnOffChoice }) {
   const [data, setData] = useState(initial?.deleteData ?? false);
@@ -265,22 +285,11 @@ export function TurnOffChoices({ m, onChange, initial }: { m: ModuleStatus; onCh
   };
   return (
     <>
-      <p>Kept unless you tick the box: {m.keepsOnRemoval}.</p>
-      <label className={styles.check}>
-        <input type="checkbox" checked={data} onChange={(e) => set(e.target.checked, history)} />
-        <span>Also delete its data. This cannot be undone.</span>
-      </label>
-      {data && appData && (
-        <div className={styles.choice}>
-          <p className={styles.consequence}>{appData.removes}{!history && appData.keeps ? ` ${appData.keeps}` : ''}</p>
-          {appData.history && (
-            <label className={styles.check}>
-              <input type="checkbox" checked={history} onChange={(e) => set(true, e.target.checked)} />
-              <span>{appData.history}</span>
-            </label>
-          )}
-        </div>
-      )}
+      {data && appData
+        ? <p className={styles.consequence}>{appData.removes}{!history && appData.keeps ? ` ${appData.keeps}` : ''}</p>
+        : <ValueLine label={data ? 'Deleted' : 'Kept'} value={m.keepsOnRemoval} />}
+      <OffOnField label="Delete its data" on={data} onChange={(d) => set(d, history)} />
+      {data && appData?.history && <OffOnField label="Delete its listens" on={history} onChange={(h) => set(true, h)} />}
     </>
   );
 }
@@ -414,9 +423,8 @@ function CatalogueSwitch({ id, name }: { id: string; name: string }) {
     let choice: TurnOffChoice = { deleteData: false, deleteHistory: false };
     const ok = await confirmDialog({
       title: `Turn off ${m.name}?`,
-      message: <TurnOffChoices m={m} onChange={(c) => { choice = c; }} />,
-      confirmLabel: 'Turn off',
-      tone: 'danger',
+      message: <TurnOffChoices m={m} onChange={(c) => { choice = c; updateConfirm(turnOffKey(c.deleteData)); }} />,
+      ...turnOffKey(false),
     });
     if (ok) await withStepUp(m, 'disable', choice);
   };
@@ -453,25 +461,49 @@ function CatalogueSwitch({ id, name }: { id: string; name: string }) {
 
 export interface OffChoice { deleteData: boolean; keepFills: boolean }
 
-interface SettingSwitchProps {
+export interface SettingOffChoicesProps {
+  /** what Turn off keeps (Kept · …), and what Delete its data deletes */
+  kept: string;
+  /** the lines while Delete its data is On; Deleted · `kept` by default */
+  deleted?: (choice: OffChoice) => Array<[label: string, value: string]>;
+  /** above the choices (Playlists: Export first) */
+  before?: ReactNode;
+  /** offer Keep filled IDs while deleting (Music Connections) */
+  keepFills?: boolean;
+  initial?: OffChoice;
+  onChange: (choice: OffChoice) => void;
+}
+
+/** Turn off's choices for a module that is a setting: labels, values and Off | On. */
+export function SettingOffChoices({ kept, deleted, before = null, keepFills = false, initial, onChange }: SettingOffChoicesProps) {
+  const [choice, setChoice] = useState<OffChoice>(initial ?? { deleteData: false, keepFills: false });
+  const set = (next: OffChoice) => {
+    setChoice(next);
+    onChange(next);
+  };
+  const lines: Array<[string, string]> = choice.deleteData ? (deleted?.(choice) ?? [['Deleted', kept]]) : [['Kept', kept]];
+  return (
+    <>
+      {lines.map(([label, value]) => <ValueLine key={label} label={label} value={value} />)}
+      {before}
+      <OffOnField label="Delete its data" on={choice.deleteData} onChange={(d) => set({ ...choice, deleteData: d })} />
+      {keepFills && choice.deleteData && <OffOnField label="Keep filled IDs" on={choice.keepFills} onChange={(k) => set({ ...choice, keepFills: k })} />}
+    </>
+  );
+}
+
+interface SettingSwitchProps extends Pick<SettingOffChoicesProps, 'kept' | 'deleted' | 'before' | 'keepFills'> {
   name: string;
   label?: string;
   on: boolean;
   meta: string | null;
   pending: boolean;
-  /** Turn off's first line: what stays */
-  keeps: string;
-  /** above the delete box (Playlists: Export first) */
-  before?: ReactNode;
-  /** under the delete box (Music Connections: keep the IDs it filled) */
-  after?: (choice: OffChoice) => ReactNode;
-  deleteLabel?: string;
   setOn: (on: boolean) => Promise<unknown>;
   removeData: (choice: OffChoice) => Promise<unknown>;
 }
 
 /** Off | On for a module that is a setting; Off asks first and can delete its data (the API turns it off then). */
-function SettingSwitch({ name, label, on, meta, pending, keeps, before = null, after, deleteLabel = 'Also delete its data. This cannot be undone.', setOn, removeData }: SettingSwitchProps) {
+function SettingSwitch({ name, label, on, meta, pending, kept, deleted, before = null, keepFills = false, setOn, removeData }: SettingSwitchProps) {
   const { run, dialog } = useStepUpAction();
   const [error, setError] = useState<string | null>(null);
   const act = async (verb: string, fn: () => Promise<unknown>) => {
@@ -485,22 +517,19 @@ function SettingSwitch({ name, label, on, meta, pending, keeps, before = null, a
   };
   const onSwitch = async (next: boolean) => {
     if (next) return act('Turning on', () => setOn(true));
-    const choice: OffChoice = { deleteData: false, keepFills: false };
+    let choice: OffChoice = { deleteData: false, keepFills: false };
     const ok = await confirmDialog({
       title: `Turn off ${name}?`,
       message: (
-        <>
-          <p>{keeps}</p>
-          {before}
-          <label className={styles.check}>
-            <input type="checkbox" onChange={(e) => { choice.deleteData = e.target.checked; }} />
-            <span>{deleteLabel}</span>
-          </label>
-          {after?.(choice)}
-        </>
+        <SettingOffChoices
+          kept={kept}
+          {...(deleted ? { deleted } : {})}
+          before={before}
+          keepFills={keepFills}
+          onChange={(c) => { choice = c; updateConfirm(turnOffKey(c.deleteData)); }}
+        />
       ),
-      confirmLabel: 'Turn off',
-      tone: 'danger',
+      ...turnOffKey(false),
     });
     if (ok) await act('Turning off', () => (choice.deleteData ? removeData(choice) : setOn(false)));
   };
@@ -511,6 +540,13 @@ function SettingSwitch({ name, label, on, meta, pending, keeps, before = null, a
     </>
   );
 }
+
+/** Music Connections' lines while Delete its data is On. */
+export const mcDeleted = (c: OffChoice): Array<[string, string]> => [
+  ['Deleted', c.keepFills ? 'connections, items' : 'connections, items, filled IDs'],
+  ['Revoked', 'every connection'],
+  ...(c.keepFills ? [['Kept', 'filled IDs'] as [string, string]] : []),
+];
 
 function McSwitch() {
   const mc = useMcModule();
@@ -524,14 +560,9 @@ function McSwitch() {
       on={v.enabled}
       meta={`${plural(v.links, 'connection', 'connections')} · ${v.landed} items${v.fills > 0 ? ` · ${v.fills} IDs filled in` : ''}`}
       pending={setOn.isPending || remove.isPending}
-      keeps="Its data is kept unless you tick the box."
-      deleteLabel="Also delete its data and revoke every connection. This cannot be undone."
-      after={(choice) => (
-        <label className={styles.check}>
-          <input type="checkbox" onChange={(e) => { choice.keepFills = e.target.checked; }} />
-          <span>Keep the album IDs it filled in</span>
-        </label>
-      )}
+      kept="connections, items, filled IDs"
+      deleted={mcDeleted}
+      keepFills
       setOn={(on) => setOn.mutateAsync(on)}
       removeData={(c) => remove.mutateAsync(c.keepFills)}
     />
@@ -550,7 +581,7 @@ function ListenSwitch() {
       on={v.enabled}
       meta={`${plural(v.albums, 'album', 'albums')} · ${plural(v.artists, 'artist', 'artists')} · ${plural(v.people, 'person', 'people')}`}
       pending={setOn.isPending || remove.isPending}
-      keeps="Its links and everyone’s platforms are kept unless you tick the box."
+      kept="links, everyone’s platforms"
       setOn={(on) => setOn.mutateAsync(on)}
       removeData={() => remove.mutateAsync()}
     />
@@ -569,7 +600,7 @@ function PlaylistsSwitch() {
       on={v.enabled}
       meta={`${plural(v.playlists, 'playlist', 'playlists')} · ${plural(v.people, 'person', 'people')}`}
       pending={setOn.isPending || remove.isPending}
-      keeps="Everyone’s playlists are kept unless you tick the box."
+      kept="everyone’s playlists"
       before={<p><Button size="sm" variant="secondary" onClick={() => download(allPlaylistsExportUrl)}>Export first</Button></p>}
       setOn={(on) => setOn.mutateAsync(on)}
       removeData={() => remove.mutateAsync()}
@@ -590,7 +621,7 @@ function LidarrSwitch() {
       on={v.enabled}
       meta={`${v.open} getting`}
       pending={setOn.isPending || remove.isPending}
-      keeps="Its requests are kept unless you tick the box."
+      kept="requests"
       setOn={(on) => setOn.mutateAsync(on)}
       removeData={() => remove.mutateAsync()}
     />
@@ -610,7 +641,7 @@ function SimilarSwitch() {
         on={v.enabled}
         meta={`${plural(v.artists, 'artist', 'artists')} · ${v.lastfm ? 'ListenBrainz, Last.fm' : 'ListenBrainz'}`}
         pending={setOn.isPending || remove.isPending}
-        keeps="Its lists are kept unless you tick the box."
+        kept="similar-artist lists"
         setOn={(on) => setOn.mutateAsync(on)}
         removeData={() => remove.mutateAsync()}
       />

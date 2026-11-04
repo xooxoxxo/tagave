@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import type { ModulesView } from '@tagave/shared';
-import { CatalogueModuleView, ModuleSwitchView, ModulesListView, TurnOffChoices, moduleRows } from './SettingsModulesPage';
+import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, mcDeleted, moduleRows, turnOffKey, type OffChoice } from './SettingsModulesPage';
 import { MOVED_SECTIONS, moduleSlug } from './moduleSettings';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from '../stories/modulesFixtures';
 
@@ -150,23 +150,46 @@ describe('Settings › Modules › Player (a catalogue module)', () => {
     expect(option(html, 'On')).toMatch(/disabled/);
   });
 
-  it('Turn off says what the data box deletes and what stays, and offers the play history unticked', () => {
+  it('Turn off: labels and values, Delete its data as Off | On (Off), the play history as a second Off | On', () => {
     const off = (initial?: { deleteData: boolean; deleteHistory: boolean }) =>
       renderToStaticMarkup(<TurnOffChoices m={{ ...PLAYER, state: 'on' }} onChange={() => undefined} {...(initial ? { initial } : {})} />);
+    const groups = (html: string) => [...html.matchAll(/role="radiogroup" aria-label="([^"]+)"/g)].map((g) => g[1]);
     const closed = off();
-    expect(closed).toContain('Also delete its data. This cannot be undone.');
-    expect(closed).not.toContain('Your listens stay.');
-    expect((closed.match(/type="checkbox"/g) ?? []).length).toBe(1);
+    expect(closed).toContain('>Kept</span> · Navidrome&#x27;s database');
+    expect(groups(closed)).toEqual(['Delete its data']);
+    expect(option(closed, 'Off')).toMatch(/checked/);
+    expect(closed).not.toMatch(/type="checkbox"|tick the box|cannot be undone|Your listens stay\./);
     const data = off({ deleteData: true, deleteHistory: false });
-    expect(data).toContain("Deletes Navidrome&#x27;s database and, in tagave, the player&#x27;s library, play counts and connected Last.fm and ListenBrainz accounts. A server of your own in Settings\u00a0›\u00a0Modules\u00a0›\u00a0Player keeps its data and the accounts. Your listens stay.");
-    expect(data).toContain('Also delete the listens the player recorded. Listens you added yourself stay.');
-    expect((data.match(/type="checkbox"/g) ?? []).length).toBe(2);
-    expect((data.match(/checked=""/g) ?? []).length).toBe(1);
+    expect(data).toContain("Deletes Navidrome&#x27;s database and, in tagave, the player&#x27;s library, play counts and connected Last.fm and ListenBrainz accounts. A server of your own in Settings › Modules › Player keeps its data and the accounts. Your listens stay.");
+    expect(groups(data)).toEqual(['Delete its data', 'Delete its listens']);
+    expect(data).not.toMatch(/type="checkbox"/);
     const history = off({ deleteData: true, deleteHistory: true });
     expect(history).not.toContain('Your listens stay.');
-    expect((history.match(/checked=""/g) ?? []).length).toBe(2);
-    // a module with no rows in tagave: the one box, as before
+    expect((history.match(/<input[^>]*>/g) ?? []).filter((i) => i.includes(`value="on"`) && i.includes(`checked=""`)).length).toBe(2);
+    // a module with no rows in tagave: the one control, and what goes
     const dummy = renderToStaticMarkup(<TurnOffChoices m={DUMMY} onChange={() => undefined} initial={{ deleteData: true, deleteHistory: false }} />);
-    expect((dummy.match(/type="checkbox"/g) ?? []).length).toBe(1);
+    expect(groups(dummy)).toEqual(['Delete its data']);
+    expect(dummy).toContain('>Deleted</span> · its dummy-data volume');
+  });
+
+  it('a module that is a setting: Kept, then Delete its data; On lists what goes (Music Connections: and Keep filled IDs)', () => {
+    const off = (initial?: OffChoice) =>
+      renderToStaticMarkup(<SettingOffChoices kept="connections, items, filled IDs" deleted={mcDeleted} keepFills onChange={() => undefined} {...(initial ? { initial } : {})} />);
+    const keep = off();
+    expect(keep).toContain('>Kept</span> · connections, items, filled IDs');
+    expect(keep).not.toContain('Keep filled IDs');
+    expect(option(keep, 'Off')).toMatch(/checked/);
+    const del = off({ deleteData: true, keepFills: false });
+    expect(del).toContain('>Deleted</span> · connections, items, filled IDs');
+    expect(del).toContain('>Revoked</span> · every connection');
+    expect(del).toContain('aria-label="Keep filled IDs"');
+    expect(off({ deleteData: true, keepFills: true })).toContain('>Kept</span> · filled IDs');
+    // the default: what it keeps is what it deletes
+    expect(renderToStaticMarkup(<SettingOffChoices kept="requests" initial={{ deleteData: true, keepFills: false }} onChange={() => undefined} />)).toContain('>Deleted</span> · requests');
+  });
+
+  it('the confirm key: Turn off; with Delete its data On, Turn off and delete in the danger tone', () => {
+    expect(turnOffKey(false)).toEqual({ confirmLabel: 'Turn off', tone: 'primary' });
+    expect(turnOffKey(true)).toEqual({ confirmLabel: 'Turn off and delete', tone: 'danger' });
   });
 });

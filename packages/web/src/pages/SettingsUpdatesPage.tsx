@@ -2,19 +2,19 @@
  * Settings › Updates (spec PLT-5, XO-313): whether a newer release exists
  * and what it changes, the update steps for the way this server was
  * installed (that one first, the others folded away), what is running where
- * (app vs workers, with a warning for a lagging host), and the update-check
+ * (app vs workers, with a warning for a host on an older build), and the update-check
  * switch. The server checks the official release feed on its own at most
  * every 12 hours. With the opt-in updater installed, the page also starts
  * an update and follows it (InAppUpdate); without it, it shows the command.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { docsUrl } from '../utils/docs';
 import ReactMarkdown from 'react-markdown';
-import type { InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@tagave/shared';
+import type { BuildInfoView, InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
-import { useUpdater } from '../hooks/useUpdater';
-import { InAppUpdate, RunView, useShownRun } from '../components/InAppUpdate';
+import { restartingOn, useUpdater, type SeenUpdaterView } from '../hooks/useUpdater';
+import { InAppUpdate, RunView, useNow, useShownRun } from '../components/InAppUpdate';
 import { Banner, Button } from '../components/ui';
 import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
 import { shortDate } from '../utils/time';
@@ -61,6 +61,92 @@ export function workOf(queues: string[]): string {
   if (queues.length === 0) return '–';
   const kinds = new Set(queues.map((q) => WORK.find(([, re]) => re.test(q))?.[0] ?? 'upkeep'));
   return [...WORK.map(([k]) => k), 'upkeep'].filter((k) => kinds.has(k)).join(', ');
+}
+
+/**
+ * How long after an update ends (or the app comes back on a new build) a
+ * worker on another build is taken as still restarting, not as left behind.
+ */
+export const SETTLE_MS = 2 * 60_000;
+
+/**
+ * An update is under way or has just ended: the updater runs one, restarts
+ * itself, or finished one under two minutes ago, or this page saw the app
+ * come back on a new build under two minutes ago (an update by hand).
+ */
+export function updatingNow(view: SeenUpdaterView | undefined, appChangedAt: number | null, now = Date.now()): boolean {
+  const run = view?.updater?.run ?? null;
+  if (run?.status === 'running' || restartingOn(view, now)) return true;
+  if (run?.finishedAt && now - Date.parse(run.finishedAt) < SETTLE_MS) return true;
+  return appChangedAt !== null && now - appChangedAt < SETTLE_MS;
+}
+
+/** When this page saw the app's build change (null until it does). */
+function useAppChangedAt(sha: string | null): number | null {
+  const first = useRef(sha);
+  const [at, setAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (sha !== first.current) {
+      first.current = sha;
+      setAt(Date.now());
+    }
+  }, [sha]);
+  return at;
+}
+
+/** A worker's build next to the app's: the same, still updating, or older. */
+export function workerBuild(w: WorkerVersion, app: BuildInfoView, updating: boolean): 'same' | 'updating' | 'older' {
+  if (!w.sha || !app.sha || w.sha === app.sha) return 'same';
+  return updating ? 'updating' : 'older';
+}
+
+/** Running now: the app and every worker, with their builds. */
+export function RunningNow({ app, workers, updating, now = Date.now() }: { app: BuildInfoView; workers: WorkerVersion[]; updating: boolean; now?: number }) {
+  return (
+    // seven columns never fit a phone; the table scrolls inside its own box
+    // instead of pushing the whole page sideways
+    <div className={styles.tableScroll}>
+    <table className={styles.table}>
+      <thead>
+        <tr><th>Process</th><th>Version</th><th>Build</th><th>Built</th><th>Queues</th><th>Last seen</th><th>Loop lag</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>App</strong></td>
+          <td>{app.version}</td>
+          <td title={`${app.sha ?? 'No build id'}, read from ${SOURCE[app.source]}`}><code>{shortSha(app.sha)}</code></td>
+          <td title={fullDate(app.builtAt)}>{when(app.builtAt)}</td>
+          <td className={styles.dim}>web + API</td>
+          <td className={styles.dim}>now</td>
+          <td className={styles.dim}>–</td>
+        </tr>
+        {workers.length === 0 && (
+          <tr><td colSpan={7} className={styles.dim}>No workers seen</td></tr>
+        )}
+        {workers.map((w) => {
+          const build = workerBuild(w, app, updating);
+          return (
+            <tr key={w.workerId} className={build === 'older' ? styles.rowWarn : undefined}>
+              <td><strong>Worker</strong> <span className={styles.dim}>{workerName(w)}</span></td>
+              <td>{w.version ?? '–'}</td>
+              <td title={w.sha ?? undefined}>
+                <code>{shortSha(w.sha)}</code>
+                {build === 'older' && <span className={styles.attention}>Older build</span>}
+                {build === 'updating' && <span className={styles.updating}>Updating</span>}
+              </td>
+              <td title={fullDate(w.builtAt)}>{when(w.builtAt)}</td>
+              <td className={styles.queues} title={w.queues.join(', ')}>{workOf(w.queues)}</td>
+              <td title={fullDate(w.lastSeenAt)}>{ago(w.lastSeenAt, now)}</td>
+              <td className={w.loopLagMs != null && w.loopLagMs > 5000 ? styles.attentionText : undefined}>
+                {w.loopLagMs != null ? `${w.loopLagMs} ms` : '–'}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+    </div>
+  );
 }
 
 function GuideSteps({ guide }: { guide: RollbackGuide }) {
@@ -127,6 +213,13 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   // "Up to date" only when a check actually ran and found nothing newer.
   const upToDate = feed.enabled && !!feed.lastCheckedAt && !feed.error && feed.newer.length === 0;
   const shown = useShownRun(uv);
+  const appChangedAt = useAppChangedAt(app.sha);
+  // ticks only while an update settles, so Updating turns into Older build on time
+  const [ticking, setTicking] = useState(false);
+  const tick = useNow(ticking);
+  const current = ticking ? tick : Date.now();
+  const updating = updatingNow(uv, appChangedAt, current);
+  useEffect(() => { setTicking(updating); }, [updating]);
 
   // While a run is on screen it is the whole pane (the section list steps aside).
   if (inApp && shown.run) {
@@ -176,7 +269,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
           <Button size="sm" variant="quiet" disabled={skip.isPending} onClick={() => skip.mutate(null)}>Show it again</Button>
         </p>
       )}
-      {data.mismatch && (
+      {data.mismatch && !updating && (
         <Banner tone="warning">A worker runs a different build than the app.</Banner>
       )}
 
@@ -226,45 +319,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
 
       <section className={styles.section} aria-labelledby="updates-running">
         <h3 id="updates-running" className={styles.title}>Running now</h3>
-        {/* seven columns never fit a phone; the table scrolls inside its own box
-            instead of pushing the whole page sideways */}
-        <div className={styles.tableScroll}>
-        <table className={styles.table}>
-          <thead>
-            <tr><th>Process</th><th>Version</th><th>Build</th><th>Built</th><th>Queues</th><th>Last seen</th><th>Loop lag</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>App</strong></td>
-              <td>{app.version}</td>
-              <td title={`${app.sha ?? 'No build id'}, read from ${SOURCE[app.source]}`}><code>{shortSha(app.sha)}</code></td>
-              <td title={fullDate(app.builtAt)}>{when(app.builtAt)}</td>
-              <td className={styles.dim}>web + API</td>
-              <td className={styles.dim}>now</td>
-              <td className={styles.dim}>–</td>
-            </tr>
-            {workers.length === 0 && (
-              <tr><td colSpan={7} className={styles.dim}>No workers seen</td></tr>
-            )}
-            {workers.map((w) => {
-              const lagging = !!(w.sha && app.sha && w.sha !== app.sha);
-              return (
-                <tr key={w.workerId} className={lagging ? styles.rowWarn : undefined}>
-                  <td><strong>Worker</strong> <span className={styles.dim}>{workerName(w)}</span></td>
-                  <td>{w.version ?? '–'}</td>
-                  <td title={w.sha ?? undefined}><code>{shortSha(w.sha)}</code>{lagging && <span className={styles.attention}>lagging</span>}</td>
-                  <td title={fullDate(w.builtAt)}>{when(w.builtAt)}</td>
-                  <td className={styles.queues} title={w.queues.join(', ')}>{workOf(w.queues)}</td>
-                  <td title={fullDate(w.lastSeenAt)}>{ago(w.lastSeenAt)}</td>
-                  <td className={w.loopLagMs != null && w.loopLagMs > 5000 ? styles.attentionText : undefined}>
-                    {w.loopLagMs != null ? `${w.loopLagMs} ms` : '–'}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        </div>
+        <RunningNow app={app} workers={workers} updating={updating} now={current} />
       </section>
 
       <section className={styles.section} aria-labelledby="updates-checks">

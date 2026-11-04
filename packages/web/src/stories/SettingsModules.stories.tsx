@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { CatalogueModuleView, ModuleSwitchView, ModulesListView, TurnOffChoices, type CatalogueModuleViewProps, type TurnOffChoice } from '../pages/SettingsModulesPage';
+import { useState } from 'react';
+import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, mcDeleted, turnOffKey, type CatalogueModuleViewProps, type OffChoice, type TurnOffChoice } from '../pages/SettingsModulesPage';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from './modulesFixtures';
 
@@ -52,15 +53,15 @@ export const PlayerPhone: Story = { tags: ['phone'], globals: { viewport: { valu
 /** A module that is a setting (Lidarr): the same Off | On, with its label and what it holds. */
 export const SettingSwitch: Story = { render: () => <><h2>Lidarr</h2><ModuleSwitchView name="Lidarr" label="Get missing albums" on meta="2 getting" onSwitch={noop} /></> };
 
-/** The Turn off dialog of the player: the boxes as given (they still tick in the story). */
+/** The Turn off dialog of the player: the choices as given (they still switch in the story, and the key follows). */
 function TurnOffDialog({ initial }: { initial?: TurnOffChoice }) {
   const m = { ...PLAYER, state: 'on' as const };
+  const [data, setData] = useState(initial?.deleteData ?? false);
   return (
     <ConfirmDialog
       title={`Turn off ${m.name}?`}
-      message={<TurnOffChoices m={m} onChange={() => undefined} {...(initial ? { initial } : {})} />}
-      confirmLabel="Turn off"
-      tone="danger"
+      message={<TurnOffChoices m={m} onChange={(c) => setData(c.deleteData)} {...(initial ? { initial } : {})} />}
+      {...turnOffKey(data)}
       onResult={() => undefined}
     />
   );
@@ -68,3 +69,18 @@ function TurnOffDialog({ initial }: { initial?: TurnOffChoice }) {
 export const TurnOffDialogKeep: Story = { render: () => <TurnOffDialog /> };
 export const TurnOffDialogData: Story = { render: () => <TurnOffDialog initial={{ deleteData: true, deleteHistory: false }} /> };
 export const TurnOffDialogHistory: Story = { render: () => <TurnOffDialog initial={{ deleteData: true, deleteHistory: true }} /> };
+
+/** The Turn off dialog of a module that is a setting (Music Connections): Kept, then Delete its data. */
+function SettingOffDialog({ initial }: { initial?: OffChoice }) {
+  const [data, setData] = useState(initial?.deleteData ?? false);
+  return (
+    <ConfirmDialog
+      title="Turn off Music Connections?"
+      message={<SettingOffChoices kept="connections, items, filled IDs" deleted={mcDeleted} keepFills onChange={(c) => setData(c.deleteData)} {...(initial ? { initial } : {})} />}
+      {...turnOffKey(data)}
+      onResult={() => undefined}
+    />
+  );
+}
+export const SettingOffDialogKeep: Story = { render: () => <SettingOffDialog /> };
+export const SettingOffDialogDelete: Story = { render: () => <SettingOffDialog initial={{ deleteData: true, keepFills: false }} /> };
