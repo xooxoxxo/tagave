@@ -463,3 +463,55 @@ export function detectNaming(samples: readonly NamingSample[]): Detected {
   const matched = score((s) => samePath(rulePath(rules, s.values).path, s.path));
   return { rules, detected: folderOk && fileOk, matched, sampled: usable.length };
 }
+
+// ---------------------------------------------------------------- an album at once
+
+export interface AlbumFileInput {
+  /** relative to the music folder */
+  relPath: string;
+  /** canonical tag fields (currentFieldsFrom), after any tag changes */
+  fields: Partial<Record<string, FieldValue>>;
+}
+
+export interface AlbumPaths {
+  /** the album folder: the one most of its files' rules give (one album, one folder) */
+  dir: string;
+  rule: RuleName;
+  files: Array<{ relPath: string; toPath: string }>;
+  /** a file is in a Leave alone folder: nothing of the album moves */
+  leftAlone: boolean;
+}
+
+/**
+ * Where an album's files belong: each file's own name, all in one folder
+ * (the folder most of them give; ties go to the first file's). The discs are
+ * counted across the album, so `[{disc}-]` shows on every file of a
+ * multi-disc album or on none. One compilation and one soundtrack flag for
+ * the album: most of its files decide.
+ */
+export function albumPaths(rules: NamingRules, files: readonly AlbumFileInput[], opts: { soundtrack?: boolean } = {}): AlbumPaths {
+  const discNos = new Set(files.map((f) => int(f.fields['discnumber'])).filter((d): d is number => d !== null));
+  const totals = files.map((f) => int(f.fields['totaldiscs']) ?? 0);
+  const discs = Math.max(discNos.size, ...discNos, ...totals, 1);
+  const extOf = (p: string) => (p.includes('.') ? p.slice(p.lastIndexOf('.') + 1) : '');
+  const values = files.map((f) => namingValuesOf(f.fields, extOf(f.relPath), { discs, soundtrack: opts.soundtrack ?? false }));
+  const most = (pick: (x: NamingValues) => boolean) => values.filter(pick).length * 2 > values.length;
+  const compilation = most((x) => x.compilation);
+  const soundtrack = most((x) => x.soundtrack);
+  const albumValues = values.map((x) => ({ ...x, compilation, soundtrack }));
+  const counts = new Map<string, { n: number; first: number; rule: RuleName }>();
+  albumValues.forEach((x, i) => {
+    const { dir, rule } = ruleDir(rules, x);
+    const c = counts.get(dir);
+    if (c) c.n++;
+    else counts.set(dir, { n: 1, first: i, rule });
+  });
+  const top = [...counts.entries()].sort((a, b) => b[1].n - a[1].n || a[1].first - b[1].first)[0];
+  const dir = top?.[0] ?? '';
+  return {
+    dir,
+    rule: top?.[1].rule ?? 'default',
+    files: files.map((f, i) => ({ relPath: f.relPath, toPath: rulePath(rules, albumValues[i]!, dir).path.normalize('NFC') })),
+    leftAlone: files.some((f) => isLeftAlone(f.relPath, rules.leaveAlone)),
+  };
+}

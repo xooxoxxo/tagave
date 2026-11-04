@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_NAMING_RULES, PATH_MAX_BYTES, SEGMENT_MAX_BYTES, capPath, detectNaming, initialOf, isLeftAlone, namingValuesOf,
+  DEFAULT_NAMING_RULES, PATH_MAX_BYTES, SEGMENT_MAX_BYTES, albumPaths, capPath, detectNaming, initialOf, isLeftAlone, namingValuesOf,
   ruleDir, ruleFileName, rulePath, rulesProblems, safeSegment, samePath, templateProblem,
   type NamingRules, type NamingSample, type NamingValues,
 } from './rules.js';
@@ -170,6 +170,33 @@ describe('leave alone', () => {
   it('touches everything with an empty list', () => {
     expect(isLeftAlone('#x/y.mp3', [])).toBe(false);
     expect(isLeftAlone('#x/y.mp3', ['  '])).toBe(false);
+  });
+});
+
+describe('an album at once', () => {
+  const f = (relPath: string, fields: Record<string, string>) => ({ relPath, fields });
+  it('puts every file in one folder and numbers discs on all of them', () => {
+    const out = albumPaths(DEFAULT_NAMING_RULES, [
+      f('Dream Theater - Octavarium/01.flac', { albumartist: 'Dream Theater', album: 'Octavarium', date: '2005', tracknumber: '1', discnumber: '1', title: 'The Root of All Evil' }),
+      f('Dream Theater - Octavarium/CD2/01.flac', { albumartist: 'Dream Theater', album: 'Octavarium', date: '2005', tracknumber: '1', discnumber: '2', title: 'Sacrificed Sons' }),
+      // a stray file whose album artist differs still lands with the others
+      f('Dream Theater - Octavarium/CD2/02.flac', { albumartist: 'DT', album: 'Octavarium', date: '2005', tracknumber: '2', discnumber: '2', title: 'Octavarium' }),
+    ]);
+    expect(out.dir).toBe('D/Dream Theater/2005 - Octavarium');
+    expect(out.files.map((x) => x.toPath)).toEqual([
+      'D/Dream Theater/2005 - Octavarium/1-01 - The Root of All Evil.flac',
+      'D/Dream Theater/2005 - Octavarium/2-01 - Sacrificed Sons.flac',
+      'D/Dream Theater/2005 - Octavarium/2-02 - Octavarium.flac',
+    ]);
+    expect(out.leftAlone).toBe(false);
+  });
+  it('takes the compilation flag of most files, and the soundtrack type of the release group', () => {
+    const files = [f('x/1.mp3', { albumartist: 'Various Artists', album: 'Mix', tracknumber: '1', title: 'a' }), f('x/2.mp3', { albumartist: 'Various Artists', album: 'Mix', tracknumber: '2', title: 'b' })];
+    expect(albumPaths(DEFAULT_NAMING_RULES, files).dir).toBe('_Various Artists/Mix');
+    expect(albumPaths(DEFAULT_NAMING_RULES, files, { soundtrack: true })).toMatchObject({ dir: '_OST/Mix', rule: 'soundtrack' });
+  });
+  it('says when a file is left alone', () => {
+    expect(albumPaths(DEFAULT_NAMING_RULES, [f('## HQ ##/a/1.flac', { album: 'A', title: 't' })]).leftAlone).toBe(true);
   });
 });
 

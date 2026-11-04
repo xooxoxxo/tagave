@@ -217,8 +217,10 @@ export {
   NAMING_VARIABLES, DEFAULT_NAMING_RULES, DEFAULT_FOLDER_TEMPLATE, DEFAULT_FILE_TEMPLATE, DEFAULT_SPECIAL_RULES, DEFAULT_LEAVE_ALONE,
   SEGMENT_MAX_BYTES, PATH_MAX_BYTES, INITIAL_NUMERIC, INITIAL_OTHER, DETECT_MIN_SHARE,
   initialOf, templateProblem, rulesProblems, safeSegment, capPath, folderRuleFor, ruleDir, ruleFileName, rulePath,
-  isLeftAlone, samePath, namingValuesOf, detectNaming,
+  isLeftAlone, samePath, namingValuesOf, detectNaming, albumPaths,
 } from './naming/rules.js';
-export type { NamingRules, NamingValues, NamingVariable, SpecialRule, SpecialWhen, RulePath, RuleName, NamingSample, Detected } from './naming/rules.js';
+export type {
+  NamingRules, NamingValues, NamingVariable, SpecialRule, SpecialWhen, RulePath, RuleName, NamingSample, Detected, AlbumFileInput, AlbumPaths,
+} from './naming/rules.js';
 export { currentFieldsFrom } from './naming/currentFields.js';
 export type { CanonicalValue } from './naming/currentFields.js';
