@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from '../components/player/NowPlaying';
 import { HISTORY, QUEUE } from './queueFixtures';
+import { CastKeyView } from '../components/player/CastKey';
 
 const noop = () => undefined;
 const queue = {
@@ -83,6 +84,40 @@ export const PhoneMiniBarLongNames: Story = {
         track={{ ...QUEUE[0]!, title: 'Concerto for Two Violins in D minor, BWV 1043: I. Vivace', artist: 'Academy of St Martin in the Fields, Sir Neville Marriner' }}
         status="paused" position={30} duration={413} canNext={false} onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop}
       />
+    </div>
+  ),
+};
+
+const castKey = (on: boolean) => <CastKeyView kind="remote" available state={on ? 'on' : 'off'} device={null} reach="ok" host={null} onChoose={noop} />;
+
+export const DesktopCasting: Story = {
+  name: 'Desktop · Casting',
+  tags: ['shot-viewport'],
+  render: () => <OverPage><NowPlayingView {...queue} track={QUEUE[0]!} onClose={noop} castLine="Casting to Living Room" /></OverPage>,
+};
+
+/** On a phone the cast key lives in the full player, under the keys. */
+export const PhoneCastAvailable: Story = {
+  name: 'Phone · Cast, device there',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => <NowPlayingScreen {...queue} {...transport} track={QUEUE[0]!} onClose={noop} cast={castKey(false)} />,
+};
+
+export const PhoneCasting: Story = {
+  name: 'Phone · Casting',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => <NowPlayingScreen {...queue} {...transport} track={QUEUE[0]!} onClose={noop} cast={castKey(true)} castLine="Casting to Living Room" />,
+};
+
+export const PhoneMiniBarCasting: Story = {
+  name: 'Phone · Mini bar, casting',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
+      <MiniPlayer track={QUEUE[0]!} status="playing" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} castLine="Casting to Living Room" />
     </div>
   ),
 };

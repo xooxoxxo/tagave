@@ -11,10 +11,12 @@ import { BarGlow } from '../components/BarGlow';
 import { CoverArt, PageShell } from '../components/ui';
 import { COVERS, COVER_KEYS } from './adaptiveCovers';
 import { DesktopFrame } from './DesktopFrame';
+import { CastKeyView } from '../components/player/CastKey';
 import s from './DesktopFrame.module.css';
 
 type BarState = 'empty' | 'paused' | 'playing';
-interface Args { state: BarState; compartmentOpen?: boolean; glow?: boolean }
+type CastShown = 'none' | 'available' | 'casting';
+interface Args { state: BarState; compartmentOpen?: boolean; glow?: boolean; cast?: CastShown }
 
 const noop = () => undefined;
 const TRACK = COVERS.moody;
@@ -35,8 +37,9 @@ function Albums() {
   );
 }
 
-function Bar({ state, glow = false }: { state: BarState; glow?: boolean }) {
+function Bar({ state, glow = false, cast = 'none' }: { state: BarState; glow?: boolean; cast?: CastShown }) {
   const empty = state === 'empty';
+  const casting = cast === 'casting';
   return (
     <PlayerBarView
       title={empty ? '' : TRACK.title} artist={empty ? '' : TRACK.artist} album={empty ? '' : TRACK.album} coverUrl={empty ? null : TRACK.src}
@@ -44,14 +47,16 @@ function Bar({ state, glow = false }: { state: BarState; glow?: boolean }) {
       canPrevious={!empty} canNext={!empty} empty={empty}
       onToggle={noop} onPrevious={noop} onNext={noop} onSeek={noop} onVolume={noop} onRetry={noop} onQueue={noop}
       glow={glow ? <BarGlow playing={state === 'playing'} source="calm" level={state === 'playing' ? 1 : undefined} /> : null}
+      cast={cast === 'none' ? null : <CastKeyView kind="cast" available state={casting ? 'on' : 'off'} device={casting ? 'Living Room' : null} reach="ok" host={null} onChoose={noop} />}
+      castLine={casting ? 'Casting to Living Room' : null}
     />
   );
 }
 
-function InTheApp({ state, compartmentOpen = false, glow = false }: Args) {
+function InTheApp({ state, compartmentOpen = false, glow = false, cast = 'none' }: Args) {
   const accountGlow = glow ? <BarGlow playing={state === 'playing'} source="calm" level={state === 'playing' ? 1 : undefined} /> : undefined;
   return (
-    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} glow={glow} />} accountGlow={accountGlow}>
+    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} glow={glow} cast={cast} />} accountGlow={accountGlow}>
       <Albums />
     </DesktopFrame>
   );
@@ -82,3 +87,8 @@ export const Empty1000: Story = { name: 'Empty, 1000', tags: narrow };
 export const Paused1000: Story = { name: 'Paused, 1000', tags: narrow, args: { state: 'paused' } };
 export const Playing1000: Story = { name: 'Playing, 1000', tags: narrow, args: { state: 'playing' } };
 export const CompartmentOpen1000: Story = { name: 'Compartment open, 1000', tags: narrow, args: { state: 'paused', compartmentOpen: true } };
+/** A cast device is there: the cast key beside the queue key. */
+export const CastAvailable: Story = { name: 'Cast, device there', tags: wide, args: { state: 'playing', cast: 'available' } };
+/** Casting: the key in the player's accent, the device beside it. */
+export const Casting: Story = { name: 'Cast, casting', tags: wide, args: { state: 'playing', cast: 'casting' } };
+export const CastingNarrow: Story = { name: 'Cast, casting, 1000', tags: narrow, args: { state: 'playing', cast: 'casting' } };

@@ -165,6 +165,8 @@ export interface NowPlayingViewProps extends NowPlayingQueueProps {
   /** the ⋮ of the playing track */
   actions?: ReactNode;
   initialTab?: QueueTab;
+  /** "Casting to …" while casting (player/cast.ts castLine) */
+  castLine?: string | null | undefined;
 }
 
 /** Desktop: the full view over the page, the queue beside the cover. */
@@ -185,6 +187,7 @@ export function NowPlayingView(p: NowPlayingViewProps) {
         <section className={styles.viewLeft} aria-label="Playing">
           <CoverArt src={p.track.coverUrl} title={p.track.album} className={styles.viewCover} />
           <Names track={p.track} onNavigate={p.onNavigate} center />
+          {p.castLine && <p className={styles.castLine} role="status">{p.castLine}</p>}
           <Credits track={p.track} onNavigate={p.onNavigate} />
         </section>
         <section className={styles.viewRight} aria-label="Queue">
@@ -203,6 +206,8 @@ export function NowPlayingView(p: NowPlayingViewProps) {
 
 export interface NowPlayingScreenProps extends NowPlayingViewProps, NowPlayingTransport {
   initialSegment?: 'playing' | 'queue';
+  /** the cast key (CastKey), when a device is there; on a phone it lives here, not in the mini bar */
+  cast?: ReactNode;
 }
 
 /** Phone: the full screen, Playing | Queue. */
@@ -228,6 +233,12 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
           <Names track={p.track} onNavigate={p.onNavigate} />
           <Seek t={p} />
           <Keys t={p} />
+          {(p.cast || p.castLine) && (
+            <div className={styles.devices}>
+              {p.castLine ? <p className={styles.castLine} role="status">{p.castLine}</p> : <span />}
+              {p.cast}
+            </div>
+          )}
           {next ? (
             <button type="button" className={styles.peek} onClick={() => { setTab('next'); setSegment('queue'); }}>
               <span className={styles.peekLabel}>Up next</span>
@@ -263,10 +274,12 @@ export interface MiniPlayerProps {
   onRetry: () => void;
   /** the equalizer glow, behind the mini bar's content (BarGlow) */
   glow?: ReactNode;
+  /** "Casting to …" while casting: it takes the artist's line */
+  castLine?: string | null | undefined;
 }
 
 /** Phone: the mini bar at the foot of the screen. */
-export function MiniPlayer({ track, status, position, duration, canNext, message, onOpen, onToggle, onNext, onRetry, glow }: MiniPlayerProps) {
+export function MiniPlayer({ track, status, position, duration, canNext, message, onOpen, onToggle, onNext, onRetry, glow, castLine }: MiniPlayerProps) {
   const total = duration && duration > 0 ? duration : null;
   const fill = total ? Math.min(100, Math.max(0, (position / total) * 100)) : 0;
   const busy = status === 'loading' || status === 'buffering';
@@ -279,7 +292,7 @@ export function MiniPlayer({ track, status, position, duration, canNext, message
         <CoverArt src={track.coverUrl} title={track.album} compact className={styles.miniCover} />
         <span className={styles.miniNames}>
           <span className={styles.miniTitle} dir="auto">{track.title}</span>
-          <span className={`${styles.miniArtist} ${failed ? styles.miniError : ''}`} dir="auto">{failed ? message || 'This track could not be played.' : track.artist}</span>
+          <span className={`${styles.miniArtist} ${failed ? styles.miniError : castLine ? styles.miniCast : ''}`} dir="auto">{failed ? message || 'This track could not be played.' : castLine || track.artist}</span>
         </span>
       </button>
       {failed ? (

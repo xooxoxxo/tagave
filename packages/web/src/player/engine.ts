@@ -23,6 +23,14 @@
  * device may change it; the device that plays picks the change up and plays
  * on. Only a play action (Play, Play from here, a skip) on another device
  * moves playback there, and this one pauses.
+ *
+ * Casting (player/cast.ts) comes in two shapes:
+ *   - the elements play to the device (AirPlay, the Remote Playback API on
+ *     Android): one element only (no preloaded second one to hand over to),
+ *     loading signed links (castLinks.ts) the device can fetch itself;
+ *   - a receiver plays instead (the Google Cast SDK on a desktop): a
+ *     RemoteSink takes every load, play, pause, seek and volume, and its
+ *     state and time come back through the sink* functions below.
  */
 import { create } from 'zustand';
 import type { PlayEventKind, PlayerQueueView, PlayerScanStatus, QueueContext, QueueOrigin, QueueStampView, QueueStateView, QueueTrack, StreamFormat } from '@tagave/shared';
@@ -32,6 +40,7 @@ import {
   previousAction, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, shuffleTracks, startContext, startIndex, streamUrl, transcodeFormat, type CanPlay,
 } from './logic';
 import { getPlayerQuality } from './quality';
+import { cachedCastLink, castSrc, fetchCastLink } from './castLinks';
 import { isAppleMobile } from './platform';
 
 export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'error';
@@ -117,6 +126,180 @@ function clearHandoff() {
 
 const el = () => elements?.[active] ?? null;
 
+// ---- casting ----
+
+/** A cast receiver that plays instead of the elements (the Google Cast SDK). */
+export interface RemoteSink {
+  /** what the receiver plays as the original file (else a transcode it plays) */
+  canPlay: CanPlay;
+  load(track: QueueEntry, opts: { format: StreamFormat; offset: number; autoplay: boolean }): void;
+  play(): void;
+  pause(): void;
+  /** within the loaded media (the original file; a transcode is loaded again from the second) */
+  seek(sec: number): void;
+  setVolume(volume: number): void;
+  stop(): void;
+}
+
+let sink: RemoteSink | null = null;
+/** the elements play to an AirPlay or Remote Playback device */
+let routed = false;
+/** the cast key was pressed: the element loads cast links before the device picker opens */
+let armed = false;
+const useLinks = () => routed || armed;
+
+/** Sets `a`'s source for this track: the session URL, or a cast link while casting; `then` runs once it is set (at once, or when the link arrives). */
+function assignSrc(a: HTMLAudioElement, trackId: string, format: StreamFormat, offset: number, then: () => void) {
+  const bitrate = getPlayerQuality().bitrate;
+  if (!useLinks()) {
+    a.src = streamUrl(trackId, format, bitrate, offset);
+    then();
+    return;
+  }
+  const cached = cachedCastLink(trackId, format, bitrate);
+  const cachedSrc = cached ? castSrc(cached, format, offset) : null;
+  if (cachedSrc) {
+    a.src = cachedSrc;
+    then();
+    return;
+  }
+  const gen = generation;
+  void fetchCastLink(trackId, format, bitrate).then((view) => castSrc(view, format, offset), () => null).then((src) => {
+    if (gen !== generation || cur?.trackId !== trackId) return;
+    // no link (PUBLIC_URL unset, or the request failed): the session URL still plays here
+    a.src = src ?? streamUrl(trackId, format, bitrate, offset);
+    then();
+  });
+}
+
+/**
+ * AirPlay or a Remote Playback device took the elements' sound (or let it
+ * go). While it is routed, one element plays everything, from cast links.
+ */
+export function setElementRoute(on: boolean) {
+  if (routed === on) return;
+  routed = on;
+  if (!on) armed = false;
+  if (on) {
+    clearHandoff();
+    release(standby());
+    preloaded = null;
+    void relink();
+  }
+}
+
+/** The playing track, from where it is, on a cast link; false when there is none ready. */
+function moveToLink(): boolean {
+  const a = el();
+  const track = currentTrack();
+  if (!a || !cur || !track || !a.getAttribute('src')) return true;
+  const position = get().position;
+  const offset = Math.floor(position);
+  const view = cachedCastLink(track.localTrackId, cur.format, getPlayerQuality().bitrate);
+  const src = view ? castSrc(view, cur.format, offset) : null;
+  if (!src) return false;
+  if (a.getAttribute('src') === src || (cur.format === 'original' && a.getAttribute('src')?.split('?')[0] === src.split('?')[0])) return true;
+  const wasPlaying = !a.paused;
+  generation++;
+  cur.lastTime = null;
+  if (cur.format !== 'original') cur.base = offset;
+  a.src = src;
+  if (cur.format === 'original' && position > 0) {
+    a.addEventListener('loadedmetadata', () => { try { a.currentTime = position; } catch { /* not seekable yet */ } }, { once: true });
+  }
+  if (wasPlaying) startPlayback(a);
+  return true;
+}
+
+/** As moveToLink, once a link has been made. */
+async function relink() {
+  const track = currentTrack();
+  if (!cur || !track) return;
+  const from = cur;
+  await fetchCastLink(track.localTrackId, cur.format, getPlayerQuality().bitrate).catch(() => null);
+  if (cur === from && useLinks()) moveToLink();
+}
+
+/**
+ * The cast key was pressed: the playing track moves to a cast link now (from
+ * the cache: the picker must open in the same click), so the device the
+ * person picks can fetch it. Without a link ready, one is made and the track
+ * moves to it when it arrives.
+ */
+export function armCastLinks(): boolean {
+  armed = true;
+  if (moveToLink()) return true;
+  void relink();
+  return false;
+}
+
+/** The picker closed without a device: tracks load from the session URL again. */
+export function disarmCastLinks() {
+  if (!routed) armed = false;
+}
+
+/** A receiver plays from now on: the elements go quiet and the track moves there, from where it was. */
+export function attachSink(next: RemoteSink) {
+  const s = get();
+  const wasPlaying = s.status === 'playing' || s.status === 'buffering' || s.status === 'loading';
+  clearHandoff();
+  generation++;
+  release(el());
+  release(standby());
+  preloaded = null;
+  sink = next;
+  sink.setVolume(s.volume);
+  if (s.queue && s.index >= 0) loadTrack(s.index, { offset: s.position, keepSession: true, autoplay: wasPlaying });
+}
+
+/** The receiver went away (the session ended): paused here where it was; Play goes on in this browser. */
+export function detachSink() {
+  if (!sink) return;
+  sink = null;
+  generation++;
+  if (get().status !== 'idle') set({ status: 'paused' });
+  setPlaybackState('paused');
+}
+
+/** The receiver's clock. */
+export function sinkTime(currentTime: number, duration: number | null) {
+  if (!sink || !cur) return;
+  const playing = get().status === 'playing';
+  if (playing) cur.heardSec += heardDelta(cur.lastTime, currentTime);
+  cur.lastTime = playing ? currentTime : null;
+  const track = currentTrack();
+  set({ position: shownPosition(cur.base, currentTime), duration: shownDuration(cur.format, track?.durationMs ?? null, duration ?? Number.NaN) });
+  const t = Date.now();
+  if (t - lastPositionState > 1000) { lastPositionState = t; updatePositionState(); }
+  if (t - lastPositionSave > POSITION_SAVE_MS) { lastPositionSave = t; persistSoon(); }
+}
+
+/** The receiver plays, pauses or waits for data. */
+export function sinkState(state: 'playing' | 'paused' | 'buffering') {
+  if (!sink || !cur) return;
+  if (state === 'playing') { markPlaying(); return; }
+  if (state === 'buffering') { if (get().status !== 'paused') set({ status: 'buffering' }); return; }
+  cur.lastTime = null;
+  if (get().status !== 'error') set({ status: 'paused' });
+  setPlaybackState('paused');
+  if (claimed) persistSoon();
+}
+
+/** The receiver played the track to its end: the next one of tagave's queue goes there. */
+export function sinkEnded() {
+  if (sink && cur && !cur.completed) advance(false);
+}
+
+/** The receiver could not play the track. */
+export function sinkFailed(message: string) {
+  if (sink) showError(message, 'stream');
+}
+
+/** The volume changed on the receiver (its own remote, another phone). */
+export function sinkVolume(volume: number) {
+  if (sink && Number.isFinite(volume)) set({ volume: Math.min(1, Math.max(0, volume)) });
+}
+
 /** The two elements once playback has created them, for the equalizer glow's analyser (adaptive/levels.ts). */
 export function mediaElements(): readonly HTMLAudioElement[] {
   return elements ?? [];
@@ -143,9 +326,31 @@ function ensureElements(): [HTMLAudioElement, HTMLAudioElement] | null {
     a.addEventListener('seeked', () => { if (a === el() && cur) cur.lastTime = a.currentTime; });
     a.addEventListener('ended', () => onEnded(a));
     a.addEventListener('error', () => onError(a));
+    // Safari offers AirPlay for an <audio> it may route there
+    try { a.setAttribute('x-webkit-airplay', 'allow'); } catch { /* not an element here */ }
   }
   setupMediaSession();
+  for (const w of elementWatchers) w(elements);
   return elements;
+}
+
+const elementWatchers = new Set<(els: readonly HTMLAudioElement[]) => void>();
+
+/** Calls `watch` with the two elements once they exist (now, if they do): casting listens on them. */
+export function watchElements(watch: (els: readonly HTMLAudioElement[]) => void): () => void {
+  elementWatchers.add(watch);
+  if (elements) watch(elements);
+  return () => { elementWatchers.delete(watch); };
+}
+
+/** The elements, made now if they were not yet (casting asks before anything played). */
+export function ensurePlayerElements(): readonly HTMLAudioElement[] {
+  return ensureElements() ?? [];
+}
+
+/** The element that plays (the one AirPlay or Remote Playback is asked for). */
+export function activeElement(): HTMLAudioElement | null {
+  return el();
 }
 
 function release(a: HTMLAudioElement | null) {
@@ -179,7 +384,7 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
   if (!els || !track) return;
   generation++;
   const a = els[active]!;
-  const format = opts.format ?? chooseFormat(getPlayerQuality(), track.mime, canPlayOf(a));
+  const format = opts.format ?? chooseFormat(getPlayerQuality(), track.mime, sink ? sink.canPlay : canPlayOf(a));
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const keep = opts.keepSession && cur?.trackId === track.localTrackId;
   cur = {
@@ -197,15 +402,23 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
   const nextIdx = nextPlayable(s.queue!.tracks, index);
   if (preloaded && preloaded.trackId !== s.queue!.tracks[nextIdx]?.localTrackId) { release(standby()); preloaded = null; }
   set({ index, status: 'loading', message: null, retry: null, position: offset, duration: shownDuration(format, track.durationMs, Number.NaN) });
-  a.src = streamUrl(track.localTrackId, format, getPlayerQuality().bitrate, offset);
-  if (format === 'original' && offset > 0) {
-    const seekTo = offset;
-    a.addEventListener('loadedmetadata', () => { try { a.currentTime = seekTo; } catch { /* not seekable yet */ } }, { once: true });
-  }
   updateMetadata(track);
   persistSoon();
-  if (opts.autoplay === false) set({ status: 'paused' });
-  else startPlayback(a);
+  if (sink) {
+    sink.load(track, { format, offset, autoplay: opts.autoplay !== false });
+    if (opts.autoplay === false) set({ status: 'paused' });
+    return;
+  }
+  // the key armed links for the picker, and no device was chosen: the session URL again
+  if (!routed) armed = false;
+  assignSrc(a, track.localTrackId, format, offset, () => {
+    if (format === 'original' && offset > 0) {
+      const seekTo = offset;
+      a.addEventListener('loadedmetadata', () => { try { a.currentTime = seekTo; } catch { /* not seekable yet */ } }, { once: true });
+    }
+    if (opts.autoplay === false) set({ status: 'paused' });
+    else startPlayback(a);
+  });
 }
 
 // ---- element events ----
@@ -213,6 +426,12 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
 function onPlaying(a: HTMLAudioElement) {
   if (a !== el() || !cur) return;
   cur.lastTime = a.currentTime;
+  markPlaying();
+}
+
+/** The track sounds (here or on the receiver): the first time, now playing; this device plays now. */
+function markPlaying() {
+  if (!cur) return;
   set({ status: 'playing', message: null, retry: null });
   if (!cur.started) {
     cur.started = true;
@@ -283,6 +502,15 @@ function onEnded(a: HTMLAudioElement) {
  * one stops.
  */
 function advance(early: boolean) {
+  if (sink && cur) {
+    cur.completed = true;
+    set({ position: get().duration ?? get().position });
+    sendEvent('completed');
+    const n = nextPlayable(get().queue?.tracks ?? [], get().index);
+    if (n < 0) { set({ status: 'paused' }); setPlaybackState('paused'); return; }
+    loadTrack(n);
+    return;
+  }
   const a = el();
   if (!a || !cur) return;
   clearHandoff();
@@ -346,6 +574,12 @@ function preloadNext() {
   if (next < 0) return;
   const track = s.queue.tracks[next]!;
   const format = chooseFormat(getPlayerQuality(), track.mime, canPlayOf(b));
+  if (useLinks()) {
+    // one element plays to the device: only the next track's link is made ready (once)
+    if (cachedCastLink(track.localTrackId, format, getPlayerQuality().bitrate)) return;
+    void fetchCastLink(track.localTrackId, format, getPlayerQuality().bitrate).catch(() => undefined);
+    return;
+  }
   preloaded = { index: next, trackId: track.localTrackId, format };
   b.preload = 'auto';
   b.src = streamUrl(track.localTrackId, format, getPlayerQuality().bitrate, 0);
@@ -651,6 +885,18 @@ export function play() {
   const a = el();
   if (!s.queue || !a) return;
   if (s.status === 'error') { retry(); return; }
+  if (sink) {
+    if (!cur) { if (s.index >= 0) loadTrack(s.index, { offset: s.position }); return; }
+    if (cur.completed) {
+      // the queue played out on the receiver: start it over
+      const first = startIndex(s.queue.tracks, null);
+      if (first >= 0) { leaveCurrent(); loadTrack(first); }
+      return;
+    }
+    set({ status: 'buffering' });
+    sink.play();
+    return;
+  }
   // nothing loaded yet (a queue taken over from the server): from where it stopped
   if (!cur || !a.getAttribute('src')) { if (s.index >= 0) loadTrack(s.index, { offset: s.position }); return; }
   if (a.ended) {
@@ -664,6 +910,11 @@ export function play() {
 }
 
 export function pause() {
+  if (sink) {
+    sink.pause();
+    if (get().status !== 'error' && get().status !== 'idle') set({ status: 'paused' });
+    return;
+  }
   const a = el();
   if (!a) return;
   a.pause();
@@ -702,6 +953,20 @@ export function seek(sec: number) {
   const plan = seekPlan(cur.format, sec, s.duration);
   cur.lastTime = null;
   clearHandoff();
+  if (sink) {
+    if (plan.kind === 'native') {
+      sink.seek(plan.time);
+      set({ position: plan.time });
+    } else {
+      const track = currentTrack();
+      if (!track) return;
+      cur.base = plan.offset;
+      set({ position: plan.offset });
+      sink.load(track, { format: cur.format, offset: plan.offset, autoplay: s.status !== 'paused' });
+    }
+    updatePositionState();
+    return;
+  }
   if (plan.kind === 'native') {
     try { a.currentTime = plan.time; } catch { /* not seekable yet */ }
     set({ position: plan.time });
@@ -712,8 +977,7 @@ export function seek(sec: number) {
     generation++;
     cur.base = plan.offset;
     set({ position: plan.offset, status: wasPaused ? 'paused' : 'buffering' });
-    a.src = streamUrl(track.localTrackId, cur.format, getPlayerQuality().bitrate, plan.offset);
-    if (!wasPaused) startPlayback(a);
+    assignSrc(a, track.localTrackId, cur.format, plan.offset, () => { if (!wasPaused) startPlayback(a); });
   }
   updatePositionState();
 }
@@ -721,6 +985,7 @@ export function seek(sec: number) {
 export function setVolume(v: number) {
   const volume = Math.min(1, Math.max(0, v));
   set({ volume });
+  if (sink) { sink.setVolume(volume); return; }
   for (const a of elements ?? []) a.volume = volume;
 }
 
@@ -819,6 +1084,8 @@ export function clearQueue() {
  * leave the person's queue there for their next visit.
  */
 export function stop(opts: { forget?: boolean } = {}) {
+  // the receiver stops too; the cast session stays, for the next Play
+  try { sink?.stop(); } catch { /* the session is gone already */ }
   clearHandoff();
   leaveCurrent();
   generation++;
@@ -925,6 +1192,7 @@ export function persistOnLeave() {
 
 /** Drops the audio loaded here (another device plays the queue now). */
 function unload() {
+  try { sink?.pause(); } catch { /* the session is gone already */ }
   clearHandoff();
   leaveCurrent();
   generation++;
