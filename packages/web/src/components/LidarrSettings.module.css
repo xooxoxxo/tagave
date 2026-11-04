@@ -53,3 +53,14 @@
   flex-wrap: wrap;
   gap: var(--space-sm);
 }
+
+/* the drop pool's folder, a root folder Lidarr can use */
+.values {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-xs) var(--space-lg);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+.values dt { color: var(--ink-3); }
+.values dd { margin: 0; color: var(--ink); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }

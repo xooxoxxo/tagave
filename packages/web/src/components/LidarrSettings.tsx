@@ -13,6 +13,8 @@ import type { LidarrSettingsView, LidarrTestResult } from '@tagave/shared';
 import { Banner, Button, Select, TextField, confirmDialog } from './ui';
 import { useDisconnectLidarr, useLidarrSettings, useSaveLidarr, useTestLidarr } from '../hooks/useLidarr';
 import { useStepUpAction } from './users/useStepUpAction';
+import { useCurrentLibrary } from '../hooks';
+import { useDropPool } from '../hooks/useNaming';
 import styles from './LidarrSettings.module.css';
 
 export interface LidarrDraft {
@@ -39,10 +41,12 @@ export interface LidarrSettingsFormProps {
   onTest: () => void;
   onSave: () => void;
   onDisconnect: () => void;
+  /** the drop pool's folder when the pool is on: Lidarr's root folder can be it */
+  poolRoot?: string | null;
 }
 
 /** The form without data fetching (Storybook renders it with fixtures). */
-export function LidarrSettingsForm({ view, draft, tested, error, testing = false, saving = false, onChange, onTest, onSave, onDisconnect }: LidarrSettingsFormProps) {
+export function LidarrSettingsForm({ view, draft, tested, error, testing = false, saving = false, onChange, onTest, onSave, onDisconnect, poolRoot = null }: LidarrSettingsFormProps) {
   const set = <K extends keyof LidarrDraft>(k: K, v: LidarrDraft[K]) => onChange({ ...draft, [k]: v });
   const c = view.connection;
   // the selects: what Test found, else what is saved
@@ -99,6 +103,11 @@ export function LidarrSettingsForm({ view, draft, tested, error, testing = false
             </Select>
           </label>
         </>}
+        {poolRoot && (
+          <dl className={styles.values}>
+            <dt>Drop pool</dt><dd>{poolRoot}</dd>
+          </dl>
+        )}
         {error
           ? <Banner tone="danger">{error}</Banner>
           : version && <p className={styles.status} role="status">Connected · {version}</p>}
@@ -126,6 +135,9 @@ export function LidarrSettings() {
   const [draft, setDraft] = useState<LidarrDraft | null>(null);
   const [tested, setTested] = useState<LidarrTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { libraryId } = useCurrentLibrary();
+  const pool = useDropPool(libraryId).data;
+  const poolRoot = pool?.enabled ? pool.hostPath ?? pool.path : null;
 
   if (!settings.data) return null;
   const view = settings.data;
@@ -195,6 +207,7 @@ export function LidarrSettings() {
         onTest={() => void onTest()}
         onSave={() => void onSave()}
         onDisconnect={() => void onDisconnect()}
+        poolRoot={poolRoot}
       />
       {dialog}
     </>

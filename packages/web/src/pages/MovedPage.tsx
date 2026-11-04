@@ -13,6 +13,9 @@ import styles from './DeletingPage.module.css';
 
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
+/** What the move was (0081): an album put where the naming rules say, or a dropped album imported. */
+const KIND: Partial<Record<MoveListItem['kind'], string>> = { organize: 'Organized', import: 'Imported' };
+
 const STATE: Partial<Record<MoveListItem['state'], string>> = { moving: 'Moving…', undoing: 'Undoing…', undone: 'Undone' };
 
 export function MovedPanel() {
@@ -42,6 +45,7 @@ export function MovedPanel() {
                     : <span className={styles.album}>{m.title}</span>}
                 </p>
                 <p className={styles.meta}>
+                  {KIND[m.kind] && <span>{KIND[m.kind]}</span>}
                   {m.artist && <span>{m.artist}</span>}
                   <span>{m.files === 1 ? '1 song' : `${m.files} songs`}</span>
                   {m.finishedAt && <span>{shortDate(m.finishedAt)}</span>}

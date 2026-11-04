@@ -232,3 +232,19 @@ so the change reads at a glance. */
 .detailsList dt { color: var(--ink-3); }
 .detailsList dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .detailsSummary::before { transition: none; } }
+
+/* Organize files (0081): Off | On, the move counts, and each file's new path */
+.organize { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); }
+.organizeLabel { color: var(--ink-2); font: 500 13px / 1.2 var(--font-body); }
+.moveStats { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-lg); margin: 0; font-size: var(--font-size-sm); }
+.moveStats > div { display: flex; gap: var(--space-sm); }
+.moveStats dt { color: var(--ink-3); }
+.moveStats dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.movePath {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-sm);
+  margin: 0; padding: 0 var(--space-md) var(--space-sm) calc(1.25rem + 2 * var(--space-md));
+  font-size: var(--font-size-xs); color: var(--ink-3);
+}
+.movePathLabel { flex: none; }
+.movePathValue { min-width: 0; color: var(--ink-2); font-family: var(--font-mono); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .movePath { padding-left: var(--space-md); } }

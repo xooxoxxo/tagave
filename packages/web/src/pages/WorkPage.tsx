@@ -9,6 +9,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useCan, useCurrentLibrary, useIdentifyStats, useGapCounts } from '../hooks';
 import { DeletingPanel } from './DeletingPage';
 import { MovedPanel } from './MovedPage';
+import { OrganizePanel } from './OrganizePage';
+import { InboxPanel } from './InboxPage';
+import { useInbox } from '../hooks/useNaming';
 import { GettingPanel } from './GettingPage';
 import { useModuleOn } from '../hooks/useFacets';
 import { api } from '../services/api';
@@ -49,6 +52,10 @@ export function WorkPage() {
   const { data: gapsData } = useGapCounts(libraryId);
   const taskCount = gapsData?.tasks?.todo ?? 0;
 
+  // dropped albums waiting for the owner (the drop pool, 0081)
+  const { data: inboxData } = useInbox(owner ? libraryId : undefined);
+  const inboxCount = inboxData?.items.filter((i) => i.state === 'inbox').length ?? 0;
+
   const queueCount = queueData?.total ?? 0;
   const identifyCount = identifyTodoCount(stats) ?? 0;
   const attentionTotal = useMemo(() => {
@@ -83,13 +90,16 @@ export function WorkPage() {
       ...(owner ? [{ label: 'Deleting', value: 'deleting' }] : []),
       // songs moved to another album (Maintenance › Move to album): the owner's
       ...(owner ? [{ label: 'Moved', value: 'moved' }] : []),
+      // albums whose paths differ from the naming rules, and the drop pool's Inbox (0081)
+      ...(owner ? [{ label: 'Organize', value: 'organize' }] : []),
+      ...(owner ? [{ label: 'Inbox', value: 'inbox', ...(inboxCount > 0 && { count: inboxCount }) }] : []),
       ...(getting ? [{ label: 'Getting', value: 'getting' }] : []),
     ],
-    [queueCount, identifyCount, attentionTotal, taskCount, owner, getting],
+    [queueCount, identifyCount, attentionTotal, taskCount, owner, getting, inboxCount],
   );
 
   const handleTabChange = (newTab: string) => {
-    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'getting' } });
+    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'organize' | 'inbox' | 'getting' } });
   };
 
   const renderPanel = () => {
@@ -104,6 +114,10 @@ export function WorkPage() {
         return owner ? <DeletingPanel /> : <ReviewPanel />;
       case 'moved':
         return owner ? <MovedPanel /> : <ReviewPanel />;
+      case 'organize':
+        return owner ? <OrganizePanel /> : <ReviewPanel />;
+      case 'inbox':
+        return owner ? <InboxPanel /> : <ReviewPanel />;
       case 'getting':
         return getting ? <GettingPanel /> : <ReviewPanel />;
       default:

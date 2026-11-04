@@ -8,6 +8,8 @@ import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { usePhoneSubpage } from '../components/appBarTitle';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
+import { NamingSettings } from '../components/naming/NamingSettings';
+import { DropPoolSettings } from '../components/naming/DropPoolSettings';
 import { SettingsDeletingContent } from './SettingsDeletingPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
 import { SettingsGenresContent } from './SettingsGenresPage';
@@ -112,7 +114,7 @@ export function SettingsPage() {
       <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{visible.map((item, i) => <div key={item.value}>{item.group !== visible[i - 1]?.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === parent ? styles.activeSection : styles.sectionLink} aria-current={item.value === parent ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
       <div className={styles.content}>
         {!allowed ? <NotAvailable inline /> : <>
-        {section === 'library' && <SettingsScanRootsContent />}
+        {section === 'library' && <><SettingsScanRootsContent /><NamingSettings /><DropPoolSettings /></>}
         {section === 'deleting' && <SettingsDeletingContent />}
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
