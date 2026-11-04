@@ -288,7 +288,7 @@ describe.skipIf(!tools)('naming rules and the drop pool (db, real FLAC)', () => 
       const [n] = await sql`select count(*)::int as n from files where library_id = ${libraryId} and rel_path like ${`${TO}/%`} and status = 'present'`;
       expect(n.n).toBe(2);
       const albumId = await albumIn(TO);
-      expect(sent.find((s) => s.name === 'identify.album')?.data).toMatchObject({ localAlbumId: albumId, pinnedMbid: rel.id });
+      expect(sent.filter((s) => s.name === 'identify.album').map((s) => s.data)).toContainEqual(expect.objectContaining({ localAlbumId: albumId, pinnedMbid: rel.id }));
       const [audit] = await sql`select action from audit_log where library_id = ${libraryId} and action = 'pool.import'`;
       expect(audit).toBeTruthy();
 
@@ -306,6 +306,10 @@ describe.skipIf(!tools)('naming rules and the drop pool (db, real FLAC)', () => 
       // import it for real, then drop it again
       await sql`update pool_items set state = 'inbox', reason = null where dir_path = ${DROP}`;
       await poolScanJob(ctx, { libraryId, itemId: (await item(DROP)).id }, { ...poolDeps, now });
+      // the undo above rewrote the files; when that crossed a second the folder
+      // reads as changed and waits again, so look once more after the wait
+      const later = () => new Date(Date.now() + 6 * 60_000);
+      if ((await item(DROP)).state === 'waiting') await poolScanJob(ctx, { libraryId, itemId: (await item(DROP)).id }, { ...poolDeps, now: later });
       await runSent('files.move');
       expect(await item(DROP)).toMatchObject({ state: 'imported' });
       // the identify the import asked for (pinned to the release), as the identify worker would run it

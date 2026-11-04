@@ -245,7 +245,8 @@ describe.skipIf(!tools)('files.move on the file worker (db, real FLAC)', () => {
     expect(await albumTag('Enslaved/2006 - Ruun/01 - Path to Vanir.flac')).toBe('Ruun');
     const ruunAlbum = await albumIn('Enslaved/2006 - Ruun');
     expect(ruunAlbum).toBeTruthy();
-    expect(sent.find((s) => s.name === 'identify.album')?.data).toMatchObject({ localAlbumId: ruunAlbum, pinnedMbid: rel['ruun']!.mbid });
+    // the identify for the new album (others can be in `sent` too, in any order)
+    expect(sent.filter((s) => s.name === 'identify.album').map((s) => s.data)).toContainEqual(expect.objectContaining({ localAlbumId: ruunAlbum, pinnedMbid: rel['ruun']!.mbid }));
     // Undo takes the made folder into the trash, never rmdir
     expect(await run(id, 'undo')).toMatchObject({ state: 'undone' });
     expect(await there(abs('Enslaved/2006 - Ruun'))).toBe(false);
