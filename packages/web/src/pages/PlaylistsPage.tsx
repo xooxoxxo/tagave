@@ -2,12 +2,14 @@
  * Playlists (the playlists module; direction B, Qobuz): the person's own
  * lists as a grid of mosaic covers, newest change first. The header holds
  * New playlist (a tile with a name field), Import (tagave's file, M3U8 or
- * XSPF) and Export all (one *.tagave-playlist.json). Each list is private.
+ * XSPF) and Export all (one *.tagave-playlist.json). A list the person
+ * shares, or collaborates on, has the collaborative mark by its name.
  */
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { EmbossIconButton, EmptyState, ExportIcon, ImportIcon, PageShell, PlusIcon, showToast } from '../components/ui';
 import { PlaylistCover } from '../components/playlists/PlaylistCover';
+import { CollabMark } from '../components/playlists/People';
 import { download, playlistExportUrl, useCreatePlaylist, useImportPlaylists, usePlaylists, usePlaylistsOn } from '../hooks/usePlaylists';
 import { useModuleOn } from '../hooks/useFacets';
 import type { PlaylistSummary } from '@tagave/shared';
@@ -64,7 +66,7 @@ export function PlaylistsGrid({ playlists, naming = false, onCreate, onCancelNew
         <li key={p.id}>
           <Link to="/playlists/$playlistId" params={{ playlistId: p.id }} className={styles.tile}>
             <PlaylistCover covers={p.covers} name={p.name} className={styles.tileCover} />
-            <span className={styles.tileName} dir="auto">{p.name}</span>
+            <span className={styles.tileName}><span className={styles.tileNameText} dir="auto">{p.name}</span>{p.collaborative && <CollabMark />}</span>
             <span className={styles.tileMeta}>{tracksLabel(p.tracks)}</span>
           </Link>
         </li>

@@ -190,6 +190,11 @@ export function PlaylistIcon() {
   return <svg {...LINE}><path d="M4 6h11M4 11h11M4 16h6" /><circle cx="16.5" cy="17" r="2.2" /><path d="M18.7 17V8.5l2.3-1" /></svg>;
 }
 
+/** Two heads and shoulders: people together (a collaborative playlist, its collaborators). */
+export function PeopleIcon() {
+  return <svg {...LINE}><circle cx="9" cy="8.5" r="3.2" /><path d="M3.2 19c1-3 3.2-4.6 5.8-4.6s4.8 1.6 5.8 4.6" /><path d="M15.2 5.6a3.2 3.2 0 0 1 0 5.8M17.4 14.6c1.6.6 2.8 2 3.4 4.4" /></svg>;
+}
+
 /** A plus: new. */
 export function PlusIcon() {
   return <svg {...LINE}><path d="M12 5v14M5 12h14" /></svg>;

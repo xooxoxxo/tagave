@@ -148,13 +148,21 @@ export async function getPlaylist(sql: Sql, userId: string, id: string): Promise
     select u.id::text as id, ${sql.unsafe(personName('u'))} as name
       from playlist_collaborators c join users u on u.id = c.user_id
      where c.playlist_id = ${id} order by c.added_at, u.id`;
-  const items = await sql<Array<{ id: string; local_track_id: string | null; album_id: string | null; title: string; artist: string | null; album: string | null; duration_ms: number | null; has_art: boolean; added_by: string | null; added_by_name: string | null }>>`
+  const items = await sql<Array<{ id: string; local_track_id: string | null; album_id: string | null; title: string; artist: string | null; album: string | null; duration_ms: number | null; has_art: boolean; added_by: string | null; added_by_name: string | null; artist_id: string | null; artist_name: string | null }>>`
     select i.id::text as id, i.local_track_id::text as local_track_id, lt.local_album_id::text as album_id, i.title, i.artist, i.album, i.duration_ms,
            exists (select 1 from images im where im.local_album_id = lt.local_album_id and im.kind = 'front') as has_art,
-           i.added_by::text as added_by, ${sql.unsafe(personName('u'))} as added_by_name
+           i.added_by::text as added_by, ${sql.unsafe(personName('u'))} as added_by_name,
+           ar.id as artist_id, ar.name as artist_name
       -- a deleted song (0073) shows as Missing until Unmark / Restore
       from playlist_items i left join local_tracks lt on lt.id = i.local_track_id and ${sql.unsafe(trackLiveSql('lt.audio_file_id'))}
       left join users u on u.id = i.added_by
+      -- the album's first credited artist, for Go to artist
+      left join local_albums la on la.id = lt.local_album_id
+      left join releases r on r.id = la.release_id
+      left join lateral (
+        select rga.artist_id::text as id, coalesce(nullif(rga.credited_name, ''), a.name) as name
+          from release_group_artists rga join artists a on a.id = rga.artist_id
+         where rga.release_group_id = r.release_group_id order by rga.position limit 1) ar on true
      where i.playlist_id = ${id}
      order by i.position, i.added_at`;
   const elsewhere = await missingElsewhere(sql, userId, items.filter((r) => !r.local_track_id).map((r) => r.id));
@@ -167,6 +175,7 @@ export async function getPlaylist(sql: Sql, userId: string, id: string): Promise
       coverUrl: cover(r.album_id, r.has_art), durationMs: r.duration_ms, elsewhere: elsewhere.get(r.id) ?? null,
       addedBy: r.added_by ? { id: r.added_by, name: r.added_by_name ?? '' } : null,
       removable: access === 'owner' || r.added_by === userId,
+      artistLink: r.artist_id && r.artist_name ? { id: r.artist_id, name: r.artist_name } : null,
     })),
   };
 }

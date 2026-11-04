@@ -50,6 +50,8 @@ export interface PlaylistItemView {
   addedBy: PlaylistPerson | null;
   /** the person asking may take it out: the owner any item, a collaborator what they added */
   removable: boolean;
+  /** the album's first credited artist (Go to artist); null when the album is not identified */
+  artistLink: { id: string; name: string } | null;
 }
 
 /** GET /api/v1/me/playlists/:id */
