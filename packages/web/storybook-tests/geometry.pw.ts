@@ -17,8 +17,9 @@ const TRACKS = '[role="radiogroup"], [role="tablist"]';
 interface Layout {
   pillVsItem: { left: number; right: number; top: number; bottom: number };
   pillInTrack: { top: number; bottom: number; left: number; right: number };
-  /** the label box (trimmed to the cap band) against the item, vertically */
-  labelVsItem: number;
+  /** the label box (its transform taken out) against the item: it spans the
+   *  item, and its baseline strut puts the capitals in the middle (capCentre.module.css) */
+  labelVsItem: { top: number; bottom: number };
   firstSelected: boolean;
   lastSelected: boolean;
   ready: boolean;
@@ -41,7 +42,12 @@ async function layouts(page: Page): Promise<Layout[]> {
     return {
       pillVsItem: { left: pill.left - a.left, right: pill.right - a.right, top: pill.top - a.top, bottom: pill.bottom - a.bottom },
       pillInTrack: { top: (pill.top - inner.top) / s, bottom: (inner.bottom - pill.bottom) / s, left: (pill.left - inner.left) / s, right: (inner.right - pill.right) / s },
-      labelVsItem: (() => { const l = active.querySelector(':scope > span')!.getBoundingClientRect(); return (l.top + l.bottom) / 2 - (a.top + a.bottom) / 2; })(),
+      labelVsItem: (() => {
+        const label = active.querySelector(':scope > span')!;
+        const l = label.getBoundingClientRect();
+        const m = new DOMMatrixReadOnly(getComputedStyle(label).transform === 'none' ? undefined : getComputedStyle(label).transform);
+        return { top: l.top - m.f * s - a.top, bottom: l.bottom - m.f * s - a.bottom };
+      })(),
       firstSelected: items[0] === active,
       lastSelected: items[items.length - 1] === active,
       ready: (track as HTMLElement).dataset['indicator'] === 'ready',
@@ -56,8 +62,8 @@ function expectCentred(list: Layout[], what: string) {
     expect(g.ready, `${at}: pill placed`).toBe(true);
     // on its item, to the hundredth of a pixel (offsetWidth rounding was up to 0.55px)
     for (const [side, d] of Object.entries(g.pillVsItem)) expect(Math.abs(d), `${at}: pill ${side} vs item`).toBeLessThan(0.02);
-    // the label box sits in the middle of its item (the pixel check below confirms what is painted)
-    expect(Math.abs(g.labelVsItem), `${at}: label box vs item centre`).toBeLessThan(0.02);
+    // the label box spans its item (the pixel check below confirms where the capitals are painted)
+    for (const [side, d] of Object.entries(g.labelVsItem)) expect(Math.abs(d), `${at}: label ${side} vs item`).toBeLessThan(0.02);
     // equal gaps above and below
     expect(Math.abs(g.pillInTrack.top - g.pillInTrack.bottom), `${at}: gap above vs below`).toBeLessThan(0.02);
     // an end item: the side gap matches the top gap
