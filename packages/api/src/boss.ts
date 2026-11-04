@@ -49,6 +49,7 @@ async function startBoss(): Promise<PgBoss> {
     'connections.pull', // Settings › Modules › Music Connections: Sync now, and the first pull after linking
     'listenLinks.resolve', // Listen elsewhere: an album or artist page asks for its links
     'files.trash', // Deleting: moves into and out of the trash folder, Empty trash
+    'files.split', // Whole album in one file: the cut points, then the split
   ]) {
     await boss.createQueue(q, q === 'scan.root' ? undefined : QUEUE_RETRY_DEFAULTS);
   }
