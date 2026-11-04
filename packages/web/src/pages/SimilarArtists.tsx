@@ -50,7 +50,8 @@ export function showsSimilar(view: ArtistSimilarView | null | undefined): boolea
 function LibraryCard({ a, onPlay, loading }: { a: SimilarInLibraryView; onPlay: SimilarArtistsViewProps['onPlay']; loading: boolean }) {
   const name = artistLabel(a.name);
   return <li className={styles.card}>
-    <Link to="/artists/$artistId" params={{ artistId: a.artistId }} className={styles.cardLink}>
+    {/* the picture repeats the name's link for the pointer; the name is the one link for keyboard and screen readers */}
+    <Link to="/artists/$artistId" params={{ artistId: a.artistId }} className={styles.cardLink} tabIndex={-1} aria-hidden="true">
       <ArtistArtwork name={a.name} coverAlbumIds={a.coverAlbumIds} />
     </Link>
     <div className={styles.cardHead}>
@@ -86,7 +87,7 @@ function ElsewhereRow({ a, primary, onFollow, following }: { a: SimilarElsewhere
 
 export function SimilarArtistsView({ view, onFollow, following = null, onPlay, loading = null }: SimilarArtistsViewProps) {
   if (view.pending && similarCount(view) === 0) {
-    return <div className={styles.loading} aria-busy="true" aria-label="Loading similar artists">
+    return <div className={styles.loading} role="status" aria-busy="true" aria-label="Loading similar artists">
       <ul className={styles.cards} aria-hidden="true">
         {[0, 1, 2, 3].map((i) => <li key={i} className={styles.card}><div className={styles.skel} /><Bar width="70%" className={styles.skelLine} /></li>)}
       </ul>

@@ -44,8 +44,9 @@ type Story = StoryObj<typeof meta>;
 export const Both: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByRole('link', { name: /Portishead/ })).toBeVisible();
-    await expect(c.getAllByRole('button', { name: 'Follow' })).toHaveLength(2);
+    await expect(await c.findByRole('link', { name: /Portishead/ })).toBeVisible();
+    await expect(c.getAllByRole('button', { name: 'Follow' })).toHaveLength(3);
+    await expect(c.getByRole('button', { name: 'Play Portishead' })).toBeVisible();
     await expect(c.getByText('Following')).toBeVisible();
   },
 };
