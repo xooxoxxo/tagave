@@ -211,3 +211,14 @@ export {
   orderArtists, artistListPositions, parseArtistSort, parseArtistGroup, ARTIST_SORTS,
   type ArtistRow, type ArtistSort, type ArtistGroupCount, type OrderedArtists, type ArtistPositions,
 } from './artistList.js';
+
+// Naming rules (vault "tagave - Naming Rules and Drop Pool"): where a file belongs, from its tags
+export {
+  NAMING_VARIABLES, DEFAULT_NAMING_RULES, DEFAULT_FOLDER_TEMPLATE, DEFAULT_FILE_TEMPLATE, DEFAULT_SPECIAL_RULES, DEFAULT_LEAVE_ALONE,
+  SEGMENT_MAX_BYTES, PATH_MAX_BYTES, INITIAL_NUMERIC, INITIAL_OTHER, DETECT_MIN_SHARE,
+  initialOf, templateProblem, rulesProblems, safeSegment, capPath, folderRuleFor, ruleDir, ruleFileName, rulePath,
+  isLeftAlone, samePath, namingValuesOf, detectNaming,
+} from './naming/rules.js';
+export type { NamingRules, NamingValues, NamingVariable, SpecialRule, SpecialWhen, RulePath, RuleName, NamingSample, Detected } from './naming/rules.js';
+export { currentFieldsFrom } from './naming/currentFields.js';
+export type { CanonicalValue } from './naming/currentFields.js';
