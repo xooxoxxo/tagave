@@ -288,3 +288,10 @@ export function CastIcon() {
 export function AirPlayIcon() {
   return <svg {...LINE}><path d="M7 17H5.5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2H17" /><path d="M12 14.5l4.5 5h-9z" /></svg>;
 }
+
+/* Play in one place (2026-11-04). */
+
+/** A speaker beside a phone: where the music plays. */
+export function DevicesIcon() {
+  return <svg {...LINE}><rect x="3.5" y="3.5" width="10" height="17" rx="2" /><circle cx="8.5" cy="14" r="2.6" /><path d="M8.5 7.5h.01" strokeWidth="2.4" /><rect x="16" y="8.5" width="4.5" height="12" rx="1.4" /><path d="M18.25 18h.01" strokeWidth="2.2" /></svg>;
+}

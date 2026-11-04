@@ -29,6 +29,8 @@ import { MiniPlayer, NowPlayingScreen, NowPlayingView } from './player/NowPlayin
 import { TrackActions } from './player/TrackActions';
 import { BarGlow } from './BarGlow';
 import { CastKey } from './player/CastKey';
+import { DeviceStrip, DevicesKey, useDevicesShown } from './player/DevicesKey';
+import { remoteDevice, startDevices, useDevicesStore } from '../player/devices';
 import { castLine as castLineOf, isCasting, startCastWatch, stopCastWatch, useCastStore } from '../player/cast';
 import { useDisplayPrefs } from '../displayPrefs';
 import { AlbumLink, ArtistLinks, linkedArtists, lineReset, type CreditedArtist } from './NowPlayingLinks';
@@ -192,7 +194,8 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
  * is (--player-bar-h on <html>) so toasts and the floating Maintenance pill
  * sit above it. It brings back the person's queue from the server when
  * tagave opens, follows changes made on the person's other devices, and
- * pauses when another device starts playing.
+ * stops when another device starts playing: it then shows that device
+ * ("Playing on …" along its top) and its keys control it (player/devices.ts).
  */
 export function PlayerBar() {
   const s = usePlayerStore();
@@ -215,7 +218,10 @@ export function PlayerBar() {
   const castState = useCastStore();
   const casting = isCasting(castState);
   const castShown = !!castState.kind && (castState.available || casting);
-  const castLine = castLineOf(castState);
+  const devicesShown = useDevicesShown();
+  const remoteName = useDevicesStore((d) => (s.remoteDeviceId ? remoteDevice(d)?.name ?? null : null));
+  // another device plays: what this one says is where it plays, not what this browser casts to
+  const castLine = s.remoteDeviceId ? (remoteName ? `Playing on ${remoteName}` : null) : castLineOf(castState);
   // a desktop with a player keeps the bar, empty, when nothing is queued
   const shown = hasQueue || (!phone && installed);
   const ref = useRef<HTMLDivElement>(null);
@@ -231,6 +237,7 @@ export function PlayerBar() {
   useEffect(() => {
     if (!installed) return;
     void restoreQueue();
+    const leave = startDevices();
     const look = () => { if (document.visibilityState === 'visible') void syncQueue(); };
     const onVisibility = () => { if (document.visibilityState === 'hidden') persistOnHide(); else look(); };
     const timer = setInterval(look, 10_000);
@@ -242,6 +249,7 @@ export function PlayerBar() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', look);
       window.removeEventListener('pagehide', persistOnLeave);
+      leave();
     };
   }, [installed]);
 
@@ -327,10 +335,13 @@ export function PlayerBar() {
   const barArtist = track.artist || track.albumArtist;
   // one glow, over the bar (from its right side) or the phone's mini bar (across it); none while a track fails
   // casting, it is off: the music is not here
-  const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing' && !casting} anchor={phone ? 'centre' : 'right'} /> : null;
-  const cast = castShown ? <CastKey /> : null;
+  // another device plays: nothing sounds here either
+  const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing' && !casting && !s.remoteDeviceId} anchor={phone ? 'centre' : 'right'} /> : null;
+  // with another device to play on, the device key holds the cast picker too
+  const cast = devicesShown ? <DevicesKey /> : castShown ? <CastKey /> : null;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
+      <DeviceStrip />
       {phone ? (
         <>
           <MiniPlayer
@@ -345,7 +356,7 @@ export function PlayerBar() {
             onNext={next}
             onRetry={retry}
             glow={glow}
-            castLine={castLine}
+            castLine={s.remoteDeviceId ? null : castLine}
           />
           {nowOpen && (
             <NowPlayingScreen
@@ -396,7 +407,7 @@ export function PlayerBar() {
             onQueue={() => setNowOpen((o) => !o)}
             glow={glow}
             cast={cast}
-            castLine={castLine}
+            castLine={s.remoteDeviceId ? null : castLine}
           />
         </>
       )}

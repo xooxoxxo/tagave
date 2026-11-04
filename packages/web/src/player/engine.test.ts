@@ -196,3 +196,99 @@ describe('the next track, with the page hidden', () => {
     expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/me/player/queue'))).toHaveLength(1);
   });
 });
+
+describe('another device plays (play in one place)', () => {
+  const queue = (ids: string[]) => ({ context: null, tracks: ids.map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false });
+
+  it('sends the keys to the device that plays and shows its state, its own audio silent', async () => {
+    const engine = await boot();
+    engine.usePlayerStore.setState({ queue: queue(['a', 'b', 'c']), index: 0, queueId: 'q1', status: 'paused', volume: 0.4 });
+    const sent: Array<[string, unknown]> = [];
+    engine.setRemoteControl({ send: (action, opts) => sent.push([action, opts]) }, 'phone-tab-1');
+    expect(engine.usePlayerStore.getState().remoteDeviceId).toBe('phone-tab-1');
+    engine.play();
+    engine.pause();
+    engine.next();
+    engine.previous();
+    engine.seek(42);
+    engine.setVolume(0.8);
+    engine.playAt(2);
+    expect(sent).toEqual([['play', undefined], ['pause', undefined], ['next', undefined], ['previous', undefined], ['seek', { value: 42 }], ['volume', { value: 0.8 }], ['index', { index: 2 }]]);
+    expect(engine.mediaElements().every((a) => (a as unknown as FakeAudio).paused)).toBe(true);
+    expect(engine.playsHere()).toBe(false);
+  });
+
+  it('mirrors the other device: its entry, play state, place and volume; a key pressed here holds for a moment', async () => {
+    const engine = await boot();
+    engine.usePlayerStore.setState({ queue: queue(['a', 'b', 'c']), index: 0, queueId: 'q1', status: 'paused' });
+    engine.setRemoteControl({ send: () => undefined }, 'phone-tab-1');
+    expect(engine.mirrorRemote({ index: 1, trackId: 'b', position: 12, playing: true, volume: 0.5, durationMs: 100_000 })).toBe(true);
+    expect(engine.usePlayerStore.getState()).toMatchObject({ index: 1, status: 'playing', position: 12, volume: 0.5, duration: 100 });
+    // a track this queue does not have: the caller follows the queue
+    expect(engine.mirrorRemote({ index: 1, trackId: 'zz', position: 1, playing: true, volume: 0.5, durationMs: null })).toBe(false);
+    engine.pause();
+    engine.mirrorRemote({ index: 1, trackId: 'b', position: 13, playing: true, volume: 0.5, durationMs: 100_000 });
+    expect(engine.usePlayerStore.getState().status).toBe('paused');
+  });
+
+  it('on its own again it gets its own volume back; resting where the other one went away, Play plays here from there', async () => {
+    const engine = await boot();
+    engine.usePlayerStore.setState({ queue: queue(['a', 'b']), index: 0, queueId: 'q1', status: 'paused', volume: 0.3 });
+    engine.setRemoteControl({ send: () => undefined }, 'phone-tab-1');
+    engine.mirrorRemote({ index: 0, trackId: 'a', position: 5, playing: true, volume: 0.9, durationMs: 100_000 });
+    engine.restAt({ index: 1, trackId: 'b', position: 33, playing: false, volume: 0.9, durationMs: 100_000 });
+    expect(engine.isRemote()).toBe(false);
+    expect(engine.usePlayerStore.getState()).toMatchObject({ remoteDeviceId: null, volume: 0.3, index: 1, position: 33, status: 'paused' });
+    engine.play();
+    const [a] = engine.mediaElements() as unknown as [FakeAudio];
+    expect(a.paused).toBe(false);
+    expect(engine.playsHere()).toBe(true);
+  });
+
+  it('"This device" plays here and claims the queue; the other device is left', async () => {
+    const engine = await boot();
+    engine.usePlayerStore.setState({ queue: queue(['a', 'b']), index: 0, queueId: 'q1', status: 'paused' });
+    const sent: string[] = [];
+    engine.setRemoteControl({ send: (action) => sent.push(action) }, 'phone-tab-1');
+    engine.playHere();
+    expect(engine.isRemote()).toBe(false);
+    expect(sent).toEqual([]);
+    await flush();
+    const claim = fetchMock.mock.calls.map(([, init]) => (init?.body ? JSON.parse(String(init.body)) : null)).find((b) => b?.mode === 'play');
+    expect(claim).toMatchObject({ index: 0, deviceId: engine.deviceId() });
+  });
+
+  it('handed playback in the background, it loads paused and waits for a tap', async () => {
+    const engine = await boot();
+    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify({
+      items: [{ ...track('a'), origin: 'context' }, { ...track('b'), origin: 'context' }], context: null, index: 1, positionMs: 20_000, deviceId: 'mac-tab-1', revision: 7, updatedAt: 'now',
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    await engine.takeOver(1, 20, { autoplay: false });
+    expect(engine.usePlayerStore.getState()).toMatchObject({ index: 1, status: 'paused', needsTap: true });
+    const [a] = engine.mediaElements() as unknown as [FakeAudio];
+    expect(a.paused).toBe(true);
+    engine.play();
+    expect(a.paused).toBe(false);
+  });
+
+  it('a refused autoplay shows "Tap to play here"', async () => {
+    const engine = await boot();
+    engine.usePlayerStore.setState({ queue: queue(['a', 'b']), index: -1, queueId: 'q1' });
+    const els = engine.ensurePlayerElements() as unknown as FakeAudio[];
+    for (const el of els) el.playResult = async () => { throw Object.assign(new Error('no gesture'), { name: 'NotAllowedError' }); };
+    engine.playAt(0);
+    await flush();
+    expect(engine.usePlayerStore.getState()).toMatchObject({ status: 'paused', needsTap: true });
+  });
+
+  it('hands off: writes its place first, then goes quiet', async () => {
+    const engine = await boot();
+    const { a } = await playToNearEnd(engine, ['a', 'b']);
+    fetchMock.mockClear();
+    const at = await engine.handOff();
+    expect(at).toEqual({ index: 0, position: 90 });
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).includes('/me/player/queue') && init?.method === 'PUT')).toBe(true);
+    expect(a.paused).toBe(true);
+    expect(engine.playsHere()).toBe(false);
+  });
+});

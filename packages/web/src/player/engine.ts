@@ -21,8 +21,12 @@
  * Add to queue ("queued"), which plays first. It is kept on the server per
  * person (PUT /me/player/queue), so it follows them to another device. Any
  * device may change it; the device that plays picks the change up and plays
- * on. Only a play action (Play, Play from here, a skip) on another device
- * moves playback there, and this one pauses.
+ * on. Only a play action (Play, Play from here) on another device moves
+ * playback there, and this one stops at once (player/devices.ts hears it on
+ * the person's event stream). While another device plays, this one shows it
+ * and its keys (play, pause, next, previous, seek, volume, a queue row) go
+ * there as commands; "This device" or Play once that device is gone plays
+ * here again.
  *
  * Casting (player/cast.ts) comes in two shapes:
  *   - the elements play to the device (AirPlay, the Remote Playback API on
@@ -33,7 +37,7 @@
  *     state and time come back through the sink* functions below.
  */
 import { create } from 'zustand';
-import type { PlayEventKind, PlayerQueueView, PlayerScanStatus, QueueContext, QueueOrigin, QueueStampView, QueueStateView, QueueTrack, StreamFormat } from '@tagave/shared';
+import type { PlayEventKind, PlayerCommandAction, PlayerQueueView, PlayerScanStatus, QueueContext, QueueOrigin, QueueStampView, QueueStateView, QueueTrack, StreamFormat } from '@tagave/shared';
 import { api, type ApiError } from '../services/api';
 import {
   FAILURE_TEXT, chooseFormat, classifyFailure, clearQueued, handoffDelayMs, heardDelta, insertQueued, moveUpcoming, nextPlayable, nothingPlayableMessage, queueOrder,
@@ -42,6 +46,9 @@ import {
 import { getPlayerQuality } from './quality';
 import { cachedCastLink, castSrc, fetchCastLink } from './castLinks';
 import { isAppleMobile } from './platform';
+import { deviceId, randomId } from './deviceIdentity';
+
+export { deviceId } from './deviceIdentity';
 
 export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'error';
 
@@ -76,9 +83,13 @@ export interface PlayerState {
   position: number;
   duration: number | null;
   volume: number;
+  /** playback was handed here and the browser would not start it without a tap */
+  needsTap: boolean;
+  /** another of the person's devices plays: this one shows it, and its keys control it */
+  remoteDeviceId: string | null;
 }
 
-const initial: PlayerState = { queue: null, queueId: null, index: -1, status: 'idle', message: null, retry: null, loadingAlbumId: null, position: 0, duration: null, volume: 1 };
+const initial: PlayerState = { queue: null, queueId: null, index: -1, status: 'idle', message: null, retry: null, loadingAlbumId: null, position: 0, duration: null, volume: 1, needsTap: false, remoteDeviceId: null };
 
 export const usePlayerStore = create<PlayerState>()(() => ({ ...initial }));
 const get = () => usePlayerStore.getState();
@@ -370,8 +381,8 @@ function startPlayback(a: HTMLAudioElement, onRefused?: () => void) {
       if (a !== el() || (err as { name?: string })?.name !== 'NotAllowedError') return;
       // AbortError: a newer load replaced this one; a failed load arrives as `error`
       if (onRefused) onRefused();
-      // autoplay refused (no gesture yet): wait for the listener's Play
-      else set({ status: 'paused' });
+      // autoplay refused (no gesture yet, or playback handed here): wait for the listener's Play
+      else set({ status: 'paused', needsTap: true });
     });
   }
 }
@@ -382,6 +393,8 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
   const s = get();
   const track = s.queue?.tracks[index];
   if (!els || !track) return;
+  // a play here: this device plays from now on, not the other one
+  if (remoteCtl) leaveRemote();
   generation++;
   const a = els[active]!;
   const format = opts.format ?? chooseFormat(getPlayerQuality(), track.mime, sink ? sink.canPlay : canPlayOf(a));
@@ -401,7 +414,7 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
   clearHandoff();
   const nextIdx = nextPlayable(s.queue!.tracks, index);
   if (preloaded && preloaded.trackId !== s.queue!.tracks[nextIdx]?.localTrackId) { release(standby()); preloaded = null; }
-  set({ index, status: 'loading', message: null, retry: null, position: offset, duration: shownDuration(format, track.durationMs, Number.NaN) });
+  set({ index, status: 'loading', message: null, retry: null, needsTap: false, position: offset, duration: shownDuration(format, track.durationMs, Number.NaN) });
   updateMetadata(track);
   persistSoon();
   if (sink) {
@@ -432,7 +445,7 @@ function onPlaying(a: HTMLAudioElement) {
 /** The track sounds (here or on the receiver): the first time, now playing; this device plays now. */
 function markPlaying() {
   if (!cur) return;
-  set({ status: 'playing', message: null, retry: null });
+  set({ status: 'playing', message: null, retry: null, needsTap: false });
   if (!cur.started) {
     cur.started = true;
     sendEvent('now_playing');
@@ -642,21 +655,6 @@ function showError(message: string, retry: PlayerState['retry']) {
 }
 
 // ---- play events ----
-
-function randomId(): string {
-  const c = globalThis.crypto;
-  // randomUUID exists only in secure contexts; a homelab over plain http is not one
-  if (c && typeof c.randomUUID === 'function') {
-    try { return c.randomUUID(); } catch { /* fall through */ }
-  }
-  const b = new Uint8Array(16);
-  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b);
-  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
-  b[6] = (b[6]! & 0x0f) | 0x40;
-  b[8] = (b[8]! & 0x3f) | 0x80;
-  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
 
 const MAX_MS = 24 * 3600_000;
 const clampMs = (sec: number) => Math.min(MAX_MS, Math.max(0, Math.round(sec * 1000)));
@@ -881,6 +879,13 @@ export function shuffleAlbum(album: AlbumRef): Promise<void> {
 
 export function play() {
   const s = get();
+  if (remoteCtl) {
+    if (!s.queue && !s.remoteDeviceId) return;
+    hold('status');
+    remoteCtl.send('play');
+    set({ status: 'playing' });
+    return;
+  }
   ensureElements();
   const a = el();
   if (!s.queue || !a) return;
@@ -910,6 +915,12 @@ export function play() {
 }
 
 export function pause() {
+  if (remoteCtl) {
+    hold('status');
+    remoteCtl.send('pause');
+    if (get().status !== 'idle') set({ status: 'paused' });
+    return;
+  }
   if (sink) {
     sink.pause();
     if (get().status !== 'error' && get().status !== 'idle') set({ status: 'paused' });
@@ -929,6 +940,7 @@ export function toggle() {
 
 export function next() {
   const s = get();
+  if (remoteCtl) { remoteCtl.send('next'); return; }
   if (!s.queue) return;
   const n = nextPlayable(s.queue.tracks, s.index);
   if (n < 0) return;
@@ -938,6 +950,7 @@ export function next() {
 
 export function previous() {
   const s = get();
+  if (remoteCtl) { remoteCtl.send('previous'); return; }
   if (!s.queue || s.index < 0) return;
   const action = previousAction(s.queue.tracks, s.index, s.position);
   if (action.kind === 'restart') { seek(0); if (s.status === 'paused') play(); return; }
@@ -947,6 +960,13 @@ export function previous() {
 
 /** Jumps to `sec` in the current track (a reload from that second for a transcode). */
 export function seek(sec: number) {
+  if (remoteCtl) {
+    const at = Math.max(0, sec);
+    hold('position');
+    remoteCtl.send('seek', { value: at });
+    set({ position: at });
+    return;
+  }
   const a = el();
   const s = get();
   if (!a || !cur) return;
@@ -985,6 +1005,11 @@ export function seek(sec: number) {
 export function setVolume(v: number) {
   const volume = Math.min(1, Math.max(0, v));
   set({ volume });
+  if (remoteCtl) {
+    hold('volume');
+    remoteCtl.send('volume', { value: volume });
+    return;
+  }
   if (sink) { sink.setVolume(volume); return; }
   for (const a of elements ?? []) a.volume = volume;
 }
@@ -1006,6 +1031,10 @@ export function retry() {
 /** Plays the queue's track `index` now (a row in the queue view). */
 export function playAt(index: number) {
   const s = get();
+  if (remoteCtl) {
+    if (s.queue?.tracks[index]?.available) remoteCtl.send('index', { index });
+    return;
+  }
   const track = s.queue?.tracks[index];
   if (!track || !track.available || index === s.index) return;
   leaveCurrent();
@@ -1096,6 +1125,7 @@ export function stop(opts: { forget?: boolean } = {}) {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = null;
   claimed = false;
+  remoteCtl = null;
   if (opts.forget) {
     revision = 0;
     void api.delete('/me/player/queue').catch(() => undefined);
@@ -1109,7 +1139,6 @@ export function stop(opts: { forget?: boolean } = {}) {
 
 // ---- the queue on the server: it follows the person; a play action moves playback ----
 
-const DEVICE_KEY = 'tagave-player-device';
 const POSITION_SAVE_MS = 10_000;
 let lastPositionSave = 0;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1117,20 +1146,6 @@ let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let claimed = false;
 /** the server revision this device's copy is (0: none) */
 let revision = 0;
-let deviceIdCache: string | null = null;
-
-/** A random id for this browser, kept across visits. */
-export function deviceId(): string {
-  if (deviceIdCache) return deviceIdCache;
-  let id: string | null = null;
-  try { id = globalThis.localStorage?.getItem(DEVICE_KEY) ?? null; } catch { /* storage blocked */ }
-  if (!id || id.length < 8) {
-    id = randomId();
-    try { globalThis.localStorage?.setItem(DEVICE_KEY, id); } catch { /* this visit only */ }
-  }
-  deviceIdCache = id;
-  return id;
-}
 
 function snapshot() {
   const s = get();
@@ -1150,23 +1165,33 @@ function snapshot() {
  * (409), it follows the server: another device plays now (it pauses), or the
  * queue changed elsewhere (it takes the change and plays on).
  */
-function persistNow(opts: { keepalive?: boolean; mode?: 'play' | 'save' } = {}) {
+function persistNow(opts: { keepalive?: boolean; mode?: 'play' | 'save' } = {}): Promise<void> {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = null;
   const snap = snapshot();
-  if (!snap || typeof fetch === 'undefined') return;
+  if (!snap || typeof fetch === 'undefined') return Promise.resolve();
   const body = { ...snap, mode: opts.mode ?? 'save', ...(revision ? { revision } : {}) };
   if (opts.keepalive) {
     try {
       void fetch('/api/v1/me/player/queue', { method: 'PUT', body: JSON.stringify(body), keepalive: true, credentials: 'include', headers: { 'Content-Type': 'application/json' } }).catch(() => undefined);
     } catch { /* dropped */ }
-    return;
+    return Promise.resolve();
   }
-  void api.put<{ updatedAt: string; revision: number }>('/me/player/queue', body).then(
-    (r) => { if (r?.revision) revision = r.revision; },
+  const sent = api.put<{ updatedAt: string; revision: number }>('/me/player/queue', body).then(
+    (r) => { if (r?.revision && r.revision > revision) revision = r.revision; },
     (err: ApiError) => { if (err?.status === 409) void syncQueue(); },
   );
+  if (body.mode === 'play') {
+    // a claim on its way: what the other devices did meanwhile is read once it is in (syncQueue)
+    const mine = sent.finally(() => { if (claiming === mine) claiming = null; });
+    claiming = mine;
+    return mine;
+  }
+  return sent;
 }
+
+/** The claim this device sent (PUT mode play) while it is on its way. */
+let claiming: Promise<void> | null = null;
 
 /** The device that plays writes its place a moment after a change (they come in bursts). Other devices write only edits. */
 function persistSoon() {
@@ -1208,11 +1233,16 @@ function adopt(view: QueueStateView) {
   revision = view.revision;
   const tracks = view.items.map((t) => entry(t, t.origin));
   if (tracks.length === 0) {
-    set({ ...initial, volume: get().volume });
+    set({ ...initial, volume: get().volume, remoteDeviceId: get().remoteDeviceId });
     return;
   }
   const index = Math.min(Math.max(view.index, 0), tracks.length - 1);
   const t = tracks[index]!;
+  if (remoteCtl) {
+    // showing another device: its play state and place come with its own state, not from here
+    set({ queue: { context: view.context, tracks, scanRequested: false, scan: null }, queueId: get().queueId ?? randomId(), index, message: null, retry: null, loadingAlbumId: null, duration: t.durationMs ? t.durationMs / 1000 : null });
+    return;
+  }
   set({
     queue: { context: view.context, tracks, scanRequested: false, scan: null },
     queueId: get().queueId ?? randomId(),
@@ -1269,6 +1299,8 @@ export async function restoreQueue(): Promise<void> {
  * Resolves to what happened.
  */
 export async function syncQueue(): Promise<'none' | 'taken' | 'merged' | 'adopted'> {
+  // this device's own claim first: the server decides by arrival, and its answer says which came last
+  if (claiming) await claiming;
   let stamp: QueueStampView;
   try { stamp = await api.get<QueueStampView>('/me/player/queue/stamp'); } catch { return 'none'; }
   if (!stamp || stamp.revision <= revision) return 'none';
@@ -1287,6 +1319,10 @@ export async function syncQueue(): Promise<'none' | 'taken' | 'merged' | 'adopte
     merge(view);
     return 'merged';
   }
+  if (remoteCtl) {
+    adopt(view);
+    return 'adopted';
+  }
   const s = get().status;
   if (s === 'playing' || s === 'buffering' || s === 'loading') {
     // playing here without having said so yet: the change joins what plays
@@ -1296,4 +1332,182 @@ export async function syncQueue(): Promise<'none' | 'taken' | 'merged' | 'adopte
   unload();
   adopt(view);
   return 'adopted';
+}
+
+// ---- another device plays: this one shows it and its keys control it (player/devices.ts) ----
+
+/** Sends a key press to the device that plays (POST /me/player/command). */
+export interface RemoteControl {
+  send(action: PlayerCommandAction, opts?: { value?: number; index?: number }): void;
+}
+
+let remoteCtl: RemoteControl | null = null;
+/** this device's own volume, kept while it shows another device's */
+let localVolume: number | null = null;
+/** a key pressed here: the other device's state does not move what it changed back for a moment */
+const held = { status: 0, position: 0, volume: 0 };
+const HOLD_MS = 1500;
+
+function hold(what: keyof typeof held) {
+  held[what] = Date.now() + HOLD_MS;
+}
+const isHeld = (what: keyof typeof held) => Date.now() < held[what];
+
+/**
+ * Another device plays (`remoteId`): this one shows it, and play, pause,
+ * next, previous, seek, volume and a queue row go there through `control`.
+ * Null: this device is on its own again.
+ */
+export function setRemoteControl(control: RemoteControl | null, remoteId: string | null = null) {
+  if (control) {
+    if (!remoteCtl) localVolume = get().volume;
+    remoteCtl = control;
+    if (get().remoteDeviceId !== remoteId) set({ remoteDeviceId: remoteId });
+    return;
+  }
+  leaveRemote();
+}
+
+function leaveRemote() {
+  if (!remoteCtl && !get().remoteDeviceId) return;
+  remoteCtl = null;
+  const volume = localVolume ?? get().volume;
+  localVolume = null;
+  for (const a of elements ?? []) a.volume = volume;
+  set({ remoteDeviceId: null, volume });
+}
+
+/** Whether this device shows another one. */
+export function isRemote(): boolean {
+  return remoteCtl !== null;
+}
+
+/** Whether this device plays the queue, or has audio of its own loaded (it pressed play since it last followed another). */
+export function playsHere(): boolean {
+  return claimed || cur !== null;
+}
+
+/** The queue revision this device has (0: none). */
+export function queueRevision(): number {
+  return revision;
+}
+
+/** What the device that plays says it is doing. */
+export interface RemoteState {
+  index: number;
+  trackId: string | null;
+  /** seconds, now (interpolated by the caller) */
+  position: number;
+  playing: boolean;
+  volume: number;
+  durationMs: number | null;
+}
+
+/** The queue entry nearest `index` that holds `trackId` (the entry itself when it does), or -1. */
+function entryOf(tracks: readonly QueueEntry[], index: number, trackId: string | null): number {
+  if (!trackId) return index >= 0 && index < tracks.length ? index : -1;
+  if (tracks[index]?.localTrackId === trackId) return index;
+  const near = tracks.map((t, i) => (t.localTrackId === trackId ? i : -1)).filter((i) => i >= 0)
+    .sort((a, b) => Math.abs(a - index) - Math.abs(b - index));
+  return near[0] ?? -1;
+}
+
+/**
+ * Shows the other device's state. Returns false when its track is not in
+ * the queue this device has (the caller follows the queue then).
+ */
+export function mirrorRemote(m: RemoteState): boolean {
+  if (!remoteCtl) return true;
+  const s = get();
+  const tracks = s.queue?.tracks ?? [];
+  const index = entryOf(tracks, m.index, m.trackId);
+  if (index < 0) return false;
+  const patch: Partial<PlayerState> = {};
+  if (index !== s.index) {
+    patch.index = index;
+    held.position = 0;
+  }
+  if (!isHeld('status')) {
+    const status: PlayerStatus = m.playing ? 'playing' : 'paused';
+    if (status !== s.status) patch.status = status;
+  }
+  if (!isHeld('position')) patch.position = m.position;
+  const ms = m.durationMs ?? tracks[index]?.durationMs ?? null;
+  const duration = ms ? ms / 1000 : null;
+  if (duration !== s.duration) patch.duration = duration;
+  if (!isHeld('volume') && Math.abs(m.volume - s.volume) > 0.004) patch.volume = m.volume;
+  if (s.message || s.retry) { patch.message = null; patch.retry = null; }
+  if (s.needsTap) patch.needsTap = false;
+  set(patch);
+  return true;
+}
+
+/**
+ * The device that played went away (no heartbeat): this one is on its own,
+ * paused where that one was last heard of. Play plays here from there.
+ */
+export function restAt(m: RemoteState) {
+  leaveRemote();
+  if (playsHere()) return;
+  const s = get();
+  const tracks = s.queue?.tracks ?? [];
+  const at = entryOf(tracks, m.index, m.trackId);
+  const index = at >= 0 ? at : s.index;
+  if (index < 0) return;
+  const ms = tracks[index]?.durationMs ?? null;
+  set({ index, position: m.position, status: 'paused', duration: ms ? ms / 1000 : s.duration });
+  setPlaybackState('paused');
+}
+
+/**
+ * Playback was handed here (another device chose this one): the queue as it
+ * is now, from the entry and second it was at, playing. This device plays
+ * from now on, even when the browser waits for a tap first ("Tap to play
+ * here").
+ */
+export async function takeOver(index: number, positionSec: number, opts: { autoplay?: boolean } = {}): Promise<void> {
+  leaveRemote();
+  let view: QueueStateView | null = null;
+  try { view = await api.get<QueueStateView>('/me/player/queue'); } catch { /* the copy here, then */ }
+  if (view) {
+    claimed = false;
+    unload();
+    adopt(view);
+  }
+  const tracks = get().queue?.tracks ?? [];
+  if (tracks.length === 0) return;
+  const i = Math.min(Math.max(index, 0), tracks.length - 1);
+  if (!get().queueId) set({ queueId: randomId() });
+  const autoplay = opts.autoplay !== false;
+  loadTrack(i, { offset: positionSec, autoplay });
+  if (!autoplay) set({ needsTap: true });
+  claimed = true;
+  void persistNow({ mode: 'play' });
+}
+
+/**
+ * Hands playback to another device: its place is written first (the other
+ * device reads it from the server), then this one goes quiet. Resolves to
+ * where it was, or null when nothing was loaded.
+ */
+export async function handOff(): Promise<{ index: number; position: number } | null> {
+  const s = get();
+  if (!s.queue || s.index < 0) return null;
+  const at = { index: s.index, position: s.position };
+  if (claimed) await persistNow();
+  claimed = false;
+  unload();
+  if (get().status !== 'idle') set({ status: 'paused' });
+  setPlaybackState('paused');
+  return at;
+}
+
+/** "This device": playback comes here, from where the other device is now. */
+export function playHere() {
+  const s = get();
+  leaveRemote();
+  if (!s.queue || s.index < 0) return;
+  loadTrack(s.index, { offset: s.position });
+  claimed = true;
+  void persistNow({ mode: 'play' });
 }

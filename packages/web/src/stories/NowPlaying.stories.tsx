@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from '../components/player/NowPlaying';
 import { HISTORY, QUEUE } from './queueFixtures';
 import { CastKeyView } from '../components/player/CastKey';
+import { DeviceStripView, DevicesKeyView } from '../components/player/DevicesKey';
 
 const noop = () => undefined;
 const queue = {
@@ -120,4 +121,38 @@ export const PhoneMiniBarCasting: Story = {
       <MiniPlayer track={QUEUE[0]!} status="playing" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} castLine="Casting to Living Room" />
     </div>
   ),
+};
+
+/* Play in one place: another of the person's devices plays; this one shows it and controls it. */
+const devicesKey = <DevicesKeyView lit onChoose={noop} devices={[{ id: 'phone', name: 'Safari on iPhone', here: true, playing: false }, { id: 'mac', name: 'Chrome on Mac', here: false, playing: true }]} />;
+
+export const PhoneMiniBarRemote: Story = {
+  name: 'Phone · Mini bar, playing on another device',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
+      <DeviceStripView playingOn="Chrome on Mac" />
+      <MiniPlayer track={QUEUE[0]!} status="playing" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} />
+    </div>
+  ),
+};
+
+export const PhoneMiniBarTapToPlay: Story = {
+  name: 'Phone · Mini bar, tap to play here',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
+      <DeviceStripView needsTap onTap={noop} />
+      <MiniPlayer track={QUEUE[0]!} status="paused" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} />
+    </div>
+  ),
+};
+
+export const PhoneRemote: Story = {
+  name: 'Phone · Playing on another device',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => <NowPlayingScreen {...queue} {...transport} track={QUEUE[0]!} onClose={noop} cast={devicesKey} castLine="Playing on Chrome on Mac" />,
 };

@@ -135,6 +135,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /api/v1/me/player/queue': 'player.use',
   'DELETE /api/v1/me/player/queue': 'player.use',
   'GET /api/v1/me/player/history': 'player.use',
+  'GET /api/v1/me/player/events': 'player.use',
+  'PUT /api/v1/me/player/device': 'player.use',
+  'DELETE /api/v1/me/player/device/:deviceId': 'player.use',
+  'POST /api/v1/me/player/command': 'player.use',
   // library.edit: Editor and up: library care, tag changes, identify and matching, scans, jobs, gaps, collection upkeep, follows.
   'POST /api/v1/albums/:albumId/as-is': 'library.edit',
   'POST /api/v1/albums/:albumId/editions': 'library.edit',
