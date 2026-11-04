@@ -39,7 +39,7 @@ export function DashboardPage() {
     const album = playable[Math.floor(Math.random() * playable.length)];
     if (album) void playAlbum({ albumId: album.id, title: album.title, artist: album.artistCredit ?? 'Unknown artist', coverUrl: album.coverUrl ?? null });
   };
-  const attentionCount = gaps.data ? ['duplicate', 'incomplete_album', 'missing_album'].reduce((n, key) => n + (gaps.data.counts[key] ?? 0), 0) : undefined;
+  const attentionCount = gaps.data ? ['duplicate', 'incomplete_album', 'missing_album', 'one_file_album'].reduce((n, key) => n + (gaps.data.counts[key] ?? 0), 0) : undefined;
   const careItems = [
     { label: 'Review matches', tab: 'review' as const, count: queue.data?.total },
     { label: 'Identify albums', tab: 'identify' as const, count: identifyTodoCount(stats.data) },

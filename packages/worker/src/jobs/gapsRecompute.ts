@@ -5,6 +5,8 @@ import type { WorkerContext } from '../lib/context.js';
 import { recomputeMissingAlbumGaps } from '../lib/missingAlbumGaps.js';
 import { keepDecisionOnConflict } from '../lib/gapUpsert.js';
 import { reportProgress } from './progress.js';
+import { oneFileAlbums } from '@tagave/db';
+import { ONE_FILE_ALBUM_GAP } from '@tagave/shared';
 
 export interface GapsRecomputeJobData {
   libraryId: string;
@@ -91,6 +93,26 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
       and (select count(*) from local_albums la
            where la.library_id = ${lib} and la.release_group_id = g.subject_id
              and la.state != 'ignored') < 2`;
+
+  // --- Whole album in one file (0078): one FLAC, no cue sheet, matched to a
+  // release of several tracks whose lengths add up to it (@tagave/db ›
+  // oneFileAlbums). Mark-and-sweep as the quality flags: the upsert clears
+  // the mark on albums that still fit, the rest resolve (a split, a rematch).
+  await ctx.sql`
+    update gaps set resolved_at = now()
+    where library_id = ${lib} and kind = ${ONE_FILE_ALBUM_GAP} and state != 'resolved'`;
+  const oneFile = await oneFileAlbums(ctx.sql, lib);
+  if (oneFile.length > 0) {
+    await ctx.sql`
+      insert into gaps (library_id, kind, subject_type, subject_id, details, state)
+      select ${lib}, ${ONE_FILE_ALBUM_GAP}, 'local_album', u.id, u.d::jsonb, 'open'
+        from unnest(${oneFile.map((a) => a.albumId)}::uuid[],
+                    ${oneFile.map((a) => JSON.stringify({ fileId: a.fileId, fileMs: a.fileMs, releaseMs: a.releaseMs, tracks: a.tracks }))}::text[]) as u(id, d)
+      ${keepDecisionOnConflict(ctx.sql)}`;
+  }
+  await ctx.sql`
+    update gaps set state = 'resolved'
+    where library_id = ${lib} and kind = ${ONE_FILE_ALBUM_GAP} and state != 'resolved' and resolved_at is not null`;
 
   // --- GAP-2: missing albums per followed artist (release groups not owned
   // locally, filtered by the artist's follow rules). Shared with artist.refresh,

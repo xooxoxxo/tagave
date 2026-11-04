@@ -70,7 +70,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
       select column_name, data_type from information_schema.columns
        where table_name = 'users' order by column_name`;
 
-    expect(await migrateAll(db.url)).toEqual(['0035_perf_indexes_artist_list.sql', '0036_better_auth.sql', '0037_tag_plan_archive.sql', '0038_auto_accept_rules.sql', '0039_auth_step_up.sql', '0040_artist_tag_albums.sql', '0041_player.sql', '0042_tagave_names.sql', '0043_users_roles.sql', '0044_player_people.sql', '0045_player_retired_accounts.sql', '0046_cover_thumbs.sql', '0047_music_connections_oauth.sql', '0048_mc_changes.sql', '0049_mc_links.sql', '0050_mc_landing.sql', '0051_library_settings_object.sql', '0052_move_safe_files.sql', '0053_local_tracks_file_cue_unique.sql', '0054_listen_links.sql', '0055_player_queue_state.sql', '0056_playlists.sql', '0057_held_missing.sql', '0058_files_core.sql', '0059_user_prefs.sql', '0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql', '0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql', '0079_playlist_collaborators.sql']);
+    expect(await migrateAll(db.url)).toEqual(['0035_perf_indexes_artist_list.sql', '0036_better_auth.sql', '0037_tag_plan_archive.sql', '0038_auto_accept_rules.sql', '0039_auth_step_up.sql', '0040_artist_tag_albums.sql', '0041_player.sql', '0042_tagave_names.sql', '0043_users_roles.sql', '0044_player_people.sql', '0045_player_retired_accounts.sql', '0046_cover_thumbs.sql', '0047_music_connections_oauth.sql', '0048_mc_changes.sql', '0049_mc_links.sql', '0050_mc_landing.sql', '0051_library_settings_object.sql', '0052_move_safe_files.sql', '0053_local_tracks_file_cue_unique.sql', '0054_listen_links.sql', '0055_player_queue_state.sql', '0056_playlists.sql', '0057_held_missing.sql', '0058_files_core.sql', '0059_user_prefs.sql', '0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql', '0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql', '0078_album_splits.sql', '0079_playlist_collaborators.sql']);
     handle = testAuth(db.url);
     app = await buildAuthApp(handle);
   });
@@ -102,7 +102,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
     expect(fksAfter.filter((f: any) => before.has(key(f)) && key(f) !== restricted)).toEqual(fksBefore.filter((f: any) => key(f) !== restricted));
     expect(fksAfter.find((f: any) => key(f) === restricted)?.def).toBe('FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE RESTRICT');
     expect(fksAfter.filter((f: any) => !before.has(key(f))).map((f: any) => f.table_name)).toEqual([
-      'facet_changes', 'file_deletions', 'identity_fills', 'lidarr_requests', 'listen_prefs', 'mc_critic_scores', 'mc_identity', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending', 'mc_wantlist_suggestions',
+      'album_splits', 'facet_changes', 'file_deletions', 'identity_fills', 'lidarr_requests', 'listen_prefs', 'mc_critic_scores', 'mc_identity', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending', 'mc_wantlist_suggestions',
       'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_queue_state', 'player_rating_sync', 'player_song_counts', 'player_users',
       'playlist_collaborators', 'playlist_items', 'playlists', 'saved_views', 'scrobble_accounts', 'user_invites', 'user_invites', 'user_prefs',
     ]);

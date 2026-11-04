@@ -39,6 +39,7 @@ export * from './albumLock.js';
 export * from './listenLinks.js';
 export * from './playlistsModule.js';
 export * from './deletions.js';
+export * from './albumSplits.js';
 export * from './modules.js';
 export * from './lidarr.js';
 export * from './musicFolder.js';

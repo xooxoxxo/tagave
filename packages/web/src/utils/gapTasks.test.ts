@@ -84,3 +84,12 @@ describe('doneLabel', () => {
     expect(doneLabel({ resolvedAt: null, subjectGone: true })).toBe('Gone from library');
   });
 });
+
+describe('whole album in one file (0078)', () => {
+  const g = { kind: 'one_file_album', flag: '', details: { fileId: 'f', fileMs: 2_344_000, releaseMs: 2_340_000, tracks: 10 } };
+  it('says what it is in values', () => {
+    expect(gapLine(g)).toBe('1 file · 10 tracks · 39:04');
+    expect(taskText(g, { title: 'Strapping Young Lad' })).toBe('Split Strapping Young Lad into its tracks');
+    expect(wrongFix(g).action).toBe('editions');
+  });
+});

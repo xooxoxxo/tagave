@@ -22,10 +22,13 @@ FROM node:24-slim
 
 WORKDIR /app
 
-# Audio tooling: fpcalc (libchromaprint-tools) for fingerprinting, and Python
-# for the mutagen tag writer that tags.apply / tags.revert run.
+# Audio tooling: fpcalc (libchromaprint-tools) for fingerprinting, flac and
+# metaflac (flac) for files.split (a whole album in one file, split per
+# track), and Python for the mutagen tag writer that tags.apply / tags.revert
+# run.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    flac \
     libchromaprint-tools \
     python3 \
     python3-venv \

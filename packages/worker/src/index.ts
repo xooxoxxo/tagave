@@ -42,6 +42,8 @@ import { artistsRefreshSweepJob, type ArtistsRefreshSweepJobData } from './jobs/
 import { tagsPreviewJob } from './jobs/tagsPreview.js';
 import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
 import { filesTrashJob, type FilesTrashJobData } from './lib/deletions.js';
+import { filesSplitJob } from './jobs/filesSplit.js';
+import type { FilesSplitJobData } from '@tagave/shared';
 import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefresh.js';
 import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
@@ -95,6 +97,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'tags.apply': 'stately',
   // one queued per library and action behind the running one; every run does all that waits
   'files.trash': 'stately',
+  // one queued per split and action (singletonKey files.split:<id>:<action>)
+  'files.split': 'stately',
   'tags.revert': 'stately',
   'facets.refresh': 'stately',
   'fingerprint.album': 'stately',
@@ -128,6 +132,9 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   'files.backfillDigest': { expireInSeconds: 3600, retryLimit: 0 },
   // bounded per run; the next boot sends what is left
   'cluster.backfillLoose': { expireInSeconds: 3600, retryLimit: 0 },
+  // re-encodes a whole album (a 2 GB 24/192 image takes minutes); a failed
+  // split leaves nothing behind and the owner presses Split again
+  'files.split': { expireInSeconds: 3 * 3600, retryLimit: 0 },
 };
 
 /**
@@ -583,6 +590,15 @@ async function main() {
       return results.length === 1 ? results[0] : results;
     });
     await boss.schedule('files.trash', '17 4 * * *', { action: 'sweep' }, {});
+    // Whole album in one file (0078): the cut points, then the split itself
+    await boss.work<FilesSplitJobData>('files.split', { batchSize: 1 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, splitId: job.data.splitId, action: job.data.action }, 'files.split start');
+        results.push(await filesSplitJob(ctx, job.data));
+      }
+      return results.length === 1 ? results[0] : results;
+    });
   }
 
   if (wants('tags.revert')) {

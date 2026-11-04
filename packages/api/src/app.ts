@@ -10,6 +10,7 @@ import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
 import { createUserPrefsRoutes } from './routes/userPrefs.js';
 import { createDeletionRoutes } from './routes/deletions.js';
+import { createAlbumSplitRoutes } from './routes/albumSplits.js';
 import { createBulkRoutes } from './routes/bulk.js';
 import { createUpdateRoutes } from './routes/updates.js';
 import { createUpdaterInternalRoutes, createUpdaterRoutes } from './routes/updater.js';
@@ -200,6 +201,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
     // Deleting songs and albums: Mark or Trash, Library care › Deleting (owner)
     instance.register(createDeletionRoutes, { prefix: '/api/v1' });
+    // Whole album in one file: the cut points and the split (owner)
+    instance.register(createAlbumSplitRoutes, { prefix: '/api/v1' });
     // Get missing albums through Lidarr: the states, Get (owner), Settings › Modules › Lidarr
     instance.register(createLidarrRoutes, { prefix: '/api/v1' });
   });
