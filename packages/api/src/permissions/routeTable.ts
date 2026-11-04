@@ -67,7 +67,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   // Each person's own preferences that follow them between devices (the colour theme)
   'GET /api/v1/me/prefs': 'self',
   'PUT /api/v1/me/prefs': 'self',
-  // Playlists (routes/playlists.ts): each person's own lists; every handler filters by request.user.id.
+  // Playlists (routes/playlists.ts): each person's own lists and the ones they collaborate on; every handler checks the person's part in the list (lib/playlists.ts: owner, collaborator, else 404).
+  'GET /api/v1/me/playlists/:id/collaborators': 'catalog.read',
+  'PUT /api/v1/me/playlists/:id/collaborators/:userId': 'catalog.read',
   'GET /api/v1/me/playlists': 'catalog.read',
   'POST /api/v1/me/playlists': 'catalog.read',
   'GET /api/v1/me/playlists/export': 'catalog.read',

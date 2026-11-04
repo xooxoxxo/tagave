@@ -1983,8 +1983,21 @@ export const playlistItems = pgTable(
     album: text(),
     durationMs: integer('duration_ms'),
     addedAt: tstz('added_at').notNull().defaultNow(),
+    // who put it there (0079); null once that account is deleted
+    addedBy: uuid('added_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (table) => ({ orderIdx: index('idx_playlist_items_order').on(table.playlistId, table.position) })
+);
+
+// Collaborative playlists (0079): who may change a list besides its owner.
+export const playlistCollaborators = pgTable(
+  'playlist_collaborators',
+  {
+    playlistId: uuid('playlist_id').notNull().references(() => playlists.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    addedAt: tstz('added_at').notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.playlistId, table.userId] }), userIdx: index('idx_playlist_collaborators_user').on(table.userId) })
 );
 
 // The module ledger (0065): which apps and modules this install has, and

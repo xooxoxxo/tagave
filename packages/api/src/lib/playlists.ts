@@ -1,7 +1,18 @@
 /**
- * Playlists (the playlists module, 0056): each person's private lists. Every
- * query is scoped to the person (user_id); a list that is not theirs is not
- * found. Items keep a snapshot of the track (title, artist, album, MBIDs,
+ * Playlists (the playlists module, 0056): each person's lists, and the lists
+ * they collaborate on (0079). Every query is scoped to the person: a list
+ * they neither own nor collaborate on is not found.
+ *
+ *                         owner   collaborator
+ *   view, play, export    yes     yes
+ *   add, reorder          yes     yes
+ *   take an item out      any     what they added
+ *   rename, delete        yes     no (forbidden)
+ *   collaborators         yes     no (forbidden)
+ *
+ * Adding, reordering and taking out lock the list's row first, so two
+ * people changing it at once are taken in turn; positions are unique per
+ * list (checked at commit). Items keep a snapshot of the track (title, artist, album, MBIDs,
  * disc and track) so an export can be matched again elsewhere and a track
  * that left the library still has a name ("Missing").
  */
@@ -11,11 +22,20 @@ import { normalizeKey, pickByNames, type MatchCandidate, type ParsedItem, type P
 import {
   LISTEN_PLATFORMS, LISTEN_PLATFORM_NAMES, PLAYLIST_FILE_FORMAT, PLAYLIST_FILE_VERSION, displayArtistName, listenSearchUrl,
   type ListenLinkView, type ListenPlatform,
-  type PlaylistFile, type PlaylistImportResult, type PlaylistItemView, type PlaylistSummary, type PlaylistView,
+  type PlaylistCollaboratorChoice, type PlaylistFile, type PlaylistImportResult, type PlaylistItemView, type PlaylistPerson, type PlaylistSummary, type PlaylistView,
 } from '@tagave/shared';
 
 type Sql = postgres.Sql<any>;
 type Tx = postgres.TransactionSql<any>;
+
+export type PlaylistAccess = 'owner' | 'collaborator';
+/** What a change came to: done, no such list (for this person), not theirs to do, or the list changed under it. */
+export type PlaylistChange = 'ok' | 'not_found' | 'forbidden' | 'bad_order';
+
+const isId = (id: string) => /^[0-9a-f-]{36}$/i.test(id);
+
+/** A person's name as the people of a list see it: the display name, else the address before its @ (never the whole address). */
+const personName = (alias: string) => `coalesce(nullif(btrim(${alias}.display_name), ''), split_part(${alias}.email, '@', 1))`;
 
 const cover = (albumId: string | null, hasArt: boolean) => (albumId && hasArt ? `/api/v1/images/album/${albumId}` : null);
 
@@ -65,19 +85,30 @@ export async function albumTrackIds(sql: Sql | Tx, albumId: string): Promise<str
   return rows.map((r) => r.id);
 }
 
-async function owned(sql: Sql | Tx, userId: string, id: string): Promise<boolean> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
-  const [row] = await sql`select 1 from playlists where id = ${id} and user_id = ${userId}`;
-  return !!row;
+/** The person's part in a list: its owner, a collaborator, or none (null: not found). */
+export async function playlistAccess(sql: Sql | Tx, userId: string, id: string): Promise<PlaylistAccess | null> {
+  if (!isId(id)) return null;
+  const [row] = await sql<Array<{ owner: boolean }>>`
+    select p.user_id = ${userId} as owner from playlists p
+     where p.id = ${id}
+       and (p.user_id = ${userId} or exists (select 1 from playlist_collaborators c where c.playlist_id = p.id and c.user_id = ${userId}))`;
+  return row ? (row.owner ? 'owner' : 'collaborator') : null;
+}
+
+/** The access, with the list's row locked until the transaction ends: changes to one list are taken in turn. */
+async function lockFor(tx: Tx, userId: string, id: string): Promise<PlaylistAccess | null> {
+  if (!isId(id)) return null;
+  await tx`select 1 from playlists where id = ${id} for update`;
+  return playlistAccess(tx, userId, id);
 }
 
 /** Appends tracks (in the order given) to a list; ids not in the library are skipped. Returns how many were added. */
-async function append(tx: Tx, playlistId: string, trackIds: readonly string[]): Promise<number> {
+async function append(tx: Tx, playlistId: string, trackIds: readonly string[], addedBy: string): Promise<number> {
   const snap = await snapshots(tx, trackIds);
   const [{ next } = { next: 0 }] = await tx<Array<{ next: number }>>`select coalesce(max(position) + 1, 0)::int as next from playlist_items where playlist_id = ${playlistId}`;
   const rows = trackIds.map((id) => snap.get(id)).filter((s): s is Snapshot => !!s).map((s, i) => ({
     playlist_id: playlistId, position: next + i, local_track_id: s.id, recording_mbid: s.recording_mbid, release_mbid: s.release_mbid,
-    disc_no: s.disc_no, track_no: s.track_no, title: s.title, artist: s.artist, album: s.album, duration_ms: s.duration_ms,
+    disc_no: s.disc_no, track_no: s.track_no, title: s.title, artist: s.artist, album: s.album, duration_ms: s.duration_ms, added_by: addedBy,
   }));
   for (let i = 0; i < rows.length; i += 500) await tx`insert into playlist_items ${tx(rows.slice(i, i + 500))}`;
   if (rows.length) await tx`update playlists set updated_at = now() where id = ${playlistId}`;
@@ -85,8 +116,9 @@ async function append(tx: Tx, playlistId: string, trackIds: readonly string[]): 
 }
 
 export async function listPlaylists(sql: Sql, userId: string): Promise<PlaylistSummary[]> {
-  const rows = await sql<Array<{ id: string; name: string; updated_at: Date; tracks: number; duration_ms: number; covers: string[] | null }>>`
-    select p.id::text as id, p.name, p.updated_at,
+  const rows = await sql<Array<{ id: string; name: string; updated_at: Date; tracks: number; duration_ms: number; covers: string[] | null; mine: boolean; collaborative: boolean }>>`
+    select p.id::text as id, p.name, p.updated_at, p.user_id = ${userId} as mine,
+           exists (select 1 from playlist_collaborators c where c.playlist_id = p.id) as collaborative,
            (select count(*)::int from playlist_items i where i.playlist_id = p.id) as tracks,
            (select coalesce(sum(i.duration_ms), 0)::bigint from playlist_items i where i.playlist_id = p.id)::float8 as duration_ms,
            (select array_agg(a.album_id order by a.first) from (
@@ -97,29 +129,44 @@ export async function listPlaylists(sql: Sql, userId: string): Promise<PlaylistS
                group by lt.local_album_id order by min(i.position) limit 4) a) as covers
       from playlists p
      where p.user_id = ${userId}
+        or exists (select 1 from playlist_collaborators c where c.playlist_id = p.id and c.user_id = ${userId})
      order by p.updated_at desc, p.name`;
   return rows.map((r) => ({
     id: r.id, name: r.name, tracks: r.tracks, durationMs: Number(r.duration_ms),
     covers: (r.covers ?? []).map((a) => `/api/v1/images/album/${a}`), updatedAt: new Date(r.updated_at).toISOString(),
+    mine: r.mine, collaborative: r.collaborative,
   }));
 }
 
 export async function getPlaylist(sql: Sql, userId: string, id: string): Promise<PlaylistView | null> {
-  if (!(await owned(sql, userId, id))) return null;
+  const access = await playlistAccess(sql, userId, id);
+  if (!access) return null;
   const summary = (await listPlaylists(sql, userId)).find((p) => p.id === id)!;
-  const items = await sql<Array<{ id: string; local_track_id: string | null; album_id: string | null; title: string; artist: string | null; album: string | null; duration_ms: number | null; has_art: boolean }>>`
+  const [owner] = await sql<PlaylistPerson[]>`
+    select u.id::text as id, ${sql.unsafe(personName('u'))} as name from playlists p join users u on u.id = p.user_id where p.id = ${id}`;
+  const collaborators = await sql<PlaylistPerson[]>`
+    select u.id::text as id, ${sql.unsafe(personName('u'))} as name
+      from playlist_collaborators c join users u on u.id = c.user_id
+     where c.playlist_id = ${id} order by c.added_at, u.id`;
+  const items = await sql<Array<{ id: string; local_track_id: string | null; album_id: string | null; title: string; artist: string | null; album: string | null; duration_ms: number | null; has_art: boolean; added_by: string | null; added_by_name: string | null }>>`
     select i.id::text as id, i.local_track_id::text as local_track_id, lt.local_album_id::text as album_id, i.title, i.artist, i.album, i.duration_ms,
-           exists (select 1 from images im where im.local_album_id = lt.local_album_id and im.kind = 'front') as has_art
+           exists (select 1 from images im where im.local_album_id = lt.local_album_id and im.kind = 'front') as has_art,
+           i.added_by::text as added_by, ${sql.unsafe(personName('u'))} as added_by_name
       -- a deleted song (0073) shows as Missing until Unmark / Restore
       from playlist_items i left join local_tracks lt on lt.id = i.local_track_id and ${sql.unsafe(trackLiveSql('lt.audio_file_id'))}
+      left join users u on u.id = i.added_by
      where i.playlist_id = ${id}
      order by i.position, i.added_at`;
   const elsewhere = await missingElsewhere(sql, userId, items.filter((r) => !r.local_track_id).map((r) => r.id));
   return {
     ...summary,
+    owner: { id: owner!.id, name: owner!.name },
+    collaborators: collaborators.map((c) => ({ id: c.id, name: c.name })),
     items: items.map((r): PlaylistItemView => ({
       id: r.id, localTrackId: r.local_track_id, albumId: r.album_id, title: r.title, artist: r.artist, album: r.album,
       coverUrl: cover(r.album_id, r.has_art), durationMs: r.duration_ms, elsewhere: elsewhere.get(r.id) ?? null,
+      addedBy: r.added_by ? { id: r.added_by, name: r.added_by_name ?? '' } : null,
+      removable: access === 'owner' || r.added_by === userId,
     })),
   };
 }
@@ -153,25 +200,26 @@ async function missingElsewhere(sql: Sql, userId: string, itemIds: readonly stri
 export async function createPlaylist(sql: Sql, userId: string, name: string, trackIds: readonly string[] = [], source: 'tagave' | 'import' = 'tagave'): Promise<string> {
   return sql.begin(async (tx) => {
     const [row] = await tx<Array<{ id: string }>>`insert into playlists (user_id, name, source) values (${userId}, ${name.trim()}, ${source}) returning id::text as id`;
-    await append(tx, row!.id, trackIds);
+    await append(tx, row!.id, trackIds, userId);
     return row!.id;
   });
 }
 
+/** Owner or collaborator: tracks (or an album's) at the end, as the person's. Null: not found. */
 export async function addToPlaylist(sql: Sql, userId: string, id: string, add: { trackIds?: string[] | undefined; albumId?: string | undefined }): Promise<number | null> {
   return sql.begin(async (tx) => {
-    if (!(await owned(tx, userId, id))) return null;
-    await tx`select 1 from playlists where id = ${id} for update`;
+    if (!(await lockFor(tx, userId, id))) return null;
     const ids = add.albumId ? await albumTrackIds(tx, add.albumId) : add.trackIds ?? [];
-    return append(tx, id, ids);
+    return append(tx, id, ids, userId);
   });
 }
 
-/** Renames, and/or puts the items in the given order (every item id once). */
-export async function patchPlaylist(sql: Sql, userId: string, id: string, patch: { name?: string | undefined; order?: string[] | undefined }): Promise<'ok' | 'not_found' | 'bad_order'> {
+/** Renames (the owner), and/or puts the items in the given order (owner or collaborator; every item id once). */
+export async function patchPlaylist(sql: Sql, userId: string, id: string, patch: { name?: string | undefined; order?: string[] | undefined }): Promise<PlaylistChange> {
   return sql.begin(async (tx) => {
-    if (!(await owned(tx, userId, id))) return 'not_found';
-    await tx`select 1 from playlists where id = ${id} for update`;
+    const access = await lockFor(tx, userId, id);
+    if (!access) return 'not_found';
+    if (patch.name !== undefined && access !== 'owner') return 'forbidden';
     if (patch.order) {
       const current = (await tx<Array<{ id: string }>>`select id::text as id from playlist_items where playlist_id = ${id}`).map((r) => r.id);
       const asked = new Set(patch.order);
@@ -186,22 +234,76 @@ export async function patchPlaylist(sql: Sql, userId: string, id: string, patch:
   });
 }
 
-export async function removePlaylistItem(sql: Sql, userId: string, id: string, itemId: string): Promise<boolean> {
-  if (!(await owned(sql, userId, id)) || !/^[0-9a-f-]{36}$/i.test(itemId)) return false;
-  const res = await sql`delete from playlist_items where id = ${itemId} and playlist_id = ${id}`;
-  if (res.count) await sql`update playlists set updated_at = now() where id = ${id}`;
-  return res.count > 0;
+/** The owner takes out any item; a collaborator only what they added. */
+export async function removePlaylistItem(sql: Sql, userId: string, id: string, itemId: string): Promise<PlaylistChange> {
+  if (!isId(itemId)) return 'not_found';
+  return sql.begin(async (tx) => {
+    const access = await lockFor(tx, userId, id);
+    if (!access) return 'not_found';
+    const [item] = await tx<Array<{ added_by: string | null }>>`select added_by::text as added_by from playlist_items where id = ${itemId} and playlist_id = ${id}`;
+    if (!item) return 'not_found';
+    if (access !== 'owner' && item.added_by !== userId) return 'forbidden';
+    await tx`delete from playlist_items where id = ${itemId} and playlist_id = ${id}`;
+    await tx`update playlists set updated_at = now() where id = ${id}`;
+    return 'ok';
+  });
 }
 
-export async function deletePlaylist(sql: Sql, userId: string, id: string): Promise<boolean> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
-  return (await sql`delete from playlists where id = ${id} and user_id = ${userId}`).count > 0;
+/** The owner only; a collaborator is refused, anyone else does not find it. */
+export async function deletePlaylist(sql: Sql, userId: string, id: string): Promise<PlaylistChange> {
+  const access = await playlistAccess(sql, userId, id);
+  if (!access) return 'not_found';
+  if (access !== 'owner') return 'forbidden';
+  return (await sql`delete from playlists where id = ${id} and user_id = ${userId}`).count > 0 ? 'ok' : 'not_found';
+}
+
+// ---- collaborators (0079) ----
+
+/** Who may collaborate: an account of this install that can sign in (not disabled, not closed) with a role. */
+const activeUser = (alias: string) => `${alias}.disabled_at is null and ${alias}.removed_at is null and ${alias}.role in ('owner', 'editor', 'listener')`;
+
+/** The owner's sheet: the install's other people, each on or off. Null: not found; 'forbidden': a collaborator asked. */
+export async function collaboratorChoices(sql: Sql, userId: string, id: string): Promise<PlaylistCollaboratorChoice[] | null | 'forbidden'> {
+  const access = await playlistAccess(sql, userId, id);
+  if (!access) return null;
+  if (access !== 'owner') return 'forbidden';
+  const rows = await sql<Array<{ id: string; name: string; on: boolean }>>`
+    select u.id::text as id, ${sql.unsafe(personName('u'))} as name,
+           exists (select 1 from playlist_collaborators c where c.playlist_id = ${id} and c.user_id = u.id) as on
+      from users u
+     where u.id <> ${userId}
+       and (${sql.unsafe(activeUser('u'))} or exists (select 1 from playlist_collaborators c where c.playlist_id = ${id} and c.user_id = u.id))
+     order by lower(${sql.unsafe(personName('u'))}), u.id`;
+  return rows.map((r) => ({ id: r.id, name: r.name, on: r.on }));
+}
+
+/**
+ * The owner turns someone on or off. 'bad_user': not a person of this install
+ * who can sign in (or the owner themself). `changed` says whether anything
+ * did, for the audit log.
+ */
+export async function setCollaborator(sql: Sql, userId: string, id: string, otherId: string, on: boolean): Promise<{ result: PlaylistChange | 'bad_user'; changed: boolean }> {
+  return sql.begin(async (tx) => {
+    const access = await lockFor(tx, userId, id);
+    if (!access) return { result: 'not_found' as const, changed: false };
+    if (access !== 'owner') return { result: 'forbidden' as const, changed: false };
+    if (!isId(otherId) || otherId === userId) return { result: 'bad_user' as const, changed: false };
+    if (on) {
+      const [u] = await tx`select 1 from users u where u.id = ${otherId} and ${tx.unsafe(activeUser('u'))}`;
+      if (!u) return { result: 'bad_user' as const, changed: false };
+      const res = await tx`insert into playlist_collaborators (playlist_id, user_id) values (${id}, ${otherId}) on conflict do nothing`;
+      return { result: 'ok' as const, changed: res.count > 0 };
+    }
+    const res = await tx`delete from playlist_collaborators where playlist_id = ${id} and user_id = ${otherId}`;
+    return { result: 'ok' as const, changed: res.count > 0 };
+  });
 }
 
 // ---- export and import ----
 
 /** The export file for some lists: the person's (`userId`), or everyone's (null, with each owner's name). */
-export async function exportPlaylists(sql: Sql, scope: { userId: string | null; playlistId?: string }, generator: string): Promise<PlaylistFile> {
+export async function exportPlaylists(sql: Sql, scope: { userId: string | null; playlistId?: string; owners?: boolean }, generator: string): Promise<PlaylistFile> {
+  const owners = scope.owners ?? scope.userId === null;
   const lists = await sql<Array<{ id: string; name: string; created_at: Date; owner: string | null }>>`
     select p.id::text as id, p.name, p.created_at, coalesce(nullif(u.display_name, ''), u.email) as owner
       from playlists p join users u on u.id = p.user_id
@@ -222,7 +324,7 @@ export async function exportPlaylists(sql: Sql, scope: { userId: string | null; 
     generator,
     playlists: lists.map((l) => ({
       name: l.name,
-      ...(scope.userId === null && l.owner ? { owner: l.owner } : {}),
+      ...(owners && l.owner ? { owner: l.owner } : {}),
       createdAt: new Date(l.created_at).toISOString(),
       items: items.filter((i) => i.playlist_id === l.id).map((i) => {
         const now = i.local_track_id ? live.get(i.local_track_id) : undefined;
@@ -335,7 +437,7 @@ export async function importPlaylists(sql: Sql, userId: string, lists: readonly 
           recording_mbid: s?.recording_mbid ?? item.recordingMbid ?? null, release_mbid: s?.release_mbid ?? item.releaseMbid ?? null,
           disc_no: s?.disc_no ?? item.discNo ?? null, track_no: s?.track_no ?? item.trackNo ?? null,
           title: (item.title || s?.title || 'Untitled').slice(0, 1000), artist: item.artist ?? s?.artist ?? null, album: item.album ?? s?.album ?? null,
-          duration_ms: item.durationMs ?? s?.duration_ms ?? null,
+          duration_ms: item.durationMs ?? s?.duration_ms ?? null, added_by: userId,
         };
       });
       for (let i = 0; i < rows.length; i += 500) await tx`insert into playlist_items ${tx(rows.slice(i, i + 500))}`;

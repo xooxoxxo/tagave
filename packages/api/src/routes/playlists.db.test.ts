@@ -13,7 +13,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
 import { getTableColumns } from 'drizzle-orm';
-import { PLAYLISTS_TABLES, playlistItems, playlists } from '@tagave/db';
+import { PLAYLISTS_TABLES, playlistCollaborators, playlistItems, playlists } from '@tagave/db';
 import { MODULE_DATA, PurgeRefused, purgeModuleData } from '@tagave/doctor';
 import type { AuthHandle } from '@tagave/auth';
 
@@ -134,8 +134,8 @@ describe.skipIf(!adminUrl)('playlists: lists, export and import, the module swit
     await teardown(one);
   });
 
-  it('the drizzle schema has every column 0056 made', async () => {
-    const tables = { playlists, playlist_items: playlistItems };
+  it('the drizzle schema has every column 0056 and 0079 made', async () => {
+    const tables = { playlists, playlist_items: playlistItems, playlist_collaborators: playlistCollaborators };
     expect(Object.keys(tables).sort()).toEqual([...PLAYLISTS_TABLES].sort());
     for (const [name, table] of Object.entries(tables)) {
       const inDb = (await one.sql<Array<{ c: string }>>`select column_name as c from information_schema.columns where table_name = ${name}`).map((r) => r.c).sort();
@@ -293,7 +293,7 @@ describe.skipIf(!adminUrl)('playlists: lists, export and import, the module swit
     expect(Object.values(again.deleted).every((n) => n === 0)).toBe(true);
     // nothing in the core points at a playlist table
     const refs = await one.sql`select conrelid::regclass::text as t from pg_constraint where contype = 'f' and confrelid::regclass::text in ('playlists', 'playlist_items')`;
-    expect(refs.map((r) => r.t)).toEqual(['playlist_items']);
+    expect(refs.map((r) => r.t).sort()).toEqual(['playlist_collaborators', 'playlist_items']);
     // on again: it starts empty and works
     await call(one.owner, 'PUT', '/settings/playlists', { enabled: true });
     expect((await call(anna, 'POST', '/me/playlists', { name: 'Again', trackIds: [lib.ids['so']!] })).statusCode).toBe(201);

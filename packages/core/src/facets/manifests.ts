@@ -147,7 +147,7 @@ export const PLAYLISTS_MODULE = defineModule({
   provides: [],
   consumes: [],
   prefix: 'playlist',
-  tables: ['playlist_items', 'playlists'],
+  tables: ['playlist_collaborators', 'playlist_items', 'playlists'],
   // it reaches nothing outside tagave, so an install has it from the start
   defaultEnabled: true,
 });
