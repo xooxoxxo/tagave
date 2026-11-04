@@ -184,7 +184,7 @@ On a split install the updater updates the app computer; run `install-tagave.sh 
 
 ### Optional modules (Settings › Modules)
 
-**Settings › Modules** lists every module with its state: Player, Lidarr, Listen elsewhere, Music Connections and Playlists. Each row opens the module's own page, **Settings › Modules › <module>**, which starts with its **Off | On** and holds all of its settings: the player's server, scrobbling and quality, and everyone's own player account and Last.fm and ListenBrainz; Lidarr's connection; each person's Listen elsewhere platforms; each person's Music Connections. The owner sees every module and switches them. Everyone else sees only the modules that are on and have settings of their own (the player, Listen elsewhere, Music Connections). The old addresses (`/settings/playback`, `/settings/listening`, `/settings/listen-elsewhere`, `/settings/connections`) open the new pages.
+**Settings › Modules** lists every module with its state: Player, Lidarr, Listen elsewhere, Music Connections, Playlists and Similar artists. Each row opens the module's own page, **Settings › Modules › <module>**, which starts with its **Off | On** and holds all of its settings: the player's server, scrobbling and quality, and everyone's own player account and Last.fm and ListenBrainz; Lidarr's connection; each person's Listen elsewhere platforms; each person's Music Connections. The owner sees every module and switches them. Everyone else sees only the modules that are on and have settings of their own (the player, Listen elsewhere, Music Connections). The old addresses (`/settings/playback`, `/settings/listening`, `/settings/listen-elsewhere`, `/settings/connections`) open the new pages.
 
 Optional parts that run as their own containers (the player is the first) come from the module catalogue in the signed manifest of the release this server runs, so a module that arrives in a later release shows up once you update to it; nothing else needs installing. Each one's page shows how much memory and disk it takes, and whether it is off, being turned on or off, on, failed (with the reason), or waiting for an update to bring in a new image.
 
@@ -310,6 +310,12 @@ Lidarr's root folder must be inside one of tagave's music folders, at the same p
 ### Play missing albums on your service
 
 With Listen elsewhere on (Settings › Modules), each person picks their streaming platforms in **Settings › Modules › Listen elsewhere**, and under **Missing albums** the one to play missing music on. A missing album then shows **▶ Qobuz** (or the platform chosen), which opens the album there; when its own page is not known, the artist's page or a search. A **Missing** row in a playlist gets the same key. The other platforms stay under **Listen**.
+
+### Similar artists
+
+An artist page lists **Similar artists** below the albums: those in your library first (**▶** plays a mix of their songs), then the rest, with **Follow** and Listen elsewhere. The list comes from [ListenBrainz](https://listenbrainz.org) and is fetched again weekly. With a Last.fm API key (Settings › Modules › Player), Last.fm's list is merged in.
+
+What leaves your server: the artist's MusicBrainz ID, with your contact in the User-Agent, and to Last.fm your API key. No names, plays or library contents. Only names, IDs and scores are stored, no images. It is on by default; switch it off, or delete its lists, in **Settings › Modules › Similar artists** (owner only).
 
 ## Manual install (build from source)
 
