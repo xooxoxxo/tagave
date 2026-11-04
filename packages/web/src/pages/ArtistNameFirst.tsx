@@ -6,7 +6,7 @@
  * columns: a quiet column (what you own) that is also the page's section
  * navigation (it stays in view while the page scrolls, and marks the
  * section being read), and the sections themselves — In your library, Not
- * in your library (and Skipped, in Maintenance), then About: the trivia
+ * in your library (and Skipped, in Maintenance), Similar artists, then About: the trivia
  * (kind, years, other names, the biography's source, links). On one column
  * (≤900px) the facts sit under the band and the sections are a row that
  * sticks under the header.
@@ -18,6 +18,7 @@ import { AlbumGrid, ArtistAbout, Bar, DetailsNote, FollowButton, ShortBio, Skele
 import { Button } from '../components/ui';
 import { kindLine, ownedLine, SECTION_IDS, type ArtistShelves, type DetailsState, type PageSection } from './artistPageView';
 import { MissingHeadingMenu } from '../components/LidarrControls';
+import { SimilarArtistsView, similarCount, type SimilarArtistsViewProps } from './SimilarArtists';
 import styles from './ArtistPage.module.css';
 
 export interface ArtistLayoutProps {
@@ -35,6 +36,8 @@ export interface ArtistLayoutProps {
   reopening: boolean;
   /** Following an artist is library care: hidden for a listener. */
   canFollow: boolean;
+  /** Similar artists (the similar-artists module), when the section shows */
+  similar?: SimilarArtistsViewProps | null;
 }
 
 export interface NameFirstProps extends ArtistLayoutProps {
@@ -91,6 +94,7 @@ export function ArtistNameFirst(p: NameFirstProps) {
   const facts: Array<[string, string]> = [['Owned', ownedLine(artist.owned)]];
   const showNav = p.sections.length > 1;
   const about = p.sections.some((x) => x.id === SECTION_IDS.about);
+  const similarN = p.similar ? similarCount(p.similar.view) : 0;
 
   return <div className={styles.B}>
     <section className={styles.band} aria-label="Artist">
@@ -131,6 +135,7 @@ export function ArtistNameFirst(p: NameFirstProps) {
         {maintenance && s.skipped.length > 0 && <Section id={SECTION_IDS.skipped} title="Skipped" count={s.skipped.length}>
           <AlbumGrid albums={s.skipped} onReopen={p.onReopen} reopening={p.reopening} />
         </Section>}
+        {p.similar && <Section id={SECTION_IDS.similar} title="Similar artists" {...(similarN > 0 ? { count: similarN } : {})}><SimilarArtistsView {...p.similar} /></Section>}
         {about && <Section id={SECTION_IDS.about} title="About"><ArtistAbout artist={artist} details={details} /></Section>}
         <div ref={p.endRef} className={styles.end} aria-hidden="true" />
       </div>

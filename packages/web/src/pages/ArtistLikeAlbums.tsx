@@ -5,7 +5,7 @@
  * A hero like the album's: up to four of the artist's covers as a mosaic
  * where the album has its cover, the kind and country above the name,
  * Follow, and the biography folded to about three lines (More, Less). Then
- * the albums (by kind, then what a followed artist is missing) and About:
+ * the albums (by kind, then what a followed artist is missing), Similar artists and About:
  * the trivia (what you own, years, other names, the biography's source, links).
  */
 import type { ReactNode } from 'react';
@@ -16,6 +16,7 @@ import type { ArtistLayoutProps } from './ArtistNameFirst';
 import { ALBUM_KINDS, KIND_HEADINGS, albumKind, hasAbout, kindLine, mosaicAlbums, ownedLine } from './artistPageView';
 import type { ArtistAlbum } from '../hooks';
 import { MissingHeadingMenu } from '../components/LidarrControls';
+import { SimilarArtistsView, similarCount } from './SimilarArtists';
 import styles from './ArtistPage.module.css';
 
 function Mosaic({ albums, name }: { albums: ArtistAlbum[]; name: string }) {
@@ -45,7 +46,8 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
   }
   const groups = ALBUM_KINDS.filter((k) => byKind.has(k)).map((k) => [k, byKind.get(k)!] as const);
   const about = hasAbout(artist, details);
-  const heads = groups.length > 1 || s.missing.length > 0 || (maintenance && s.skipped.length > 0) || about;
+  const heads = groups.length > 1 || s.missing.length > 0 || (maintenance && s.skipped.length > 0) || about || !!p.similar;
+  const similarN = p.similar ? similarCount(p.similar.view) : 0;
 
   return <div className={styles.A}>
     <section className={styles.hero} aria-label="Artist">
@@ -78,6 +80,7 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
       {maintenance && s.skipped.length > 0 && <Group label={`Skipped · ${s.skipped.length}`}>
         <AlbumGrid albums={s.skipped} onReopen={p.onReopen} reopening={p.reopening} />
       </Group>}
+      {p.similar && <Group label={similarN > 0 ? `Similar artists · ${similarN}` : 'Similar artists'}><SimilarArtistsView {...p.similar} /></Group>}
       {about && <Group label="About"><ArtistAbout artist={artist} details={details} owned={ownedLine(artist.owned)} /></Group>}
       <div ref={p.endRef} aria-hidden="true" />
     </div>

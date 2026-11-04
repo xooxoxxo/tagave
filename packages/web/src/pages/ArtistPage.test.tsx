@@ -120,6 +120,30 @@ describe('artist page words', () => {
     expect(pageSections(aarni, shelves(aarni.albums), false).map((x) => x.label)).toEqual(['In your library', 'About']);
     // while the details are on their way, About waits
     expect(pageSections(aarni, shelves(aarni.albums), false, 'fetching').map((x) => x.label)).toEqual(['In your library']);
+    // Similar artists: after the albums, before About; its count once the list is in
+    expect(pageSections(xtc, s, false, 'done', { count: 5 }).map((x) => [x.label, x.count])).toEqual([['In your library', 1], ['Not in your library', 1], ['Similar artists', 5], ['About', undefined]]);
+    expect(pageSections(xtc, s, false, 'done', { count: 0 }).find((x) => x.id === SECTION_IDS.similar)).toEqual({ id: SECTION_IDS.similar, label: 'Similar artists' });
+  });
+
+  it('Similar artists: the library’s first as cards linking to their page, the rest dimmed with Follow; both layouts', () => {
+    const view = {
+      available: true, pending: false, primary: null,
+      inLibrary: [{ artistId: 'p1', name: 'Portishead', coverAlbumIds: [], albums: 3 }],
+      elsewhere: [{ mbid: 'm1', name: 'Thom Yorke', comment: 'English musician', artistId: null, followed: false, listen: [] }],
+    };
+    const props = { ...layoutProps(xtc), similar: { view, onFollow: () => {} } };
+    const sections = pageSections(xtc, props.shelves, false, props.details, { count: 2 });
+    const b = renderToStaticMarkup(<ArtistNameFirst {...props} sections={sections} active={null} goTo={() => {}} />);
+    expect(b).toContain(`id="${SECTION_IDS.similar}"`);
+    expect(b).toContain('href="/artists/p1"');
+    expect(b).toContain('3 albums');
+    expect(b).toContain('English musician');
+    expect(b).toContain('>Follow<');
+    // a listener: no Follow; no player: no Play
+    expect(renderToStaticMarkup(<ArtistNameFirst {...layoutProps(xtc)} similar={{ view }} sections={sections} active={null} goTo={() => {}} />)).not.toMatch(/>Follow<|Play Portishead/);
+    const a = renderToStaticMarkup(<ArtistLikeAlbums {...props} />);
+    expect(a).toContain('Similar artists · 2');
+    expect(a.indexOf('Similar artists')).toBeLessThan(a.indexOf('About'));
   });
 
   it('About: the trivia, labels and values; the kind and country stay in the kind line', () => {
