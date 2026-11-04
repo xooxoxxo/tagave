@@ -93,8 +93,9 @@ function InboxRow({ item, busy, act }: { item: InboxItem; busy: boolean; act: (a
         <p className={styles.meta}>
           <span><span className={`${own.label} ${item.reason === 'failed' ? own.labelWarn : ''}`}>{inboxLabel(item)}</span></span>
           <span>{item.files === 1 ? '1 song' : `${item.files} songs`}</span>
-          {item.best && <span>{releaseText(item.best)} · {item.best.percent}%</span>}
         </p>
+        {/* its own line: as a third item it wrapped on a phone and began with the separator dot */}
+        {item.best && <p className={styles.meta}><span>{releaseText(item.best)} · {item.best.percent}%</span></p>}
         {inLibrary && item.existing && (
           <p className={styles.meta}>
             <span><Link to="/albums/$albumId" params={{ albumId: item.existing.albumId }} className={styles.link}>{item.existing.title}</Link></span>
