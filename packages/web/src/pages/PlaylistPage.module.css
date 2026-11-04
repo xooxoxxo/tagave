@@ -136,3 +136,7 @@
   .drop { background: Highlight; }
   .listMenu { background: Canvas; border-color: CanvasText; }
 }
+
+/* the back key over the hero's top-left, in its top padding, as the album and artist pages have it (phone: the app bar has it) */
+.heroBack { position: absolute; z-index: 1; top: 10px; left: 22px; }
+@media (max-width: 720px) { .heroBack { display: none; } }

@@ -33,6 +33,7 @@ import { MissingListenLinks, MissingPrimary } from '../components/ListenControl'
 import { useArtistListenLinks } from '../hooks/useListenLinks';
 import { MissingLidarr } from '../components/LidarrControls';
 import { useArtistLidarr } from '../hooks/useLidarr';
+import { useHiddenDeletions } from './deleteAction';
 import styles from './ArtistPage.module.css';
 
 const NO_GLIDE = { x: 0, y: 0 };
@@ -53,11 +54,16 @@ export function ArtistPage() {
   const nameRef = useRef<HTMLHeadingElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  const shelves = useMemo(() => shelvesOf(artist?.albums ?? []), [artist?.albums]);
+  // an album deleted from its page waits out its Undo off this page too (one step up lands here)
+  const hiddenDel = useHiddenDeletions();
+  const shelves = useMemo(
+    () => shelvesOf((artist?.albums ?? []).filter((a) => !a.localAlbumId || !hiddenDel.album(a.localAlbumId))),
+    [artist?.albums, hiddenDel],
+  );
   const nameFirst = artistLayout !== 'albums';
   const sections = useMemo(
-    () => (artist && nameFirst ? pageSections(artist, shelves, maintenance) : []),
-    [artist, nameFirst, shelves, maintenance],
+    () => (artist && nameFirst ? pageSections(artist, shelves, maintenance, detailsState(artist, waiting)) : []),
+    [artist, nameFirst, shelves, maintenance, waiting],
   );
   const flow = useArtistFlow(rootRef, nameRef, sections.map((s) => s.id), endRef, !!artist);
   const [showReleaseTypes, setShowReleaseTypes] = useState(false);

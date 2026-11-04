@@ -14,6 +14,7 @@
  * a pasted URL as the fallback.
  */
 import { useEffect, useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
   useCollectionSources,
   useCollection,
@@ -112,7 +113,10 @@ export function CollectionPage() {
   // keeping the collection is library care; a listener browses it
   const canCare = useCan('library.edit');
   const canConnect = useCan('system.manage');
-  const [view, setView] = useState<View>('active');
+  // the tab lives in the URL (?view=), so Back from a record's album lands on it
+  const navigate = useNavigate();
+  const view: View = (useSearch({ strict: false }) as { view?: View }).view ?? 'active';
+  const setView = (next: View) => void navigate({ to: '/collection', search: (next === 'active' ? {} : { view: next }) as never, replace: true, resetScroll: false });
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [addError, setAddError] = useState<string | null>(null);

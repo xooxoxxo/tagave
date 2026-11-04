@@ -3,18 +3,18 @@
  * Artist page: Like albums; approved prototype direction A).
  *
  * A hero like the album's: up to four of the artist's covers as a mosaic
- * where the album has its cover, the kind and country above the name, the
- * facts in a row, Follow, and the biography's opening lines. Then tabs —
- * Albums (by kind, then what a followed artist is missing) and Biography.
+ * where the album has its cover, the kind and country above the name,
+ * Follow, and the biography folded to about three lines (More, Less). Then
+ * the albums (by kind, then what a followed artist is missing) and About:
+ * the trivia (what you own, years, other names, the biography's source, links).
  */
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { artistLabel } from '@tagave/shared';
-import { Button, CoverArt, Tabs, type TabItem } from '../components/ui';
-import { AlbumGrid, Bar, BioSource, DetailsNote, FollowButton, ProviderLinks, SkeletonGrid, detailsWhen } from './ArtistParts';
+import { Button, CoverArt } from '../components/ui';
+import { AlbumGrid, ArtistAbout, Bar, DetailsNote, FollowButton, ShortBio, SkeletonGrid, detailsWhen } from './ArtistParts';
 import type { ArtistLayoutProps } from './ArtistNameFirst';
-import { ALBUM_KINDS, KIND_HEADINGS, albumKind, kindLine, mosaicAlbums, ownedLine, paragraphs, regionName, yearsLine } from './artistPageView';
+import { ALBUM_KINDS, KIND_HEADINGS, albumKind, hasAbout, kindLine, mosaicAlbums, ownedLine } from './artistPageView';
 import type { ArtistAlbum } from '../hooks';
-import { shownAliases } from './artistAliases';
 import { MissingHeadingMenu } from '../components/LidarrControls';
 import styles from './ArtistPage.module.css';
 
@@ -37,24 +37,6 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
   const { artist, shelves: s, details, maintenance } = p;
   const name = artistLabel(artist.name);
   const fetching = details === 'fetching';
-  const [tab, setTab] = useState<'albums' | 'bio'>('albums');
-
-  const facts: Array<[string, ReactNode, boolean?]> = [];
-  if (fetching) {
-    facts.push(['From', <Bar key="b" />], ['Active', <Bar key="b" />], ['Also known as', <Bar key="b" />]);
-    facts.push(['In your library', ownedLine(artist.owned)]);
-  } else {
-    const from = regionName(artist.country);
-    const years = yearsLine(artist);
-    if (from) facts.push(['From', from]);
-    // a group's active years; a person's birth (or life)
-    if (years) facts.push([artist.type === 'Person' ? (artist.endDate ? 'Lived' : 'Born') : 'Active', years.replace(/^Born /, '')]);
-    const aliases = shownAliases(artist.name, artist.aliases);
-    if (aliases.length) facts.push(['Also known as', aliases.join(', ')]);
-    facts.push(['In your library', ownedLine(artist.owned)]);
-    if (details === 'done' && !artist.bio) facts.push(['Biography', 'None on Wikipedia', true]);
-  }
-
   // albums by kind; headings only when there is more than one group to tell apart
   const byKind = new Map<string, ArtistAlbum[]>();
   for (const a of s.owned) {
@@ -62,11 +44,8 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
     byKind.set(k, [...(byKind.get(k) ?? []), a]);
   }
   const groups = ALBUM_KINDS.filter((k) => byKind.has(k)).map((k) => [k, byKind.get(k)!] as const);
-  const heads = groups.length > 1 || s.missing.length > 0 || (maintenance && s.skipped.length > 0);
-  const lede = artist.bio ? paragraphs(artist.bio.text)[0] : null;
-
-  const tabs: TabItem[] = [{ value: 'albums', label: 'Albums', count: s.owned.length }];
-  if (artist.bio) tabs.push({ value: 'bio', label: 'Biography' });
+  const about = hasAbout(artist, details);
+  const heads = groups.length > 1 || s.missing.length > 0 || (maintenance && s.skipped.length > 0) || about;
 
   return <div className={styles.A}>
     <section className={styles.hero} aria-label="Artist">
@@ -76,51 +55,30 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
           ? <DetailsNote state={details} maintenance={maintenance} onRetry={p.enrich.run} retrying={p.enrich.pending} compact />
           : <p className={styles.eyebrow}>{kindLine(artist)}</p>}
         <h1 ref={p.nameRef} className={styles.aName} dir="auto">{name}</h1>
-        {artist.disambiguation && !fetching && <p className={styles.dis}>{artist.disambiguation}</p>}
         {details === 'failed' && <DetailsNote state={details} maintenance={maintenance} onRetry={p.enrich.run} retrying={p.enrich.pending} />}
-        <dl className={styles.aFacts}>
-          {facts.map(([k, v, none]) => <div key={k}><dt>{k}</dt><dd className={none ? styles.none : undefined}>{v}</dd></div>)}
-        </dl>
         <div className={styles.acts}>
           {p.canFollow && <FollowButton followed={artist.followed} pending={p.follow.pending} onToggle={p.follow.toggle} />}
         </div>
       </div>
-      {lede && <div className={styles.lede}>
-        <p>{lede}</p>
-        <div className={styles.ledeSrc}>
-          <button type="button" className={styles.textLink} onClick={() => setTab('bio')}>Read more</button>
-          <span>Wikipedia · {artist.bio!.license || 'CC BY-SA 4.0'}</span>
-        </div>
-      </div>}
-      {fetching && !lede && <div className={styles.lede} aria-hidden="true"><Bar width="100%" /><Bar width="94%" /><Bar width="62%" /></div>}
+      {artist.bio && <ShortBio bio={artist.bio} className={styles.lede} />}
+      {fetching && !artist.bio && <div className={styles.lede} aria-hidden="true"><Bar width="100%" /><Bar width="94%" /><Bar width="62%" /></div>}
     </section>
 
     {maintenance && <div className={styles.aMaint}>
       <span className={styles.label}>Maintenance</span>
-      <ProviderLinks links={artist.links} />
       {artist.canEnrich && <Button variant="secondary" size="sm" onClick={p.enrich.run} loading={p.enrich.pending} disabled={fetching}>Refresh details</Button>}
       {artist.followed && <Button variant="secondary" size="sm" onClick={p.onReleaseTypes}>Release types</Button>}
       <span className={styles.aWhen}>{detailsWhen(artist, details)}</span>
     </div>}
 
-    <div className={styles.sect}>
-      <Tabs items={tabs} value={tab} onChange={(v) => setTab(v as 'albums' | 'bio')} label="Artist sections" />
-    </div>
-
     <div className={styles.aBody}>
-      {tab === 'bio' && artist.bio
-        ? <div className={styles.bioFull}>
-          {paragraphs(artist.bio.text).map((t, i) => <p key={i}>{t}</p>)}
-          <p className={styles.bioSource}><BioSource bio={artist.bio} /></p>
-        </div>
-        : <>
-          {groups.map(([k, list]) => <Group key={k} label={heads ? KIND_HEADINGS[k] : null}><AlbumGrid albums={list} /></Group>)}
-          {s.owned.length === 0 && <p className={styles.empty}>Nothing in your library</p>}
-          {s.missing.length > 0 && <Group label={`Not in your library · ${s.missing.length}`} action={<MissingHeadingMenu />}><AlbumGrid albums={s.missing} /></Group>}
-          {maintenance && s.skipped.length > 0 && <Group label={`Skipped · ${s.skipped.length}`}>
-            <AlbumGrid albums={s.skipped} onReopen={p.onReopen} reopening={p.reopening} />
-          </Group>}
-        </>}
+      {groups.map(([k, list]) => <Group key={k} label={heads ? KIND_HEADINGS[k] : null}><AlbumGrid albums={list} /></Group>)}
+      {s.owned.length === 0 && <p className={styles.empty}>Nothing in your library</p>}
+      {s.missing.length > 0 && <Group label={`Not in your library · ${s.missing.length}`} action={<MissingHeadingMenu />}><AlbumGrid albums={s.missing} /></Group>}
+      {maintenance && s.skipped.length > 0 && <Group label={`Skipped · ${s.skipped.length}`}>
+        <AlbumGrid albums={s.skipped} onReopen={p.onReopen} reopening={p.reopening} />
+      </Group>}
+      {about && <Group label="About"><ArtistAbout artist={artist} details={details} owned={ownedLine(artist.owned)} /></Group>}
       <div ref={p.endRef} aria-hidden="true" />
     </div>
   </div>;
@@ -134,14 +92,10 @@ export function ArtistLikeAlbumsSkeleton() {
       <div className={styles.info}>
         <Bar width={160} height={14} />
         <div className={styles.skName} />
-        <dl className={styles.aFacts}>
-          {['From', 'Active', 'In your library'].map((k) => <div key={k}><dt>{k}</dt><dd><Bar /></dd></div>)}
-        </dl>
         <div className={styles.acts}><Bar width={104} height={36} className={styles.skPill} /></div>
       </div>
       <div className={styles.lede}><Bar width="100%" /><Bar width="94%" /><Bar width="62%" /></div>
     </section>
-    <div className={styles.sect}><div className={`${styles.skTabs} ${styles.skel}`} /></div>
     <div className={styles.aBody}><SkeletonGrid n={6} /></div>
   </div>;
 }

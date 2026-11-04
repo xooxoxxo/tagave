@@ -4,6 +4,7 @@
  * page has. Both layouts (ArtistNameFirst, ArtistLikeAlbums) read from here.
  */
 import type { ArtistAlbum, ArtistDetail } from '../hooks';
+import { shownAliases } from './artistAliases';
 
 const displayNames = new Map<string, Intl.DisplayNames | null>();
 
@@ -113,19 +114,45 @@ export interface PageSection {
 }
 
 export const SECTION_IDS = {
-  bio: 'artist-biography',
   owned: 'artist-in-library',
   missing: 'artist-not-in-library',
   skipped: 'artist-skipped',
+  about: 'artist-about',
 } as const;
 
+type AboutSource = Pick<ArtistDetail, 'type' | 'country' | 'beginDate' | 'endDate' | 'aliases' | 'disambiguation' | 'name' | 'bio' | 'links'>;
+
+/**
+ * The artist's trivia, for the About section under the albums (owner,
+ * 2026-11-04: "keep trivia like additional names etc in a section below
+ * the albums"): label and value, only those MusicBrainz has. The kind and
+ * the country are the header's kind line, so they are not repeated.
+ */
+export function aboutFacts(artist: Omit<AboutSource, 'bio' | 'links'>): Array<[string, string]> {
+  // the kind and the country stay in the header's kind line: not repeated here
+  const out: Array<[string, string]> = [];
+  const years = yearsLine(artist);
+  // a group's active years; a person's birth (or life)
+  if (years) out.push([artist.type === 'Person' ? (artist.endDate ? 'Lived' : 'Born') : 'Active', years.replace(/^(Born|Since) /, '')]);
+  const aliases = shownAliases(artist.name, artist.aliases);
+  if (aliases.length) out.push(['Aliases', aliases.join(', ')]);
+  if (artist.disambiguation) out.push(['Description', artist.disambiguation]);
+  return out;
+}
+
+/** Whether About has anything to show: a fact, the biography's source (or its absence), a link. */
+export function hasAbout(artist: AboutSource, details: DetailsState): boolean {
+  if (details === 'fetching') return false;
+  return aboutFacts(artist).length > 0 || !!artist.bio || details === 'done' || Object.values(artist.links ?? {}).some(Boolean);
+}
+
 /** The sections B's page has, in page order: only those with something in them. */
-export function pageSections(artist: Pick<ArtistDetail, 'bio'>, s: ArtistShelves, maintenance: boolean): PageSection[] {
+export function pageSections(artist: AboutSource, s: ArtistShelves, maintenance: boolean, details: DetailsState = 'done'): PageSection[] {
   const out: PageSection[] = [];
-  if (artist.bio) out.push({ id: SECTION_IDS.bio, label: 'Biography' });
   if (s.owned.length) out.push({ id: SECTION_IDS.owned, label: 'In your library', count: s.owned.length });
   if (s.missing.length) out.push({ id: SECTION_IDS.missing, label: 'Not in your library', count: s.missing.length });
   if (maintenance && s.skipped.length) out.push({ id: SECTION_IDS.skipped, label: 'Skipped', count: s.skipped.length });
+  if (hasAbout(artist, details)) out.push({ id: SECTION_IDS.about, label: 'About' });
   return out;
 }
 

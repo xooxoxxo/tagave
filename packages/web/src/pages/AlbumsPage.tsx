@@ -7,7 +7,7 @@ import { useDeleteAction, useHiddenDeletions } from './deleteAction';
  * the URL so a view is bookmarkable; saved views store that same query.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AlbumSummary, BulkAlbumAction, BulkAlbumsResult, MultiFilterKey, SavedView } from '@tagave/shared';
 import { useCan, useCurrentLibrary, useAlbumFilterCounts, useSavedViews, useCreateSavedView, useDeleteSavedView } from '../hooks';
@@ -20,12 +20,13 @@ import { BulkTagEditor } from '../components/BulkTagEditor';
 import { useMergeAlbums } from '../hooks/useCompilations';
 import { activeFilterCount, albumsQueryOf, chipText, hasCurationFilters, toggleMulti, withoutCurationFilters, type AlbumsSearch } from './albumsSearch';
 import {
-  albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds, rememberScroll, selectionSize,
+  albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds, selectionSize,
   setAlbumListMemory, toggled, useAlbumListMemory, withIds,
 } from './albumSelection';
 import { PlanWizard } from '../components/PlanWizard';
 import { useMaintenance } from '../maintenance';
 import { plural } from '../utils/qualityFlags';
+import { useEntry, useScrollPlace } from '../utils/listPlace';
 import styles from './AlbumsPage.module.css';
 
 // a phone's filters: a sheet, loaded the first time it opens
@@ -53,8 +54,6 @@ const CARD_PAD_NARROW = 8;
 const LIST_ROW = 46;
 /** The API caps one bulk call at 1000 ids. */
 const BULK_ID_CHUNK = 1000;
-/** A scroll restore that has not landed by then stops where it is. */
-const RESTORE_GIVE_UP_MS = 8000;
 
 const STATE_LABEL: Record<string, string> = {
   matched: 'Matched', needs_review: 'Needs review', unidentified: 'Unidentified', pending: 'Pending', as_is: 'Kept as-is', ignored: 'Ignored',
@@ -82,6 +81,7 @@ export function AlbumsPage() {
   // selecting albums is for bulk library care: a listener just opens them
   const canCare = useCan('library.edit');
   const navigate = useNavigate();
+  const router = useRouter();
   const search = useSearch({ strict: false }) as AlbumsSearch;
   const { libraryId } = useCurrentLibrary();
   const query = albumsQueryOf(search);
@@ -256,9 +256,11 @@ export function AlbumsPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const attachScroller = useCallback((el: HTMLDivElement | null) => {
     observerRef.current?.disconnect();
     scrollRef.current = el;
+    setScroller(el);
     if (!el) return;
     const measure = () => setGridWidth(el.clientWidth);
     measure();
@@ -294,44 +296,9 @@ export function AlbumsPage() {
 
   useEffect(() => { virtualizer.measure(); }, [rowHeight, virtualizer]);
 
-  /* ---- scroll: remembered per list, restored on the way back from an album ---- */
-  const restoreTo = useRef<number | null>(null);
-  const restoreKey = useRef<string | null>(null);
-  const restoreStarted = useRef(0);
-  if (restoreKey.current !== queryKey) {
-    // First render for this list: pick up where it was left, if it was this list.
-    restoreKey.current = queryKey;
-    const m = getAlbumListMemory();
-    restoreTo.current = m.queryKey === queryKey && m.scrollTop > 0 ? m.scrollTop : null;
-    restoreStarted.current = Date.now();
-  }
-  const totalSize = virtualizer.getTotalSize();
-  useEffect(() => {
-    const el = scrollRef.current;
-    const target = restoreTo.current;
-    if (target == null) return;
-    // A failed page load or a restore that drags on gives up where it is, so
-    // scrolling is remembered again from here on.
-    if (error || Date.now() - restoreStarted.current > RESTORE_GIVE_UP_MS) { restoreTo.current = null; return; }
-    if (!el || items.length === 0) return;
-    el.scrollTop = target;
-    // Reached it, or nothing more to load: done. Otherwise the scroll to the
-    // bottom pulls the next page and this runs again with a taller canvas.
-    if (Math.abs(el.scrollTop - target) < 2 || (!hasNextPage && !isFetchingNextPage)) restoreTo.current = null;
-  }, [totalSize, items.length, hasNextPage, isFetchingNextPage, error]);
-  // The give-up time also applies when nothing rerenders (a page load that hangs).
-  useEffect(() => {
-    if (restoreTo.current == null) return;
-    const t = setTimeout(() => { restoreTo.current = null; }, RESTORE_GIVE_UP_MS);
-    return () => clearTimeout(t);
-  }, [queryKey]);
-  const onGridScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (restoreTo.current != null) return;
-    rememberScroll(queryKey, e.currentTarget.scrollTop);
-  }, [queryKey]);
-  // The owner scrolling (wheel, touch, the scrollbar, the keyboard) takes over
-  // from a restore still in progress.
-  const stopRestore = useCallback(() => { restoreTo.current = null; }, []);
+  /* ---- scroll: back where the list was left, per history entry (utils/listPlace.ts) ---- */
+  // (another filter or sort is a new entry: it starts at the top)
+  useScrollPlace(scroller, 'albums', useEntry(router.history, '/albums'), { resetOnEnter: true });
 
   const [planIds, setPlanIds] = useState<string[] | null>(null);
   const labelsFor = (ids: string[]) => {
@@ -517,7 +484,7 @@ export function AlbumsPage() {
             </div>
           )}
 
-          <div className={styles.gridContainer} ref={attachScroller} data-selecting={selectionCount > 0 ? '' : undefined} onScroll={onGridScroll} onWheel={stopRestore} onTouchStart={stopRestore} onPointerDown={stopRestore} onKeyDown={stopRestore}>
+          <div className={styles.gridContainer} ref={attachScroller} data-selecting={selectionCount > 0 ? '' : undefined}>
             {items.length > 0 && (gridWidth > 0 || view === 'list') && (
               <div className={styles.virtualCanvas} style={{ height: virtualizer.getTotalSize() }}>
                 {virtualRows.map((row) => {

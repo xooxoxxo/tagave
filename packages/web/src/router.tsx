@@ -29,6 +29,7 @@ const PlaylistPage = lazyRouteComponent(() => import('./pages/PlaylistPage'), 'P
 import { signOut } from './hooks/useAuth';
 import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
+import { parseArtistsSearch } from './pages/artistsView';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
 import { MOVED_SECTIONS } from './pages/moduleSettings';
 
@@ -136,9 +137,9 @@ const artistsRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/artists',
   component: ArtistsPage,
-  // the words the header's search narrowed the list to ("In artists")
-  validateSearch: (search: Record<string, unknown>): { q?: string } =>
-    (typeof search['q'] === 'string' && search['q'].trim() ? { q: search['q'].trim() } : {}),
+  // the words the header's search narrowed the list to ("In artists"), the
+  // sort and the letter: in the URL so Back from an artist returns to them
+  validateSearch: (search: Record<string, unknown>) => parseArtistsSearch(search),
 });
 
 const artistDetailRoute = new Route({
@@ -271,6 +272,9 @@ const collectionRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/collection',
   component: CollectionPage,
+  // the tab (All, Unmapped, Duplicates): in the URL so Back returns to it
+  validateSearch: (search: Record<string, unknown>): { view?: 'unmapped' | 'duplicates' } =>
+    (search['view'] === 'unmapped' || search['view'] === 'duplicates' ? { view: search['view'] } : {}),
 });
 
 const jobsOldRoute = new Route({

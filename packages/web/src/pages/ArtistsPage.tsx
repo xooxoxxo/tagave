@@ -7,7 +7,7 @@
  * render as an empty box.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ARTIST_GROUP_ORDER, artistGroupLabel, artistLabel, cleanArtistName } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
@@ -16,8 +16,9 @@ import { Button, Chip, EmptyState, PageShell } from '../components/ui';
 import { ListToolbar } from '../components/ListToolbar';
 import { ArtistArtwork, IdentityMark } from '../components/ArtistArtwork';
 import {
-  ARTIST_SORT_OPTIONS, artistMeta, readArtistsView, writeArtistsView, yearsLabel, type ArtistsView,
+  ARTIST_SORT_OPTIONS, artistMeta, readArtistsView, writeArtistsView, yearsLabel, type ArtistsSearch, type ArtistsView,
 } from './artistsView';
+import { useEntry, useScrollPlace } from '../utils/listPlace';
 import styles from './ArtistsPage.module.css';
 
 const MIN_CARD = 150;
@@ -45,12 +46,27 @@ function ArtistLink({ artist, className, children }: { artist: ArtistListItem; c
 export function ArtistsPage() {
   const { libraryId } = useCurrentLibrary();
   const [view, setViewState] = useState<ArtistsView>(readArtistsView);
-  // the words the header's search narrowed the list to ("In artists"), in the URL
-  const search = (useSearch({ strict: false }) as { q?: string }).q ?? '';
+  // the words the header's search narrowed the list to ("In artists"), the
+  // sort and the letter: all in the URL, so Back from an artist returns to them
+  const params = useSearch({ strict: false }) as ArtistsSearch;
+  const search = params.q ?? '';
+  const sort: ArtistSort = params.sort ?? 'name';
+  const group = params.letter ?? null;
   const navigate = useNavigate();
-  const clearSearch = () => void navigate({ to: '/artists', search: {} as never });
-  const [sort, setSort] = useState<ArtistSort>('name');
-  const [group, setGroup] = useState<string | null>(null);
+  const router = useRouter();
+  const setParams = (patch: Partial<Record<keyof ArtistsSearch, string | undefined>>) => void navigate({
+    to: '/artists',
+    search: ((prev: ArtistsSearch) => {
+      const next: Record<string, unknown> = { ...prev, ...patch };
+      for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+      return next;
+    }) as never,
+    // the letter and the sort are this list's own state: no history step each
+    replace: true,
+  });
+  const clearSearch = () => setParams({ q: undefined });
+  const setSort = (next: ArtistSort) => setParams({ sort: next === 'name' ? undefined : next });
+  const setGroup = (next: string | null) => setParams({ letter: next ?? undefined });
 
   const setView = (next: ArtistsView) => { setViewState(next); writeArtistsView(next); };
 
@@ -66,9 +82,11 @@ export function ArtistsPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const [width, setWidth] = useState(0);
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const attachScroller = useCallback((el: HTMLDivElement | null) => {
     observerRef.current?.disconnect();
     scrollRef.current = el;
+    setScroller(el);
     if (!el) return;
     // the scroller pads its content so focus rings are not clipped
     const measure = () => setWidth(Math.max(0, el.clientWidth - 2 * SCROLL_PAD));
@@ -102,8 +120,16 @@ export function ArtistsPage() {
     if (last.index >= rowCount - 3) void fetchNextPage();
   }, [virtualRows, hasNextPage, isFetchingNextPage, rowCount, fetchNextPage]);
 
-  // a new search, sort or letter starts at the top
-  useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [search, sort, group, view]);
+  // Back from an artist: where the list was left (utils/listPlace.ts)
+  useScrollPlace(scroller, 'artists', useEntry(router.history, '/artists'));
+  // a new search, sort or letter starts at the top (not the first render: that is the place's)
+  const listKey = `${search}|${sort}|${group}|${view}`;
+  const shownKey = useRef(listKey);
+  useEffect(() => {
+    if (shownKey.current === listKey) return;
+    shownKey.current = listKey;
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [listKey]);
 
   const onJumpKey = (e: React.KeyboardEvent<HTMLElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
@@ -159,7 +185,7 @@ export function ArtistsPage() {
         title={search || group ? 'No matching artists' : 'No artists yet'}
       />}
       {showEmpty && (search || group) && <p className={styles.clear}>
-        <Button variant="secondary" size="sm" onClick={() => { clearSearch(); setGroup(null); }}>Show all</Button>
+        <Button variant="secondary" size="sm" onClick={() => setParams({ q: undefined, letter: undefined })}>Show all</Button>
       </p>}
 
       {view === 'list' && items.length > 0 && <div className={styles.listHead} aria-hidden="true">

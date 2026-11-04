@@ -122,7 +122,8 @@ export function PlaylistsPage() {
           onCreate={async (name) => {
             const p = await create.mutateAsync({ name });
             setNaming(false);
-            void navigate({ to: '/playlists/$playlistId', params: { playlistId: p.id } });
+            // opened for naming (?new=1): Back from the new list skips the name field
+            void navigate({ to: '/playlists/$playlistId', params: { playlistId: p.id }, replace: !!search.new });
           }}
         />
       )}
