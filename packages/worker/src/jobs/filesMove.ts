@@ -56,7 +56,7 @@ import { fieldsToWriteFrom, fileStateAfterWrite } from './tagsApply.js';
 import { revertDiffsFor } from './tagsRevert.js';
 import { mbRelease, mbSearch, persistFetched } from './identifyAlbum.js';
 import { scanDirJob } from './scanDir.js';
-import { clusterDirJob } from './clusterDir.js';
+import { clusterDirJob, retireEmptyAlbums } from './clusterDir.js';
 
 /** The tag plan preset a move writes with: ids and album fields overwritten, titles and genres filled. */
 const MOVE_POLICY: TagPolicies = { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' };
@@ -461,6 +461,8 @@ async function settle(ctx: WorkerContext, row: MoveRow, done: Done, matchTo: str
   const dirs = [...new Map(done.dirs.map((d) => [`${d.rootId}\n${d.dir}`, d])).values()];
   for (const d of dirs) await step('scan', () => scanDirJob(ctx, { scanRootId: d.rootId, dirPath: d.dir, reason: 'move' }));
   for (const d of dirs) await step('cluster', () => clusterDirJob(ctx, { libraryId: row.libraryId, scanRootId: d.rootId, dirPath: d.dir }));
+  // an album left with no song in a folder the move emptied (clustering a folder that is gone does not reach it)
+  await step('retire', () => retireEmptyAlbums(ctx, row.libraryId, dirs[0]?.dir ?? '', dirs.map((d) => d.dir)));
   const albums = (await ctx.sql`
     select distinct la.id::text as id, la.state, la.release_id::text as "releaseId"
       from local_tracks lt join local_albums la on la.id = lt.local_album_id

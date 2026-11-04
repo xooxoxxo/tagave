@@ -251,6 +251,8 @@ describe.skipIf(!tools)('files.move on the file worker (db, real FLAC)', () => {
     expect(await there(abs('Enslaved/2006 - Ruun'))).toBe(false);
     expect(await there(abs(`.tagave-trash/2026-11-04/Enslaved/2006 - Ruun`))).toBe(true);
     expect(await there(abs(`${VERT}/05 - Path to Vanir.flac`))).toBe(true);
+    // the album the move made, left with no song, goes
+    expect(await albumIn('Enslaved/2006 - Ruun')).toBeNull();
   }, 60_000);
 
   it('an emptied source folder goes into the trash; Undo brings it back', async () => {
