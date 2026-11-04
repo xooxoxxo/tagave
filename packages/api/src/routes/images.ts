@@ -4,6 +4,8 @@ import { coverThumbs, images, libraries } from '@tagave/db';
 import { getDb, getSql } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { can } from '@tagave/shared';
+import { verifyCastToken } from '../lib/castTokens.js';
 import { claimSweepRequest, makeThumbRebuildRequester, type ThumbRebuildRequester } from '../lib/thumbRebuild.js';
 
 /**
@@ -42,9 +44,7 @@ export async function createImageRoutes(fastify: FastifyInstance, opts: ImageRou
   });
 
   /** 300px front-cover thumbnail for a local album (auth'd, cacheable, ETag). */
-  fastify.get('/images/album/:albumId', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
-    const { albumId } = request.params as { albumId: string };
+  const sendCover = async (albumId: string, request: FastifyRequest, reply: FastifyReply) => {
     const db = getDb();
 
     const rows = await db
@@ -82,5 +82,25 @@ export async function createImageRoutes(fastify: FastifyInstance, opts: ImageRou
       return reply.status(304).send();
     }
     return reply.header('Content-Type', 'image/jpeg').send(Buffer.from(row.thumb as unknown as Buffer));
+  };
+
+  fastify.get('/images/album/:albumId', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { albumId } = request.params as { albumId: string };
+    return sendCover(albumId, request, reply);
+  });
+
+  // The cover for a cast device (a Chromecast shows it), by its token alone (lib/castTokens.ts).
+  fastify.get('/player/cast-cover/:token', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { token } = request.params as { token: string };
+    const grant = verifyCastToken(token, 'c');
+    if (!grant) throw new ApiError(403, 'Forbidden', 'This cast link is not valid or has expired');
+    const [person] = await getSql()<{ role: string | null; disabled_at: Date | null; removed_at: Date | null }[]>`
+      select role, disabled_at, removed_at from users where id = ${grant.userId}`;
+    if (!person || person.disabled_at || person.removed_at || !can(person.role ?? 'listener', 'catalog.read')) {
+      throw new ApiError(403, 'Forbidden', 'This cast link is not valid or has expired');
+    }
+    reply.header('access-control-allow-origin', '*').header('cross-origin-resource-policy', 'cross-origin').header('referrer-policy', 'no-referrer');
+    return sendCover(grant.id, request, reply);
   });
 }

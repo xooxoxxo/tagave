@@ -54,6 +54,8 @@ describe('route permissions', () => {
       'GET /api/v1/internal/updater/versions',
       'GET /api/v1/invites/:token',
       'GET /api/v1/openapi.json',
+      'GET /api/v1/player/cast-cover/:token',
+      'GET /api/v1/player/cast/:token',
       'POST /api/auth/*',
       'POST /api/v1/auth/login',
       'POST /api/v1/auth/logout',

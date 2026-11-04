@@ -28,6 +28,8 @@ import { playHistoryKey, useCreatePlaylist, usePlayHistory, usePlaylistsOn } fro
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from './player/NowPlaying';
 import { TrackActions } from './player/TrackActions';
 import { BarGlow } from './BarGlow';
+import { CastKey } from './player/CastKey';
+import { castLine as castLineOf, isCasting, startCastWatch, stopCastWatch, useCastStore } from '../player/cast';
 import { useDisplayPrefs } from '../displayPrefs';
 import { AlbumLink, ArtistLinks, linkedArtists, lineReset, type CreditedArtist } from './NowPlayingLinks';
 import styles from './PlayerBar.module.css';
@@ -65,10 +67,14 @@ export interface PlayerBarViewProps {
   onQueue?: () => void;
   /** the equalizer glow, behind the bar's content (BarGlow) */
   glow?: ReactNode;
+  /** the cast key (CastKey), beside the queue key, when a device is there */
+  cast?: ReactNode;
+  /** "Casting to …" while casting, beside the cast key (wide windows) */
+  castLine?: string | null | undefined;
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow, cast, castLine }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -163,6 +169,8 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
       </div>
 
       <div className={styles.ends}>
+        {castLine && <span className={styles.castTo} role="status" title={castLine}>{castLine}</span>}
+        {cast}
         {onQueue && (
           <IconButton label="Queue" variant="quiet" size="sm" className={styles.key} aria-pressed={queueOpen} aria-expanded={queueOpen} data-queue-key="" onClick={onQueue} disabled={empty}>
             <QueueIcon />
@@ -186,8 +194,10 @@ export function AccountGlow() {
   const narrow = useMediaQuery('(max-width: 900px)');
   const status = usePlayerStore((p) => p.status);
   const queued = usePlayerStore((p) => !!p.queue && p.queue.tracks.length > 0);
+  const casting = useCastStore(isCasting);
   if (!prefs.eqGlow || narrow || !queued || status === 'error') return null;
-  return <BarGlow playing={status === 'playing'} />;
+  // casting: the music is not here, so the glow rests (the calm one)
+  return <BarGlow playing={status === 'playing' && !casting} />;
 }
 
 /**
@@ -211,9 +221,18 @@ export function PlayerBar() {
   const client = useQueryClient();
   // the module was removed (or the library has none): nothing to play through
   const uninstalled = !!player && !player.installed;
-  useEffect(() => { if (uninstalled) stop(); }, [uninstalled]);
+  useEffect(() => { if (uninstalled) { stop(); stopCastWatch(); } }, [uninstalled]);
   const installed = player?.installed === true;
   const hasQueue = !!s.queue && s.queue.tracks.length > 0 && !uninstalled;
+  // cast devices are looked for once something is queued (the Cast SDK loads then, on a desktop Chrome only);
+  // a cast that is going on outlives a cleared queue
+  const lookForDevices = installed && hasQueue;
+  useEffect(() => { if (lookForDevices) startCastWatch(); }, [lookForDevices]);
+  useEffect(() => () => stopCastWatch(), []);
+  const castState = useCastStore();
+  const casting = isCasting(castState);
+  const castShown = !!castState.kind && (castState.available || casting);
+  const castLine = castLineOf(castState);
   // a desktop with a player keeps the bar, empty, when nothing is queued
   const shown = hasQueue || (!phone && installed);
   const ref = useRef<HTMLDivElement>(null);
@@ -323,7 +342,9 @@ export function PlayerBar() {
   );
   const barArtist = track.artist || track.albumArtist;
   // one glow, in the bar (or the phone's mini bar); none while a track fails
-  const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing'} /> : null;
+  // casting, it rests: the music is not here
+  const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing' && !casting} /> : null;
+  const cast = castShown ? <CastKey /> : null;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
       {phone ? (
@@ -340,6 +361,7 @@ export function PlayerBar() {
             onNext={next}
             onRetry={retry}
             glow={glow}
+            castLine={castLine}
           />
           {nowOpen && (
             <NowPlayingScreen
@@ -357,12 +379,14 @@ export function PlayerBar() {
               onClose={close}
               onNavigate={() => setNowOpen(false)}
               actions={actions}
+              cast={cast}
+              castLine={castLine}
             />
           )}
         </>
       ) : (
         <>
-          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} />}
+          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} castLine={castLine} />}
           <PlayerBarView
             title={track.title}
             artist={barArtist}
@@ -387,6 +411,8 @@ export function PlayerBar() {
             queueOpen={nowOpen}
             onQueue={() => setNowOpen((o) => !o)}
             glow={glow}
+            cast={cast}
+            castLine={castLine}
           />
         </>
       )}

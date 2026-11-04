@@ -271,3 +271,15 @@ export function GridIcon() {
 export function ListIcon() {
   return <svg {...LINE}><rect x="4" y="4.5" width="4" height="4" rx="1" /><rect x="4" y="10" width="4" height="4" rx="1" /><rect x="4" y="15.5" width="4" height="4" rx="1" /><path d="M11 6.5h9M11 12h9M11 17.5h9" /></svg>;
 }
+
+/* Casting (2026-11-04). */
+
+/** A screen with waves from its corner: cast to a device. */
+export function CastIcon() {
+  return <svg {...LINE}><path d="M3.5 8.5v-2a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H13.5" /><path d="M3.5 12a7.5 7.5 0 0 1 7.5 7.5M3.5 15.5a4 4 0 0 1 4 4" /><path d="M3.75 19.25h.01" strokeWidth="2.6" /></svg>;
+}
+
+/** A screen over a triangle: AirPlay. */
+export function AirPlayIcon() {
+  return <svg {...LINE}><path d="M7 17H5.5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2H17" /><path d="M12 14.5l4.5 5h-9z" /></svg>;
+}

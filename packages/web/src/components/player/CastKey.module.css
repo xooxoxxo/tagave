@@ -1,0 +1,16 @@
+/* The cast key (CastKey.tsx): an embossed icon like the other keys; the
+   player's accent (the play key's colour) while casting. */
+.key {
+  flex: none;
+}
+
+.on,
+.on:hover:not(:disabled) {
+  color: var(--dew);
+}
+
+@media (forced-colors: active) {
+  .on {
+    color: Highlight;
+  }
+}

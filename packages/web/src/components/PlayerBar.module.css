@@ -122,6 +122,24 @@
   gap: 2px;
 }
 
+/* "Casting to …" beside the cast key, on a wide window only */
+.castTo {
+  max-width: 11rem;
+  margin-right: 2px;
+  overflow: hidden;
+  color: var(--dew);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1100px) {
+  .castTo {
+    display: none;
+  }
+}
+
 .ends [aria-pressed="true"] {
   background: var(--mist);
   color: var(--ink);

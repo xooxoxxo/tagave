@@ -23,6 +23,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/invites/:token': 'public',
   'GET /api/v1/openapi.json': 'public',
   'POST /api/v1/invites/:token/accept': 'public',
+  // A cast device (Chromecast, AirPlay) fetching a track or its cover: no session, a signed token for that one item and person (lib/castTokens.ts); the handlers check the person again.
+  'GET /api/v1/player/cast/:token': 'public',
+  'GET /api/v1/player/cast-cover/:token': 'public',
   // Sign in with your login service (routes/oidc.ts): the button, and starting a sign-in (the service and the gate in @tagave/auth decide who gets in).
   'GET /api/v1/auth/oidc': 'public',
   'POST /api/v1/auth/oidc/sign-in': 'public',
@@ -122,6 +125,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/libraries/:libraryId/player/scan-status': 'player.use',
   'POST /api/v1/player/events': 'player.use',
   'GET /api/v1/player/stream/:localTrackId': 'player.use',
+  'POST /api/v1/player/cast-url': 'player.use',
   // The play queue per person and their history (routes/playerQueue.ts): the handlers filter by request.user.id.
   'POST /api/v1/player/tracks': 'player.use',
   'GET /api/v1/me/player/queue': 'player.use',

@@ -160,6 +160,33 @@ export const streamQuerySchema = z.object({
 export type StreamQuery = z.infer<typeof streamQuerySchema>;
 
 /**
+ * POST /api/v1/player/cast-url: a link a cast device fetches itself (no
+ * cookie), signed for one track and one person, on PUBLIC_URL.
+ */
+export const castUrlRequestSchema = z.object({
+  localTrackId: z.string().uuid(),
+  format: streamFormatSchema.default('original'),
+  maxBitRate: z.number().int().refine((n) => (STREAM_BITRATES as readonly number[]).includes(n), 'Unsupported bitrate').optional(),
+}).strict();
+export type CastUrlRequest = z.infer<typeof castUrlRequestSchema>;
+
+/**
+ * Whether a cast device can reach PUBLIC_URL, from the address alone:
+ * ok (https), http (AirPlay yes, Chromecast blocks it as mixed content),
+ * loopback (localhost: this computer only), unset.
+ */
+export type CastReach = 'ok' | 'http' | 'loopback' | 'unset';
+
+export interface CastUrlView {
+  /** absolute, on PUBLIC_URL; null when PUBLIC_URL is not set */
+  url: string | null;
+  /** the album cover, signed the same way; null without a cover */
+  coverUrl: string | null;
+  expiresAt: string;
+  reach: CastReach;
+}
+
+/**
  * The player's per-device quality choice (Settings › Modules › Player, kept in this
  * browser): auto plays the original when the browser can and the file is
  * not huge for the connection, otherwise transcodes.

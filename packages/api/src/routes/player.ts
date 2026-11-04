@@ -11,6 +11,8 @@
  *   GET    /api/v1/player/albums/:albumId/availability  can Play start on this album now (read-only, never scans)
  *   GET    /api/v1/player/albums/:albumId/queue         the album as a play queue (tracks matched to songs)
  *   GET    /api/v1/player/stream/:localTrackId          the audio, proxied (ranges for the original file)
+ *   POST   /api/v1/player/cast-url                      a signed link to one track (and its cover) for a cast device
+ *   GET    /api/v1/player/cast/:token                   the same audio for that device, by the token alone (lib/castTokens.ts)
  *   POST   /api/v1/player/events                        now playing / completed / skipped (playerSync turns them into plays)
  *
  * Every signed-in person may play (player.use); the server settings are the
@@ -26,11 +28,15 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { sealSecret } from '@tagave/core';
 import { ping, streamUrl, SubsonicError } from '@tagave/core/player';
 import {
+  can,
+  castUrlRequestSchema,
   playEventSchema,
   savePlayerServerSchema,
   streamQuerySchema,
   type CapabilitiesView,
+  type CastUrlView,
   type PlayerSettingsView,
+  type StreamQuery,
 } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getSql } from '../db.js';
@@ -56,6 +62,8 @@ import {
 import { hasPlayerPermission, permission, requirePlayer } from '../lib/playerAccess.js';
 import { PlayerAccountError, personServer } from '../lib/playerPeople.js';
 import { kickPlayerSync } from '../lib/playerSync.js';
+import { castBase, castLink, castReach, mintCastToken, verifyCastToken } from '../lib/castTokens.js';
+import { RateLimiter } from '../lib/rateLimit.js';
 import { NavidromeError } from '@tagave/core/player';
 
 function intEnv(name: string, fallback: number): number {
@@ -68,6 +76,8 @@ export const userStreams = new StreamLimiter(intEnv('TAGAVE_PLAYER_MAX_STREAMS',
 /** For the whole server, so a few users cannot tie up the player server. */
 export const allStreams = new StreamLimiter(intEnv('TAGAVE_PLAYER_MAX_STREAMS_TOTAL', 24));
 const eventLimit = new WindowLimiter(120, 60_000);
+/** Cast links per person: one per track change, a few retries; a loop that asks for more is refused. */
+export const castMintLimit = new RateLimiter(60, 60_000);
 /** Headers from the player server must arrive within this. */
 const UPSTREAM_HEADERS_MS = 20_000;
 /** A stream that sends nothing for this long is cut (a stalled server or a stuck transcode). */
@@ -86,6 +96,30 @@ function appSecretValue(): string {
   return s;
 }
 
+/**
+ * The person a cast token names, checked on every request: still there, not
+ * turned off, still allowed to play. A token outlives none of these.
+ */
+async function requireCastPerson(userId: string): Promise<void> {
+  const [row] = await getSql()<{ role: string | null; disabled_at: Date | null; removed_at: Date | null }[]>`
+    select role, disabled_at, removed_at from users where id = ${userId}`;
+  if (!row || row.disabled_at || row.removed_at || !can(row.role ?? 'listener', 'player.use')) {
+    throw new ApiError(403, 'Forbidden', 'This cast link is not valid or has expired');
+  }
+}
+
+/**
+ * A cast device's receiver is a page on another origin (Google's, for a
+ * Chromecast): it may read the audio and its ranges. The token is the
+ * credential, so allowing any origin gives away nothing the link does not.
+ */
+export function castHeaders(reply: FastifyReply): void {
+  reply.header('access-control-allow-origin', '*');
+  reply.header('access-control-expose-headers', 'content-length, content-range, accept-ranges');
+  reply.header('cross-origin-resource-policy', 'cross-origin');
+  reply.header('referrer-policy', 'no-referrer');
+}
+
 async function settingsView(settings: PlayerLibrarySettings, fresh = false): Promise<PlayerSettingsView> {
   const backend = backendFor(settings);
   const capability = await capabilityOf(backend, { fresh });
@@ -95,6 +129,140 @@ async function settingsView(settings: PlayerLibrarySettings, fresh = false): Pro
     ? { url: settings.playerUrl, username: settings.playerUser, passwordSaved: typeof settings.playerPassword === 'string' }
     : null;
   return { capability, bundled, external, lastScan: settings.playerLastScan ?? null };
+}
+
+/**
+ * The audio of one track, proxied from the player server as this person
+ * (their own account there): ranges for the original file, a transcode from
+ * `offset` otherwise. /player/stream (the session) and /player/cast/:token
+ * (a cast device, by its token) both answer with this.
+ */
+async function streamTrack(request: FastifyRequest, reply: FastifyReply, userId: string, localTrackId: string, query: StreamQuery) {
+  const sql = getSql();
+  const track = await trackById(sql, localTrackId);
+  if (!track) throw new ApiError(404, 'Not Found', 'Track not found');
+  const backend = backendFor(track.settings);
+  if (!backend) throw notInstalled();
+  // the stream is this person's on the server (their account, made on their first play)
+  let person;
+  try {
+    person = await personServer(sql, backend, userId, { create: true });
+  } catch (err) {
+    if (err instanceof PlayerAccountError) throw new ApiError(err.status, err.status === 403 ? 'Forbidden' : 'Conflict', err.message);
+    if (err instanceof NavidromeError) throw new ApiError(502, 'Bad Gateway', `The player could not make your account: ${err.message}`);
+    throw err;
+  }
+  const as = person!.server;
+
+  const releaseUser = userStreams.acquire(userId);
+  if (!releaseUser) {
+    reply.header('retry-after', '2');
+    throw new ApiError(429, 'Too Many Requests', `At most ${userStreams.max} streams at once per user`);
+  }
+  const releaseAll = allStreams.acquire('*');
+  if (!releaseAll) {
+    releaseUser();
+    reply.header('retry-after', '5');
+    throw new ApiError(429, 'Too Many Requests', 'The player is busy; try again in a moment');
+  }
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    releaseUser();
+    releaseAll();
+  };
+  const upstreamAbort = new AbortController();
+  // the listener left (skipped, seeked, closed the tab): stop reading from the server
+  reply.raw.on('close', () => {
+    upstreamAbort.abort();
+    release();
+  });
+
+  try {
+    const resolve = async (): Promise<string | null> => {
+      const known = await songIdFor(sql, localTrackId, backend.key);
+      if (known) return known;
+      const album = await albumById(sql, track.local_album_id);
+      if (!album) return null;
+      await albumQueue({ sql, boss: await getBoss().catch(() => null) }, backend, album);
+      return songIdFor(sql, localTrackId, backend.key);
+    };
+    const { format, maxBitRate, offset } = query;
+    const range = typeof request.headers.range === 'string' ? request.headers.range : undefined;
+
+    const open = async (songId: string) => {
+      const timer = setTimeout(() => upstreamAbort.abort(), UPSTREAM_HEADERS_MS);
+      try {
+        return await fetch(streamUrl(as, songId, {
+          format: format === 'original' ? 'raw' : format,
+          ...(maxBitRate ? { maxBitRate } : {}),
+          ...(offset ? { timeOffset: offset } : {}),
+        }), {
+          signal: upstreamAbort.signal,
+          // a transcode is a new stream each time: only the original file can be read by ranges
+          headers: format === 'original' && range ? { range } : {},
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    /** A Subsonic error comes back as JSON instead of audio. */
+    const failure = async (res: Response): Promise<SubsonicError | null> => {
+      const type = res.headers.get('content-type') ?? '';
+      if (res.ok && !/json|xml/i.test(type)) return null;
+      const body = await res.json().catch(() => null) as { 'subsonic-response'?: { error?: { code?: number; message?: string } } } | null;
+      const e = body?.['subsonic-response']?.error;
+      return new SubsonicError(e?.message ?? `The player server answered ${res.status}`, { code: e?.code ?? null, httpStatus: res.status });
+    };
+
+    let songId = await resolve();
+    if (!songId) throw new ApiError(409, 'Conflict', 'This track is not on the player yet; tagave asked it to scan. Try again in a minute.');
+    let res = await open(songId);
+    let err = await failure(res);
+    if (err?.code === 70) {
+      // the server gave the file a new id (re-read after a tag change): match it again once
+      await forgetSong(sql, localTrackId);
+      songId = await resolve();
+      if (!songId) throw new ApiError(409, 'Conflict', 'This track is not on the player yet; tagave asked it to scan. Try again in a minute.');
+      res = await open(songId);
+      err = await failure(res);
+    }
+    if (err) throw new ApiError(502, 'Bad Gateway', err.message);
+    if (!res.body) throw new ApiError(502, 'Bad Gateway', 'The player server sent no audio');
+
+    reply.status(res.status);
+    for (const h of PASSTHROUGH_HEADERS) {
+      const v = res.headers.get(h);
+      if (v) reply.header(h, v);
+    }
+    if (format === 'original' && !res.headers.get('accept-ranges')) reply.header('accept-ranges', 'bytes');
+    reply.header('cache-control', 'private, no-cache');
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('content-disposition', 'inline');
+
+    // Streamed through as it arrives (pipe applies backpressure: nothing is
+    // read from the server faster than the browser takes it); cut when the
+    // server goes quiet.
+    const body = Readable.fromWeb(res.body as never);
+    let idle = setTimeout(() => body.destroy(new Error('the player server stopped sending')), UPSTREAM_IDLE_MS);
+    body.on('data', () => {
+      clearTimeout(idle);
+      idle = setTimeout(() => body.destroy(new Error('the player server stopped sending')), UPSTREAM_IDLE_MS);
+    });
+    body.on('close', () => { clearTimeout(idle); release(); });
+    body.on('error', () => { clearTimeout(idle); upstreamAbort.abort(); release(); });
+    return reply.send(body);
+  } catch (err) {
+    release();
+    if (err instanceof ApiError) throw err;
+    if ((err as Error).name === 'AbortError') {
+      if (reply.raw.destroyed) return reply;
+      throw new ApiError(504, 'Gateway Timeout', 'The player server did not answer in time');
+    }
+    if (err instanceof SubsonicError) throw new ApiError(502, 'Bad Gateway', err.message);
+    throw new ApiError(502, 'Bad Gateway', `The player server could not be reached (${(err as Error).message})`);
+  }
 }
 
 export async function createPlayerRoutes(fastify: FastifyInstance) {
@@ -227,131 +395,44 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
     const { localTrackId } = request.params as { localTrackId: string };
     const query = streamQuerySchema.safeParse(request.query ?? {});
     if (!query.success) throw new ApiError(400, 'Bad Request', query.error.issues[0]?.message ?? 'Invalid query');
+    return streamTrack(request, reply, user.id, localTrackId, query.data);
+  });
+
+  fastify.post('/player/cast-url', permission('player.use'), async (request: FastifyRequest) => {
+    const user = requireUser(request);
+    castMintLimit.check(user.id, Date.now(), 'Too many cast links. Wait a minute and try again.');
+    const parsed = castUrlRequestSchema.safeParse(request.body ?? {});
+    if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Invalid body');
+    const { localTrackId, format, maxBitRate } = parsed.data;
     const sql = getSql();
     const track = await trackById(sql, localTrackId);
     if (!track) throw new ApiError(404, 'Not Found', 'Track not found');
-    const backend = backendFor(track.settings);
-    if (!backend) throw notInstalled();
-    // the stream is this person's on the server (their account, made on their first play)
-    let person;
-    try {
-      person = await personServer(sql, backend, user.id, { create: true });
-    } catch (err) {
-      if (err instanceof PlayerAccountError) throw new ApiError(err.status, err.status === 403 ? 'Forbidden' : 'Conflict', err.message);
-      if (err instanceof NavidromeError) throw new ApiError(502, 'Bad Gateway', `The player could not make your account: ${err.message}`);
-      throw err;
-    }
-    const as = person!.server;
+    if (!backendFor(track.settings)) throw notInstalled();
+    const base = castBase();
+    const audio = mintCastToken('t', track.id, user.id);
+    const q = new URLSearchParams({ format });
+    if (format !== 'original' && maxBitRate) q.set('maxBitRate', String(maxBitRate));
+    const [cover] = await sql<{ has: boolean }[]>`
+      select exists (select 1 from images where local_album_id = ${track.local_album_id} and kind = 'front') as has`;
+    const coverToken = cover?.has ? mintCastToken('c', track.local_album_id, user.id).token : null;
+    return {
+      url: base ? castLink(base, `/api/v1/player/cast/${audio.token}?${q.toString()}`) : null,
+      coverUrl: base && coverToken ? castLink(base, `/api/v1/player/cast-cover/${coverToken}`) : null,
+      expiresAt: audio.expiresAt.toISOString(),
+      reach: castReach(),
+    } satisfies CastUrlView;
+  });
 
-    const releaseUser = userStreams.acquire(user.id);
-    if (!releaseUser) {
-      reply.header('retry-after', '2');
-      throw new ApiError(429, 'Too Many Requests', `At most ${userStreams.max} streams at once per user`);
-    }
-    const releaseAll = allStreams.acquire('*');
-    if (!releaseAll) {
-      releaseUser();
-      reply.header('retry-after', '5');
-      throw new ApiError(429, 'Too Many Requests', 'The player is busy; try again in a moment');
-    }
-    let released = false;
-    const release = () => {
-      if (released) return;
-      released = true;
-      releaseUser();
-      releaseAll();
-    };
-    const upstreamAbort = new AbortController();
-    // the listener left (skipped, seeked, closed the tab): stop reading from the server
-    reply.raw.on('close', () => {
-      upstreamAbort.abort();
-      release();
-    });
-
-    try {
-      const resolve = async (): Promise<string | null> => {
-        const known = await songIdFor(sql, localTrackId, backend.key);
-        if (known) return known;
-        const album = await albumById(sql, track.local_album_id);
-        if (!album) return null;
-        await albumQueue({ sql, boss: await getBoss().catch(() => null) }, backend, album);
-        return songIdFor(sql, localTrackId, backend.key);
-      };
-      const { format, maxBitRate, offset } = query.data;
-      const range = typeof request.headers.range === 'string' ? request.headers.range : undefined;
-
-      const open = async (songId: string) => {
-        const timer = setTimeout(() => upstreamAbort.abort(), UPSTREAM_HEADERS_MS);
-        try {
-          return await fetch(streamUrl(as, songId, {
-            format: format === 'original' ? 'raw' : format,
-            ...(maxBitRate ? { maxBitRate } : {}),
-            ...(offset ? { timeOffset: offset } : {}),
-          }), {
-            signal: upstreamAbort.signal,
-            // a transcode is a new stream each time: only the original file can be read by ranges
-            headers: format === 'original' && range ? { range } : {},
-          });
-        } finally {
-          clearTimeout(timer);
-        }
-      };
-      /** A Subsonic error comes back as JSON instead of audio. */
-      const failure = async (res: Response): Promise<SubsonicError | null> => {
-        const type = res.headers.get('content-type') ?? '';
-        if (res.ok && !/json|xml/i.test(type)) return null;
-        const body = await res.json().catch(() => null) as { 'subsonic-response'?: { error?: { code?: number; message?: string } } } | null;
-        const e = body?.['subsonic-response']?.error;
-        return new SubsonicError(e?.message ?? `The player server answered ${res.status}`, { code: e?.code ?? null, httpStatus: res.status });
-      };
-
-      let songId = await resolve();
-      if (!songId) throw new ApiError(409, 'Conflict', 'This track is not on the player yet; tagave asked it to scan. Try again in a minute.');
-      let res = await open(songId);
-      let err = await failure(res);
-      if (err?.code === 70) {
-        // the server gave the file a new id (re-read after a tag change): match it again once
-        await forgetSong(sql, localTrackId);
-        songId = await resolve();
-        if (!songId) throw new ApiError(409, 'Conflict', 'This track is not on the player yet; tagave asked it to scan. Try again in a minute.');
-        res = await open(songId);
-        err = await failure(res);
-      }
-      if (err) throw new ApiError(502, 'Bad Gateway', err.message);
-      if (!res.body) throw new ApiError(502, 'Bad Gateway', 'The player server sent no audio');
-
-      reply.status(res.status);
-      for (const h of PASSTHROUGH_HEADERS) {
-        const v = res.headers.get(h);
-        if (v) reply.header(h, v);
-      }
-      if (format === 'original' && !res.headers.get('accept-ranges')) reply.header('accept-ranges', 'bytes');
-      reply.header('cache-control', 'private, no-cache');
-      reply.header('x-content-type-options', 'nosniff');
-      reply.header('content-disposition', 'inline');
-
-      // Streamed through as it arrives (pipe applies backpressure: nothing is
-      // read from the server faster than the browser takes it); cut when the
-      // server goes quiet.
-      const body = Readable.fromWeb(res.body as never);
-      let idle = setTimeout(() => body.destroy(new Error('the player server stopped sending')), UPSTREAM_IDLE_MS);
-      body.on('data', () => {
-        clearTimeout(idle);
-        idle = setTimeout(() => body.destroy(new Error('the player server stopped sending')), UPSTREAM_IDLE_MS);
-      });
-      body.on('close', () => { clearTimeout(idle); release(); });
-      body.on('error', () => { clearTimeout(idle); upstreamAbort.abort(); release(); });
-      return reply.send(body);
-    } catch (err) {
-      release();
-      if (err instanceof ApiError) throw err;
-      if ((err as Error).name === 'AbortError') {
-        if (reply.raw.destroyed) return reply;
-        throw new ApiError(504, 'Gateway Timeout', 'The player server did not answer in time');
-      }
-      if (err instanceof SubsonicError) throw new ApiError(502, 'Bad Gateway', err.message);
-      throw new ApiError(502, 'Bad Gateway', `The player server could not be reached (${(err as Error).message})`);
-    }
+  // A cast device's request: no session, the token is the whole credential.
+  fastify.get('/player/cast/:token', { exposeHeadRoute: false }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { token } = request.params as { token: string };
+    const grant = verifyCastToken(token, 't');
+    if (!grant) throw new ApiError(403, 'Forbidden', 'This cast link is not valid or has expired');
+    await requireCastPerson(grant.userId);
+    const query = streamQuerySchema.safeParse(request.query ?? {});
+    if (!query.success) throw new ApiError(400, 'Bad Request', query.error.issues[0]?.message ?? 'Invalid query');
+    castHeaders(reply);
+    return streamTrack(request, reply, grant.userId, grant.id, query.data);
   });
 
   fastify.post('/player/events', permission('player.use'), async (request: FastifyRequest, reply: FastifyReply) => {

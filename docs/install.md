@@ -273,6 +273,32 @@ Music keeps playing with the screen locked or another app open. The lock screen,
 
 **In the car.** CarPlay and Android Auto show native apps only. Use a Subsonic app with tagave's Navidrome: Symfonium on Android (Android Auto), Amperfy or play:Sub on iPhone (CarPlay). **Phone apps**, above, says how to sign in.
 
+### Cast to a speaker or TV
+
+When a device is on your network, a cast key shows beside the queue key in the player bar (on a phone, in the full player under the keys):
+
+- **Safari** (iPhone, iPad, Mac): AirPlay, to an Apple TV, a HomePod or an AirPlay speaker.
+- **Chrome on Android**: Chromecast and Google speakers, through Chrome's own cast dialog.
+- **Chrome or Edge on a computer**: Chromecast and Google speakers. tagave then loads Google's cast script (from `www.gstatic.com`); it is the only script tagave loads from elsewhere, and only in these browsers. tagave's queue plays on: when a track ends there, the next one goes to the device. Play, pause, seek, volume, next and previous in the bar control the device.
+- **Firefox** cannot cast; there is no key.
+
+While it casts, the key shows in the player's accent colour with the device's name beside it ("Casting to Living room"; AirPlay and Chrome on Android do not tell tagave the name). Press the key again to choose another device or stop. The equalizer glow rests while casting.
+
+The device fetches the music itself, so it must reach tagave at **`PUBLIC_URL`**. tagave gives it a link signed for that one track and for you, valid for 6 hours. Your browser's session stays with your browser.
+
+| `PUBLIC_URL` | AirPlay | Chromecast |
+|---|---|---|
+| `https://` with a certificate from a public authority (Let's Encrypt, your reverse proxy's) | Plays | Plays |
+| `https://` with a self-signed or private certificate | May fail | Does not play: a Chromecast trusts public certificates only |
+| `http://192.168.x.x:3100` or another address on your network | Plays | Does not play: the Chromecast's player page is https, and Chrome there blocks plain-http audio |
+| `http://localhost` or `127.0.0.1` | Does not play | Does not play |
+
+- When `PUBLIC_URL` is `localhost` (or not set), the cast key opens a menu that says **Not reachable**. When it is plain http, Chrome's menu says **Needs https** and still lets you try.
+- Chrome offers casting only on an https page (or `localhost`). Safari offers AirPlay on http too.
+- Many Chromecasts ask Google's DNS (8.8.8.8), not your router. A name only your local DNS knows (a `.lan` name, a Pi-hole record, a Tailscale `*.ts.net` name) may not resolve there. Use a public name whose DNS points to tagave's address on your network, or let your router answer the Chromecast's DNS.
+- A device on another network (a guest network, a VLAN that cannot reach tagave) cannot fetch the music.
+- Sonos, UPnP/DLNA renderers and casting from the server are not supported.
+
 ### Get missing albums (Lidarr)
 
 If you run [Lidarr](https://lidarr.audio), tagave can ask it for the albums a followed artist is missing. In **Settings › Modules › Lidarr** (owner only), enter Lidarr's address and API key (Lidarr's **Settings › General**), press **Test**, pick the root folder and the two profiles, **Save**, and switch it **On**. The key is sealed with `APP_SECRET` and never shown again.
