@@ -8,11 +8,11 @@
  * it once more than one person has. A track that left the library stays,
  * dimmed, as "Missing".
  */
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useContext, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import type { PlaylistItemView, PlaylistView } from '@tagave/shared';
 import {
-  CoverArt, EmbossIconButton, EmptyState, ExportIcon, GripIcon, KebabIcon, PageShell, PauseIcon, PeopleIcon, PlayIcon, ShuffleIcon, TrashIcon, CloseIcon, confirmDialog, showToast,
+  BackIcon, CoverArt, EmbossIconButton, EmptyState, ExportIcon, GripIcon, KebabIcon, PageShell, PauseIcon, PeopleIcon, PlayIcon, ShuffleIcon, TrashIcon, CloseIcon, confirmDialog, showToast,
 } from '../components/ui';
 import { InlineRename } from '../components/InlineRename';
 import { PlayOnControl } from '../components/ListenControl';
@@ -24,6 +24,8 @@ import { download, playlistExportUrl, useDeletePlaylist, usePatchPlaylist, usePl
 import { useCapabilities } from '../hooks/usePlayer';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useHiddenDeletions } from './deleteAction';
+import { PageBackActionContext } from '../components/ui/PageShell';
+import { useLeaveDeleted } from '../hooks/useLeaveDeleted';
 import { currentTrack, playTracks, toggle, usePlayerStore } from '../player/engine';
 import { clock } from '../player/logic';
 import { tracksLabel } from './PlaylistsPage';
@@ -54,6 +56,8 @@ export interface PlaylistPageViewProps {
   onDelete?: (() => void) | undefined;
   onCollaborators?: (() => void) | undefined;
   onExport: () => void;
+  /** the way back to where the list was opened from (the app frame's); none in stories */
+  back?: { label: string; go: () => void } | null | undefined;
 }
 
 function ListMenu({ onExport, onDelete, onCollaborators }: { onExport: () => void; onDelete?: (() => void) | undefined; onCollaborators?: (() => void) | undefined }) {
@@ -92,6 +96,9 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
       back
       barTitle={p.playlist.name}
       hero={
+        <>
+        {/* the way back, over the hero's top-left as on the album and artist pages (phone: the app bar's) */}
+        {p.back && <span className={styles.heroBack}><EmbossIconButton place="header" label={p.back.label} onClick={p.back.go}><BackIcon /></EmbossIconButton></span>}
         <div className={styles.hero}>
           <PlaylistCover covers={p.playlist.covers} name={p.playlist.name} className={styles.cover} />
           <div className={styles.heroText}>
@@ -110,6 +117,7 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
             </div>
           </div>
         </div>
+        </>
       }
     >
       {items.length === 0 ? <EmptyState title="No tracks yet" /> : (
@@ -173,6 +181,8 @@ export function PlaylistPage() {
   const patch = usePatchPlaylist();
   const remove = useRemovePlaylistItem();
   const del = useDeletePlaylist();
+  const leaveDeleted = useLeaveDeleted();
+  const back = useContext(PageBackActionContext);
   const canPlay = useCapabilities().data?.player?.installed === true;
   const status = usePlayerStore((s) => s.status);
   const context = usePlayerStore((s) => s.queue?.context);
@@ -198,6 +208,7 @@ export function PlaylistPage() {
     <>
     <PlaylistPageView
       playlist={view}
+      back={back}
       canPlay={canPlay}
       playing={playing}
       currentTrackId={mine ? currentId : null}
@@ -218,7 +229,8 @@ export function PlaylistPage() {
       onDelete={view.mine ? () => {
         void confirmDialog({ title: `Delete ${view.name}?`, confirmLabel: 'Delete', tone: 'danger' }).then((ok) => {
           if (!ok) return;
-          del.mutate(view.id, { onSuccess: () => void navigate({ to: '/playlists' }) });
+          // one step up the path taken: the list they came from, else Playlists
+          del.mutate(view.id, { onSuccess: () => leaveDeleted('/playlists') });
         });
       } : undefined}
     />

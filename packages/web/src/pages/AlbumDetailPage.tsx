@@ -71,6 +71,7 @@ import { currentTrack, playAlbum, shuffleAlbum, toggle as togglePlayback, usePla
 import { TrackActions, enqueueWithToast } from '../components/player/TrackActions';
 import { usePlaylistsOn } from '../hooks/usePlaylists';
 import { useDeleteAction, useHiddenDeletions } from './deleteAction';
+import { useLeaveDeleted } from '../hooks/useLeaveDeleted';
 import { UNDO_MS } from './collectionRemoval';
 import { invalidateAfterMove, useUndoMove } from '../hooks/useAlbumMove';
 import type { AlbumMoveView } from '@tagave/shared';
@@ -140,6 +141,8 @@ export function AlbumDetailPage() {
   // the owner's one delete item (Mark for deletion / Move to trash), and what waits out its Undo
   const del = useDeleteAction(libraryId);
   const hiddenDel = useHiddenDeletions();
+  // after a delete: one step up the path taken (utils/backNav afterDelete)
+  const leaveDeleted = useLeaveDeleted();
   const playStatus = usePlayerStore((s) => s.status);
   const playingTrackId = usePlayerStore((s) => (currentTrack(s)?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
   const queueLoading = usePlayerStore((s) => s.loadingAlbumId === albumId);
@@ -397,6 +400,9 @@ export function AlbumDetailPage() {
   const taskSubject = { title: album.release?.title ?? album.title, folder: album.dirPaths?.[0] ?? null };
   const shortDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
   const genreLabels = uniqueGenres(album.genres?.effective, album.genres?.styles, album.release?.genres, album.release?.styles);
+  // opened cold, a deleted album leaves for its artist, else Albums
+  const firstArtistId = album.artists?.find((a) => a.id)?.id;
+  const deletedFallback = firstArtistId ? `/artists/${firstArtistId}` : '/albums';
   const albumArtist = album.artists?.length
     ? album.artists.map((a) => a.name).join(', ')
     : Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit ?? album.artistCredit;
@@ -915,7 +921,7 @@ export function AlbumDetailPage() {
     } : null,
     addToPlaylist: playlistsOn ? () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; setSheet('playlist'); } : null,
     // the album leaves the library at once: back to the albums, with Undo on the toast
-    remove: del ? { label: del.label, onSelect: () => { del.album(albumId, title ?? 'Untitled'); void navigate({ to: '/albums' }); } } : null,
+    remove: del ? { label: del.label, onSelect: () => { del.album(albumId, title ?? 'Untitled'); leaveDeleted(deletedFallback); } } : null,
   });
   const openActions = (button: HTMLElement) => { opener.current = button; setSheet('actions'); };
   // the one ⋮ (owner, 2026-10-17: "only single ... is enough"): in the header
@@ -963,7 +969,7 @@ export function AlbumDetailPage() {
   const deletePicked = () => {
     if (!del || pickedIds.length === 0) return;
     // the whole album: the album goes, with its Undo
-    if (allPicked) { del.album(albumId, title ?? 'Untitled'); void navigate({ to: '/albums' }); return; }
+    if (allPicked) { del.album(albumId, title ?? 'Untitled'); leaveDeleted(deletedFallback); return; }
     del.tracks(pickedIds, pickedTitle);
     setPicked(new Set());
   };
