@@ -54,10 +54,10 @@ export function PersonTile({ person, size = 'md', label }: { person: PlaylistPer
 }
 
 /** The header's people: the owner first, then the collaborators. */
-export function PeopleRow({ owner, collaborators }: { owner: PlaylistPerson; collaborators: readonly PlaylistPerson[] }) {
+export function PeopleRow({ owner, collaborators, className }: { owner: PlaylistPerson; collaborators: readonly PlaylistPerson[]; className?: string | undefined }) {
   const all = [owner, ...collaborators];
   return (
-    <span className={styles.row} role="group" aria-label={all.map((p) => p.name).join(', ')}>
+    <span className={[styles.row, className].filter(Boolean).join(' ')} role="group" aria-label={all.map((p) => p.name).join(', ')}>
       {all.map((p) => <PersonTile key={p.id} person={p} />)}
     </span>
   );

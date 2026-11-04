@@ -98,7 +98,7 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
             <span className={styles.kicker}>Playlist</span>
             <h1 className={styles.name}>{p.playlist.mine ? <InlineRename value={p.playlist.name} label="Rename playlist" onSave={p.onRename} /> : <span dir="auto">{p.playlist.name}</span>}</h1>
             <span className={styles.meta}>{tracksLabel(p.playlist.tracks)}{p.playlist.durationMs > 0 ? ` · ${playlistLength(p.playlist.durationMs)}` : ''}</span>
-            {people && <PeopleRow owner={p.playlist.owner} collaborators={p.playlist.collaborators} />}
+            {people && <PeopleRow className={styles.people} owner={p.playlist.owner} collaborators={p.playlist.collaborators} />}
             <div className={styles.actions} role="group" aria-label="Playlist actions">
               {p.canPlay && <EmbossIconButton label="Shuffle" disabled={!playable} onClick={p.onShuffle}><ShuffleIcon /></EmbossIconButton>}
               {p.canPlay && (
