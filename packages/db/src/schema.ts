@@ -2058,3 +2058,32 @@ export const lidarrRequests = pgTable(
     stateCheck: check('lidarr_requests_state_check', sql`state in ('wanted', 'downloading', 'imported', 'done', 'not_found')`),
   })
 );
+
+// Whole album in one file (0078): one row per split the owner asked for. The
+// file worker (files.split) finds the cut points (plan), then writes one FLAC
+// per track and moves the source into the root's trash.
+export const albumSplits = pgTable(
+  'album_splits',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'set null' }),
+    fileId: uuid('file_id').references(() => files.id, { onDelete: 'set null' }),
+    releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'set null' }),
+    /** analyzing | ready | splitting | done | failed */
+    state: text().notNull(),
+    /** SplitPlan (@tagave/shared) */
+    plan: jsonb(),
+    /** relative paths of the files the split wrote */
+    outputs: text().array(),
+    error: text(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+    finishedAt: tstz('finished_at'),
+  },
+  (table) => ({
+    albumIdx: index('idx_album_splits_album').on(table.localAlbumId, table.createdAt),
+    stateCheck: check('album_splits_state_check', sql`state in ('analyzing', 'ready', 'splitting', 'done', 'failed')`),
+  })
+);
