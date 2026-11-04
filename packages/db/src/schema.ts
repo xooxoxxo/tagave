@@ -1033,6 +1033,10 @@ export const tagPlanItems = pgTable(
     // pairing's distance (local_tracks.match_distance). No FK, see 0077.
     canonicalTrackId: uuid('canonical_track_id'),
     matchDistance: numeric('match_distance', { precision: 5, scale: 4 }),
+    // 0081 adds path_before, path_after, path_state. They are read and
+    // written with SQL, not declared here: three more columns tipped the
+    // schema's types past what the compiler infers (callbacks of sql.begin
+    // across the API lost their types).
   },
   (table) => ({
     planIdx: index('idx_tag_plan_items_plan').on(table.tagPlanId),

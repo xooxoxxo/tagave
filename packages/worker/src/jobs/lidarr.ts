@@ -22,6 +22,7 @@ import {
 } from '@tagave/core/lidarr';
 import { lidarrEnabled, lidarrStoredSettings, openLidarrRequests, upsertLidarrRequest, type LidarrRequestRow } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { insideAny, poolDirsOfRoot } from '../lib/naming.js';
 
 export interface LidarrPollJobData {
   /** tests */
@@ -136,7 +137,14 @@ export async function lidarrPollJob(ctx: WorkerContext, data: LidarrPollJobData 
         const where = inScanRoot(path, roots);
         outside = where === null;
         if (where && (!scanAt || now - new Date(scanAt).getTime() > RESCAN_AFTER_MS)) {
-          await ctx.boss.send('scan.dir', { ...where, reason: 'lidarr' }, { singletonKey: `scan.dir:${where.scanRootId}:${where.dirPath}` });
+          // Lidarr's root folder may be the drop pool (0081): the pool imports
+          // the album through the naming rules, and the request is done when
+          // the album is in the library (the check above)
+          if (insideAny(where.dirPath, await poolDirsOfRoot(ctx, where.scanRootId))) {
+            await ctx.boss.send('pool.scan', { libraryId: r.library_id }, { singletonKey: `pool.scan:${r.library_id}` });
+          } else {
+            await ctx.boss.send('scan.dir', { ...where, reason: 'lidarr' }, { singletonKey: `scan.dir:${where.scanRootId}:${where.dirPath}` });
+          }
           scanAt = new Date(now);
           scans++;
         }

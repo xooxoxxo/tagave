@@ -1,0 +1,77 @@
+/* Library care › Organize and › Inbox (OrganizePage, InboxPage); the list
+   itself is DeletingPage.module.css */
+
+.check { flex: none; display: flex; align-items: center; }
+.check input { margin: 0; width: 18px; height: 18px; }
+
+.selectAll {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+}
+
+.values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-lg);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+.values > div { display: flex; gap: var(--space-sm); }
+.values dt { color: var(--ink-3); }
+.values dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* paths: wrap anywhere, so a long one never widens the page */
+.path {
+  margin: 2px 0 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.path > .to { color: var(--ink-2); }
+
+.label {
+  display: inline-block;
+  padding: 0 var(--space-sm);
+  border-radius: var(--r-pill);
+  background: var(--mist);
+  color: var(--ink-2);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+.labelWarn { color: var(--danger); }
+
+/* the track pairing under an Inbox row */
+.pairing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content;
+  gap: 2px var(--space-md);
+  margin: var(--space-xs) 0 0;
+  padding: var(--space-xs) 0 0 var(--space-md);
+  border-left: 2px solid var(--line);
+  font-size: var(--font-size-xs);
+  color: var(--ink-2);
+}
+.pairing > span { min-width: 0; overflow-wrap: anywhere; }
+.pairing .pct { color: var(--ink-3); font-variant-numeric: tabular-nums; text-align: right; }
+.low { color: var(--danger); }
+
+.pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+.pickForm { display: flex; gap: var(--space-sm); align-items: center; }
+.pickForm > :first-child { flex: 1; min-width: 0; }
+
+.inboxRow { align-items: flex-start; padding-block: var(--space-md); }
+.wrapActions { flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .pairing { grid-template-columns: minmax(0, 1fr) max-content; }
+  .pairing .file { grid-column: 1 / -1; color: var(--ink-3); }
+}

@@ -204,11 +204,12 @@ const UNSAFE = /[\\/:*?"<>|\u0000-\u001f\u007f]+/g;
 /**
  * A title as one safe file name part: no path separators or characters
  * Windows and SMB refuse, no leading dots (a hidden file) or trailing dots
- * and spaces, NFC, at most 180 UTF-8 bytes.
+ * and spaces, NFC, at most 180 UTF-8 bytes (naming rules take 200).
  */
-export function safeNamePart(s: string, fallback = 'Track'): string {
+export function safeNamePart(s: string, fallback = 'Track', maxBytes = 180): string {
   let out = s.normalize('NFC').replace(UNSAFE, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/[. ]+$/, '');
-  while (Buffer.byteLength(out, 'utf8') > 180) out = out.slice(0, -1);
+  // whole characters off the end: a lone surrogate half is not a name
+  while (Buffer.byteLength(out, 'utf8') > maxBytes) out = Array.from(out).slice(0, -1).join('');
   out = out.replace(/[. ]+$/, '');
   return out || fallback;
 }

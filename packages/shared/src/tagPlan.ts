@@ -91,6 +91,7 @@ export const tagPoliciesSchema = z.object({
   overrides: z.partialRecord(canonicalFieldSchema, tagFieldPolicySchema).optional().describe('Per-field policy overrides'),
   values: manualTagValuesSchema.optional().describe('Manual preset only: the values to write'),
   revertOf: z.string().uuid().optional().describe('Revert preset only: the plan whose writes this plan undoes'),
+  organize: z.boolean().optional().describe('0081: after the tags, move each file to the path the naming rules give (Settings › Library › Naming); on by default when rules are saved'),
 }).strict().describe('Write policy: preset + per-field overrides');
 
 export type TagPolicies = z.infer<typeof tagPoliciesSchema>;
@@ -145,6 +146,9 @@ export const tagPlanStatsSchema = z.object({
   filesLockedOnly: z.number().int().nonnegative().optional().describe('Files whose only would-be changes are blocked by locks'),
   lastError: z.string().optional().describe('Why the last apply run stopped before finishing; set when the worker parks a plan as paused'),
   albumsBefore: z.number().int().nonnegative().optional().describe('Different albums that held the files to write when the first apply run started'),
+  filesToMove: z.number().int().nonnegative().optional().describe('0081: files the naming rules give another path'),
+  filesMoveBlocked: z.number().int().nonnegative().optional().describe('0081: files whose new path is taken or cannot be written (their tags still apply)'),
+  movesQueued: z.number().int().nonnegative().optional().describe('0081: album moves queued after the tags were written'),
 }).strict().describe('Aggregate summary of a plan preview');
 
 export type TagPlanStats = z.infer<typeof tagPlanStatsSchema>;
@@ -302,6 +306,8 @@ export const tagPlanItemSchema = z.object({
     lengthMs: z.number().int().nullable(),
   }).optional().describe('The release track this file was paired with when the plan was previewed'),
   matchDistance: z.number().min(0).max(1).optional().describe('How far apart the file and its release track were in title and length (0 = identical); absent when the track came by position alone'),
+  pathAfter: z.string().optional().describe('0081: where the naming rules put the file (relative to its music folder); absent when it stays'),
+  pathState: z.enum(['clash', 'unwritable']).optional().describe('0081: why the file cannot move (its tags still apply)'),
 }).strict().describe('Per-file diffs in a tag plan');
 
 export type TagPlanItem = z.infer<typeof tagPlanItemSchema>;

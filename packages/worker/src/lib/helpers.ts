@@ -288,3 +288,14 @@ export function sqlDirname(alias: string): string {
   if (!/^[a-z_][a-z0-9_]*$/i.test(alias)) throw new Error(`sqlDirname: bad alias ${alias}`);
   return `case when strpos(${alias}.rel_path, '/') = 0 then '' else regexp_replace(${alias}.rel_path, '/[^/]*$', '') end`;
 }
+
+/**
+ * Directories that never hold music: dot-dirs, NAS housekeeping (Synology
+ * `@eaDir` thumbnail trees were 89,458 of the 161,960 directories under the
+ * owner's root — every `@eaDir/<file>/SYNOPHOTO_*.jpg` used to be indexed as
+ * a sidecar), recycle bins and snapshots.
+ */
+const SKIP_DIRS = new Set(['@eaDir', '#recycle', '#snapshot', '$RECYCLE.BIN', 'System Volume Information', 'lost+found']);
+export function skipDir(name: string): boolean {
+  return name.startsWith('.') || SKIP_DIRS.has(name);
+}

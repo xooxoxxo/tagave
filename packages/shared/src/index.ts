@@ -558,3 +558,6 @@ export * from './albumMoves.js';
 
 // Get missing albums through Lidarr (the lidarr module)
 export * from './lidarr.js';
+
+// Naming rules, Library care › Organize, the drop pool and its Inbox (0081)
+export * from './naming.js';

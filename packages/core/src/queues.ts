@@ -12,7 +12,7 @@ export const WORKER_QUEUES = [
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
-  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'files.trash', 'files.split', 'files.move', 'lidarr.poll', 'lidarr.get',
+  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'files.trash', 'files.split', 'files.move', 'lidarr.poll', 'lidarr.get', 'pool.scan',
 ] as const;
 
 /**
@@ -37,6 +37,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   // Lidarr (Get missing albums): calls to the owner's Lidarr, outside work like the two above
   'lidarr.poll': 'identify.album',
   'lidarr.get': 'identify.album',
+  // the drop pool: reads the pool folder and identifies what is dropped (MusicBrainz, identify's pace)
+  'pool.scan': 'identify.album',
   // a release the owner pasted on Review matches: fetched and scored like identify's
   'edition.add': 'identify.album',
   // cover thumbnails rebuilt from the originals art.fetch keeps on its cache volume

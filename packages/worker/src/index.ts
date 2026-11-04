@@ -29,6 +29,8 @@ import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
 import { listenLinksResolveJob, type ListenLinksResolveJobData } from './jobs/listenLinksResolve.js';
 import { lidarrGetJob, lidarrPollJob, type LidarrGetJobData, type LidarrPollJobData } from './jobs/lidarr.js';
+import { poolScanJob } from './jobs/poolScan.js';
+import type { PoolScanJobData } from '@tagave/shared';
 import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
@@ -115,6 +117,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'listenLinks.resolve': 'stately',
   // one poll queued behind the running one (singletonKey lidarr.poll); one Get all missing per artist
   'lidarr.poll': 'stately',
+  // one scan of the pool queued behind the running one (singletonKey pool.scan, or pool.scan:<library>)
+  'pool.scan': 'stately',
   'lidarr.get': 'stately',
 };
 
@@ -365,6 +369,14 @@ async function main() {
     await boss.work<LidarrGetJobData>('lidarr.get', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
       for (const job of jobs) logger.info({ jobId: job.id, artistId: job.data.artistId, ...(await lidarrGetJob(ctx, job.data)) }, 'lidarr.get');
     });
+    // The drop pool (0081): every two minutes its folder is read, still albums
+    // identified, the confident ones imported (files.move), the rest to Inbox
+    await boss.work<PoolScanJobData>('pool.scan', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) results.push(await poolScanJob(ctx, job.data ?? {}));
+      return results.length === 1 ? results[0] : results;
+    });
+    await boss.schedule('pool.scan', '*/2 * * * *', {}, { singletonKey: 'pool.scan' });
   }
   if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));

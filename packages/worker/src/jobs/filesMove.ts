@@ -25,8 +25,24 @@
  *         written back, the source folder out of the trash, pins restored.
  *
  * Each step leaves an audit_log entry.
+ *
+ * Two more kinds (0081, vault "tagave - Naming Rules and Drop Pool") ride on
+ * the same move, journal and undo:
+ *
+ * organize  an album's files to the path the naming rules give (after a tag
+ *           plan writes its tags, or from Library care › Organize): no tag
+ *           changes, the folder's covers, cue sheets and logs go along, and
+ *           every folder the move empties goes into the trash, its emptied
+ *           parents with it (organize.ts plans it).
+ * import    a dropped album out of the drop pool: tags written in the pool,
+ *           then the files and their companions moved to their rule path;
+ *           the files are not in the library until the scan after the move
+ *           finds them (poolImport.ts plans it).
  */
 import { link, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
+import { organizePlanFor } from './organize.js';
+import { importPlanFor, afterImport, afterImportUndone } from './poolImport.js';
+import { emptyTree, highestEmpty } from '../lib/naming.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parseFile } from 'music-metadata';
@@ -38,7 +54,7 @@ import { tagSnapshotOf } from '@tagave/core/files';
 import { writableRootIds } from '@tagave/db';
 import {
   CanonicalField, IDENTIFY_REQUESTED_BY_OWNER, TRASH_DIR, moveConfidence,
-  type FilesMoveJobData, type MoveCandidate, type MoveJournal, type MoveJournalFile, type MovePlan, type MovePlanFile,
+  type AlbumMoveKind, type FilesMoveJobData, type MoveCandidate, type MoveJournal, type MoveJournalFile, type MovePlan, type MovePlanFile,
   type TagDiffEntry, type TagPolicies, type TagSet,
 } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
@@ -56,6 +72,7 @@ import { fieldsToWriteFrom, fileStateAfterWrite } from './tagsApply.js';
 import { revertDiffsFor } from './tagsRevert.js';
 import { mbRelease, mbSearch, persistFetched } from './identifyAlbum.js';
 import { scanDirJob } from './scanDir.js';
+import { scanParseJob } from './scanParse.js';
 import { clusterDirJob, retireEmptyAlbums } from './clusterDir.js';
 
 /** The tag plan preset a move writes with: ids and album fields overwritten, titles and genres filled. */
@@ -72,9 +89,13 @@ export interface MoveDeps {
 }
 
 export interface MoveRow {
-  id: string; libraryId: string; sourceAlbumId: string | null; targetAlbumId: string | null;
+  id: string; kind: AlbumMoveKind; tagPlanId: string | null;
+  libraryId: string; sourceAlbumId: string | null; targetAlbumId: string | null;
   releaseId: string | null; releaseMbid: string | null; trackIds: string[]; state: string;
-  query: { artist: string; title: string } | null; plan: MovePlan | null; journal: MoveJournal | null;
+  query: {
+    artist?: string; title?: string; fileIds?: string[]; poolItemId?: string; releaseId?: string; releaseMbid?: string; existing?: 'replace' | 'keepBoth';
+  } | null;
+  plan: MovePlan | null; journal: MoveJournal | null;
   createdBy: string | null; undoRequested: boolean;
 }
 
@@ -82,7 +103,7 @@ class MoveStop extends Error {}
 
 async function loadRow(ctx: WorkerContext, moveId: string): Promise<MoveRow | null> {
   const [r] = (await ctx.sql`
-    select id::text as id, library_id::text as "libraryId", source_album_id::text as "sourceAlbumId",
+    select id::text as id, kind, tag_plan_id::text as "tagPlanId", library_id::text as "libraryId", source_album_id::text as "sourceAlbumId",
            target_album_id::text as "targetAlbumId", release_id::text as "releaseId", release_mbid::text as "releaseMbid",
            source_track_ids::text[] as "trackIds", state, query, plan, journal, created_by::text as "createdBy",
            undo_requested as "undoRequested"
@@ -96,6 +117,9 @@ async function fail(ctx: WorkerContext, row: MoveRow, err: unknown, from: string
                  where id = ${row.id} and state = ${from}`;
   return { state: 'failed', error };
 }
+
+/** The audit actions of a kind: album.move, album.organize, pool.import (and their .failed, .undone). */
+export const AUDIT_ACTION: Record<AlbumMoveKind, string> = { move: 'album.move', organize: 'album.organize', import: 'pool.import' };
 
 async function audit(ctx: Pick<WorkerContext, 'sql'>, row: MoveRow, action: string, payload: Record<string, unknown>): Promise<void> {
   await ctx.sql`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id, payload)
@@ -388,7 +412,7 @@ export async function planMove(ctx: WorkerContext, row: MoveRow, deps: Pick<Move
 // ---------------------------------------------------------------- move and undo
 
 /** Puts `from` at `to` only if nothing is there: a hard link refuses a taken name; where links are not possible, look first and rename. */
-async function placeNew(from: string, to: string): Promise<void> {
+export async function placeNew(from: string, to: string): Promise<void> {
   try {
     await link(from, to);
   } catch (err) {
@@ -409,6 +433,18 @@ async function trashEmptyDir(root: string, dir: string, day: string): Promise<st
   const abs = await onDisk(root, dir);
   if (!abs) return null;
   if ((await readdir(abs)).length > 0) return null;
+  return trashTree(root, abs, dir, day);
+}
+
+/** A folder that holds only empty folders into the trash, as one rename. */
+async function trashEmptyTree(root: string, dir: string, day: string): Promise<string | null> {
+  if (dir === '') return null;
+  const abs = await onDisk(root, dir);
+  if (!abs || !(await emptyTree(abs))) return null;
+  return trashTree(root, abs, dir, day);
+}
+
+async function trashTree(root: string, abs: string, dir: string, day: string): Promise<string> {
   await ensureTrashDir(root);
   let rel = `${TRASH_DIR}/${day}/${dir}`;
   for (let n = 2; await exists(path.join(root, rel)); n++) rel = `${TRASH_DIR}/${day}-${n}/${dir}`;
@@ -424,12 +460,13 @@ async function trashEmptyUpTo(root: string, dir: string, top: string, day: strin
   }
 }
 
-/** Writes tags and records the file's new state (as tags.apply does). */
-async function writeTags(ctx: WorkerContext, deps: MoveDeps, fileId: string, abs: string, diff: TagDiffEntry[]): Promise<void> {
+/** Writes tags and records the file's new state (as tags.apply does); a file not in the library yet (an import) has no row. */
+async function writeTags(ctx: WorkerContext, deps: MoveDeps, fileId: string | null, abs: string, diff: TagDiffEntry[]): Promise<void> {
   const fields = fieldsToWriteFrom(diff);
   if (Object.keys(fields).length === 0) return;
   const result = await deps.writer.write(abs, fields as TagSet, { id3Version: '2.4', multiValueSeparator: '; ' });
   if (result.error) throw new MoveStop(result.code === 'hash_mismatch' ? `${path.basename(abs)}: the audio would change` : `${path.basename(abs)}: ${result.error}`);
+  if (!fileId) return;
   const metadata = await parseFile(abs);
   const stats = await fs.stat(abs, { bigint: true });
   const state = fileStateAfterWrite({ size: stats.size, mtimeMs: Number(stats.mtimeMs), dev: stats.dev, ino: stats.ino }, tagSnapshotOf(metadata), '');
@@ -445,7 +482,7 @@ const undoDiff = (f: MoveJournalFile): TagDiffEntry[] => revertDiffsFor(f.before
 interface Done {
   dirs: Array<{ rootId: string; dir: string }>;
   /** each moved file at its old and its new path (the player re-reads both folders) */
-  paths: Array<{ fileId: string; rootId: string; relPath: string }>;
+  paths: Array<{ fileId: string | null; rootId: string; relPath: string }>;
 }
 
 /**
@@ -453,6 +490,10 @@ interface Done {
  * the files are in now relinked to their releases (a new album is matched to
  * the target release), the player told, the counts and checks refreshed.
  * Best effort: the files are where they belong whatever fails here.
+ *
+ * An import's files are new to the library: they are read right away (not
+ * at the next parse batch), so the album they form can be matched to the
+ * release the import was for.
  */
 async function settle(ctx: WorkerContext, row: MoveRow, done: Done, matchTo: string | null): Promise<void> {
   const step = async (what: string, fn: () => Promise<unknown>) => {
@@ -460,28 +501,48 @@ async function settle(ctx: WorkerContext, row: MoveRow, done: Done, matchTo: str
   };
   const dirs = [...new Map(done.dirs.map((d) => [`${d.rootId}\n${d.dir}`, d])).values()];
   for (const d of dirs) await step('scan', () => scanDirJob(ctx, { scanRootId: d.rootId, dirPath: d.dir, reason: 'move' }));
+  // files the scan just found (an import): read now, so the album forms with their tags
+  let found: string[] = [];
+  if (row.kind === 'import') {
+    await step('parse', async () => {
+      for (const d of dirs) {
+        const like = `${d.dir.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}/%`;
+        const ids = ((await ctx.sql`
+          select id::text as id from files where scan_root_id = ${d.rootId} and rel_path like ${like} and status = 'present'`) as unknown as Array<{ id: string }>).map((r) => r.id);
+        found = [...found, ...ids];
+        if (ids.length) await scanParseJob(ctx, { audioFileIds: ids });
+      }
+    });
+  }
   for (const d of dirs) await step('cluster', () => clusterDirJob(ctx, { libraryId: row.libraryId, scanRootId: d.rootId, dirPath: d.dir }));
   // an album left with no song in a folder the move emptied (clustering a folder that is gone does not reach it)
   await step('retire', () => retireEmptyAlbums(ctx, row.libraryId, dirs[0]?.dir ?? '', dirs.map((d) => d.dir)));
+  const fileIds = [...new Set([...done.paths.map((p) => p.fileId).filter((x): x is string => !!x), ...found])];
   const albums = (await ctx.sql`
     select distinct la.id::text as id, la.state, la.release_id::text as "releaseId"
       from local_tracks lt join local_albums la on la.id = lt.local_album_id
-     where lt.audio_file_id = any(${[...new Set(done.paths.map((p) => p.fileId))]}::uuid[])
+     where lt.audio_file_id = any(${fileIds}::uuid[])
     union
     select la.id::text, la.state, la.release_id::text from local_albums la
      where la.id = any(${[row.sourceAlbumId, row.targetAlbumId].filter((x): x is string => !!x)}::uuid[])`) as unknown as Array<{ id: string; state: string; releaseId: string | null }>;
   const [rel] = matchTo ? (await ctx.sql`select mbid::text as mbid from releases where id = ${matchTo}`) as unknown as Array<{ mbid: string | null }> : [];
   for (const a of albums) {
-    if (a.state === 'matched' && a.releaseId) await step('link', () => linkAlbumTracks(ctx, a.id));
+    if (a.state === 'matched' && a.releaseId && (!matchTo || a.releaseId === matchTo)) await step('link', () => linkAlbumTracks(ctx, a.id));
     else if (matchTo && rel?.mbid) {
-      // a new album of moved files: matched to the release the owner chose
+      // a new album of moved files: matched to the release the owner chose (or the import was for)
       await step('identify', () => ctx.boss.send('identify.album', { localAlbumId: a.id, force: true, pinnedMbid: rel.mbid, requestedBy: IDENTIFY_REQUESTED_BY_OWNER },
         { singletonKey: `identify:${a.id}`, priority: 100 }));
     }
   }
   await step('player', async () => {
-    const roots = new Map(((await ctx.sql`select id::text as id, path from scan_roots where id = any(${[...new Set(done.paths.map((p) => p.rootId))]}::uuid[])`) as unknown as Array<{ id: string; path: string }>).map((r) => [r.id, r.path]));
-    await requestPlayerRescan(ctx, done.paths.map((p) => ({ libraryId: row.libraryId, fileId: p.fileId, scanRootPath: roots.get(p.rootId) ?? '', relPath: p.relPath })));
+    const rootIds = [...new Set(done.paths.map((p) => p.rootId))];
+    const roots = new Map(((await ctx.sql`select id::text as id, path from scan_roots where id = any(${rootIds}::uuid[])`) as unknown as Array<{ id: string; path: string }>).map((r) => [r.id, r.path]));
+    const paths = done.paths.filter((p): p is typeof p & { fileId: string } => !!p.fileId);
+    for (const id of found) {
+      const [f] = (await ctx.sql`select rel_path as "relPath", scan_root_id::text as "rootId" from files where id = ${id}`) as unknown as Array<{ relPath: string; rootId: string }>;
+      if (f) paths.push({ fileId: id, rootId: f.rootId, relPath: f.relPath });
+    }
+    await requestPlayerRescan(ctx, paths.map((p) => ({ libraryId: row.libraryId, fileId: p.fileId, scanRootPath: roots.get(p.rootId) ?? '', relPath: p.relPath })));
   });
   await step('gaps', () => ctx.boss.send('gaps.recompute', { libraryId: row.libraryId, albumIds: albums.map((a) => a.id) }, {}));
   await step('facets', () => markLibraryDirty(ctx, row.libraryId));
@@ -502,33 +563,46 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
   if (!plan) return fail(ctx, row, new Error('No plan'), 'moving');
   const day = trashDay(deps.now?.() ?? new Date());
   const work = plan.files.filter((f): f is MovePlanFile & { toPath: string } => !!f.toPath);
-  const journal: MoveJournal = { scanRootId: plan.scanRootId, files: [], trashedDir: null, madeDir: null, pins: [] };
+  const journal: MoveJournal = { scanRootId: plan.scanRootId, files: [], trashedDir: null, madeDir: null, pins: [], trashedDirs: [], extras: [] };
+  const extras = (plan.extras ?? []).filter((e) => fold(e.fromPath) !== fold(e.toPath));
   let root = '';
   try {
-    if (work.length === 0) throw new MoveStop('No song pairs with a track of that album');
+    if (work.length === 0) throw new MoveStop(row.kind === 'move' ? 'No song pairs with a track of that album' : 'Nothing to move');
     if (!(await writableRootIds(ctx.sql, row.libraryId)).has(plan.scanRootId)) throw new MoveStop('The music folder is read-only');
     const [r] = (await ctx.sql`select path from scan_roots where id = ${plan.scanRootId}`) as unknown as Array<{ path: string }>;
     if (!r) throw new MoveStop('The music folder is gone');
     root = r.path;
     // the files still where the plan found them, the new names all free
+    const ids = work.map((f) => f.fileId).filter((x): x is string => !!x);
     const rows = (await ctx.sql`
-      select id::text as id, rel_path as "relPath", scan_root_id::text as "rootId", status from files where id = any(${work.map((f) => f.fileId)}::uuid[])`) as unknown as Array<{ id: string; relPath: string; rootId: string; status: string }>;
+      select id::text as id, rel_path as "relPath", scan_root_id::text as "rootId", status from files where id = any(${ids}::uuid[])`) as unknown as Array<{ id: string; relPath: string; rootId: string; status: string }>;
     const byId = new Map(rows.map((x) => [x.id, x]));
     const sources = new Map<string, string>();
     const seen = new Set<string>();
+    const key = (f: { fileId: string | null; fromPath: string }) => f.fileId ?? `path:${f.fromPath}`;
     for (const f of work) {
-      const now = byId.get(f.fileId);
-      if (!now || now.status !== 'present' || now.relPath !== f.fromPath || now.rootId !== plan.scanRootId) throw new MoveStop(`${f.title}: the file changed since the preview`);
+      if (f.fileId) {
+        const now = byId.get(f.fileId);
+        if (!now || now.status !== 'present' || now.relPath !== f.fromPath || now.rootId !== plan.scanRootId) throw new MoveStop(`${f.title}: the file changed since the preview`);
+      }
       const abs = await onDisk(root, f.fromPath);
       if (!abs) throw new MoveStop(`${f.title}: the file is not in its folder`);
-      sources.set(f.fileId, abs);
+      sources.set(key(f), abs);
       if (seen.has(fold(f.toPath))) throw new MoveStop(`${path.basename(f.toPath)} is given to two songs`);
       seen.add(fold(f.toPath));
       if (fold(f.toPath) !== fold(f.fromPath) && (await onDisk(root, f.toPath))) throw new MoveStop(`${path.basename(f.toPath)} is already in the folder`);
     }
+    const extraSources = new Map<string, string>();
+    for (const e of extras) {
+      const abs = await onDisk(root, e.fromPath);
+      if (!abs) continue; // gone since the plan: nothing to take along
+      if (seen.has(fold(e.toPath)) || (await onDisk(root, e.toPath))) throw new MoveStop(`${path.basename(e.toPath)} is already in the folder`);
+      seen.add(fold(e.toPath));
+      extraSources.set(e.fromPath, abs);
+    }
     // one filesystem: a rename never copies
     const rootDev = (await stat(root)).dev;
-    for (const abs of sources.values()) if ((await stat(abs)).dev !== rootDev) throw new MoveStop('On another disk than its music folder');
+    for (const abs of [...sources.values(), ...extraSources.values()]) if ((await stat(abs)).dev !== rootDev) throw new MoveStop('On another disk than its music folder');
 
     // 1. the folder, when new
     const toAbs = path.join(root, plan.toDir);
@@ -545,7 +619,7 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
         tagged: false, moved: false,
       };
       journal.files.push(entry);
-      await writeTags(ctx, deps, f.fileId, sources.get(f.fileId)!, f.diff);
+      await writeTags(ctx, deps, f.fileId, sources.get(key(f))!, f.diff);
       entry.tagged = f.diff.length > 0;
     }
     await saveJournal(ctx, row, journal);
@@ -553,30 +627,51 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
     // 3. the names, never over a file
     for (const entry of journal.files) {
       if (fold(entry.toPath) === fold(entry.fromPath)) continue;
-      await placeNew(sources.get(entry.fileId)!, path.join(root, entry.toPath));
+      await placeNew(sources.get(key(entry))!, path.join(root, entry.toPath));
       entry.moved = true;
-      await ctx.sql`update files set rel_path = ${entry.toPath} where id = ${entry.fileId}`;
+      if (entry.fileId) await ctx.sql`update files set rel_path = ${entry.toPath} where id = ${entry.fileId}`;
+    }
+    // 4. the covers, cue sheets and logs with them
+    for (const e of extras) {
+      const from = extraSources.get(e.fromPath);
+      if (!from) continue;
+      const entry = { fromPath: e.fromPath, toPath: e.toPath, moved: false };
+      journal.extras!.push(entry);
+      await mkdir(path.dirname(path.join(root, e.toPath)), { recursive: true });
+      await placeNew(from, path.join(root, e.toPath));
+      entry.moved = true;
     }
     await saveJournal(ctx, row, journal);
   } catch (err) {
     ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: stopped, putting back');
     if (root) await putBack(ctx, row, deps, root, journal, day);
     const r = await fail(ctx, row, err, 'moving');
-    await audit(ctx, row, 'album.move.failed', { moveId: row.id, error: r.error });
+    await audit(ctx, row, `${AUDIT_ACTION[row.kind]}.failed`, { moveId: row.id, error: r.error });
     return r;
   }
 
   // the moved files' pins to their old album go (the scan groups them by their new tags)
-  const fileIds = journal.files.map((f) => f.fileId);
+  const fileIds = journal.files.map((f) => f.fileId).filter((x): x is string => !!x);
   journal.pins = (await ctx.sql`
     delete from cluster_overrides where audio_file_id = any(${fileIds}::uuid[])
     returning audio_file_id::text as "audioFileId", local_album_id::text as "localAlbumId"`) as unknown as MoveJournal['pins'];
   // an emptied source folder into the trash, never rmdir
-  const fromDirs = [...new Set(journal.files.filter((f) => f.moved).map((f) => relDirname(f.fromPath)))];
-  for (const d of fromDirs) {
+  const fromDirs = [...new Set([
+    ...journal.files.filter((f) => f.moved).map((f) => relDirname(f.fromPath)),
+    ...(journal.extras ?? []).filter((e) => e.moved).map((e) => relDirname(e.fromPath)),
+  ])];
+  for (const d of fromDirs.sort((a, b) => b.length - a.length)) {
     try {
-      const rel = await trashEmptyDir(root, d, day);
-      if (rel && !journal.trashedDir) journal.trashedDir = { dir: d, trashRelPath: rel };
+      if (row.kind === 'move') {
+        const rel = await trashEmptyDir(root, d, day);
+        if (rel && !journal.trashedDir) journal.trashedDir = { dir: d, trashRelPath: rel };
+        continue;
+      }
+      // organize, import: the emptied folder and the parents it leaves empty, as one
+      const top = await highestEmpty(root, d, plan.keepDir ? [plan.keepDir] : []);
+      if (!top) continue;
+      const rel = await trashEmptyTree(root, top, day);
+      if (rel) journal.trashedDirs!.push({ dir: top, trashRelPath: rel });
     } catch (err) {
       ctx.logger.warn({ moveId: row.id, dir: d, err: (err as Error).message }, 'files.move: the emptied folder stays');
     }
@@ -586,14 +681,23 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
     await tx`update album_moves set state = 'done', journal = ${JSON.stringify(journal)}::jsonb, error = null, updated_at = now(), finished_at = now()
               where id = ${row.id}`;
     await tx`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id, payload)
-             values (${row.libraryId}, ${row.createdBy}, 'album.move', 'local_album', ${row.sourceAlbumId},
-                     ${JSON.stringify({ moveId: row.id, targetAlbumId: row.targetAlbumId, releaseId: plan.release.id, toDir: plan.toDir, files: journal.files.map((f) => ({ fileId: f.fileId, from: f.fromPath, to: f.toPath, fields: f.diff.map((d) => d.field) })), trashedDir: journal.trashedDir })}::jsonb)`;
+             values (${row.libraryId}, ${row.createdBy}, ${AUDIT_ACTION[row.kind]}, 'local_album', ${row.sourceAlbumId},
+                     ${JSON.stringify({
+                       moveId: row.id, kind: row.kind, tagPlanId: row.tagPlanId, targetAlbumId: row.targetAlbumId, releaseId: plan.release.id, toDir: plan.toDir,
+                       files: journal.files.map((f) => ({ fileId: f.fileId, from: f.fromPath, to: f.toPath, fields: f.diff.map((d) => d.field) })),
+                       extras: (journal.extras ?? []).map((e) => ({ from: e.fromPath, to: e.toPath })),
+                       trashedDir: journal.trashedDir, trashedDirs: journal.trashedDirs,
+                     })}::jsonb)`;
   });
-  ctx.logger.info({ moveId: row.id, files: moved }, 'files.move: done');
+  ctx.logger.info({ moveId: row.id, kind: row.kind, files: moved }, 'files.move: done');
+  const toDirs = [...new Set(journal.files.map((f) => relDirname(f.toPath)))];
+  // the album folder holds disc folders or the songs; scanning it covers both
+  const scanTo = row.kind === 'move' ? toDirs : [plan.toDir];
   await settle(ctx, row, {
-    dirs: [...fromDirs.map((dir) => ({ rootId: plan.scanRootId, dir })), ...[...new Set(journal.files.map((f) => relDirname(f.toPath)))].map((dir) => ({ rootId: plan.scanRootId, dir }))],
+    dirs: [...fromDirs.map((dir) => ({ rootId: plan.scanRootId, dir })), ...scanTo.map((dir) => ({ rootId: plan.scanRootId, dir }))],
     paths: pathsOf(journal),
-  }, row.targetAlbumId ? null : plan.release.id);
+  }, row.kind === 'organize' ? null : row.targetAlbumId ? null : plan.release.id);
+  if (row.kind === 'import') await afterImport(ctx, row);
 
   // Undo pressed while the move ran
   const [after] = (await ctx.sql`select undo_requested as u from album_moves where id = ${row.id}`) as unknown as Array<{ u: boolean }>;
@@ -608,23 +712,37 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
 }
 
 /**
- * Puts back what a journal says was done: names first (each file to its old
- * name, never over a file), then tags; the folders the move made and left
- * empty into the trash. Returns the problems; each entry is marked undone as
- * it goes, so a second run continues.
+ * Puts back what a journal says was done: the trashed folders first, then
+ * names (each file to its old name, never over a file), its companions, then
+ * tags; the folders the move made and left empty into the trash. Returns the
+ * problems; each entry is marked undone as it goes, so a second run continues.
  */
 async function putBack(ctx: WorkerContext, row: MoveRow, deps: MoveDeps, root: string, journal: MoveJournal, day: string): Promise<string[]> {
   const problems: string[] = [];
+  const restore = async (t: { dir: string; trashRelPath: string }) => {
+    const back = path.join(root, t.dir);
+    const from = path.join(root, t.trashRelPath);
+    if (!(await exists(back)) && (await exists(from))) {
+      await mkdir(path.dirname(back), { recursive: true });
+      await rename(from, back);
+    }
+  };
   if (journal.trashedDir) {
     try {
-      const back = path.join(root, journal.trashedDir.dir);
-      const from = path.join(root, journal.trashedDir.trashRelPath);
-      if (!(await exists(back)) && (await exists(from))) {
-        await mkdir(path.dirname(back), { recursive: true });
-        await rename(from, back);
-      }
+      await restore(journal.trashedDir);
       journal.trashedDir = null;
     } catch (err) {
+      problems.push(`The old folder stays in the trash: ${(err as Error).message}`);
+    }
+  }
+  // shallowest first: a parent comes back before what was inside it
+  const trashed = [...(journal.trashedDirs ?? [])].sort((a, b) => a.dir.length - b.dir.length);
+  journal.trashedDirs = [];
+  for (const t of trashed) {
+    try {
+      await restore(t);
+    } catch (err) {
+      journal.trashedDirs.push(t);
       problems.push(`The old folder stays in the trash: ${(err as Error).message}`);
     }
   }
@@ -636,7 +754,7 @@ async function putBack(ctx: WorkerContext, row: MoveRow, deps: MoveDeps, root: s
         await mkdir(path.dirname(path.join(root, f.fromPath)), { recursive: true });
         await placeNew(at, path.join(root, f.fromPath));
         f.moved = false;
-        await ctx.sql`update files set rel_path = ${f.fromPath} where id = ${f.fileId}`;
+        if (f.fileId) await ctx.sql`update files set rel_path = ${f.fromPath} where id = ${f.fileId}`;
       }
       if (f.tagged) {
         const at = await onDisk(root, f.fromPath);
@@ -648,14 +766,32 @@ async function putBack(ctx: WorkerContext, row: MoveRow, deps: MoveDeps, root: s
       problems.push((err as Error).message);
     }
   }
+  for (const e of [...(journal.extras ?? [])].reverse()) {
+    if (!e.moved) continue;
+    try {
+      const at = await onDisk(root, e.toPath);
+      if (!at) throw new MoveStop(`${path.basename(e.toPath)} is not where the move put it`);
+      await mkdir(path.dirname(path.join(root, e.fromPath)), { recursive: true });
+      await placeNew(at, path.join(root, e.fromPath));
+      e.moved = false;
+    } catch (err) {
+      problems.push((err as Error).message);
+    }
+  }
   if (journal.madeDir) {
     try {
-      const dirs = [...new Set(journal.files.map((f) => relDirname(f.toPath)))].sort((a, b) => b.length - a.length);
+      const dirs = [...new Set([...journal.files.map((f) => relDirname(f.toPath)), ...(journal.extras ?? []).map((e) => relDirname(e.toPath))])]
+        .sort((a, b) => b.length - a.length);
       for (const d of dirs) await trashEmptyUpTo(root, d, journal.madeDir, day);
-      await trashEmptyDir(root, journal.madeDir, day);
+      await trashEmptyTree(root, journal.madeDir, day);
       journal.madeDir = null;
     } catch (err) {
       ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: the made folder stays');
+    }
+  } else if (row.kind !== 'move') {
+    // the album folder was there before (an organize into a folder of the same name, other case): only what it left empty goes
+    for (const d of [...new Set(journal.files.map((f) => relDirname(f.toPath)))]) {
+      try { await trashEmptyTree(root, d, day); } catch { /* stays */ }
     }
   }
   return problems;
@@ -674,6 +810,9 @@ export async function undoMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps)
   const day = trashDay(deps.now?.() ?? new Date());
   const toDirs = [...new Set(journal.files.map((f) => relDirname(f.toPath)))];
   const fromDirs = [...new Set(journal.files.map((f) => relDirname(f.fromPath)))];
+  // an import's files go back into the pool: their library rows (made by the scan after the import) go first
+  const importedIds = row.kind === 'import' ? ((await ctx.sql`
+    select id::text as id from files where scan_root_id = ${journal.scanRootId} and rel_path = any(${journal.files.map((f) => f.toPath)}::text[])`) as unknown as Array<{ id: string }>).map((x) => x.id) : [];
   const problems = await putBack(ctx, row, deps, r.path, journal, day);
   if (problems.length === 0) {
     // the pins the move lifted, where their albums still are
@@ -694,10 +833,12 @@ export async function undoMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps)
                     updated_at = now(), undone_at = case when ${state} = 'undone' then now() else undone_at end
               where id = ${row.id}`;
     await tx`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id, payload)
-             values (${row.libraryId}, ${row.createdBy}, ${problems.length ? 'album.move.undo_failed' : 'album.move.undone'}, 'local_album', ${row.sourceAlbumId},
-                     ${JSON.stringify({ moveId: row.id, problems })}::jsonb)`;
+             values (${row.libraryId}, ${row.createdBy}, ${`${AUDIT_ACTION[row.kind]}.${problems.length ? 'undo_failed' : 'undone'}`}, 'local_album', ${row.sourceAlbumId},
+                     ${JSON.stringify({ moveId: row.id, kind: row.kind, problems })}::jsonb)`;
   });
-  await settle(ctx, row, { dirs: [...fromDirs, ...toDirs].map((dir) => ({ rootId: journal.scanRootId, dir })), paths: pathsOf(journal) }, null);
+  if (row.kind === 'import' && problems.length === 0) await afterImportUndone(ctx, row, importedIds);
+  const settleDirs = row.kind === 'import' ? [plan.toDir] : [...fromDirs, ...toDirs, ...(row.kind === 'organize' ? [plan.toDir] : [])];
+  await settle(ctx, row, { dirs: settleDirs.map((dir) => ({ rootId: journal.scanRootId, dir })), paths: pathsOf(journal) }, null);
   return { state, problems: problems.length };
 }
 
@@ -708,14 +849,90 @@ export async function filesMoveJob(ctx: WorkerContext, data: FilesMoveJobData, d
   const want = { search: 'searching', plan: 'planning', move: 'moving', undo: 'undoing' }[data.action];
   if (row.state !== want) return { skipped: `state ${row.state}` };
   if (data.action === 'search') return searchMove(ctx, row, deps ?? {});
-  if (data.action === 'plan') return planMove(ctx, row, deps ?? {});
-  if (deps) return data.action === 'move' ? runMove(ctx, row, deps) : undoMove(ctx, row, deps);
+  if (data.action === 'plan' && row.kind === 'move') return planMove(ctx, row, deps ?? {});
+  const run = async (d: MoveDeps) => {
+    if (data.action === 'undo') return undoMove(ctx, row, d);
+    if (data.action === 'move') return runMove(ctx, row, d);
+    // organize and import: planned, then moved in the same job when nothing stands in the way
+    const planned = row.kind === 'organize' ? await planOrganize(ctx, row) : await planImport(ctx, row, d);
+    if (planned.state !== 'moving') return planned;
+    const fresh = await loadRow(ctx, row.id);
+    return fresh ? runMove(ctx, fresh, d) : planned;
+  };
+  if (deps) return run(deps);
   // the mutagen sidecar only to write, closed after
   const tags = new MutagenTagWriter();
   try {
-    const writer = new SafeFileWriter(tags);
-    return data.action === 'move' ? await runMove(ctx, row, { writer }) : await undoMove(ctx, row, { writer });
+    return await run({ writer: new SafeFileWriter(tags) });
   } finally {
     await tags.close();
   }
+}
+
+/** Organize ('planning' → 'moving', or 'failed' with why): the plan from organize.ts. */
+async function planOrganize(ctx: WorkerContext, row: MoveRow): Promise<Record<string, unknown>> {
+  try {
+    const { plan, sourceAlbumId } = await organizePlanFor(ctx, row.libraryId, row.query?.fileIds ?? []);
+    return await startPlanned(ctx, row, plan, sourceAlbumId, null);
+  } catch (err) {
+    ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: organize not planned');
+    return fail(ctx, row, err, 'planning');
+  }
+}
+
+/** Import ('planning' → 'moving', or 'failed'): the plan from poolImport.ts. */
+async function planImport(ctx: WorkerContext, row: MoveRow, deps: MoveDeps): Promise<Record<string, unknown>> {
+  try {
+    const { plan, existingAlbumId } = await importPlanFor(ctx, row);
+    void deps;
+    return await startPlanned(ctx, row, plan, null, existingAlbumId);
+  } catch (err) {
+    ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: import not planned');
+    const r = await fail(ctx, row, err, 'planning');
+    if (row.kind === 'import') await afterImport(ctx, row);
+    return r;
+  }
+}
+
+/** A plan with no clash goes straight to the move; a clash stops it, said in the plan. */
+async function startPlanned(ctx: WorkerContext, row: MoveRow, plan: MovePlan, sourceAlbumId: string | null, targetAlbumId: string | null): Promise<Record<string, unknown>> {
+  const clash = plan.files.find((f) => f.clash);
+  if (clash) {
+    await ctx.sql`update album_moves set plan = ${JSON.stringify(plan)}::jsonb, source_album_id = coalesce(${sourceAlbumId}::uuid, source_album_id), updated_at = now()
+                   where id = ${row.id}`;
+    throw new MoveStop(`${path.basename(clash.toPath ?? clash.fromPath)} is already in the folder`);
+  }
+  if (!plan.files.some((f) => f.toPath && fold(f.toPath) !== fold(f.fromPath)) && !(plan.extras ?? []).some((e) => fold(e.toPath) !== fold(e.fromPath))) {
+    throw new MoveStop('In place already');
+  }
+  const updated = await ctx.sql`
+    update album_moves set state = 'moving', plan = ${JSON.stringify(plan)}::jsonb, release_id = ${plan.release.id || null}::uuid,
+           source_album_id = coalesce(${sourceAlbumId}::uuid, source_album_id), target_album_id = ${targetAlbumId}::uuid,
+           error = null, updated_at = now()
+     where id = ${row.id} and state = 'planning' returning id`;
+  return { state: updated.length ? 'moving' : 'superseded' };
+}
+
+/**
+ * A tag plan's Revert (0081): the organize moves it made, undone from their
+ * journals right here (they write no tags: a tag plan wrote them, and its
+ * revert plan writes them back). A move another Undo is already on is left
+ * to it.
+ */
+export async function undoMovesOfPlan(ctx: WorkerContext, planId: string): Promise<{ tried: number; undone: number }> {
+  const ids = ((await ctx.sql`
+    update album_moves set state = 'undoing', updated_at = now()
+     where tag_plan_id = ${planId} and kind = 'organize' and state = 'done'
+       and jsonb_array_length(coalesce(journal->'files', '[]'::jsonb)) > 0
+    returning id::text as id`) as unknown as Array<{ id: string }>).map((r) => r.id);
+  // never asked to write: an organize move's journal holds no tag changes
+  const writer: MoveDeps['writer'] = { write: async () => ({ error: 'An organize move writes no tags' }) as unknown as WriteResult };
+  let undone = 0;
+  for (const id of ids) {
+    const row = await loadRow(ctx, id);
+    if (!row) continue;
+    const r = await undoMove(ctx, row, { writer });
+    if (r['state'] === 'undone') undone++;
+  }
+  return { tried: ids.length, undone };
 }

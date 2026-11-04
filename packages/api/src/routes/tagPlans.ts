@@ -30,7 +30,8 @@ import {
   type TagPlanScope,
   type TagPolicies,
 } from '@tagave/shared';
-import { getDb } from '../db.js';
+import { getDb, getSql } from '../db.js';
+import { namingSettings } from '../lib/naming.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { albumQueryParts } from './albums.js';
@@ -503,7 +504,10 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         libraryId,
         name: body.name,
         scope,
-        policy: body.policy,
+        // 0081: a plan organizes by default once naming rules are saved
+        policy: body.policy.organize === undefined
+          ? { ...body.policy, organize: (await namingSettings(getSql(), libraryId)).saved }
+          : body.policy,
         status: 'draft',
         stats: {},
         createdBy: request.user.id,
@@ -698,6 +702,9 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
             error: tagPlanItems.error,
             diffs: tagPlanItems.diff,
             matchDistance: tagPlanItems.matchDistance,
+            // 0081 (raw: not in the drizzle schema, see there)
+            pathAfter: sql<string | null>`tag_plan_items.path_after`,
+            pathState: sql<string | null>`tag_plan_items.path_state`,
             ctPosition: canonicalTracks.position,
             ctMediumNo: canonicalTracks.mediumNo,
             ctTitle: canonicalTracks.title,
@@ -722,6 +729,8 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         status: (item.status ?? 'pending') as TagPlanItem['status'],
         ...(item.error ? { error: item.error } : {}),
         diffs: ((item.diffs as any[]) || []).filter((d: any) => !field || d.field === field),
+        ...(item.pathAfter ? { pathAfter: item.pathAfter } : {}),
+        ...(item.pathState === 'clash' || item.pathState === 'unwritable' ? { pathState: item.pathState } : {}),
         ...(item.ctTitle !== null && item.ctTitle !== undefined
           ? {
               releaseTrack: {

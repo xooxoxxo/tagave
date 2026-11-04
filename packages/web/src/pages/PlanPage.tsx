@@ -11,7 +11,8 @@ import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@tagave/shared';
-import { PageShell, Button, Badge, Banner, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
+import { PageShell, Button, Badge, Banner, SegmentedControl, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
+import { usePlanOrganize } from '../hooks/useNaming';
 import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
@@ -294,6 +295,7 @@ export function PlanPage() {
   const revertM = useRevertTagPlan(libraryId, planId);
   const deleteM = useDeleteTagPlan(libraryId, planId);
   const renameM = useRenameTagPlan(libraryId);
+  const organizeM = usePlanOrganize(libraryId, planId);
   const hasResults = !!status && RESULT_STATUSES.has(status);
   const results = useTagPlanResults(libraryId, planId, { enabled: hasResults });
 
@@ -378,6 +380,25 @@ export function PlanPage() {
       await previewM.mutateAsync();
       // Keep polling until the page sees the plan leave 'previewed'; the
       // mutation also refetches the plan, its items and its summary.
+      const wait = awaitAfterPreview(before);
+      if (wait) setAwaiting(wait);
+    } catch (e) {
+      setPreviewRequested(false);
+      setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
+    }
+  };
+
+  // Organize files (0081): the server stores it, puts the plan back to draft
+  // and queues its preview, so this is a preview request like the button's.
+  const setOrganize = async (on: boolean) => {
+    const before = p?.status;
+    setError(null);
+    setPreviewRequested(true);
+    setPreviewAttempt((n) => n + 1);
+    previewAutoFiredRef.current = true;
+    try { sessionStorage.setItem(previewGuardKey(planId), '1'); } catch { /* the ref guards this mount */ }
+    try {
+      await organizeM.mutateAsync(on);
       const wait = awaitAfterPreview(before);
       if (wait) setAwaiting(wait);
     } catch (e) {
@@ -752,6 +773,25 @@ export function PlanPage() {
           </p>
         )}
 
+        {!isRevert && (p.status === 'draft' || p.status === 'previewed') && (
+          <div className={styles.organize}>
+            <span className={styles.organizeLabel}>Organize files</span>
+            <SegmentedControl
+              label="Organize files"
+              value={p.policy.organize ? 'on' : 'off'}
+              onChange={(v) => void setOrganize(v === 'on')}
+              options={[{ value: 'off', label: 'Off', disabled: organizeM.isPending }, { value: 'on', label: 'On', disabled: organizeM.isPending }]}
+            />
+          </div>
+        )}
+        {stats && (stats.filesToMove !== undefined || stats.filesMoveBlocked !== undefined || stats.movesQueued !== undefined) && (
+          <dl className={styles.moveStats}>
+            {stats.filesToMove !== undefined && <div><dt>To move</dt><dd>{stats.filesToMove.toLocaleString()}</dd></div>}
+            {!!stats.filesMoveBlocked && <div><dt>Can’t move</dt><dd>{stats.filesMoveBlocked.toLocaleString()}</dd></div>}
+            {stats.movesQueued !== undefined && <div><dt>Moves queued</dt><dd>{stats.movesQueued.toLocaleString()}</dd></div>}
+          </dl>
+        )}
+
         <details className={styles.details}>
           <summary className={styles.detailsSummary}>Details</summary>
           <dl className={styles.detailsList}>
@@ -849,6 +889,13 @@ export function PlanPage() {
                         )}
                       </span>
                     </button>
+                    {it.pathAfter && (
+                      <p className={styles.movePath}>
+                        <span className={styles.movePathLabel}>Path</span>
+                        <span className={styles.movePathValue}>{it.relPath} → {it.pathAfter}</span>
+                        {it.pathState && <Badge tone={it.pathState === 'clash' ? 'warning' : 'danger'}>{it.pathState === 'clash' ? 'Name taken' : 'Can’t write'}</Badge>}
+                      </p>
+                    )}
                     {open && (
                       <table className={styles.diff}>
                         <colgroup><col className={styles.colField} /><col /><col /><col className={styles.colWhy} /></colgroup>
