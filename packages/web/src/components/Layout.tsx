@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useRouter } from '@tanstack/react-router';
 import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan } from '../hooks';
 import { SearchModal, type SearchScope } from './SearchModal';
@@ -10,6 +10,7 @@ import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
 import { PageBackActionContext, PageBackContext } from './ui/PageShell';
 import { backAction, parentLabel, parentPath } from '../utils/backNav';
+import { trackPlaces, useEntry, useScrollPlace } from '../utils/listPlace';
 import { useAppBarTitle, useSubpage } from './appBarTitle';
 import { pageTitle, pageTitles } from '../utils/pageTitles';
 import { BrandMark } from './BrandMark';
@@ -65,7 +66,14 @@ export function Layout() {
   // While albums are selected, "Albums" leads back to that list, selection intact.
   const albumsReturnSearch = useAlbumsReturnSearch();
 
-  useEffect(() => { main.current?.scrollTo(0, 0); setMenuOpen(false); }, [pathname]);
+  // The page's scroll: back where it was on a Back (the entry's place,
+  // utils/listPlace.ts), the top on a page opened afresh.
+  const [mainEl, setMainEl] = useState<HTMLElement | null>(null);
+  const attachMain = useCallback((el: HTMLElement | null) => { main.current = el; setMainEl(el); }, []);
+  useScrollPlace(mainEl, 'main', useEntry(router.history, pathname), { resetOnEnter: true });
+  // a new history entry forgets the places it overwrites
+  useEffect(() => trackPlaces(router.history), [router]);
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
   // the phone's menu opens under the bar, to the foot: it needs the bar's height
   useLayoutEffect(() => {
     const nav = navRef.current;
@@ -111,6 +119,7 @@ export function Layout() {
   const listScope = pageSearchScope(pathname);
   const searchScope: SearchScope | null = listScope && {
     label: listScope.label,
+    kind: listScope.path === '/albums' ? 'album' : 'artist',
     onPick: (q) => void navigate({ to: listScope.path, search: ((prev: Record<string, unknown>) => ({ ...prev, q })) as never }),
   };
   const canGoBack = router.history.canGoBack();
@@ -228,7 +237,7 @@ export function Layout() {
       <div className={styles.contentArea}>
         {/* The footer scrolls with the page instead of holding a strip of
             every screen; on a phone that strip cost a fifth of the height. */}
-        <main id="main-content" ref={main} tabIndex={-1} className={styles.main}>
+        <main id="main-content" ref={attachMain} tabIndex={-1} className={styles.main}>
           {/* Detail pages: the back button leads the page's title row (the
               page shell renders it); once the title scrolls away this bar
               fades in over the page with the back button and the title. */}
