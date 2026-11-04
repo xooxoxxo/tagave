@@ -131,6 +131,10 @@ docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli
 
 Add `--expect-workers 0` while no worker runs yet. Or on a worker host: `pnpm doctor`.
 
+## A music folder that did not mount
+
+When a scan finds no files in a music folder that had files, it marks nothing missing, and the owner sees **Music folder unreachable** above every page until a scan finishes. With the in-app updater, tagave also mounts the folder again by itself. If the latest scan stopped this way, the updater runs a short helper container from its own image with `--privileged --pid=host`. Only when `MUSIC_DIR` (from `.env`) is a mount in the host's `/etc/fstab` and the host runs systemd, the helper starts that mount unit (`systemctl start`). It then checks that the folder is mounted and not empty, restarts only the containers that bind it (`worker-files`, `app`, `player`), and scans again. The banner says **Reconnecting music folder** in the meantime. It tries at most once every 10 minutes, waits longer after each failure in a row, and writes each attempt to the audit log. It never unmounts anything, never edits fstab and never touches another path or container. Set `TAGAVE_MUSIC_SELF_HEAL=0` in `.env` to turn it off.
+
 ## A page that freezes
 
 The web app can record what keeps the browser busy, so a hang can be looked
