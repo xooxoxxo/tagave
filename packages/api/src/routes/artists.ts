@@ -50,6 +50,8 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     const search = (query['search'] ?? '').trim();
     const sort = parseArtistSort(query['sort']);
     const group = parseArtistGroup(query['group']);
+    // Liked (0085): only the artists the person liked
+    const liked = query['liked'] === 'yes';
 
     await ownedLibrary(request.user.id, libraryId);
     const db = getDb();
@@ -59,7 +61,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
 
     // The worker-built artist_list answers unsearched pages with an index
     // range; a search (or a list never built) computes the rows live.
-    const summary = search ? null : await readArtistListPage(db, libraryId, { sort, group, offset: offsetN, limit: limitN });
+    const summary = search || liked ? null : await readArtistListPage(db, libraryId, { sort, group, offset: offsetN, limit: limitN });
     let page: ArtistRow[];
     let ordered: { total: number; groups: ArtistGroupCount[] };
     if (summary) {
@@ -67,7 +69,12 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
       ordered = summary;
       reply.header('x-tagave-artists', 'summary');
     } else {
-      const all = orderArtists(await fetchArtistRows(db, libraryId, search), { sort, group });
+      let rows = await fetchArtistRows(db, libraryId, search);
+      if (liked) {
+        const likedIds = new Set(((await db.execute(sql`select artist_id::text as id from likes where user_id = ${request.user.id} and kind = 'artist'`)) as unknown as Array<{ id: string }>).map((r) => r.id));
+        rows = rows.filter((r) => r.id !== null && likedIds.has(r.id));
+      }
+      const all = orderArtists(rows, { sort, group });
       page = all.items.slice(offsetN, offsetN + limitN);
       ordered = { total: all.items.length, groups: all.groups };
       reply.header('x-tagave-artists', 'live');

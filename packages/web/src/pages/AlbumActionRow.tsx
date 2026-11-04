@@ -2,16 +2,17 @@
  * The album's action row (changes 2026-10-16 evening: conventions; owner
  * 2026-10-17: "let's try the raised icon. only single ... is enough"):
  * raised (embossed) icons only, read from the slot list (albumActions.ts):
- * Shuffle | Play | (space). Play is the primary action by size alone: a
+ * Shuffle | Play | Like. Play is the primary action by size alone: a
  * larger glyph in the accent, the same niche on hover and the same focus
  * ring as the others; no fill, no circle. Icon only (its word is for
  * screen readers). The ⋮ lives in the header, once.
  *
  * A slot with nothing in it keeps its width and draws nothing, so on a
  * phone Play stays on the row's centre line. While Play has to wait, one
- * quiet line under the row says why. Without a player there is no row.
+ * quiet line under the row says why. Without a player the row holds the
+ * heart alone; with neither, there is no row.
  */
-import type { Ref } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { EmbossIconButton, PauseIcon, PlayIcon, ShuffleIcon } from '../components/ui';
 import { SLOTS, playLabel, rowSlots, type AlbumActionContext, type AlbumActionId, type AlbumPlayState } from './albumActions';
 import styles from './AlbumActionRow.module.css';
@@ -25,6 +26,8 @@ export interface AlbumActionRowProps {
   context: AlbumActionContext;
   /** Play's state; absent without a player */
   play?: AlbumPlayState | null;
+  /** the album's heart (LikeKey) for the Like slot */
+  like?: ReactNode;
   /** the slot list; SLOTS unless a person's own list is given */
   slots?: readonly AlbumActionId[];
   rowRef?: Ref<HTMLDivElement>;
@@ -51,20 +54,23 @@ export function PlayButton({ play, noteId }: { play: AlbumPlayState; noteId?: st
   );
 }
 
-export function AlbumActionRow({ context, play = null, slots, rowRef }: AlbumActionRowProps) {
-  const cells = rowSlots(slots ?? SLOTS, { ...context, player: context.player && !!play });
-  if (!cells || !play) return null;
-  const note = play.note ?? null;
-  const waiting = !!play.disabled && play.mode === 'play';
-  const busy = !!play.loading;
+export function AlbumActionRow({ context, play = null, like = null, slots, rowRef }: AlbumActionRowProps) {
+  const cells = rowSlots(slots ?? SLOTS, { ...context, player: context.player && !!play, like: context.like ?? !!like });
+  if (!cells) return null;
+  const note = play?.note ?? null;
+  const waiting = !!play?.disabled && play?.mode === 'play';
+  const busy = !!play?.loading;
   return (
     <div className={styles.wrap}>
       <div ref={rowRef} className={styles.row} role="group" aria-label="Album actions" data-album-actions="">
         {cells.map((s) => {
-          if (s.filled && s.id === 'play') {
+          if (s.filled && s.id === 'like' && like) {
+            return <span key={s.id} className={styles.slot} data-slot="like">{like}</span>;
+          }
+          if (s.filled && s.id === 'play' && play) {
             return <span key={s.id} className={styles.slot} data-slot="play"><PlayButton play={play} noteId={note ? PLAY_NOTE_ID : undefined} /></span>;
           }
-          if (s.filled && s.id === 'shuffle') {
+          if (s.filled && s.id === 'shuffle' && play) {
             return (
               <span key={s.id} className={styles.slot} data-slot="shuffle">
                 <EmbossIconButton

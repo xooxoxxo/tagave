@@ -18,6 +18,9 @@ vi.mock('@tanstack/react-router', () => ({
   },
 }));
 
+// the heart reads the person's likes (react-query); the layouts are tested without it
+vi.mock('../components/LikeKey', () => ({ LikeKey: () => null }));
+
 import {
   aboutFacts, albumKind, detailsState, kickerLine, kindLine, mosaicAlbums, ownedLine, pageSections, regionName, shelves, yearsLine, SECTION_IDS,
 } from './artistPageView';

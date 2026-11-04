@@ -84,6 +84,9 @@
   min-width: 0;
 }
 
+/* the playing song's heart, right after its names (Spotify's place) */
+.like { flex: none; display: inline-flex; margin-left: calc(-1 * var(--space-xs)); }
+
 .title,
 .artist {
   min-width: 0;

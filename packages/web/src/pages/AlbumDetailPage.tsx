@@ -54,6 +54,8 @@ import { CandidateTable, TrackComparison } from './AlbumMatchTable';
 import { STATE_LABEL, artPollMs, dur } from './albumFormat';
 import { AlbumFlowHeader } from './AlbumFlowHeader';
 import { AlbumActionRow } from './AlbumActionRow';
+import { LikeKey } from '../components/LikeKey';
+import { useLikesOn } from '../hooks/useLikes';
 import { AlbumMoreButton, useAlbumDrawer, type AlbumInfoTab, type AlbumSummary } from './AlbumMenu';
 // The drawers (Base UI Drawer) load when one first opens: their own chunk.
 const AlbumActionsSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumActionsSheet })));
@@ -133,6 +135,7 @@ export function AlbumDetailPage() {
   // the opt-in player: Play and per-track play exist only while one is installed
   // and answering; installed but silent, Play shows disabled with a word why
   const player = useCapabilities().data?.player;
+  const likesOn = useLikesOn();
   const canPlay = playbackAvailable(player);
   const playerInstalled = !!player?.installed;
   const playability = useAlbumPlayability(albumId, canPlay);
@@ -1094,7 +1097,7 @@ export function AlbumDetailPage() {
               </div>
             )}
             {/* Shuffle | Play (the one ⋮ is in the header) */}
-            <AlbumActionRow context={actionContext} play={playState} />
+            <AlbumActionRow context={actionContext} play={playState} like={likesOn ? <LikeKey kind="album" id={albumId} /> : null} />
           </div>
 
           {/* Upkeep: only what needs a decision, everything in Maintenance */}
@@ -1168,7 +1171,8 @@ export function AlbumDetailPage() {
             maintenance={maintenance}
             pick={canSplit ? { selected: picked, onToggle: togglePick } : null}
             player={canPlay && !playDisabled ? { currentTrackId: playingTrackId, onPlay: (trackId) => void playAlbum(albumRef, trackId) } : null}
-            trackMenu={(canPlay && !playDisabled) || playlistsOn ? (t) => (
+            trackLike={likesOn ? (t) => <LikeKey kind="song" id={t.id} /> : null}
+            trackMenu={(canPlay && !playDisabled) || playlistsOn || likesOn ? (t) => (
               <TrackActions
                 label={`More for ${t.title ?? 'this track'}`}
                 summary={{ title: t.title ?? 'Untitled', subtitle: [t.artist || artistLine, title].filter(Boolean).join(' · '), coverUrl: album.coverUrl }}

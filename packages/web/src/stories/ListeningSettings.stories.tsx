@@ -9,8 +9,8 @@ const connected: ListeningView = {
   account: { kind: 'bundled', username: 'anna', phonePassword: true, serverScrobbles: false, state: 'active', lastError: null },
   lastfmAvailable: true,
   services: [
-    { service: 'lastfm', connected: true, accountName: 'anna-fm', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 0 },
-    { service: 'listenbrainz', connected: true, accountName: 'anna', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 1 },
+    { service: 'lastfm', connected: true, accountName: 'anna-fm', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 0, loves: true },
+    { service: 'listenbrainz', connected: true, accountName: 'anna', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 1, loves: false },
   ],
   lastPollAt: at(1),
   pollError: null,

@@ -81,7 +81,7 @@ export const PLAYER_MODULE = defineModule({
   jobs: ['player.scan'],
   prefix: 'player_',
   tables: [
-    'player_links', 'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_queue_state', 'player_rating_sync',
+    'player_links', 'player_events', 'player_like_sync', 'player_listens', 'player_loves', 'player_plays', 'player_poll_state', 'player_queue_state', 'player_rating_sync',
     'player_retired_accounts', 'player_scan_requests', 'player_scrobbles', 'player_song_counts', 'player_track_map', 'player_users',
     'scrobble_accounts',
   ],

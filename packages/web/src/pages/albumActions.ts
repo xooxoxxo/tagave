@@ -20,22 +20,24 @@ import type { MenuItem } from '../components/ui';
 export type AlbumActionId = 'shuffle' | 'play' | 'like' | 'playlist' | 'share' | 'radio';
 
 /**
- * The action row: Shuffle | Play | (like). Like is planned, so its slot is
- * space: nothing drawn, but it keeps Play on the row's centre line on a
- * phone until an action ships into it.
+ * The action row: Shuffle | Play | Like (the album's heart, 0085). A slot
+ * with nothing in it is space: nothing drawn, but it keeps Play on the
+ * row's centre line on a phone.
  */
 export const SLOTS: readonly AlbumActionId[] = ['shuffle', 'play', 'like'];
 
 /**
- * Actions that exist in the app. Like, add to playlist, share and radio are
+ * Actions that exist in the app. Add to playlist, share and radio are
  * planned; they get an icon in their slot once they ship.
  */
-export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuffle', 'play']);
+export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuffle', 'play', 'like']);
 
 /** What this person can do on this album right now. */
 export interface AlbumActionContext {
   /** a player module is installed and the role may use it (player.use): Play and Shuffle show */
   player: boolean;
+  /** the person may like albums here (the heart is given) */
+  like?: boolean;
   /** the actions that exist (tests and stories can pass the planned set) */
   shipped?: ReadonlySet<AlbumActionId>;
 }
@@ -55,7 +57,7 @@ export function actionAvailable(id: AlbumActionId, ctx: AlbumActionContext): boo
     case 'shuffle':
     case 'playlist':
     case 'radio': return ctx.player;
-    case 'like':
+    case 'like': return ctx.like === true;
     case 'share': return true;
   }
 }
@@ -66,10 +68,10 @@ export interface RowSlot {
   filled: boolean;
 }
 
-/** The action row's slots, or null when there is no Play (no player: no row). */
+/** The action row's slots, or null when nothing is in them (no player and no heart: no row). */
 export function rowSlots(list: readonly AlbumActionId[], ctx: AlbumActionContext): RowSlot[] | null {
   const all = list.map((id) => ({ id, filled: actionAvailable(id, ctx) }));
-  return all.some((s) => s.id === 'play' && s.filled) ? all : null;
+  return all.some((s) => s.filled) ? all : null;
 }
 
 /** Play's state. */

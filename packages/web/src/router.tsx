@@ -26,6 +26,7 @@ const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage')
 const ConnectConsentPage = lazyRouteComponent(() => import('./pages/ConnectConsentPage'), 'ConnectConsentPage');
 const PlaylistsPage = lazyRouteComponent(() => import('./pages/PlaylistsPage'), 'PlaylistsPage');
 const PlaylistPage = lazyRouteComponent(() => import('./pages/PlaylistPage'), 'PlaylistPage');
+const LikedSongsPage = lazyRouteComponent(() => import('./pages/LikedSongsPage'), 'LikedSongsPage');
 import { signOut } from './hooks/useAuth';
 import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
@@ -159,6 +160,13 @@ const playlistRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/playlists/$playlistId',
   component: PlaylistPage,
+});
+
+// Liked songs: each person's hearted songs, a built-in list (0085)
+const likedRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/liked',
+  component: LikedSongsPage,
 });
 
 const plansRoute = new Route({
@@ -347,6 +355,7 @@ const routeTree = rootRoute.addChildren([
     artistDetailRoute,
     playlistsRoute,
     playlistRoute,
+    likedRoute,
     plansRoute,
     planRoute,
     albumDetailRoute,

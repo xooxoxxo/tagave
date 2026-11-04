@@ -125,6 +125,8 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
       'player_poll_state',
       'player_queue_state',
       'player_rating_sync',
+      'player_like_sync',
+      'player_loves',
       'player_users',
       'player_retired_accounts',
       'scrobble_accounts',
@@ -150,6 +152,9 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
         // the queue is the person's, whichever server plays it: kept while one still does
         player_queue_state: null,
         player_rating_sync: BUNDLED_OR_UNSERVED,
+        player_like_sync: `server_key = ${BUNDLED}`,
+        // the person's loves go to their own Last.fm and ListenBrainz, whichever server: kept
+        player_loves: null,
         player_users: `server_key = ${BUNDLED}`,
         player_retired_accounts: `server_key = ${BUNDLED}`,
         scrobble_accounts: null,

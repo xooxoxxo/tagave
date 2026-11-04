@@ -195,6 +195,11 @@ export function PeopleIcon() {
   return <svg {...LINE}><circle cx="9" cy="8.5" r="3.2" /><path d="M3.2 19c1-3 3.2-4.6 5.8-4.6s4.8 1.6 5.8 4.6" /><path d="M15.2 5.6a3.2 3.2 0 0 1 0 5.8M17.4 14.6c1.6.6 2.8 2 3.4 4.4" /></svg>;
 }
 
+/** A heart: like (outline) and liked (filled, filled true). */
+export function HeartIcon({ filled = false }: { filled?: boolean }) {
+  return <svg {...LINE} fill={filled ? 'currentColor' : 'none'}><path d="M12 20.2s-7.6-4.6-8.9-9.5C2.3 7.6 4.2 4.8 7.2 4.8c2 0 3.6 1.1 4.8 2.9 1.2-1.8 2.8-2.9 4.8-2.9 3 0 4.9 2.8 4.1 5.9-1.3 4.9-8.9 9.5-8.9 9.5Z" /></svg>;
+}
+
 /** A plus: new. */
 export function PlusIcon() {
   return <svg {...LINE}><path d="M12 5v14M5 12h14" /></svg>;

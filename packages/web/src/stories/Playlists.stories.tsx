@@ -6,6 +6,10 @@ import { PlaylistPageView } from '../pages/PlaylistPage';
 import { TrackActions } from '../components/player/TrackActions';
 import { CloseIcon } from '../components/ui';
 import { playlistsKey } from '../hooks/usePlaylists';
+import { likesKey } from '../hooks/useLikes';
+import { LikedSongsPageView } from '../pages/LikedSongsPage';
+import { LikeKeyView } from '../components/LikeKey';
+import type { LikedSongsView } from '@tagave/shared';
 import { CollaboratorsList } from '../components/playlists/CollaboratorsSheet';
 import { ANNA, BEN, COVERS, PLAYLIST, PLAYLISTS, PLAYLIST_SHARED, PLAYLIST_SHARED_OWNER } from './queueFixtures';
 
@@ -16,6 +20,8 @@ function WithLists({ children }: { children: ReactNode }) {
   const [client] = useState(() => {
     const c = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnMount: false } } });
     c.setQueryData(playlistsKey, PLAYLISTS);
+    // Alone Together is liked: its heart stays filled on the rows
+    c.setQueryData(likesKey, { songs: ['l2'], albums: [], artists: [] });
     return c;
   });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
@@ -36,9 +42,26 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Grid: Story = { tags: ['shot-viewport'], render: () => <div style={{ padding: 24 }}><PlaylistsGrid playlists={PLAYLISTS} /></div> };
+export const Grid: Story = { tags: ['shot-viewport'], render: () => <div style={{ padding: 24 }}><PlaylistsGrid playlists={PLAYLISTS} liked={{ count: LIKED.count }} /></div> };
 export const GridNew: Story = { name: 'Grid · New playlist', tags: ['shot-viewport'], render: () => <div style={{ padding: 24 }}><PlaylistsGrid playlists={PLAYLISTS} naming onCreate={async () => undefined} /></div> };
 export const GridPhone: Story = { name: 'Grid · Phone', tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => <div style={{ padding: 16 }}><PlaylistsGrid playlists={PLAYLISTS} /></div> };
+
+/** Liked songs: newest like first, one Missing */
+const LIKED: LikedSongsView = {
+  count: 4,
+  durationMs: 1_370_000,
+  covers: [COVERS.chet, COVERS.kob, COVERS.timeOut],
+  items: PLAYLIST.items.slice(0, 4).map((it, n) => ({
+    id: `like-${n}`, localTrackId: it.localTrackId, albumId: it.albumId, title: it.title, artist: it.artist, album: it.album,
+    coverUrl: it.coverUrl, durationMs: it.durationMs, likedAt: new Date(Date.UTC(2026, 10, 4 - n)).toISOString(), artistLink: it.artistLink,
+  })),
+};
+const liked = (over: Partial<Parameters<typeof LikedSongsPageView>[0]> = {}) => (
+  <LikedSongsPageView view={LIKED} canPlay playing={null} currentTrackId={null} onPlay={noop} onShuffle={noop} onToggle={noop} heart={() => <LikeKeyView liked size="sm" onToggle={noop} />} {...over} />
+);
+export const LikedSongs: Story = { name: 'Liked songs', tags: ['shot-viewport', 'shot-full'], render: () => liked() };
+export const LikedSongsPhone: Story = { name: 'Liked songs · Phone', tags: ['phone', 'shot-full'], globals: { viewport: { value: 'phone' } }, render: () => liked() };
+export const LikedSongsEmpty: Story = { name: 'Liked songs · none yet', tags: ['shot-viewport'], render: () => liked({ view: { count: 0, durationMs: 0, covers: [], items: [] } }) };
 
 const page = (over: Partial<Parameters<typeof PlaylistPageView>[0]> = {}) => (
   <PlaylistPageView

@@ -200,6 +200,10 @@ so it follows the app theme. */
   font-weight: 500;
 }
 
+/* a liked result: a small heart after its name */
+.liked { display: inline-flex; vertical-align: -2px; margin-left: 6px; color: var(--dew); }
+.liked svg { width: 13px; height: 13px; }
+
 .secondary {
   color: var(--text-tertiary);
   font-size: var(--font-size-xs);
@@ -314,3 +318,5 @@ so it follows the app theme. */
   .chips { margin-left: 2.9rem; }
   .inputChipped { padding-right: 3.25rem; }
 }
+
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

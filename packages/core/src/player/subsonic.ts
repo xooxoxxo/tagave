@@ -172,6 +172,10 @@ export interface ServerAlbum {
   /** OpenSubsonic: when this user last played a song of it (ISO) */
   played?: string | null;
   userRating?: number | null;
+  /** the album artist's id on the server */
+  artistId?: string | null;
+  /** when this user starred it (ISO) */
+  starred?: string | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -208,6 +212,8 @@ function toServerAlbum(raw: Record<string, unknown>): ServerAlbum {
     playCount: num(raw['playCount']),
     played: str(raw['played']),
     userRating: num(raw['userRating']),
+    artistId: str(raw['artistId']),
+    starred: str(raw['starred']),
   };
 }
 
@@ -334,4 +340,31 @@ export async function star(server: SubsonicServer, ids: string[], opts: CallOpts
 
 export async function unstar(server: SubsonicServer, ids: string[], opts: CallOpts = {}): Promise<void> {
   if (ids.length) await subsonicCall(server, 'unstar', { id: ids }, opts);
+}
+
+/** An artist this user starred. */
+export interface ServerArtist {
+  id: string;
+  name: string;
+  /** OpenSubsonic: the artist MBID */
+  musicBrainzId: string | null;
+  starred: string | null;
+}
+
+/** Everything this user starred (songs, albums, artists), each with when. */
+export async function getStarred2(server: SubsonicServer, opts: CallOpts = {}): Promise<{ songs: ServerSong[]; albums: ServerAlbum[]; artists: ServerArtist[] }> {
+  const r = await subsonicCall(server, 'getStarred2', {}, opts);
+  const s = (r['starred2'] ?? {}) as { song?: Record<string, unknown>[]; album?: Record<string, unknown>[]; artist?: Record<string, unknown>[] };
+  return {
+    songs: (s.song ?? []).map(toServerSong),
+    albums: (s.album ?? []).map(toServerAlbum),
+    artists: (s.artist ?? []).map((a) => ({ id: String(a['id']), name: str(a['name']) ?? '', musicBrainzId: str(a['musicBrainzId']), starred: str(a['starred']) })),
+  };
+}
+
+/** star / unstar by kind: songs by id, albums by albumId, artists by artistId. */
+export async function starItems(server: SubsonicServer, kind: 'song' | 'album' | 'artist', ids: string[], on: boolean, opts: CallOpts = {}): Promise<void> {
+  if (ids.length === 0) return;
+  const key = kind === 'song' ? 'id' : kind === 'album' ? 'albumId' : 'artistId';
+  await subsonicCall(server, on ? 'star' : 'unstar', { [key]: ids }, opts);
 }

@@ -27,6 +27,7 @@ import { useMediaQuery, PHONE_QUERY } from '../hooks/useMediaQuery';
 import { playHistoryKey, useCreatePlaylist, usePlayHistory, usePlaylistsOn } from '../hooks/usePlaylists';
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from './player/NowPlaying';
 import { TrackActions } from './player/TrackActions';
+import { LikeKey } from './LikeKey';
 import { BarGlow } from './BarGlow';
 import { CastKey } from './player/CastKey';
 import { DeviceStrip, DevicesKey, useDevicesShown } from './player/DevicesKey';
@@ -73,10 +74,12 @@ export interface PlayerBarViewProps {
   cast?: ReactNode;
   /** "Casting to …" while casting, beside the cast key (wide windows) */
   castLine?: string | null | undefined;
+  /** the playing song's heart (LikeKey), beside its names */
+  like?: ReactNode;
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow, cast, castLine }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow, cast, castLine, like }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -105,6 +108,7 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
             </span>
           )}
         </div>
+        {like && <span className={styles.like}>{like}</span>}
       </div>}
 
       <div className={styles.keys}>
@@ -333,6 +337,7 @@ export function PlayerBar() {
     />
   );
   const barArtist = track.artist || track.albumArtist;
+  const like = (place: 'page' | 'header', size: 'md' | 'sm' = 'md') => <LikeKey kind="song" id={track.localTrackId} place={place} size={size} />;
   // one glow, over the bar (from its right side) or the phone's mini bar (across it); none while a track fails
   // casting, it is off: the music is not here
   // another device plays: nothing sounds here either
@@ -374,6 +379,7 @@ export function PlayerBar() {
               onClose={close}
               onNavigate={() => setNowOpen(false)}
               actions={actions}
+              like={like('header')}
               cast={cast}
               castLine={castLine}
             />
@@ -381,7 +387,7 @@ export function PlayerBar() {
         </>
       ) : (
         <>
-          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} castLine={castLine} />}
+          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} like={like('header')} castLine={castLine} />}
           <PlayerBarView
             title={track.title}
             artist={barArtist}
@@ -408,6 +414,7 @@ export function PlayerBar() {
             glow={glow}
             cast={cast}
             castLine={s.remoteDeviceId ? null : castLine}
+            like={like('page', 'sm')}
           />
         </>
       )}

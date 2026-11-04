@@ -12,6 +12,7 @@ import type { ReactNode } from 'react';
 import { artistLabel } from '@tagave/shared';
 import { Button, CoverArt } from '../components/ui';
 import { AlbumGrid, ArtistAbout, Bar, DetailsNote, FollowButton, ShortBio, SkeletonGrid, detailsWhen } from './ArtistParts';
+import { LikeKey } from '../components/LikeKey';
 import type { ArtistLayoutProps } from './ArtistNameFirst';
 import { ALBUM_KINDS, KIND_HEADINGS, albumKind, hasAbout, kindLine, mosaicAlbums, ownedLine } from './artistPageView';
 import type { ArtistAlbum } from '../hooks';
@@ -60,6 +61,7 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
         {details === 'failed' && <DetailsNote state={details} maintenance={maintenance} onRetry={p.enrich.run} retrying={p.enrich.pending} />}
         <div className={styles.acts}>
           {p.canFollow && <FollowButton followed={artist.followed} pending={p.follow.pending} onToggle={p.follow.toggle} />}
+          <LikeKey kind="artist" id={artist.id} />
         </div>
       </div>
       {artist.bio && <ShortBio bio={artist.bio} className={styles.lede} />}

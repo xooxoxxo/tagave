@@ -46,6 +46,8 @@ export interface ScrobbleAccountView {
   lastErrorAt: string | null;
   /** scrobbles waiting to be sent (retrying) */
   pending: number;
+  /** liked songs go as loves (Last.fm track.love, ListenBrainz feedback) */
+  loves: boolean;
 }
 
 /** The person's account on the player server, as far as they may know it (never a password). */

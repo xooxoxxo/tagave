@@ -9,7 +9,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import type { ListeningHistoryView, ListeningView, OwnPlayerAccount, PlayHistoryItem, ScrobbleAccountView, ScrobbleService } from '@tagave/shared';
 import { Badge, Banner, Button, SegmentedControl, TextField, confirmDialog } from '../components/ui';
 import {
-  useClearPhonePassword, useConnectLastfm, useConnectListenbrainz, useDisconnectScrobbler, useListening, useListeningHistory,
+  useClearPhonePassword, useConnectLastfm, useConnectListenbrainz, useDisconnectScrobbler, useListening, useListeningHistory, useSetLoves,
   useRemoveOwnAccount, useSaveOwnAccount, useSetPhonePassword,
 } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
@@ -69,6 +69,8 @@ export interface ListeningSettingsViewProps {
   onConnectLastfm: () => void;
   onConnectListenbrainz: (token: string) => void;
   onDisconnect: (service: ScrobbleService) => void;
+  /** liked songs as loves on a connection: Off or On */
+  onLoves?: ((service: ScrobbleService, on: boolean) => void) | undefined;
   onSetPhonePassword: (password: string) => void;
   onClearPhonePassword: () => void;
   onSaveOwnAccount: (body: OwnPlayerAccount) => void;
@@ -202,7 +204,23 @@ export function serviceLine(s: ScrobbleAccountView): string {
   return parts.join(' · ');
 }
 
-function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLastfm, onConnectListenbrainz, onDisconnect }: ListeningSettingsViewProps) {
+/** Liked songs go as loves (Last.fm track.love, ListenBrainz feedback): Off or On per connection. */
+function LovesChoice({ service, on, onChange }: { service: ScrobbleService; on: boolean; onChange?: ((service: ScrobbleService, on: boolean) => void) | undefined }) {
+  return (
+    <div className={styles.choice}>
+      <span className={styles.choiceLabel} aria-hidden="true">Loves</span>
+      <SegmentedControl
+        label={`Loves on ${SERVICE_NAME[service]}`}
+        size="sm"
+        value={on ? 'on' : 'off'}
+        onChange={(v) => onChange?.(service, v === 'on')}
+        options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}
+      />
+    </div>
+  );
+}
+
+function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLastfm, onConnectListenbrainz, onDisconnect, onLoves }: ListeningSettingsViewProps) {
   const lastfm = data.services.find((s) => s.service === 'lastfm');
   const lb = data.services.find((s) => s.service === 'listenbrainz');
   const disconnect = async (service: ScrobbleService) => {
@@ -226,6 +244,7 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
             <>
               <p className={styles.hint}>{serviceLine(lastfm)}</p>
               {lastfm.lastError && <p className={styles.error} role="alert">{lastfm.lastError}{lastfm.lastErrorAt ? ` (${formatRelativeTime(lastfm.lastErrorAt)})` : ''}</p>}
+              <LovesChoice service="lastfm" on={lastfm.loves !== false} onChange={onLoves} />
               <div className={styles.row}><Button variant="quiet-danger" size="sm" onClick={() => void disconnect('lastfm')} disabled={busy?.disconnect}>Disconnect</Button></div>
             </>
           ) : data.lastfmAvailable ? (
@@ -246,6 +265,7 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
               <p className={styles.hint}>{serviceLine(lb)}</p>
               {queuedLine(listenbrainzQueued) && <p className={styles.ok} role="status">{queuedLine(listenbrainzQueued)}</p>}
               {lb.lastError && <p className={styles.error} role="alert">{lb.lastError}{lb.lastErrorAt ? ` (${formatRelativeTime(lb.lastErrorAt)})` : ''}</p>}
+              <LovesChoice service="listenbrainz" on={lb.loves !== false} onChange={onLoves} />
               <div className={styles.row}><Button variant="quiet-danger" size="sm" onClick={() => void disconnect('listenbrainz')} disabled={busy?.disconnect}>Disconnect</Button></div>
             </>
           ) : (
@@ -327,6 +347,7 @@ export function SettingsListeningContent({ heading = true }: { heading?: boolean
   const lastfm = useConnectLastfm();
   const lb = useConnectListenbrainz();
   const disconnect = useDisconnectScrobbler();
+  const loves = useSetLoves();
   const phone = useSetPhonePassword();
   const clearPhone = useClearPhonePassword();
   const saveOwn = useSaveOwnAccount();
@@ -365,6 +386,7 @@ export function SettingsListeningContent({ heading = true }: { heading?: boolean
           onConnectLastfm={() => lastfm.mutate()}
           onConnectListenbrainz={(token) => lb.mutate(token)}
           onDisconnect={(s) => disconnect.mutate(s)}
+          onLoves={(service, on) => loves.mutate({ service, on })}
           onSetPhonePassword={(p) => phone.mutate(p)}
           onClearPhonePassword={() => clearPhone.mutate()}
           onSaveOwnAccount={(b) => saveOwn.mutate(b)}
