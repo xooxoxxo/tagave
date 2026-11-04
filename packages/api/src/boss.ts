@@ -48,6 +48,7 @@ async function startBoss(): Promise<PgBoss> {
     'art.thumb', 'art.thumbSweep', // cover thumbnails the images route found missing
     'connections.pull', // Settings › Modules › Music Connections: Sync now, and the first pull after linking
     'listenLinks.resolve', // Listen elsewhere: an album or artist page asks for its links
+    'similarArtists.fetch', // Similar artists: an artist page asks for its list
     'files.trash', // Deleting: moves into and out of the trash folder, Empty trash
     'files.split', // Whole album in one file: the cut points, then the split
     'files.move', // Move to album: the release search, the plan, the move and its undo

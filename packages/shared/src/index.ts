@@ -543,6 +543,9 @@ export {
   listenLinksModuleSchema,
 } from './listenLinks.js';
 
+// Similar artists (the similar-artists module)
+export * from './similarArtists.js';
+
 // The play queue per person (player module) and playlists (their own module)
 export * from './playQueue.js';
 export * from './playlists.js';

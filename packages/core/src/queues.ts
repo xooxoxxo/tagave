@@ -12,7 +12,7 @@ export const WORKER_QUEUES = [
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
-  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'files.trash', 'files.split', 'files.move', 'lidarr.poll', 'lidarr.get',
+  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'similarArtists.fetch', 'files.trash', 'files.split', 'files.move', 'lidarr.poll', 'lidarr.get',
 ] as const;
 
 /**
@@ -34,6 +34,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'connections.pull': 'identify.album',
   // Listen elsewhere's link lookups: MusicBrainz shares identify's 1 req/s budget
   'listenLinks.resolve': 'identify.album',
+  // Similar artists: ListenBrainz (and Last.fm) by artist MBID, outside work like the one above
+  'similarArtists.fetch': 'identify.album',
   // Lidarr (Get missing albums): calls to the owner's Lidarr, outside work like the two above
   'lidarr.poll': 'identify.album',
   'lidarr.get': 'identify.album',

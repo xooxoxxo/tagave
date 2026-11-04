@@ -100,6 +100,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/libraries/:libraryId/artists': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/artists/:artistId': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/artists/:artistId/listen-links': 'catalog.read',
+  // Similar artists (routes/similarArtists.ts): the artist page's section, and an artist's tracks for its Play
+  'GET /api/v1/libraries/:libraryId/artists/:artistId/similar': 'catalog.read',
+  'GET /api/v1/libraries/:libraryId/artists/:artistId/mix': 'catalog.read',
   // Lidarr: the states of an artist's missing albums, and whether Get is set up (Get itself is system.manage)
   'GET /api/v1/libraries/:libraryId/artists/:artistId/lidarr': 'catalog.read',
   'GET /api/v1/lidarr': 'catalog.read',
@@ -180,6 +183,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PATCH /api/v1/libraries/:libraryId/artists/:artistId/follow-rules': 'library.edit',
   'POST /api/v1/libraries/:libraryId/artists/:artistId/follow-rules/reset': 'library.edit',
   'POST /api/v1/libraries/:libraryId/artists/:artistId/refresh': 'library.edit',
+  // Similar artists: follow an artist the library has no row for yet (by MBID), as Follow is library care
+  'POST /api/v1/libraries/:libraryId/similar-artists/follow': 'library.edit',
   'GET /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'PUT /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/preview': 'library.edit',
@@ -254,6 +259,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/settings/listen-links': 'system.manage',
   'PUT /api/v1/settings/listen-links': 'system.manage',
   'POST /api/v1/settings/listen-links/remove-data': 'system.manage',
+  // Settings › Modules › Similar artists (routes/similarArtists.ts): owner, and a fresh step-up to change it.
+  'GET /api/v1/settings/similar-artists': 'system.manage',
+  'PUT /api/v1/settings/similar-artists': 'system.manage',
+  'POST /api/v1/settings/similar-artists/remove-data': 'system.manage',
   // Settings › Modules, the Playlists row (routes/playlists.ts): owner; switching and deleting need a fresh step-up.
   // Get missing albums through Lidarr (routes/lidarr.ts): Get spends disk and bandwidth, so it is the owner's; the settings too (switch, connect, disconnect, delete data need a fresh step-up).
   'GET /api/v1/libraries/:libraryId/lidarr/requests': 'system.manage',

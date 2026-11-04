@@ -7,6 +7,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  real,
   primaryKey,
   smallint,
   text,
@@ -1928,6 +1929,32 @@ export const listenPrefs = pgTable('listen_prefs', {
   updatedAt: tstz('updated_at').notNull().defaultNow(),
   /** "Play on …" (0076): one of `platforms`, or null */
   primaryPlatform: text('primary_platform'),
+});
+
+// Similar artists, the similar-artists module (0084): each artist's similar
+// artists (ListenBrainz, and Last.fm with the install's key) and when they
+// were fetched. Its own tables; no core table references them. Written by
+// worker › jobs/similarArtistsFetch.ts and api › routes/similarArtists.ts.
+export const similarArtists = pgTable(
+  'similar_artists',
+  {
+    artistId: uuid('artist_id').notNull().references(() => artists.id, { onDelete: 'cascade' }),
+    position: integer().notNull(),
+    similarMbid: uuid('similar_mbid'),
+    name: text().notNull(),
+    comment: text(),
+    score: real().notNull(),
+    sources: text().array().notNull(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.artistId, table.position] }), mbidIdx: index('idx_similar_artists_mbid').on(table.similarMbid) })
+);
+
+export const similarArtistChecks = pgTable('similar_artist_checks', {
+  artistId: uuid('artist_id').primaryKey().references(() => artists.id, { onDelete: 'cascade' }),
+  fetchedAt: tstz('fetched_at').notNull().defaultNow(),
+  sources: text().array().notNull().default(sql`'{}'`),
+  found: integer().notNull().default(0),
+  error: text(),
 });
 
 // Each person's own preferences that follow them between devices (0059):
