@@ -18,11 +18,9 @@ const careLinks = [
   { key: 'plans', label: 'Tag changes', onSelect: noop },
 ];
 
-export function DesktopFrame({ children, dock, accountGlow, empty = false, compartmentOpen = false }: {
+export function DesktopFrame({ children, dock, empty = false, compartmentOpen = false }: {
   children: ReactNode;
   dock: ReactNode;
-  /** the equalizer glow's piece under the account row */
-  accountGlow?: ReactNode;
   empty?: boolean;
   compartmentOpen?: boolean;
 }) {
@@ -68,7 +66,7 @@ export function DesktopFrame({ children, dock, accountGlow, empty = false, compa
             {link('Physical collection')}
           </nav>
           <div className={layout.account} data-account-row="">
-            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} links={careLinks} glow={accountGlow} />
+            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} links={careLinks} />
           </div>
         </div>
       </aside>

@@ -3,7 +3,7 @@
  * context can never silence it.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { analyserAllowed, canCapture, isMobile } from './levels';
+import { BANDS, HIGH_HZ, LOW_HZ, analyserAllowed, bandEdges, bandReader, binRanges, canCapture, isMobile } from './levels';
 
 const IPHONE = { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 5 };
 const IPAD_AS_MAC = { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', platform: 'MacIntel', maxTouchPoints: 5 };
@@ -50,5 +50,48 @@ describe('isMobile and canCapture', () => {
   it('looks for an unprefixed captureStream (Firefox\'s mozCaptureStream takes the sound off the speakers)', () => {
     expect(canCapture({ captureStream: () => null } as unknown as HTMLMediaElement)).toBe(true);
     expect(canCapture({ mozCaptureStream: () => null } as unknown as HTMLMediaElement)).toBe(false);
+  });
+});
+
+describe('bands', () => {
+  it('BANDS log-spaced from 40 Hz to 14 kHz', () => {
+    const e = bandEdges();
+    expect(e).toHaveLength(BANDS + 1);
+    expect(e[0]).toBeCloseTo(LOW_HZ);
+    expect(e[BANDS]).toBeCloseTo(HIGH_HZ);
+    const r = e[1]! / e[0]!;
+    for (let i = 1; i < BANDS; i++) expect(e[i + 1]! / e[i]!).toBeCloseTo(r, 6);
+  });
+
+  it('every band has bins of its own, in order', () => {
+    const ranges = binRanges(bandEdges(), 48000 / 4096, 2048);
+    for (let i = 0; i < ranges.length; i++) {
+      const [a, b] = ranges[i]!;
+      expect(b).toBeGreaterThan(a);
+      if (i) expect(a).toBeGreaterThanOrEqual(ranges[i - 1]![1]);
+    }
+  });
+
+  /** an analyser whose spectrum is quiet but for one loud frequency */
+  const tone = (hz: number | null) => {
+    const sampleRate = 48000, fftSize = 4096;
+    return {
+      fftSize, frequencyBinCount: fftSize / 2, context: { sampleRate },
+      getFloatFrequencyData(out: Float32Array) {
+        for (let k = 0; k < out.length; k++) out[k] = hz === null ? -Infinity : Math.abs(k * sampleRate / fftSize - hz) < 30 ? -12 : -90;
+      },
+    };
+  };
+
+  it('a bass note lights the low bands, a cymbal the high ones, silence nothing', () => {
+    const out = new Float32Array(BANDS);
+    bandReader(tone(60))(out);
+    expect(Math.max(...out.slice(0, 6))).toBeGreaterThan(0.8);
+    expect(Math.max(...out.slice(20))).toBe(0);
+    bandReader(tone(9000))(out);
+    expect(Math.max(...out.slice(26))).toBeGreaterThan(0.8);
+    expect(Math.max(...out.slice(0, 20))).toBe(0);
+    bandReader(tone(null))(out);
+    expect(Math.max(...out)).toBe(0);
   });
 });

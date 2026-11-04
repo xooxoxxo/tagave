@@ -184,23 +184,6 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
 }
 
 /**
- * The equalizer glow's piece under the sidebar's account row, beside the
- * bar, so the glow runs the whole foot of the window (a desktop only: on a
- * tablet or a phone the row is not at the foot). Its own component, so the
- * player's ticks re-render only it.
- */
-export function AccountGlow() {
-  const [prefs] = useDisplayPrefs();
-  const narrow = useMediaQuery('(max-width: 900px)');
-  const status = usePlayerStore((p) => p.status);
-  const queued = usePlayerStore((p) => !!p.queue && p.queue.tracks.length > 0);
-  const casting = useCastStore(isCasting);
-  if (!prefs.eqGlow || narrow || !queued || status === 'error') return null;
-  // casting: the music is not here, so the glow rests (the calm one)
-  return <BarGlow playing={status === 'playing' && !casting} />;
-}
-
-/**
  * The connected player. On a desktop with a player the bar, always (empty
  * until something is queued), whose queue key opens Now Playing over the
  * page; on a phone the mini bar while a queue exists, which opens the full
@@ -342,9 +325,9 @@ export function PlayerBar() {
     />
   );
   const barArtist = track.artist || track.albumArtist;
-  // one glow, in the bar (or the phone's mini bar); none while a track fails
-  // casting, it rests: the music is not here
-  const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing' && !casting} /> : null;
+  // one glow, over the bar (from its right side) or the phone's mini bar (across it); none while a track fails
+  // casting, it is off: the music is not here
+  const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing' && !casting} anchor={phone ? 'centre' : 'right'} /> : null;
   const cast = castShown ? <CastKey /> : null;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
