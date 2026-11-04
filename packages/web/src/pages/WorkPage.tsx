@@ -8,6 +8,7 @@ import { useSearch, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useCan, useCurrentLibrary, useIdentifyStats, useGapCounts } from '../hooks';
 import { DeletingPanel } from './DeletingPage';
+import { MovedPanel } from './MovedPage';
 import { GettingPanel } from './GettingPage';
 import { useModuleOn } from '../hooks/useFacets';
 import { api } from '../services/api';
@@ -80,13 +81,15 @@ export function WorkPage() {
       },
       // deleted songs and albums: the owner's (a deletion reaches the music folder)
       ...(owner ? [{ label: 'Deleting', value: 'deleting' }] : []),
+      // songs moved to another album (Maintenance › Move to album): the owner's
+      ...(owner ? [{ label: 'Moved', value: 'moved' }] : []),
       ...(getting ? [{ label: 'Getting', value: 'getting' }] : []),
     ],
     [queueCount, identifyCount, attentionTotal, taskCount, owner, getting],
   );
 
   const handleTabChange = (newTab: string) => {
-    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'getting' } });
+    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'getting' } });
   };
 
   const renderPanel = () => {
@@ -99,6 +102,8 @@ export function WorkPage() {
         return <TasksPanel />;
       case 'deleting':
         return owner ? <DeletingPanel /> : <ReviewPanel />;
+      case 'moved':
+        return owner ? <MovedPanel /> : <ReviewPanel />;
       case 'getting':
         return getting ? <GettingPanel /> : <ReviewPanel />;
       default:

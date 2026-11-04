@@ -1216,3 +1216,49 @@ td.cellOff {
   .flow > .tracksArea { padding-top: 1rem; padding-bottom: 2rem; }
   .flow[data-sections] > .foot > .footBar { padding: 1rem var(--flow-gutter) .75rem; background: var(--bg-nav); }
 }
+
+/* Maintenance, the owner: the songs picked, Move to album… and Delete */
+.pickBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 4px 4px 8px 0;
+}
+.pickAll {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding-left: calc((2.25rem - 18px) / 2);
+  font: var(--type-label);
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.pickBox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+}
+.pickBox:focus {
+  box-shadow: none;
+  outline: none;
+}
+.pickBox:focus-visible {
+  outline: 2px solid var(--dew);
+  outline-offset: 2px;
+}
+.pickActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 640px) {
+  .pickAll {
+    padding-left: calc((2rem - 18px) / 2);
+  }
+}

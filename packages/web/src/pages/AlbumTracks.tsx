@@ -11,6 +11,9 @@
  * touch, tapping the title plays from that track (a long press still opens
  * the file facts). The track playing now is marked in dew. Without it the
  * list renders exactly as before.
+ *
+ * In Maintenance the owner's rows carry a checkbox (`pick`): the songs to
+ * move to another album or delete.
  */
 import { useRef, useState, type ReactNode } from 'react';
 import { Collapse, IconButton, MoreIcon, PlayIcon } from '../components/ui';
@@ -59,9 +62,12 @@ export interface AlbumTracksProps {
   player?: { currentTrackId: string | null; onPlay: (trackId: string) => void } | null;
   /** a track's ⋮ (Play next, Add to queue, Add to playlist), outside Maintenance */
   trackMenu?: ((track: DetailTrack) => ReactNode) | null | undefined;
+  /** Maintenance, the owner: the songs picked (Move to album, Delete) */
+  pick?: { selected: ReadonlySet<string>; onToggle: (id: string) => void } | null | undefined;
 }
 
-export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null, trackMenu = null }: AlbumTracksProps) {
+export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null, trackMenu = null, pick = null }: AlbumTracksProps) {
+  const picking = maintenance && !!pick;
   const [openFile, setOpenFile] = useState<string | null>(null);
   const press = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   // touch: a tap on the title plays from there, unless that touch was a long press
@@ -99,6 +105,7 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
               if (e.kind === 'missing') {
                 return (
                   <li key={e.key} className={styles.item}><div className={`${styles.row} ${styles.missing}`}>
+                    {picking && <span className={styles.pick} aria-hidden="true" />}
                     <span className={styles.lead}>{e.no}</span>
                     <span className={styles.main}>
                       <span className={styles.title}>{e.missing.title}</span>
@@ -127,7 +134,19 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                     onPointerLeave={endPress}
                     onPointerCancel={endPress}
                     onContextMenu={(ev) => { if (press.current || open) ev.preventDefault(); }}
+                    data-picked={picking && pick!.selected.has(t.id) ? '' : undefined}
                   >
+                    {picking && (
+                      <span className={styles.pick}>
+                        <input
+                          type="checkbox"
+                          className={styles.pickBox}
+                          aria-label={`Select ${name}`}
+                          checked={pick!.selected.has(t.id)}
+                          onChange={() => pick!.onToggle(t.id)}
+                        />
+                      </span>
+                    )}
                     {player ? (
                       <span className={`${styles.lead} ${styles.leadPlayable}`}>
                         <span className={styles.leadNo}>{t.trackNo ?? '–'}</span>
