@@ -17,7 +17,7 @@ import type { z } from 'zod';
 import { writableRootIds } from '@tagave/db';
 import {
   createMoveSchema, moveTargetUpdateSchema,
-  type AlbumMoveState, type AlbumMoveView, type FilesMoveJobData, type MoveAlbumOption, type MoveCandidate,
+  type AlbumMoveKind, type AlbumMoveState, type AlbumMoveView, type FilesMoveJobData, type MoveAlbumOption, type MoveCandidate,
   type MoveJournal, type MoveListItem, type MovePlan, type MoveTarget,
 } from '@tagave/shared';
 import { getSql } from '../db.js';
@@ -104,20 +104,20 @@ export async function createAlbumMoveRoutes(fastify: FastifyInstance) {
   fastify.get('/libraries/:libraryId/moves', OWNER, async (request): Promise<{ items: MoveListItem[] }> => {
     const { libraryId } = paramsOf(request);
     const rows = await getSql()<Array<{
-      id: string; state: AlbumMoveState; plan: MovePlan | null; journal: MoveJournal | null; error: string | null;
+      id: string; kind: AlbumMoveKind; state: AlbumMoveState; plan: MovePlan | null; journal: MoveJournal | null; error: string | null;
       targetAlbumId: string | null; finishedAt: Date | string | null; undoneAt: Date | string | null;
     }>>`
-      select id::text as id, state, plan, journal, error, target_album_id::text as "targetAlbumId",
+      select id::text as id, kind, state, plan, journal, error, target_album_id::text as "targetAlbumId",
              finished_at as "finishedAt", undone_at as "undoneAt"
         from album_moves
-       where library_id = ${libraryId} and state in ('done', 'undoing', 'undone', 'moving')
+       where library_id = ${libraryId} and (state in ('done', 'undoing', 'undone', 'moving') or (kind <> 'move' and state = 'failed'))
        order by coalesce(finished_at, created_at) desc limit 200`;
     return {
       items: rows.map((r) => {
         const files = r.journal?.files ?? [];
         const from = files[0]?.fromPath ?? r.plan?.files.find((f) => f.toPath)?.fromPath ?? null;
         return {
-          id: r.id, state: r.state,
+          id: r.id, kind: r.kind, state: r.state,
           title: r.plan?.release.title ?? 'Untitled', artist: r.plan?.release.artist ?? null,
           fromDir: from ? (from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '') : null,
           toDir: r.plan?.toDir ?? null,
