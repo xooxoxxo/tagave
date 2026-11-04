@@ -1,0 +1,35 @@
+/*
+ * A one-line label centred on its capitals in a box of known height
+ * (--label-box): the segmented control's options and the tabs.
+ *
+ * Neither the em box (line-height) nor text-box trimming centres reliably:
+ * browsers round the font's ascent and descent to whole pixels (Figtree's
+ * 14px em box put labels ~0.9px high), and Chrome lands every baseline on a
+ * whole CSS pixel, so a trimmed 13px label in a 34px option (ideal baseline
+ * 21.55px down) was drawn 0.45px low at every DPR.
+ *
+ * So the baseline is placed directly. An empty inline-block's baseline is its
+ * bottom edge, so a zero-width strut as tall as the baseline should sit puts
+ * the text's baseline there, whatever the font's metrics: half the box plus
+ * half the cap height, which centres the capitals. The strut takes the whole
+ * pixel below that point and a transform adds the fraction, which browsers
+ * draw to the device pixel (0.5px at DPR 2, 0.33px at DPR 3).
+ */
+.capCentred {
+  align-self: stretch;
+}
+
+.capCentred::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  /* Figtree's cap height is 0.7em; `cap` reads it from the font itself */
+  height: calc((var(--label-box) + 0.7em) / 2);
+  height: round(down, (var(--label-box) + 1cap) / 2, 1px);
+}
+
+@supports (height: round(down, 1cap, 1px)) {
+  .capCentred {
+    transform: translateY(calc((var(--label-box) + 1cap) / 2 - round(down, (var(--label-box) + 1cap) / 2, 1px)));
+  }
+}

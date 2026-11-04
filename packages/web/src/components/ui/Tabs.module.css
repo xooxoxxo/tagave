@@ -26,7 +26,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  min-height: 40px;
+  --label-box: 40px;
+  min-height: var(--label-box);
   padding: 0 18px;
   border: 0;
   border-radius: var(--r-pill);
@@ -91,10 +92,8 @@
 }
 
 .label {
+  composes: capCentred from './capCentre.module.css';
   flex-shrink: 0;
-  /* trimmed to the capitals so the label centres optically (see
-     SegmentedControl.module.css .label) */
-  text-box: trim-both cap alphabetic;
 }
 
 .count {
