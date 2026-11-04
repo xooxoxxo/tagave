@@ -59,6 +59,7 @@ import { AlbumMoreButton, useAlbumDrawer, type AlbumInfoTab, type AlbumSummary }
 const AlbumActionsSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumActionsSheet })));
 const AlbumInfoSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumInfoSheet })));
 const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
+const MoveSheet = lazy(() => import('../components/MoveSheet').then((m) => ({ default: m.MoveSheet })));
 import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
 import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
@@ -70,6 +71,9 @@ import { currentTrack, playAlbum, shuffleAlbum, toggle as togglePlayback, usePla
 import { TrackActions, enqueueWithToast } from '../components/player/TrackActions';
 import { usePlaylistsOn } from '../hooks/usePlaylists';
 import { useDeleteAction, useHiddenDeletions } from './deleteAction';
+import { UNDO_MS } from './collectionRemoval';
+import { invalidateAfterMove, useUndoMove } from '../hooks/useAlbumMove';
+import type { AlbumMoveView } from '@tagave/shared';
 
 const AddToPlaylistSheet = lazy(() => import('../components/player/TrackDrawer').then((m) => ({ default: m.AddToPlaylistSheet })));
 import { scanWaitLine } from '../player/logic';
@@ -118,6 +122,10 @@ export function AlbumDetailPage() {
   const canCare = useCan('library.edit');
   const canSplit = useCan('system.manage');
   const [splitOpen, setSplitOpen] = useState(false);
+  // Maintenance, the owner: songs picked to move to another album or delete
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [moveOpen, setMoveOpen] = useState(false);
+  const undoMove = useUndoMove(libraryId);
   // Play and Shuffle: every role has player.use today; the strip follows the permission
   const mayPlay = useCan('player.use');
   const [{ shortAlbumArt }] = useDisplayPrefs();
@@ -161,6 +169,13 @@ export function AlbumDetailPage() {
   artAskedRef.current = artAsked;
   const maintenanceRef = useRef(maintenance);
   maintenanceRef.current = maintenance;
+  // a picked song belongs to this album and this Maintenance visit
+  useEffect(() => { setPicked(new Set()); }, [albumId, maintenance]);
+  const togglePick = (id: string) => setPicked((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const toggleRow = (id: string) => setOpenRows((cur) => {
     const next = new Set(cur);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -598,13 +613,13 @@ export function AlbumDetailPage() {
   const duplicatesList = duplicates.length > 0 && (
     <ul className={styles.plainList}>
       {duplicates.map((d) => (
-        <li key={d.id} className={del ? styles.copyRow : undefined}>
+        <li key={d.id} className={del && maintenance ? styles.copyRow : undefined}>
           <div>
             <Link to="/albums/$albumId" params={{ albumId: d.id }}>{d.title ?? 'Untitled'}</Link>
             <span className={styles.muted}> · {[d.formats?.join('/'), `${d.trackCount} tracks`, STATE_LABEL[d.state] ?? d.state].filter(Boolean).join(' · ')}</span>
             {d.dirPaths?.[0] && <span className={styles.pathLine}>{d.dirPaths[0]}</span>}
           </div>
-          {del && (
+          {del && maintenance && (
             <Menu
               label={`More for ${d.title ?? 'this copy'}${d.dirPaths?.[0] ? ` (${d.dirPaths[0]})` : ''}`}
               items={[{ key: 'delete', label: del.label, tone: 'danger', onSelect: () => del.album(d.id, d.title ?? 'Untitled') }]}
@@ -940,6 +955,68 @@ export function AlbumDetailPage() {
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';
 
+  // ---- Maintenance, the owner: the songs picked, Move to album… and Delete ----
+  const visibleTracks = album.tracks.filter((t) => !hiddenDel.track(t.id));
+  const pickedIds = visibleTracks.filter((t) => picked.has(t.id)).map((t) => t.id);
+  const allPicked = visibleTracks.length > 0 && pickedIds.length === visibleTracks.length;
+  const pickedTitle = pickedIds.length === 1 ? visibleTracks.find((t) => t.id === pickedIds[0])?.title ?? 'Untitled' : `${pickedIds.length} songs`;
+  const deletePicked = () => {
+    if (!del || pickedIds.length === 0) return;
+    // the whole album: the album goes, with its Undo
+    if (allPicked) { del.album(albumId, title ?? 'Untitled'); void navigate({ to: '/albums' }); return; }
+    del.tracks(pickedIds, pickedTitle);
+    setPicked(new Set());
+  };
+  const onMoved = (view: AlbumMoveView) => {
+    const n = view.moved ?? 0;
+    const whole = allPicked;
+    setPicked(new Set());
+    const again = () => void invalidateAfterMove(queryClient, libraryId);
+    again();
+    // the folders are scanned again just after the move: look once more
+    setTimeout(again, 4000);
+    showToast({
+      message: `${n === 1 ? '1 song' : `${n} songs`} · Moved`,
+      durationMs: UNDO_MS,
+      action: {
+        label: 'Undo',
+        onClick: () => undoMove.mutate(view.id, {
+          onSuccess: () => {
+            const id = showToast({ message: 'Undoing', durationMs: 60_000 });
+            const poll = async (left: number): Promise<void> => {
+              const v = await api.get<AlbumMoveView>(`/libraries/${libraryId}/moves/${view.id}`).catch(() => null);
+              if (v && (v.state === 'undoing' || v.state === 'moving') && left > 0) { setTimeout(() => void poll(left - 1), 1000); return; }
+              updateToast(id, { message: v?.state === 'undone' ? 'Undone' : v?.error ?? 'Not undone', ...(v?.state === 'undone' ? {} : { tone: 'danger' as const }), durationMs: 5000 });
+              await invalidateAfterMove(queryClient, libraryId);
+              setTimeout(again, 4000);
+            };
+            void poll(60);
+          },
+          onError: () => showToast({ message: 'Not undone. Try again.', tone: 'danger' }),
+        }),
+      },
+    });
+    if (whole && view.targetAlbumId) void navigate({ to: '/albums/$albumId', params: { albumId: view.targetAlbumId } });
+  };
+  const pickBar = maintenance && canSplit && visibleTracks.length > 0 && (
+    <div className={styles.pickBar} data-pick-bar="">
+      <label className={styles.pickAll}>
+        <input
+          type="checkbox"
+          className={styles.pickBox}
+          checked={allPicked}
+          ref={(el) => { if (el) el.indeterminate = pickedIds.length > 0 && !allPicked; }}
+          onChange={() => setPicked(allPicked ? new Set() : new Set(visibleTracks.map((t) => t.id)))}
+        />
+        <span>{pickedIds.length > 0 ? `${pickedIds.length} selected` : 'Select all'}</span>
+      </label>
+      <div className={styles.pickActions}>
+        <Button variant="secondary" size="sm" disabled={pickedIds.length === 0} onClick={() => setMoveOpen(true)}>Move to album…</Button>
+        {del && <Button variant="quiet-danger" size="sm" disabled={pickedIds.length === 0} onClick={deletePicked}>{del.label}</Button>}
+      </div>
+    </div>
+  );
+
   return (
     <PageShell bare>
       <div ref={(el) => { flowRefs.root.current = el; }} className={styles.flow} data-album-flow="" data-album-tab={tab} data-sections={sections ? '' : undefined}>
@@ -1075,15 +1152,17 @@ export function AlbumDetailPage() {
           className={styles.tracksArea}
           {...(sections && tracksPanel ? { id: TAB_PANEL_ID, role: 'tabpanel', 'aria-labelledby': tabIdFor(TAB_PANEL_ID, 'tracks') } : {})}
         >
+          {pickBar}
           <AlbumTracks
-            tracks={album.tracks.filter((t) => !hiddenDel.track(t.id))}
+            tracks={visibleTracks}
             missingTracks={album.missingTracks}
             discCount={album.discCount}
             albumArtists={[album.artistCredit, albumArtist, Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit]}
             artistNames={album.artists?.map((a) => a.name) ?? []}
             maintenance={maintenance}
+            pick={canSplit ? { selected: picked, onToggle: togglePick } : null}
             player={canPlay && !playDisabled ? { currentTrackId: playingTrackId, onPlay: (trackId) => void playAlbum(albumRef, trackId) } : null}
-            trackMenu={(canPlay && !playDisabled) || playlistsOn || del ? (t) => (
+            trackMenu={(canPlay && !playDisabled) || playlistsOn ? (t) => (
               <TrackActions
                 label={`More for ${t.title ?? 'this track'}`}
                 summary={{ title: t.title ?? 'Untitled', subtitle: [t.artist || artistLine, title].filter(Boolean).join(' · '), coverUrl: album.coverUrl }}
@@ -1277,6 +1356,21 @@ export function AlbumDetailPage() {
               title={title ?? 'This album'}
               artist={artistLine}
               side={drawer ? 'bottom' : 'right'}
+            />
+          </Suspense>
+        )}
+        {/* Maintenance: the picked songs into another album's folder (owner) */}
+        {canSplit && moveOpen && (
+          <Suspense fallback={null}>
+            <MoveSheet
+              open={moveOpen}
+              onOpenChange={setMoveOpen}
+              libraryId={libraryId}
+              albumId={albumId}
+              trackIds={pickedIds}
+              artist={artistLine}
+              side={drawer ? 'bottom' : 'right'}
+              onMoved={onMoved}
             />
           </Suspense>
         )}
