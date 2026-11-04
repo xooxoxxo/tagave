@@ -1,21 +1,22 @@
 /**
  * The equalizer glow (Settings › Appearance › Equalizer glow, off by
- * default): an aurora along the foot of the window, in the player bar and,
- * on a desktop, the sidebar's account row beside it, as one (each is a
- * piece of the same curtains, laid out across the window; glowDriver.ts
- * moves them all), and in the phone's mini bar. Behind each piece's content
- * and clipped to it. Three curtains of soft colour in three hues blending
- * into each other (adaptive/aurora.ts), streaked and fading upward, drift
- * sideways at their own slow paces and fold through one another. The music
- * breathes through it: brighter, higher and drifting faster when loud,
- * never jumping. Paused, it dims and settles to a low ember. On iOS, or
- * where Web Audio cannot start, it drifts slowly in CSS; reduced motion
- * holds it still. The bright cores stay along the bottom edge; what rises
- * behind the text is colour at the bar's own lightness, so the text reads.
+ * default): a bright line along the player bar's top edge and, rising from
+ * it into the page, an equalizer of soft columns of light, one hue, the
+ * playing album's accent (glowDriver.ts lays them out and moves them). On a
+ * desktop it comes from the bar's right side and falls off toward the left;
+ * on a phone it spans the mini bar. It stays within the bar's own column.
+ *
+ * Only while music plays here: paused, stopped or casting it fades out in
+ * 400 ms and its loop stops. Reduced motion, and where the music cannot be
+ * read (iOS, or Web Audio would not start), it is still: a gentle, fixed
+ * equalizer and a half-lit line while playing, nothing moving.
  */
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
-import { analyserAllowed, playerAnalyser } from '../adaptive/levels';
-import { CURTAINS, auroraNow, curtainOf, setSource, subscribe, type AuroraState } from './glowDriver';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { BANDS, analyserAllowed, bandReader, playerAnalyser } from '../adaptive/levels';
+import {
+  STRENGTH, Y_SCALE, canvasScale, emptySpectrum, heldSpectrum, layoutColumns, paintColumns, stepSpectrum, stillSpectrum,
+  type Anchor, type Colours, type Layout, type Spectrum,
+} from './glowDriver';
 import styles from './BarGlow.module.css';
 
 const reduceQuery = '(prefers-reduced-motion: reduce)';
@@ -30,31 +31,30 @@ function useReducedMotion(): boolean {
 
 export interface BarGlowProps {
   playing: boolean;
-  /** 'auto' tries the analyser and falls back to calm; stories pin 'calm' or pass their own levels */
-  source?: 'auto' | 'calm' | AnalyserNode | ((out: Float32Array) => void);
-  /** a fixed level, 0 to 1, held still whatever the motion setting (stories, screenshots: 1 is loud) */
-  level?: number | undefined;
+  /** where the light comes from: the bar's right side (a desktop) or its middle (the phone's mini bar) */
+  anchor?: Anchor;
+  /** 'auto' reads the player's analyser (else still); 'still' pins the still glow; stories pass their own levels */
+  source?: 'auto' | 'still' | AnalyserNode | ((out: Float32Array) => void);
+  /** the bands held still, 0 to 1 each, whatever the motion setting (stories, screenshots) */
+  levels?: ArrayLike<number> | undefined;
 }
 
 const isNode = (s: unknown): s is AnalyserNode => typeof AnalyserNode !== 'undefined' && s instanceof AnalyserNode;
+const FPS = 30;
+/** the fade out (BarGlow.module.css); the canvas is cleared once it is over */
+const FADE_MS = 400;
 
-/** How a curtain is drawn: its height and brightness (the outer layer), its place and lean (the inner one). */
-function paint(outer: HTMLElement | null, inner: HTMLElement | null, i: number, s: AuroraState, width: number) {
-  const c = curtainOf(CURTAINS[i]!.reach, s.level);
-  if (outer) {
-    outer.style.transform = `scaleY(${c.height.toFixed(3)})`;
-    outer.style.opacity = c.bright.toFixed(3);
-  }
-  if (inner) inner.style.transform = `translateX(${(-(s.phase[i] ?? 0) * width).toFixed(1)}px) skewX(${(s.lean[i] ?? 0).toFixed(2)}deg)`;
-}
+interface Surface { ctx: CanvasRenderingContext2D; layout: Layout; scale: number }
 
-export function BarGlow({ playing, source = 'auto', level }: BarGlowProps) {
+export function BarGlow({ playing, anchor = 'centre', source = 'auto', levels }: BarGlowProps) {
   const reduce = useReducedMotion();
   const [node, setNode] = useState<AnalyserNode | null>(isNode(source) ? source : null);
-  const ref = useRef<HTMLSpanElement>(null);
-  const outers = useRef<Array<HTMLSpanElement | null>>([]);
-  const inners = useRef<Array<HTMLSpanElement | null>>([]);
-  const [box, setBox] = useState({ left: 0, width: 0 });
+  const root = useRef<HTMLSpanElement>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const line = useRef<HTMLSpanElement>(null);
+  const surface = useRef<Surface | null>(null);
+  const spectrum = useRef<Spectrum>(emptySpectrum());
+  const [size, setSize] = useState(0);
 
   // the analyser, first asked for once something plays (Play was a gesture, so the context may start)
   useEffect(() => {
@@ -65,69 +65,90 @@ export function BarGlow({ playing, source = 'auto', level }: BarGlowProps) {
     return () => { live = false; };
   }, [source, playing, node, reduce]);
 
-  // where this piece sits in the window: the curtains are laid out across the whole width
+  const feed = typeof source === 'function' ? source : node;
+  const mode: 'held' | 'live' | 'still' = levels ? 'held' : feed && !reduce && source !== 'still' ? 'live' : 'still';
+
+  // the bar's width: the columns, and a canvas of about four px a column (smoothed up, a soft glow)
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    const el = root.current, cv = canvas.current;
+    if (!el || !cv) return;
     const measure = () => {
-      const r = el.getBoundingClientRect();
-      const width = document.documentElement.clientWidth || globalThis.innerWidth || r.width;
-      setBox((b) => (b.left === r.left && b.width === width ? b : { left: r.left, width }));
+      const { width, height } = el.getBoundingClientRect();
+      const layout = layoutColumns(width, anchor);
+      const scale = canvasScale(layout.pitch);
+      const w = Math.max(1, Math.ceil(width / scale)), h = Math.max(1, Math.ceil(height / Y_SCALE));
+      if (cv.width !== w) cv.width = w;
+      if (cv.height !== h) cv.height = h;
+      let ctx: CanvasRenderingContext2D | null = null;
+      try { ctx = cv.getContext('2d'); } catch { /* no canvas (tests) */ }
+      surface.current = ctx ? { ctx, layout, scale } : null;
+      setSize((n) => n + 1);
     };
     measure();
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
     ro?.observe(el);
-    globalThis.addEventListener?.('resize', measure);
-    return () => { ro?.disconnect(); globalThis.removeEventListener?.('resize', measure); };
-  }, []);
-
-  const feed = typeof source === 'function' ? source : node;
-  const live = level === undefined && !!feed && !reduce && source !== 'calm';
-
-  // a still frame (stories) or where the curtains are now (a paused or reduced-motion aurora)
-  useLayoutEffect(() => {
-    if (live && playing) return;
-    const s = level === undefined ? auroraNow() : { ...auroraNow(), level, phase: CURTAINS.map((_, i) => i * 0.31), lean: CURTAINS.map(() => 0) };
-    for (let i = 0; i < CURTAINS.length; i++) {
-      // only the place: height and brightness are the CSS's (paused, calm, reduced) unless held still
-      if (level !== undefined) paint(outers.current[i]!, inners.current[i]!, i, s, box.width);
-      else paint(null, inners.current[i]!, i, s, box.width);
-    }
-  }, [live, playing, level, box.width]);
+    return () => ro?.disconnect();
+  }, [anchor]);
 
   useEffect(() => {
-    if (!live || !playing || !feed || !box.width) return;
-    setSource(feed);
-    const os = outers.current.slice(), is = inners.current.slice();
-    const off = subscribe((s) => { for (let i = 0; i < CURTAINS.length; i++) paint(os[i]!, is[i]!, i, s, box.width); });
-    return () => {
-      off();
-      // the height and brightness go back to the CSS, which settles them to the ember; the place stays
-      for (const o of os) { o?.style.removeProperty('transform'); o?.style.removeProperty('opacity'); }
+    const el = root.current, cv = canvas.current, ln = line.current;
+    const sf = surface.current;
+    if (!el || !cv || !ln || !sf) return;
+    // the colours: the canvas's and the line's own `color` (BarGlow.module.css), read as rgb
+    const read = (): { colours: Colours; dark: boolean } => {
+      const body = getComputedStyle(cv).color, core = getComputedStyle(ln).color;
+      return { colours: { body, core }, dark: getComputedStyle(el).getPropertyValue('--glow-scheme').trim() !== 'light' };
     };
-  }, [live, playing, feed, box.width]);
+    const draw = (s: Spectrum, look: ReturnType<typeof read>) => {
+      paintColumns(sf.ctx, sf.layout, s, look.colours, STRENGTH[look.dark ? 'dark' : 'light'], sf.scale);
+      ln.style.opacity = (0.35 + 0.65 * s.loud).toFixed(3);
+    };
 
-  // iOS and the like: the CSS drift starts where every piece's does, so the pieces stay one aurora
-  const [epoch] = useState(() => Date.now() / 1000);
+    if (!playing && mode !== 'held') {
+      // fading out: clear once it is gone, so the next play starts from nothing
+      const t = setTimeout(() => {
+        sf.ctx.clearRect(0, 0, cv.width, cv.height);
+        spectrum.current = emptySpectrum();
+      }, FADE_MS + 50);
+      return () => clearTimeout(t);
+    }
+
+    if (mode !== 'live') {
+      // one frame, drawn again only when the colours change (a new cover fades in over 600 ms)
+      const s = mode === 'held' ? heldSpectrum(levels!) : stillSpectrum();
+      draw(s, read());
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      const redraw = () => { timers.forEach(clearTimeout); timers.length = 0; for (const ms of [0, 300, 700]) timers.push(setTimeout(() => draw(s, read()), ms)); };
+      const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(redraw) : null;
+      mo?.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'data-theme', 'data-adaptive', 'data-themed'] });
+      const mq = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+      mq?.addEventListener('change', redraw);
+      return () => { mo?.disconnect(); mq?.removeEventListener('change', redraw); timers.forEach(clearTimeout); };
+    }
+
+    // live: one loop, at most 30 frames a second, while music plays
+    const readBands = typeof feed === 'function' ? feed : bandReader(feed!);
+    const raw = new Float32Array(BANDS);
+    let look = read();
+    let raf = 0, last = 0, frames = 0;
+    const frame = (now: number) => {
+      raf = requestAnimationFrame(frame);
+      if (last && now - last < 1000 / FPS - 2) return;
+      const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / FPS;
+      last = now;
+      // the colours again every half second or so: a new cover's fade
+      if (++frames % 15 === 0) look = read();
+      readBands(raw);
+      draw(stepSpectrum(spectrum.current, raw, dt), look);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, mode, feed, levels, size]);
 
   return (
-    <span
-      ref={ref}
-      className={styles.glow}
-      data-mode={level !== undefined ? 'still' : live ? 'live' : 'calm'}
-      data-playing={playing}
-      aria-hidden="true"
-      data-bar-glow=""
-      style={{ '--x0': `${-box.left}px`, '--vw': `${box.width}px` } as CSSProperties}
-    >
-      {CURTAINS.map((_, i) => (
-        <span key={i} ref={(el) => { outers.current[i] = el; }} className={styles.curtain} data-curtain={i + 1}>
-          <span ref={(el) => { inners.current[i] = el; }} className={styles.drift} style={{ animationDelay: `${-((epoch % (70 + 23 * i)))}s` }}>
-            <span className={styles.veil} />
-            <span className={styles.core} />
-          </span>
-        </span>
-      ))}
+    <span ref={root} className={styles.glow} data-on={playing} data-mode={mode} aria-hidden="true" data-bar-glow="" data-anchor={anchor}>
+      <canvas ref={canvas} className={styles.columns} />
+      <span ref={line} className={styles.line} />
     </span>
   );
 }

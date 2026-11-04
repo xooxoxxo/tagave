@@ -16,7 +16,7 @@ import { BrandMark } from './BrandMark';
 import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
 import { useAlbumsReturnSearch } from '../pages/albumSelection';
-import { AccountGlow, PlayerBar } from './PlayerBar';
+import { PlayerBar } from './PlayerBar';
 import { MenuPlaylists } from './playlists/MenuPlaylists';
 import { usePlaylistsOn } from '../hooks/usePlaylists';
 import { AdaptiveColour } from '../adaptive/AdaptiveColour';
@@ -221,7 +221,6 @@ export function Layout() {
             onListening={() => void navigate({ to: '/settings/modules/$module', params: { module: 'player' } })}
             links={careLinks}
             onSignOut={() => { stopPlayback(); logout.mutate(); }}
-            glow={<AccountGlow />}
           />
         </div>
         </div>

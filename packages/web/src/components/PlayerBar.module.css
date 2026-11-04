@@ -17,7 +17,7 @@
 :global(html[data-app-down]) .dock:not([data-empty]) { z-index: calc(var(--z-backdrop) + 1); }
 
 .bar {
-  /* the equalizer glow (BarGlow) lies under the content, over the fill */
+  /* the equalizer glow (BarGlow) stands on its top edge, under the content */
   position: relative;
   isolation: isolate;
   display: grid;

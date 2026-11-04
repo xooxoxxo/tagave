@@ -55,8 +55,6 @@ export interface AccountCompartmentProps {
   closeKey?: string;
   /** Open on first render (stories). */
   defaultOpen?: boolean;
-  /** the equalizer glow's piece under the row, beside the player bar (BarGlow) */
-  glow?: ReactNode;
   className?: string;
 }
 
@@ -80,7 +78,7 @@ export function attentionOf(links: CompartmentLink[]): string[] {
   ]);
 }
 
-export function AccountCompartment({ name, email, onAccount, onListening, onSignOut, links = [], signingOut = false, closeKey, defaultOpen = false, className, glow }: AccountCompartmentProps) {
+export function AccountCompartment({ name, email, onAccount, onListening, onSignOut, links = [], signingOut = false, closeKey, defaultOpen = false, className }: AccountCompartmentProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [theme, setTheme] = useThemePreference();
   const id = useId();
@@ -186,7 +184,6 @@ export function AccountCompartment({ name, email, onAccount, onListening, onSign
         aria-label={`Account: ${shown}${attention.length ? ` (${attention.join(', ')})` : ''}`}
         onClick={toggle}
       >
-        {glow}
         <span className={styles.tile} aria-hidden="true">{initial}{attention.length > 0 && <span className={styles.rowDot} data-row-dot="" />}</span>
         <span className={styles.text} aria-hidden="true">
           <span className={styles.name}>{shown}</span>

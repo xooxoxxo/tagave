@@ -12,14 +12,17 @@ import { CoverArt, PageShell } from '../components/ui';
 import { COVERS, COVER_KEYS } from './adaptiveCovers';
 import { DesktopFrame } from './DesktopFrame';
 import { CastKeyView } from '../components/player/CastKey';
+import { BEAT_LEVELS, demoBeat } from './glowFixtures';
 import s from './DesktopFrame.module.css';
 
 type BarState = 'empty' | 'paused' | 'playing';
 type CastShown = 'none' | 'available' | 'casting';
-interface Args { state: BarState; compartmentOpen?: boolean; glow?: boolean; cast?: CastShown }
+type Glow = 'off' | 'beat' | 'still' | 'live';
+interface Args { state: BarState; compartmentOpen?: boolean; glow?: Glow; cast?: CastShown }
 
 const noop = () => undefined;
 const TRACK = COVERS.moody;
+const DEMO = demoBeat();
 
 function Albums() {
   return (
@@ -37,7 +40,7 @@ function Albums() {
   );
 }
 
-function Bar({ state, glow = false, cast = 'none' }: { state: BarState; glow?: boolean; cast?: CastShown }) {
+function Bar({ state, glow = 'off', cast = 'none' }: { state: BarState; glow?: Glow; cast?: CastShown }) {
   const empty = state === 'empty';
   const casting = cast === 'casting';
   return (
@@ -46,17 +49,16 @@ function Bar({ state, glow = false, cast = 'none' }: { state: BarState; glow?: b
       status={empty ? 'idle' : state} position={empty ? 0 : state === 'paused' ? 96 : 141} duration={empty ? null : 321} volume={0.8}
       canPrevious={!empty} canNext={!empty} empty={empty}
       onToggle={noop} onPrevious={noop} onNext={noop} onSeek={noop} onVolume={noop} onRetry={noop} onQueue={noop}
-      glow={glow ? <BarGlow playing={state === 'playing'} source="calm" level={state === 'playing' ? 1 : undefined} /> : null}
+      glow={glow === 'off' ? null : <BarGlow playing={state === 'playing'} anchor="right" source={glow === 'live' ? DEMO : 'still'} levels={glow === 'beat' ? BEAT_LEVELS : undefined} />}
       cast={cast === 'none' ? null : <CastKeyView kind="cast" available state={casting ? 'on' : 'off'} device={casting ? 'Living Room' : null} reach="ok" host={null} onChoose={noop} />}
       castLine={casting ? 'Casting to Living Room' : null}
     />
   );
 }
 
-function InTheApp({ state, compartmentOpen = false, glow = false, cast = 'none' }: Args) {
-  const accountGlow = glow ? <BarGlow playing={state === 'playing'} source="calm" level={state === 'playing' ? 1 : undefined} /> : undefined;
+function InTheApp({ state, compartmentOpen = false, glow = 'off', cast = 'none' }: Args) {
   return (
-    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} glow={glow} cast={cast} />} accountGlow={accountGlow}>
+    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} glow={glow} cast={cast} />}>
       <Albums />
     </DesktopFrame>
   );
@@ -67,7 +69,7 @@ const meta = {
   component: InTheApp,
   tags: ['!autodocs'],
   args: { state: 'empty', compartmentOpen: false },
-  argTypes: { state: { control: 'inline-radio', options: ['empty', 'paused', 'playing'] } },
+  argTypes: { state: { control: 'inline-radio', options: ['empty', 'paused', 'playing'] }, glow: { control: 'inline-radio', options: ['off', 'beat', 'still', 'live'] } },
   parameters: { layout: 'fullscreen' },
 } satisfies Meta<typeof InTheApp>;
 export default meta;
@@ -80,9 +82,13 @@ export const Empty: Story = { tags: wide };
 export const Paused: Story = { tags: wide, args: { state: 'paused' } };
 export const Playing: Story = { tags: wide, args: { state: 'playing' } };
 export const CompartmentOpen: Story = { tags: wide, args: { state: 'paused', compartmentOpen: true } };
-/** Equalizer glow on, held at a loud peak (half the bar), and paused (the low line). */
-export const GlowPeak: Story = { name: 'Equalizer glow, peak', tags: wide, args: { state: 'playing', glow: true } };
-export const GlowPaused: Story = { name: 'Equalizer glow, paused', tags: wide, args: { state: 'paused', glow: true } };
+/** Equalizer glow on, held mid-beat (from the bar's right side, falling off to the left), and paused (off). */
+export const GlowPeak: Story = { name: 'Equalizer glow, mid-beat', tags: wide, args: { state: 'playing', glow: 'beat' } };
+export const GlowPaused: Story = { name: 'Equalizer glow, paused', tags: wide, args: { state: 'paused', glow: 'beat' } };
+/** Still: reduced motion, and where the music cannot be read (iOS). */
+export const GlowStill: Story = { name: 'Equalizer glow, still', tags: wide, args: { state: 'playing', glow: 'still' } };
+/** A demo beat, live: for looking at the motion (no screenshot, it moves). */
+export const GlowLive: Story = { name: 'Equalizer glow, live demo beat', tags: ['viewport-1440', 'no-shot'], args: { state: 'playing', glow: 'live' } };
 export const Empty1000: Story = { name: 'Empty, 1000', tags: narrow };
 export const Paused1000: Story = { name: 'Paused, 1000', tags: narrow, args: { state: 'paused' } };
 export const Playing1000: Story = { name: 'Playing, 1000', tags: narrow, args: { state: 'playing' } };

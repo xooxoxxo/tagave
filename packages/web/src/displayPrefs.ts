@@ -21,7 +21,7 @@ export interface DisplayPrefs {
    * themes/themeChoice.ts). Settings no longer shows it.
    */
   adaptiveColour: boolean;
-  /** A soft glow along the player's seek bar that moves with the music. */
+  /** An equalizer of light rising from the player bar's top edge while music plays (BarGlow). */
   eqGlow: boolean;
 }
 

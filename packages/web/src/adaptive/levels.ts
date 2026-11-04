@@ -19,7 +19,10 @@
 import { mediaElements } from '../player/engine';
 import { isAppleMobile } from '../player/platform';
 
-export const BANDS = 3;
+/** The equalizer glow's bands: log-spaced from LOW_HZ to HIGH_HZ. */
+export const BANDS = 32;
+export const LOW_HZ = 40;
+export const HIGH_HZ = 14000;
 
 let ctx: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
@@ -78,7 +81,7 @@ function routeInto(el: HTMLMediaElement, context: AudioContext, node: AnalyserNo
 }
 
 /**
- * The analyser on the player's elements, or null (the calm glow): not
+ * The analyser on the player's elements, or null (the still glow): not
  * allowed here, no elements yet, or a context that does not start.
  */
 export async function playerAnalyser(): Promise<AnalyserNode | null> {
@@ -91,8 +94,10 @@ export async function playerAnalyser(): Promise<AnalyserNode | null> {
     if (ctx.state !== 'running') return null;
     if (!analyser) {
       analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.7;
+      // 4096 points: about 12 Hz a bin, so the lowest bands have bins of their own
+      analyser.fftSize = 4096;
+      // the glow keeps its own attack and release (components/glowDriver.ts)
+      analyser.smoothingTimeConstant = 0;
     }
     for (const el of els) {
       if (joined.has(el)) continue;
@@ -106,33 +111,61 @@ export async function playerAnalyser(): Promise<AnalyserNode | null> {
   }
 }
 
-/** Band edges in Hz: low (kick, bass), mid (voice, keys), high (cymbals, air). */
-const EDGES = [40, 250, 2000, 12000];
+/** The BANDS + 1 edges (Hz), log-spaced: every band the same share of an octave. */
+export function bandEdges(bands = BANDS, low = LOW_HZ, high = HIGH_HZ): number[] {
+  return Array.from({ length: bands + 1 }, (_, i) => low * (high / low) ** (i / bands));
+}
 
 /**
- * A reader that fills `out` with BANDS levels from 0 to 1. Each band sits
- * between its running average and its recent peak, so a quiet master and a
- * loud one both pulse and a held bass note does not pin the glow at full;
- * fast attack, slow release, so it swells on a beat and settles.
+ * Each band's bins [from, to): at least one each, in order, so the lowest
+ * bands (narrower than a bin) take the next bins up rather than share one.
  */
-export function bandReader(node: AnalyserNode): (out: Float32Array) => void {
-  const bins = new Uint8Array(node.frequencyBinCount);
+export function binRanges(edges: number[], hzPerBin: number, bins: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let next = 1;
+  for (let i = 0; i < edges.length - 1; i++) {
+    const from = Math.min(bins - 1, Math.max(next, Math.floor(edges[i]! / hzPerBin)));
+    const to = Math.min(bins, Math.max(from + 1, Math.ceil(edges[i + 1]! / hzPerBin)));
+    out.push([from, to]);
+    next = to;
+  }
+  return out;
+}
+
+/** dB an octave added going up: music thins out toward the treble, the glow should not. */
+const TILT = 3;
+/** The range shown (dB) under the loudest recent moment. */
+const RANGE = 42;
+/** How fast the loudest recent moment lets go (dB a read, about 7 dB a second at 30 reads). */
+const LET_GO = 0.24;
+
+type FloatSource = Pick<AnalyserNode, 'frequencyBinCount' | 'fftSize' | 'getFloatFrequencyData'> & { context: { sampleRate: number } };
+
+/**
+ * A reader that fills `out` with BANDS levels from 0 to 1: each band's
+ * loudest bin, tilted up toward the treble, within RANGE dB of the loudest
+ * recent moment across all bands, so a quiet master and a loud one both
+ * fill the glow and the bands keep their shape against each other. Raw:
+ * the attack and release are the glow's (components/glowDriver.ts).
+ */
+export function bandReader(node: FloatSource): (out: Float32Array) => void {
+  const db = new Float32Array(node.frequencyBinCount);
   const hzPerBin = node.context.sampleRate / node.fftSize;
-  const ranges = EDGES.slice(0, -1).map((lo, i) => [Math.max(1, Math.floor(lo / hzPerBin)), Math.max(2, Math.ceil(EDGES[i + 1]! / hzPerBin))] as const);
-  const peaks = new Float32Array(ranges.length).fill(0.2);
-  const avgs = new Float32Array(ranges.length);
+  const edges = bandEdges();
+  const ranges = binRanges(edges, hzPerBin, node.frequencyBinCount);
+  const tilt = ranges.map((_, i) => TILT * Math.log2(Math.sqrt(edges[i]! * edges[i + 1]!) / LOW_HZ));
+  const band = new Float32Array(ranges.length);
+  let top = -60;
   return (out) => {
-    node.getByteFrequencyData(bins);
+    node.getFloatFrequencyData(db);
+    let loudest = -Infinity;
     ranges.forEach(([a, b], i) => {
-      let sum = 0;
-      for (let k = a; k < b && k < bins.length; k++) sum += bins[k]!;
-      const raw = sum / Math.max(1, b - a) / 255;
-      avgs[i]! += (raw - avgs[i]!) * 0.03;
-      peaks[i] = Math.max(raw, peaks[i]! * 0.993, 0.05);
-      const floor = avgs[i]! * 0.9;
-      const v = Math.min(1, Math.max(0, (raw - floor) / Math.max(0.02, peaks[i]! - floor))) ** 1.5;
-      const prev = out[i] ?? 0;
-      out[i] = v > prev ? prev + (v - prev) * 0.6 : prev + (v - prev) * 0.12;
+      let m = -Infinity;
+      for (let k = a; k < b; k++) if (db[k]! > m) m = db[k]!;
+      band[i] = Number.isFinite(m) ? m + tilt[i]! : -200;
+      if (band[i]! > loudest) loudest = band[i]!;
     });
+    top = Math.max(loudest, top - LET_GO, -60);
+    for (let i = 0; i < band.length; i++) out[i] = Math.min(1, Math.max(0, (band[i]! - (top - RANGE)) / RANGE)) ** 1.4;
   };
 }
