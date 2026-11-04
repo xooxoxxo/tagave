@@ -85,7 +85,9 @@ export function verifyCastToken(token: string | undefined, kind: CastKind, opts:
   if (exp * 1000 <= now) return null;
   const want = mac(kind, id, userId, exp, opts.appSecret).subarray(0, SIG_BYTES);
   const got = Buffer.from(sig, 'base64url');
-  if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
+  // only the canonical spelling: 16 bytes leave 4 spare bits in the last
+  // character, and a decoder ignores them, so another spelling would pass
+  if (got.length !== want.length || got.toString('base64url') !== sig || !timingSafeEqual(got, want)) return null;
   return { kind, id, userId, expiresAt: new Date(exp * 1000) };
 }
 
