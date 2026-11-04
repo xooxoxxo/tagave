@@ -4,7 +4,7 @@ import { z } from 'zod';
  * The opt-in player module: tagave plays albums through a Navidrome (or any
  * Subsonic-compatible) server. Either the bundled one (compose profile
  * "player", TAGAVE_PLAYER_URL in the app's environment) or one the owner
- * already runs (Settings › Playback, "bring your own"). The browser never
+ * already runs (Settings › Modules › Player, "bring your own"). The browser never
  * talks to that server: the API resolves tracks, proxies the audio and
  * records play events, so its password never leaves the server.
  */
@@ -160,7 +160,7 @@ export const streamQuerySchema = z.object({
 export type StreamQuery = z.infer<typeof streamQuerySchema>;
 
 /**
- * The player's per-device quality choice (Settings › Playback, kept in this
+ * The player's per-device quality choice (Settings › Modules › Player, kept in this
  * browser): auto plays the original when the browser can and the file is
  * not huge for the connection, otherwise transcodes.
  */

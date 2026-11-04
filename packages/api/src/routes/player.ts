@@ -3,7 +3,7 @@
  * server the owner runs):
  *
  *   GET    /api/v1/capabilities?libraryId=…             is a player set up, and does it answer
- *   GET    /api/v1/libraries/:libraryId/player          Settings › Playback (never a password)
+ *   GET    /api/v1/libraries/:libraryId/player          Settings › Modules › Player (never a password)
  *   PUT    /api/v1/libraries/:libraryId/player/server   owner: bring your own server (tested before it is saved)
  *   DELETE /api/v1/libraries/:libraryId/player/server   owner: forget it
  *   POST   /api/v1/libraries/:libraryId/player/scan     owner: ask the server to look for changes now

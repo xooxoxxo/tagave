@@ -493,7 +493,7 @@ export {
   type ConnectListenbrainzView,
 } from './listening.js';
 
-// Settings › Connections: Music Connections links made from this tagave
+// Settings › Modules › Music Connections: Music Connections links made from this tagave
 export {
   type McLinkState,
   type McCapabilityView,

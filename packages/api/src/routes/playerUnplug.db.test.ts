@@ -309,7 +309,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     // the bundled player in use again
     await useThePlayer();
     turnOff();
-    // the owner's own server in Settings › Playback (the fake Navidrome under another account: another server_key)
+    // the owner's own server in Settings › Modules › Player (the fake Navidrome under another account: another server_key)
     nav.state.users.set('own-admin', { id: 'nd-own', password: 'own-pw', isAdmin: true, name: 'Own', plays: new Map(), ratings: new Map(), starred: new Set() });
     const ownSettings = { playerUrl: navUrl, playerUser: 'own-admin', playerPassword: sealSecret('own-pw', process.env['APP_SECRET']!), playerPasswordHint: 'w' };
     await sql`update libraries set settings = settings || ${JSON.stringify(ownSettings)}::jsonb where id = ${libraryId}`;
@@ -361,7 +361,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     const again = await purgeModuleData(sql, 'player', { env: {} });
     expect(Object.values(again.deleted).every((n) => n === 0)).toBe(true);
 
-    // the own server removed too (Settings › Playback): now nothing of the player is left to keep
+    // the own server removed too (Settings › Modules › Player): now nothing of the player is left to keep
     const { playerUrl: _u, playerUser: _n, playerPassword: _p, playerPasswordHint: _h, ...rest } = lib.settings;
     await sql`update libraries set settings = ${JSON.stringify(rest)}::jsonb where id = ${libraryId}`;
     const last = await purgeModuleData(sql, 'player', { env: {} });

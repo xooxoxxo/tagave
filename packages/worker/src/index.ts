@@ -319,7 +319,7 @@ async function main() {
       return withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `edition.add ${job.data.localAlbumId}`, () => addEditionJob(ctx, job.data));
     });
   }
-  // Music Connections pulls from linked apps (Settings › Connections), on the
+  // Music Connections pulls from linked apps (Settings › Modules › Music Connections), on the
   // identify worker (spec §4). The tick every 15 minutes queues each due link;
   // Sync now and backoff retries send a link's own job.
   if (wants('identify.album')) {

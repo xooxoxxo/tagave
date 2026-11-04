@@ -171,7 +171,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     // Settings › Storage: disk use and the tag-change cleanup (owner only)
     instance.register(createStorageRoutes, { prefix: '/api/v1', backupDir: deps.backupService.dir, cacheDir: deps.cacheDir });
 
-    // The opt-in player: capabilities, Settings › Playback, queue, stream proxy, play events
+    // The opt-in player: capabilities, Settings › Modules › Player, queue, stream proxy, play events
     instance.register(createPlayerRoutes, { prefix: '/api/v1' });
     // The player per person: listening history, Last.fm and ListenBrainz, phone-app passwords
     instance.register(createPlayerListeningRoutes, { prefix: '/api/v1' });
@@ -181,7 +181,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     // Settings › Users › Sign-in service: your own login service (owner)
     instance.register(createOidcSettingsRoutes, { prefix: '/api/v1' });
 
-    // Settings › Connections: Music Connections links this person made to other apps ('self')
+    // Settings › Modules › Music Connections: Music Connections links this person made to other apps ('self')
     instance.register(createMcConnectionRoutes, { prefix: '/api/v1' });
     // Wantlist suggestions from linked apps, Accept / Dismiss ('self')
     instance.register(createMcWantlistRoutes, { prefix: '/api/v1' });
@@ -197,7 +197,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
     // Deleting songs and albums: Mark or Trash, Library care › Deleting (owner)
     instance.register(createDeletionRoutes, { prefix: '/api/v1' });
-    // Get missing albums through Lidarr: the states, Get (owner), Settings › Connections › Lidarr
+    // Get missing albums through Lidarr: the states, Get (owner), Settings › Modules › Lidarr
     instance.register(createLidarrRoutes, { prefix: '/api/v1' });
   });
 }

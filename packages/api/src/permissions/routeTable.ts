@@ -46,7 +46,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   // The consent page: any signed-in person approves or denies a link to their own account.
   'GET /api/v1/connect/requests/:id': 'self',
   'POST /api/v1/connect/requests/:id/decision': 'self',
-  // Settings › Connections (routes/mcConnections.ts): each person links tagave to other music apps for themselves; every handler filters by request.user.id.
+  // Settings › Modules › Music Connections (routes/mcConnections.ts): each person links tagave to other music apps for themselves; every handler filters by request.user.id.
   'GET /api/v1/me/connections': 'self',
   'POST /api/v1/me/connections': 'self',
   'GET /api/v1/me/connections/callback': 'self',
@@ -59,7 +59,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/me/wantlist-suggestions/:id/decision': 'self',
   // Facets (routes/facets.ts): which facets and modules are on, for the app to hide what is off.
   'GET /api/v1/facets': 'self',
-  // Settings › Listen elsewhere (routes/listenLinks.ts): each person's own platforms.
+  // Settings › Modules › Listen elsewhere (routes/listenLinks.ts): each person's own platforms.
   'GET /api/v1/me/listen-links': 'self',
   'PUT /api/v1/me/listen-links': 'self',
   // Each person's own preferences that follow them between devices (the colour theme)

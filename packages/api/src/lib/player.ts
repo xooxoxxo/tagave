@@ -77,7 +77,7 @@ export async function libraryById(sql: Sql, libraryId: string): Promise<{ id: st
   return rows[0] ? { id: rows[0].id, settings: parseSettings(rows[0].settings) } : null;
 }
 
-/** The install's first library (the one Settings › Playback shows when none is named). */
+/** The install's first library (the one Settings › Modules › Player shows when none is named). */
 export async function firstLibrary(sql: Sql): Promise<{ id: string; settings: PlayerLibrarySettings } | null> {
   const rows = await sql<{ id: string; settings: unknown }[]>`select id, settings from libraries order by created_at limit 1`;
   return rows[0] ? { id: rows[0].id, settings: parseSettings(rows[0].settings) } : null;

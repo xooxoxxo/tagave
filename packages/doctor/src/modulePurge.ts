@@ -21,7 +21,7 @@
  * and ListenBrainz connections are per person, but only the player feeds
  * them, so they belong to the player for now and go with it (they hold the
  * session keys). While a player server of the owner's own is still set up
- * (Settings › Playback) only the bundled player's rows go (server_key
+ * (Settings › Modules › Player) only the bundled player's rows go (server_key
  * 'bundled'), with the rows of libraries that server does not serve; that
  * server's rows, the plays, listens and scrobbles of its libraries and the
  * scrobbling connections stay, so it keeps working. Kept: the listens it wrote into the core `listens` table
@@ -52,7 +52,7 @@ export interface ModuleData {
   onWhenSettings?: (tx: postgres.TransactionSql) => Promise<boolean>;
   /**
    * Another part still uses some of these tables (the player: a server of
-   * the owner's own, Settings › Playback). `libraries` finds the libraries
+   * the owner's own, Settings › Modules › Player). `libraries` finds the libraries
    * it serves; while there are any, each table is emptied only where
    * `where` says ($1: those libraries' ids), a table mapped to null is kept
    * whole, and the settings keys go only in the other libraries. With none

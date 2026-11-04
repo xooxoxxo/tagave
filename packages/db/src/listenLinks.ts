@@ -3,7 +3,7 @@
  * Principle rule 2).
  *
  *   turn off          listenLinks.resolve skips, the Listen control and
- *                     Settings › Listen elsewhere hide, every row stays
+ *                     Settings › Modules › Listen elsewhere hide, every row stays
  *   delete its data   the module's five tables are emptied, nothing else
  *                     (core albums, artists and people stay as they are)
  *

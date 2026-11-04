@@ -46,7 +46,7 @@ async function startBoss(): Promise<PgBoss> {
     'roots.validate', 'scan.root', 'enrich.sweep', // library / scan
     'edition.add', 'queue.autoaccept', // review matches
     'art.thumb', 'art.thumbSweep', // cover thumbnails the images route found missing
-    'connections.pull', // Settings › Connections: Sync now, and the first pull after linking
+    'connections.pull', // Settings › Modules › Music Connections: Sync now, and the first pull after linking
     'listenLinks.resolve', // Listen elsewhere: an album or artist page asks for its links
     'files.trash', // Deleting: moves into and out of the trash folder, Empty trash
   ]) {
