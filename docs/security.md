@@ -151,6 +151,7 @@ See [operations](operations.md#backups) for the schedule, retention and restorin
 tagave has no telemetry. The server makes outbound requests only to:
 
 - the metadata services it uses: MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID when you add keys for them;
+- ListenBrainz, and Last.fm when you have a Last.fm API key, for [similar artists](install.md#similar-artists): an artist's MusicBrainz ID only;
 - the apps you link in Settings › Modules › Music Connections, and only those: tagave pulls from them, and sends them a decision when you accept or dismiss one of their wantlist suggestions;
 - the GitHub releases list of the official repository, once every 12 hours, to learn about new versions. It is a plain GET with a fixed `User-Agent: tagave-update-check` and no version, id or library data. Turn it off under Settings › Updates, or for the whole server with `TAGAVE_UPDATE_FEED=off` (see [Updates](install.md#updates)).
 

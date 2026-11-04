@@ -49,6 +49,7 @@ import { createMcConnectionRoutes } from './routes/mcConnections.js';
 import { createMcWantlistRoutes } from './routes/mcWantlist.js';
 import { createFacetRoutes } from './routes/facets.js';
 import { createListenLinksRoutes } from './routes/listenLinks.js';
+import { createSimilarArtistsRoutes } from './routes/similarArtists.js';
 import { createLidarrRoutes } from './routes/lidarr.js';
 import { createPlayerQueueRoutes } from './routes/playerQueue.js';
 import { createPlayerDeviceRoutes } from './routes/playerDevices.js';
@@ -196,6 +197,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createFacetRoutes, { prefix: '/api/v1' });
     // Listen elsewhere: links to streaming platforms, each person's platforms, the module row
     instance.register(createListenLinksRoutes, { prefix: '/api/v1' });
+    // Similar artists: the artist page's section, Follow by MBID, the module row
+    instance.register(createSimilarArtistsRoutes, { prefix: '/api/v1' });
     // The play queue per person (follows them across devices) and their history
     instance.register(createPlayerQueueRoutes, { prefix: '/api/v1' });
     // Play in one place: the person's devices, their events, commands to the one that plays

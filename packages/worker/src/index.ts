@@ -28,6 +28,7 @@ import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
 import { listenLinksResolveJob, type ListenLinksResolveJobData } from './jobs/listenLinksResolve.js';
+import { similarArtistsFetchJob, type SimilarArtistsFetchJobData } from './jobs/similarArtistsFetch.js';
 import { lidarrGetJob, lidarrPollJob, type LidarrGetJobData, type LidarrPollJobData } from './jobs/lidarr.js';
 import { poolScanJob } from './jobs/poolScan.js';
 import type { PoolScanJobData } from '@tagave/shared';
@@ -115,6 +116,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'connections.pull': 'stately',
   // one queued per album or artist (singletonKey listen:rg:<id> / listen:artist:<id>)
   'listenLinks.resolve': 'stately',
+  // one queued per artist (singletonKey similar:<artist id>) behind the running one
+  'similarArtists.fetch': 'stately',
   // one poll queued behind the running one (singletonKey lidarr.poll); one Get all missing per artist
   'lidarr.poll': 'stately',
   // one scan of the pool queued behind the running one (singletonKey pool.scan, or pool.scan:<library>)
@@ -354,6 +357,16 @@ async function main() {
       for (const job of jobs) await listenLinksResolveJob(ctx, job.data);
     });
     await boss.schedule('listenLinks.resolve', '40 3 * * *', { sweep: true }, { singletonKey: 'listen:sweep' });
+  }
+  // Similar artists (the similar-artists module), on the identify worker
+  // with the other outside lookups. An artist page sends its artist's job
+  // when the list is missing or a week old; a daily sweep fetches again the
+  // lists that are a week old. Off (Settings › Modules), every run skips.
+  if (wants('identify.album')) {
+    await boss.work<SimilarArtistsFetchJobData>('similarArtists.fetch', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) await similarArtistsFetchJob(ctx, job.data);
+    });
+    await boss.schedule('similarArtists.fetch', '10 4 * * *', { sweep: true }, { singletonKey: 'similar:sweep' });
   }
   // Get missing albums through Lidarr (the lidarr module), on the identify
   // worker: calls to the owner's Lidarr. The poll every 5 minutes asks

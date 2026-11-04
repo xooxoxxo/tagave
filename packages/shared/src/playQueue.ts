@@ -11,7 +11,7 @@ export const queueOriginSchema = z.enum(['queued', 'context']);
 export type QueueOrigin = z.infer<typeof queueOriginSchema>;
 
 export const queueContextSchema = z.object({
-  kind: z.enum(['album', 'playlist']),
+  kind: z.enum(['album', 'playlist', 'artist']),
   id: z.string().min(1).max(64),
   name: z.string().max(500),
 }).strict();

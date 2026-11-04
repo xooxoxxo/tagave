@@ -140,3 +140,43 @@ export function critiqueBrainzCall<T>(ctx: WorkerContext, fn: () => Promise<T>):
 export function wikipediaCall<T>(ctx: WorkerContext, fn: () => Promise<T>): Promise<T> {
   return paced(ctx.sql, 'wikipedia', PROVIDER_INTERVALS.wikipedia, fn);
 }
+
+/**
+ * The install's User-Agent for install-wide lookups (Listen elsewhere,
+ * Similar artists): the contact of the first library that has one; null
+ * without one (the gateway refuses provider calls then, spec §10.2.3).
+ */
+export async function installUserAgent(ctx: WorkerContext): Promise<string | null> {
+  const [lib] = await ctx.sql<Array<{ id: string }>>`
+    select id from libraries order by (settings->>'contactString') is null, created_at, id limit 1`;
+  if (!lib) return null;
+  const s = await libraryProviderSettings(ctx, lib.id);
+  return s.contactString ? `tagave/0.1 (+${s.contactString})` : null;
+}
+
+/**
+ * The install's Last.fm API key (the player's scrobbling application,
+ * Settings › Modules › Player): sealed in a library's settings, else
+ * TAGAVE_LASTFM_API_KEY. Null when there is none or it does not open here.
+ * Similar artists reads it to ask Last.fm too; nothing else in the worker does.
+ */
+export async function installLastfmApiKey(ctx: WorkerContext, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  const rows = await ctx.sql<Array<{ key: string | null }>>`
+    select settings->>'lastfmApiKey' as key from libraries where settings ? 'lastfmApiKey' order by created_at, id`;
+  for (const r of rows) {
+    if (!r.key) continue;
+    if (!isSealed(r.key)) return r.key;
+    const appSecret = env['APP_SECRET'];
+    if (!appSecret) {
+      warnOnce(ctx, 'APP_SECRET missing on this host; the sealed Last.fm key is unusable: similar artists use ListenBrainz alone');
+      return null;
+    }
+    try {
+      return openSecret(r.key, appSecret);
+    } catch {
+      warnOnce(ctx, 'the sealed Last.fm key does not open with this host\'s APP_SECRET: similar artists use ListenBrainz alone');
+      return null;
+    }
+  }
+  return env['TAGAVE_LASTFM_API_KEY']?.trim() || null;
+}

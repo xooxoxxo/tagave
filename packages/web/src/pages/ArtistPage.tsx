@@ -18,7 +18,7 @@ import {
   useCan, useCurrentLibrary, useArtist, useEnrichArtist, useFollowArtist, useReopenGap, useFollowRules,
   usePatchArtistFollowRules, useResetArtistFollowRules,
 } from '../hooks';
-import { PageShell, Button, CloseIcon, IconButton } from '../components/ui';
+import { PageShell, Button, CloseIcon, IconButton, showToast } from '../components/ui';
 import { PageBackActionContext } from '../components/ui/PageShell';
 import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { artistLabel } from '@tagave/shared';
@@ -34,6 +34,10 @@ import { useArtistListenLinks } from '../hooks/useListenLinks';
 import { MissingLidarr } from '../components/LidarrControls';
 import { useArtistLidarr } from '../hooks/useLidarr';
 import { useHiddenDeletions } from './deleteAction';
+import { fetchArtistMix, useArtistSimilar, useFollowSimilar } from '../hooks/useSimilarArtists';
+import { usePlaybackAvailable } from '../hooks/usePlayer';
+import { playTracks } from '../player/engine';
+import { showsSimilar, similarCount, type SimilarArtistsViewProps } from './SimilarArtists';
 import styles from './ArtistPage.module.css';
 
 const NO_GLIDE = { x: 0, y: 0 };
@@ -61,9 +65,32 @@ export function ArtistPage() {
     [artist?.albums, hiddenDel],
   );
   const nameFirst = artistLayout !== 'albums';
+  // Similar artists (the similar-artists module): below the albums, above About
+  const similarQuery = useArtistSimilar(libraryId, artist ? artistId : undefined);
+  const similarView = similarQuery.data && showsSimilar(similarQuery.data) ? similarQuery.data : null;
+  const followSimilar = useFollowSimilar(libraryId);
+  const playable = usePlaybackAvailable();
+  const [mixLoading, setMixLoading] = useState<string | null>(null);
+  const similar = useMemo<SimilarArtistsViewProps | null>(() => (similarView ? {
+    view: similarView,
+    onFollow: canCare ? (a) => followSimilar.mutate({ artistId: a.artistId, mbid: a.mbid, name: a.name }) : undefined,
+    following: followSimilar.isPending ? followSimilar.variables?.name ?? null : null,
+    onPlay: playable && libraryId ? async (a) => {
+      setMixLoading(a.artistId);
+      try {
+        const mix = await fetchArtistMix(libraryId, a.artistId);
+        if (mix.trackIds.length) await playTracks(mix.trackIds, { kind: 'artist', id: a.artistId, name: mix.name });
+      } catch {
+        showToast({ message: 'Couldn’t load the songs. Try again.' });
+      } finally {
+        setMixLoading(null);
+      }
+    } : undefined,
+    loading: mixLoading,
+  } : null), [similarView, canCare, followSimilar, playable, libraryId, mixLoading]);
   const sections = useMemo(
-    () => (artist && nameFirst ? pageSections(artist, shelves, maintenance, detailsState(artist, waiting)) : []),
-    [artist, nameFirst, shelves, maintenance, waiting],
+    () => (artist && nameFirst ? pageSections(artist, shelves, maintenance, detailsState(artist, waiting), similarView ? { count: similarCount(similarView) } : null) : []),
+    [artist, nameFirst, shelves, maintenance, waiting, similarView],
   );
   const flow = useArtistFlow(rootRef, nameRef, sections.map((s) => s.id), endRef, !!artist);
   const [showReleaseTypes, setShowReleaseTypes] = useState(false);
@@ -108,6 +135,7 @@ export function ArtistPage() {
               onReopen: canCare ? (gapId: string) => reopenMutation.mutate(gapId) : undefined,
               reopening: reopenMutation.isPending,
               canFollow: canCare,
+              similar,
             };
             return <MissingLidarr.Provider value={lidarrValue}><MissingPrimary.Provider value={listen.data?.available ? listen.data.primary ?? null : null}><MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
               {nameFirst

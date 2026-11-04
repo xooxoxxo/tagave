@@ -3,7 +3,7 @@
  * §2.6, manifest v2). Music is the one app. Library, collection and reviews
  * are built-in parts of it: always on, their tables stay where they are,
  * each provides its facets through a thin adapter. The player, Music
- * Connections, Listen elsewhere and playlists are modules that work with
+ * Connections, Listen elsewhere, playlists and similar artists are modules that work with
  * music: off means their jobs skip, their UI hides and their facets are
  * unavailable, and their data stays.
  *
@@ -136,6 +136,25 @@ export const LISTEN_LINKS_MODULE = defineModule({
 });
 
 /**
+ * Similar artists: on an artist page, the artists ListenBrainz finds
+ * similar (and Last.fm, when the install has a Last.fm API key), those in
+ * the library first. Off: the fetch job skips and the section hides; the
+ * data stays until "Delete its data" (api › routes/similarArtists.ts).
+ */
+export const SIMILAR_ARTISTS_MODULE = defineModule({
+  id: 'similar-artists',
+  version: '1.0.0',
+  compatibleWith: MUSIC_1,
+  provides: [],
+  consumes: [],
+  jobs: ['similarArtists.fetch'],
+  prefix: 'similar_',
+  tables: ['similar_artists', 'similar_artist_checks'],
+  // on from the start: it sends artist MBIDs only, to MetaBrainz, as identification does
+  defaultEnabled: true,
+});
+
+/**
  * Playlists: each person's private lists of tracks (0056). Off: the
  * Playlists page and "Add to playlist" hide; the data stays until "Delete
  * its data" (api › routes/playlists.ts). On from the start.
@@ -174,7 +193,7 @@ export const LIDARR_MODULE = defineModule({
   defaultEnabled: false,
 });
 
-export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE, LIDARR_MODULE];
+export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE, LIDARR_MODULE, SIMILAR_ARTISTS_MODULE];
 
 /** A ledger row (installed_modules) for every app and in-process module: what a boot syncs. */
 export interface LedgerEntry {

@@ -7,7 +7,7 @@
  * The player and any module the signed catalogue adds are switched by the
  * updater (Turn on / Turn off after a step-up, the run step by step like an
  * update; without the updater the install-tagave.sh command). Music
- * Connections, Listen elsewhere, Playlists and Lidarr are settings in
+ * Connections, Listen elsewhere, Playlists, Lidarr and Similar artists are settings in
  * tagave's database. Everyone sees the modules that have something for them
  * (the player's Listening, Listen elsewhere's platforms, their Music
  * Connections); the owner sees all of them and their switches.
@@ -29,6 +29,8 @@ import { useRole } from '../hooks/usePermissions';
 import { useMcModule, useRemoveMcData, useSetMcModule } from '../hooks/useMcModule';
 import { useListenLinksModule, useRemoveListenLinksData, useSetListenLinksModule } from '../hooks/useListenLinks';
 import { useLidarrSettings, useRemoveLidarrData, useSetLidarrModule } from '../hooks/useLidarr';
+import { useRemoveSimilarArtistsData, useSetSimilarArtistsModule, useSimilarArtistsModule } from '../hooks/useSimilarArtists';
+import { docsUrl } from '../utils/docs';
 import { allPlaylistsExportUrl, download, usePlaylistsModule, useRemovePlaylistsData, useSetPlaylistsModule } from '../hooks/usePlaylists';
 import { getStepUp } from '../services/stepUp';
 import { MODULE_PAGES, moduleSlug, type ModulePageEntry } from './moduleSettings';
@@ -595,6 +597,28 @@ function LidarrSwitch() {
   );
 }
 
+function SimilarSwitch() {
+  const mod = useSimilarArtistsModule();
+  const setOn = useSetSimilarArtistsModule();
+  const remove = useRemoveSimilarArtistsData();
+  if (!mod.data) return null;
+  const v = mod.data;
+  return (
+    <>
+      <SettingSwitch
+        name="Similar artists"
+        on={v.enabled}
+        meta={`${plural(v.artists, 'artist', 'artists')} · ${v.lastfm ? 'ListenBrainz, Last.fm' : 'ListenBrainz'}`}
+        pending={setOn.isPending || remove.isPending}
+        keeps="Its lists are kept unless you tick the box."
+        setOn={(on) => setOn.mutateAsync(on)}
+        removeData={() => remove.mutateAsync()}
+      />
+      <p className={styles.meta}><a href={docsUrl('install.md#similar-artists')} target="_blank" rel="noreferrer">What it sends</a></p>
+    </>
+  );
+}
+
 /* ---------- Settings › Modules › <module> ---------- */
 
 /** A module that is off, for someone who can't turn it on: the value alone. */
@@ -650,6 +674,9 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
     case 'playlists':
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<PlaylistsSwitch /></>;
+    case 'similar-artists':
+      if (!owner) return <NotAvailable inline />;
+      return <>{heading}<SimilarSwitch /></>;
     default:
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<CatalogueSwitch id={entry.id} name={entry.name} /></>;

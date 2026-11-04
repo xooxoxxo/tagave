@@ -117,6 +117,7 @@ export const SECTION_IDS = {
   owned: 'artist-in-library',
   missing: 'artist-not-in-library',
   skipped: 'artist-skipped',
+  similar: 'artist-similar',
   about: 'artist-about',
 } as const;
 
@@ -146,12 +147,17 @@ export function hasAbout(artist: AboutSource, details: DetailsState): boolean {
   return aboutFacts(artist).length > 0 || !!artist.bio || details === 'done' || Object.values(artist.links ?? {}).some(Boolean);
 }
 
-/** The sections B's page has, in page order: only those with something in them. */
-export function pageSections(artist: AboutSource, s: ArtistShelves, maintenance: boolean, details: DetailsState = 'done'): PageSection[] {
+/**
+ * The sections B's page has, in page order: only those with something in
+ * them. `similar`: Similar artists (the similar-artists module), when it
+ * shows; its count once the list is in.
+ */
+export function pageSections(artist: AboutSource, s: ArtistShelves, maintenance: boolean, details: DetailsState = 'done', similar: { count: number } | null = null): PageSection[] {
   const out: PageSection[] = [];
   if (s.owned.length) out.push({ id: SECTION_IDS.owned, label: 'In your library', count: s.owned.length });
   if (s.missing.length) out.push({ id: SECTION_IDS.missing, label: 'Not in your library', count: s.missing.length });
   if (maintenance && s.skipped.length) out.push({ id: SECTION_IDS.skipped, label: 'Skipped', count: s.skipped.length });
+  if (similar) out.push(similar.count > 0 ? { id: SECTION_IDS.similar, label: 'Similar artists', count: similar.count } : { id: SECTION_IDS.similar, label: 'Similar artists' });
   if (hasAbout(artist, details)) out.push({ id: SECTION_IDS.about, label: 'About' });
   return out;
 }
