@@ -76,14 +76,18 @@
   flex-direction: column;
 }
 
-/* n · title · start → end · length · shift · confidence · Play */
+/* two lines: n · title, then start → end · length · shift · confidence; Play at the end */
 .track {
   display: grid;
-  grid-template-columns: 2.2em minmax(0, 1fr) auto 7.5em 3.6em;
+  grid-template-columns: 2.2em minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'n name name play'
+    'n times cut play';
   align-items: center;
   column-gap: 12px;
-  min-height: 44px;
-  padding: 6px 8px;
+  row-gap: 2px;
+  min-height: 52px;
+  padding: 8px 8px;
   border-bottom: 1px solid var(--line);
   font: 400 14px / 1.35 var(--font-body);
   font-variant-numeric: tabular-nums;
@@ -115,8 +119,6 @@
 
 .len {
   color: var(--ink-3);
-  min-width: 3.4em;
-  text-align: right;
 }
 
 .cut {
@@ -163,20 +165,8 @@
   margin-right: auto;
 }
 
-/* a phone: title on the first line, times and the cut on the second */
-@media (max-width: 520px) {
-  .track {
-    grid-template-columns: 2em minmax(0, 1fr) auto;
-    grid-template-areas:
-      'n name play'
-      'n times play'
-      'n cut play';
-    row-gap: 2px;
-    padding: 8px 4px;
-  }
-  .n { grid-area: n; align-self: start; padding-top: 2px; }
-  .name { grid-area: name; }
-  .times { grid-area: times; font-size: 13px; }
-  .cut { grid-area: cut; justify-content: flex-start; font-size: 13px; }
-  .play { grid-area: play; }
-}
+.n { grid-area: n; align-self: start; padding-top: 2px; }
+.name { grid-area: name; }
+.times { grid-area: times; font-size: 13px; }
+.cut { grid-area: cut; font-size: 13px; }
+.play { grid-area: play; }
