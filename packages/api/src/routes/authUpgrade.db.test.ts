@@ -101,7 +101,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
     expect(fksAfter.filter((f: any) => before.has(key(f)) && key(f) !== restricted)).toEqual(fksBefore.filter((f: any) => key(f) !== restricted));
     expect(fksAfter.find((f: any) => key(f) === restricted)?.def).toBe('FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE RESTRICT');
     expect(fksAfter.filter((f: any) => !before.has(key(f))).map((f: any) => f.table_name)).toEqual([
-      'facet_changes', 'file_deletions', 'identity_fills', 'lidarr_requests', 'listen_prefs', 'mc_critic_scores', 'mc_identity', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending', 'mc_wantlist_suggestions',
+      'album_splits', 'facet_changes', 'file_deletions', 'identity_fills', 'lidarr_requests', 'listen_prefs', 'mc_critic_scores', 'mc_identity', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending', 'mc_wantlist_suggestions',
       'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_queue_state', 'player_rating_sync', 'player_song_counts', 'player_users',
       'playlists', 'saved_views', 'scrobble_accounts', 'user_invites', 'user_invites', 'user_prefs',
     ]);
