@@ -10,6 +10,7 @@ import {
   tagPlanItems,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { undoMovesOfPlan } from './filesMove.js';
 import { CanonicalField, type TagDiffEntry, type TagPlanStats, type TagPolicies } from '@tagave/shared';
 
 export interface TagsRevertJobData {
@@ -83,6 +84,12 @@ export async function tagsRevertJob(ctx: WorkerContext, data: TagsRevertJobData)
   }
 
   const originalPlan = plans[0]!;
+
+  // 0081: the files the plan moved to their rule paths go back first (the
+  // moves' own Undo, from their journals), so the revert writes them where
+  // they were; Library care › Moved shows any that could not
+  const undone = await undoMovesOfPlan(ctx, planId);
+  if (undone.tried > 0) logger.info({ planId, ...undone }, 'Revert: the plan\'s moves undone');
 
   const appliedItems = await db
     .select()

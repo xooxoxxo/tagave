@@ -41,6 +41,8 @@ import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';
 import { currentFieldsFrom } from '../lib/canonicalTags.js';
 import { linkAlbumTracks, ensureTrackMbids } from '../lib/trackLinks.js';
 import { reportProgress, type ProgressUpdate } from './progress.js';
+import { namingRulesFor } from '../lib/naming.js';
+import { previewPaths, type PreviewFile, type PreviewPath } from './organize.js';
 
 export { currentFieldsFrom };
 
@@ -324,6 +326,14 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
   const filesSkipped: TagPlanStats['filesSkipped'] = [];
   const fields = Object.values(CanonicalField) as CanonicalField[];
   const manual = policy.preset === 'manual';
+  // 0081: with naming rules saved, a plan also shows (and makes) each file's
+  // path under them; the owner turns it off per plan
+  const { saved: namingSaved } = await namingRulesFor(ctx, libraryId);
+  const organize = policy.organize ?? namingSaved;
+  const pending: Array<PreviewFile & {
+    before: Record<string, unknown>; after: Partial<Record<CanonicalField, Value>>; diffs: TagDiffEntry[];
+    pairing: { canonicalTrackId: string | null; matchDistance: string | null };
+  }> = [];
 
   for (const [i, audioFileId] of fileIds.entries()) {
     await progress.files(i, fileIds.length);
@@ -391,25 +401,58 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
         if (blockedByLock > 0) filesLockedOnly++;
         else filesAlreadyCorrect++;
       }
-      if (diffs.length === 0) continue;
-      filesTouched++;
-      await db.insert(tagPlanItems).values({
-        tagPlanId: planId,
-        audioFileId,
-        before,
-        after,
-        diff: diffs,
-        status: 'pending',
-        ...pairing,
+      // a file whose tags already agree may still move (its path under the rules is worked out below)
+      if (diffs.length === 0 && !organize) continue;
+      if (diffs.length > 0) filesTouched++;
+      pending.push({
+        audioFileId, scanRootId: file.scanRootId, relPath: file.relPath,
+        fields: { ...before, ...after }, before, after, diffs, pairing,
       });
     } catch (err) {
       filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: err instanceof Error ? err.message : String(err) });
     }
   }
 
+  // each file's path under the naming rules, from its tags after the plan
+  await progress.step('Working out the new paths');
+  const paths = organize ? await previewPaths(ctx, libraryId, pending) : new Map<string, PreviewPath>();
+  let filesToMove = 0;
+  let filesMoveBlocked = 0;
+  const rows = pending.flatMap((p) => {
+    const moveTo = paths.get(p.audioFileId);
+    if (p.diffs.length === 0 && !moveTo) return [];
+    if (moveTo) {
+      filesToMove++;
+      if (moveTo.state) filesMoveBlocked++;
+    }
+    return [{
+      tagPlanId: planId,
+      audioFileId: p.audioFileId,
+      before: p.before,
+      after: p.after,
+      diff: p.diffs,
+      status: 'pending',
+      ...p.pairing,
+    }];
+  });
+  for (let i = 0; i < rows.length; i += 500) await db.insert(tagPlanItems).values(rows.slice(i, i + 500));
+  // the paths (0081 columns, written with SQL: they are not in the drizzle schema)
+  const moved = pending.filter((p) => paths.has(p.audioFileId));
+  for (let i = 0; i < moved.length; i += 1000) {
+    const part = moved.slice(i, i + 1000);
+    await ctx.sql`
+      update tag_plan_items i set path_before = m.before, path_after = m.after, path_state = nullif(m.state, '')
+        from unnest(${part.map((p) => p.audioFileId)}::uuid[], ${part.map((p) => p.relPath)}::text[],
+                    ${part.map((p) => paths.get(p.audioFileId)!.toPath)}::text[], ${part.map((p) => paths.get(p.audioFileId)!.state ?? '')}::text[])
+             as m(file_id, before, after, state)
+       where i.tag_plan_id = ${planId} and i.audio_file_id = m.file_id and i.status = 'pending'`;
+  }
+  await ctx.sql`update tag_plan_items set path_state = null where tag_plan_id = ${planId} and path_state = ''`;
+
   const stats: TagPlanStats = {
     filesTouched, fieldsModified, lockedFieldsRespected, filesSkipped,
     filesInScope: fileIds.length, filesAlreadyCorrect, filesLockedOnly,
+    ...(organize ? { filesToMove, filesMoveBlocked } : {}),
   };
   // Only mark the plan previewed if its scope is still the one this run read
   // (albums added mid-run would otherwise look previewed when they are not)

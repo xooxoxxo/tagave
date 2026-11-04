@@ -27,6 +27,7 @@ import { audioHandler, tagSnapshotOf } from '@tagave/core/files';
 import { localTracks } from '@tagave/db';
 import { clusterSingletonKey, relDirname, tagsDigest } from '../lib/helpers.js';
 import { requestPlayerRescan } from '../lib/playerScan.js';
+import { queueOrganizeAfterPlan } from './organize.js';
 
 export interface TagsApplyJobData {
   planId: string;
@@ -300,6 +301,16 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
             return { success: false, hashMismatch: true }; // Treated as critical to pause
           }
 
+          // 0081: a file whose tags already agree is in the plan only to move
+          // (its path under the naming rules); nothing to write here
+          if (Object.keys(fieldsToWrite).length === 0) {
+            await db
+              .update(tagPlanItems)
+              .set({ status: 'applied', after: afterTags, appliedAt: new Date() })
+              .where(eq(tagPlanItems.id, item.id));
+            return { success: true };
+          }
+
           // Compute audio-stream hash before writing
           let hashBefore: string;
           try {
@@ -467,9 +478,21 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
       // Queued before the status flips, so the plan page never sees a
       // finished plan whose albums have not started updating yet.
       await reclusterWrittenDirs(ctx, planId);
+      // 0081: then the files to their paths under the naming rules, one move
+      // per album (files.move: journal, Undo); a blocked album keeps its place
+      let movesQueued = 0;
+      try {
+        movesQueued = await queueOrganizeAfterPlan(ctx, planId);
+      } catch (error) {
+        logger.warn({ planId, error: String(error) }, 'tags.apply: could not queue the moves');
+      }
       await db
         .update(tagPlans)
-        .set({ status, appliedAt: new Date() })
+        .set({
+          status,
+          appliedAt: new Date(),
+          ...(movesQueued > 0 ? { stats: sql`coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('movesQueued', ${movesQueued}::int)` } : {}),
+        })
         .where(eq(tagPlans.id, planId));
       // A fully applied revert plan marks the plan it undid as reverted.
       const revertOf = (plan.policy as { preset?: string; revertOf?: string } | null);
