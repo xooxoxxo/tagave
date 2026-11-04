@@ -19,6 +19,7 @@ import { PlayOnControl } from '../components/ListenControl';
 import { PlaylistCover } from '../components/playlists/PlaylistCover';
 import { PeopleRow, PersonTile, showAdders } from '../components/playlists/People';
 import { TrackActions } from '../components/player/TrackActions';
+import { LikeKey } from '../components/LikeKey';
 import { useDragReorder } from '../components/player/useDragReorder';
 import { download, playlistExportUrl, useDeletePlaylist, usePatchPlaylist, usePlaylist, useRemovePlaylistItem } from '../hooks/usePlaylists';
 import { useCapabilities } from '../hooks/usePlayer';
@@ -155,6 +156,8 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
                   {missing ? (
                     it.removable && <EmbossIconButton label={`Remove ${it.title}`} onClick={() => p.onRemove(it)}><CloseIcon /></EmbossIconButton>
                   ) : (
+                    <>
+                    <LikeKey kind="song" id={it.localTrackId} />
                     <TrackActions
                       label={`More for ${it.title}`}
                       summary={{ title: it.title, subtitle: [it.artist, it.album].filter(Boolean).join(' · '), coverUrl: it.coverUrl }}
@@ -163,6 +166,7 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
                       artist={it.artistLink}
                       extra={it.removable ? [{ key: 'remove', label: 'Remove from playlist', icon: <CloseIcon />, onSelect: () => p.onRemove(it) }] : undefined}
                     />
+                    </>
                   )}
                 </span>
               </li>

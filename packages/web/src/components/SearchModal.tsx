@@ -22,7 +22,8 @@ import { usePlaylists, usePlaylistsOn } from '../hooks/usePlaylists';
 import { api } from '../services/api';
 import { enqueue, playAlbum, playTracks, type QueueSource } from '../player/engine';
 import { setThemePreference } from '../theme';
-import { Button, showToast } from './ui';
+import { Button, HeartIcon, showToast } from './ui';
+import { useLikeSets } from '../hooks/useLikes';
 import { TrackActions } from './player/TrackActions';
 import {
   EMPTY_INPUT, absorb, actDef, apiKind, dropChip, fold, scopeDef, shownKinds, suggestions,
@@ -144,6 +145,11 @@ export function SearchModal({ onClose, scope }: { onClose: () => void; scope?: S
   const playerInstalled = useCapabilities().data?.player?.installed === true;
   const ctx: GrammarContext = useMemo(() => ({ playlists: playlistsOn, player: mayPlay && playerInstalled }), [playlistsOn, mayPlay, playerInstalled]);
   const [input, setInput] = useState<SearchInput>(EMPTY_INPUT);
+  // a liked album, artist or song carries a small heart
+  const likes = useLikeSets();
+  const likedRow = (row: Row) => (row.type === 'album' ? likes.albums.has(row.id)
+    : row.type === 'track' ? likes.songs.has(row.id)
+      : row.type === 'artist' ? !!row.id && likes.artists.has(row.id) : false);
   const q = input.text;
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -329,7 +335,10 @@ export function SearchModal({ onClose, scope }: { onClose: () => void; scope?: S
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => open(row)}
                     >
-                      <span className={styles.primary}>{row.primary}</span>
+                      <span className={styles.primary}>
+                        {row.primary}
+                        {likedRow(row) && <span className={styles.liked} title="Liked"><HeartIcon filled /><span className={styles.srOnly}>, liked</span></span>}
+                      </span>
                       {row.secondary && <span className={styles.secondary}>{row.secondary}</span>}
                       {hint && index === selected && <kbd className={styles.rowKey} aria-hidden="true">{hint}</kbd>}
                     </div>

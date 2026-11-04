@@ -1,4 +1,5 @@
-import { Button, Chip, confirmDialog, CoverArt, KebabIcon, Menu, PageShell, embossClassName } from '../components/ui';
+import { Button, Chip, confirmDialog, CoverArt, KebabIcon, Menu, PageShell, embossClassName, type MenuItem } from '../components/ui';
+import { useLikeSets, useLikesOn, useToggleLike } from '../hooks/useLikes';
 import { useDeleteAction, useHiddenDeletions } from './deleteAction';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
@@ -146,16 +147,22 @@ export function AlbumsPage() {
   const hiddenDel = useHiddenDeletions();
   const allItems = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
   const items = useMemo(() => allItems.filter((a) => !hiddenDel.album(a.id)), [allItems, hiddenDel]);
-  const albumMore = (album: AlbumSummary) => del && maintenance && (
-    <span className={styles.more} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-      <Menu
-        label={`More for ${album.title}`}
-        items={[{ key: 'delete', label: del.label, tone: 'danger', onSelect: () => del.album(album.id, album.title) }]}
-        triggerClassName={embossClassName('page')}
-        icon={<KebabIcon />}
-      />
-    </span>
-  );
+  // each card's and row's ⋯: Like or Unlike; the owner's Delete in Maintenance
+  const likesOn = useLikesOn();
+  const likes = useLikeSets();
+  const toggleLike = useToggleLike();
+  const albumMore = (album: AlbumSummary) => {
+    const liked = likes.albums.has(album.id);
+    const items: MenuItem[] = [
+      ...(likesOn ? [{ key: 'like', label: liked ? 'Unlike' : 'Like', onSelect: () => toggleLike.mutate({ kind: 'album', id: album.id, like: !liked }) }] : []),
+      ...(del && maintenance ? [{ key: 'delete', label: del.label, tone: 'danger' as const, separated: likesOn, onSelect: () => del.album(album.id, album.title) }] : []),
+    ];
+    return items.length > 0 && (
+      <span className={styles.more} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <Menu label={`More for ${album.title}`} items={items} triggerClassName={embossClassName('page')} icon={<KebabIcon />} />
+      </span>
+    );
+  };
   // an album waiting out its Undo leaves the count at once too
   const total = Math.max(0, (facets?.total ?? allItems.length) - (allItems.length - items.length));
 
@@ -359,7 +366,7 @@ export function AlbumsPage() {
     savedViews,
     activeCount,
     onToggle: (key: MultiFilterKey, value: string | number) => setSearch({ [key]: toggleMulti(search, key, value) } as SearchPatch),
-    onSet: (key: 'decided' | 'review' | 'owned', value: string | undefined) => setSearch({ [key]: value } as SearchPatch),
+    onSet: (key: 'decided' | 'review' | 'owned' | 'liked', value: string | undefined) => setSearch({ [key]: value } as SearchPatch),
     onClear: clearAll,
     onApplyView: applyView,
     onSaveView: saveView,
@@ -577,7 +584,7 @@ export function AlbumsPage() {
                               )}
                               <CoverArt src={album.coverUrl} title={album.title} fill />
                             </div>
-                            <div className={del ? styles.albumInfoMore : styles.albumInfo}>
+                            <div className={del || likesOn ? styles.albumInfoMore : styles.albumInfo}>
                               {albumMore(album)}
                               <h3 className={styles.albumTitle} dir="auto">{album.title}</h3>
                               <p className={styles.albumArtist} dir="auto">{album.artistCredit}</p>

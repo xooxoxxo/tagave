@@ -8,6 +8,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { PlayerBarView } from '../components/PlayerBar';
 import { BarGlow } from '../components/BarGlow';
+import { LikeKeyView } from '../components/LikeKey';
 import { CoverArt, PageShell } from '../components/ui';
 import { COVERS, COVER_KEYS } from './adaptiveCovers';
 import { DesktopFrame } from './DesktopFrame';
@@ -57,6 +58,7 @@ function Bar({ state, glow = 'off', cast = 'none', device = 'none' }: { state: B
         <DevicesKeyView lit={device === 'remote'} onChoose={noop} devices={[{ id: 'mac', name: 'Chrome on Mac', here: true, playing: device === 'tap' }, { id: 'phone', name: 'Safari on iPhone', here: false, playing: device === 'remote' }]} />
       ) : cast === 'none' ? null : <CastKeyView kind="cast" available state={casting ? 'on' : 'off'} device={casting ? 'Living Room' : null} reach="ok" host={null} onChoose={noop} />}
       castLine={casting ? 'Casting to Living Room' : null}
+      like={empty ? null : <LikeKeyView liked={state === 'playing'} size="sm" onToggle={noop} />}
     />
   );
 }

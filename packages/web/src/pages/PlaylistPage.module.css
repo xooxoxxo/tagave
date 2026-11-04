@@ -118,7 +118,8 @@
 .rowMenu > button { width: 40px; height: 40px; }
 .rowMenu > button svg { width: 20px; height: 20px; }
 @media (hover: hover) and (pointer: fine) {
-  .row:not(:hover):not(:focus-within) .rowMenu:not(:has([aria-expanded="true"])) { opacity: 0; }
+  /* a liked song's heart stays */
+  .row:not(:hover):not(:focus-within) .rowMenu:not(:has([aria-expanded="true"])) > :not([data-liked]) { opacity: 0; }
 }
 
 @media (max-width: 720px) {

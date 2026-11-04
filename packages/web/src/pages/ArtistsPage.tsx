@@ -12,6 +12,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ARTIST_GROUP_ORDER, artistGroupLabel, artistLabel, cleanArtistName } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsInfinite, type ArtistListItem, type ArtistSort } from '../hooks/useArtists';
+import { useLikesOn } from '../hooks/useLikes';
 import { Button, Chip, EmptyState, PageShell } from '../components/ui';
 import { ListToolbar } from '../components/ListToolbar';
 import { ArtistArtwork, IdentityMark } from '../components/ArtistArtwork';
@@ -52,6 +53,8 @@ export function ArtistsPage() {
   const search = params.q ?? '';
   const sort: ArtistSort = params.sort ?? 'name';
   const group = params.letter ?? null;
+  const liked = params.liked === 'yes';
+  const likesOn = useLikesOn();
   const navigate = useNavigate();
   const router = useRouter();
   const setParams = (patch: Partial<Record<keyof ArtistsSearch, string | undefined>>) => void navigate({
@@ -71,7 +74,7 @@ export function ArtistsPage() {
   const setView = (next: ArtistsView) => { setViewState(next); writeArtistsView(next); };
 
   const { data, isLoading, isFetching, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useArtistsInfinite(libraryId, { search, sort, group });
+    useArtistsInfinite(libraryId, { search, sort, group, liked });
   const items = data?.pages.flatMap((p) => p.items) ?? [];
   const first = data?.pages[0];
   const total = first?.total ?? items.length;
@@ -123,7 +126,7 @@ export function ArtistsPage() {
   // Back from an artist: where the list was left (utils/listPlace.ts)
   useScrollPlace(scroller, 'artists', useEntry(router.history, '/artists'));
   // a new search, sort or letter starts at the top (not the first render: that is the place's)
-  const listKey = `${search}|${sort}|${group}|${view}`;
+  const listKey = `${search}|${sort}|${group}|${view}|${liked}`;
   const shownKey = useRef(listKey);
   useEffect(() => {
     if (shownKey.current === listKey) return;
@@ -152,9 +155,10 @@ export function ArtistsPage() {
           sort={{ value: sort, options: ARTIST_SORT_OPTIONS, noun: 'artists', onChange: setSort }}
           view={{ value: view, onChange: setView }}
         />
-        {search && (
+        {(search || likesOn) && (
           <div className={styles.chips}>
-            <Chip active aria-pressed={undefined} onClick={clearSearch} aria-label={`Remove “${search}”`}>“{search}” <span aria-hidden="true">✕</span></Chip>
+            {likesOn && <Chip active={liked} onClick={() => setParams({ liked: liked ? undefined : 'yes' })}>Liked</Chip>}
+            {search && <Chip active aria-pressed={undefined} onClick={clearSearch} aria-label={`Remove “${search}”`}>“{search}” <span aria-hidden="true">✕</span></Chip>}
           </div>
         )}
         {/* One tab stop: arrow keys, Home and End move between letters. */}
@@ -182,10 +186,10 @@ export function ArtistsPage() {
       {isLoading && <div className={styles.status} role="status">Loading…</div>}
       {error && <div className={styles.error} role="alert">Couldn’t load artists. <Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div>}
       {showEmpty && <EmptyState
-        title={search || group ? 'No matching artists' : 'No artists yet'}
+        title={search || group || liked ? 'No matching artists' : 'No artists yet'}
       />}
-      {showEmpty && (search || group) && <p className={styles.clear}>
-        <Button variant="secondary" size="sm" onClick={() => setParams({ q: undefined, letter: undefined })}>Show all</Button>
+      {showEmpty && (search || group || liked) && <p className={styles.clear}>
+        <Button variant="secondary" size="sm" onClick={() => setParams({ q: undefined, letter: undefined, liked: undefined })}>Show all</Button>
       </p>}
 
       {view === 'list' && items.length > 0 && <div className={styles.listHead} aria-hidden="true">

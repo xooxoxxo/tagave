@@ -15,6 +15,7 @@ import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import type { ArtistDetail } from '../hooks';
 import { artistLabel } from '@tagave/shared';
 import { AlbumGrid, ArtistAbout, Bar, DetailsNote, FollowButton, ShortBio, SkeletonGrid, detailsWhen } from './ArtistParts';
+import { LikeKey } from '../components/LikeKey';
 import { Button } from '../components/ui';
 import { kindLine, ownedLine, SECTION_IDS, type ArtistShelves, type DetailsState, type PageSection } from './artistPageView';
 import { MissingHeadingMenu } from '../components/LidarrControls';
@@ -105,6 +106,7 @@ export function ArtistNameFirst(p: NameFirstProps) {
         <DetailsNote state={details} maintenance={maintenance} onRetry={p.enrich.run} retrying={p.enrich.pending} />
         <div className={styles.bandActs}>
           {p.canFollow && <FollowButton followed={artist.followed} pending={p.follow.pending} onToggle={p.follow.toggle} />}
+          <LikeKey kind="artist" id={artist.id} />
         </div>
       </div>
     </section>

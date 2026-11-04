@@ -3,29 +3,32 @@ import { SHIPPED, SLOTS, actionAvailable, albumActionContext, albumMenu, albumMe
 
 const ids = (slots: ReturnType<typeof rowSlots>) => slots?.map((s) => (s.filled ? s.id : `(${s.id})`)) ?? null;
 
-describe('the action row: Shuffle | Play | (space)', () => {
+describe('the action row: Shuffle | Play | Like', () => {
   it('reads the slot list, Play in the middle; no ⋮ (the one ⋮ is in the header)', () => {
     expect(SLOTS).toEqual(['shuffle', 'play', 'like']);
     expect(SLOTS.indexOf('play')).toBe((SLOTS.length - 1) / 2);
     expect(SLOTS as readonly string[]).not.toContain('more');
   });
 
-  it('with a player: Shuffle and Play, the right slot space for an action to come', () => {
+  it('with a player: Shuffle and Play, and the heart on the right when the person may like', () => {
     expect(ids(rowSlots(SLOTS, albumActionContext({ playerInstalled: true })))).toEqual(['shuffle', 'play', '(like)']);
+    expect(ids(rowSlots(SLOTS, { ...albumActionContext({ playerInstalled: true }), like: true }))).toEqual(['shuffle', 'play', 'like']);
   });
 
-  it('no player, or no player.use: no Play and no Shuffle, so no row', () => {
+  it('no player, or no player.use: no Play and no Shuffle; the heart alone, else no row', () => {
     expect(rowSlots(SLOTS, albumActionContext({ playerInstalled: false }))).toBeNull();
     expect(rowSlots(SLOTS, albumActionContext({ playerInstalled: true, canPlay: false }))).toBeNull();
+    expect(ids(rowSlots(SLOTS, { ...albumActionContext({ playerInstalled: false }), like: true }))).toEqual(['(shuffle)', '(play)', 'like']);
   });
 
   it('planned actions are not shipped: no dead buttons, their slots draw nothing', () => {
-    for (const id of ['like', 'playlist', 'share', 'radio'] as AlbumActionId[]) expect(SHIPPED.has(id)).toBe(false);
+    expect(SHIPPED.has('like')).toBe(true);
+    for (const id of ['playlist', 'share', 'radio'] as AlbumActionId[]) expect(SHIPPED.has(id)).toBe(false);
     const ctx = albumActionContext({ playerInstalled: true });
     const planned: AlbumActionId[] = ['radio', 'shuffle', 'play', 'like', 'share'];
     expect(ids(rowSlots(planned, ctx))).toEqual(['(radio)', 'shuffle', 'play', '(like)', '(share)']);
     // shipped later, they slot in symmetrically and Play stays in the middle
-    const later = rowSlots(planned, { ...ctx, shipped: new Set<AlbumActionId>([...SHIPPED, 'like', 'share', 'radio']) });
+    const later = rowSlots(planned, { ...ctx, like: true, shipped: new Set<AlbumActionId>([...SHIPPED, 'share', 'radio']) });
     expect(ids(later)).toEqual(['radio', 'shuffle', 'play', 'like', 'share']);
   });
 
@@ -34,7 +37,8 @@ describe('the action row: Shuffle | Play | (space)', () => {
     const without = { player: false, shipped };
     expect(actionAvailable('radio', without)).toBe(false);
     expect(actionAvailable('playlist', without)).toBe(false);
-    expect(actionAvailable('like', without)).toBe(true);
+    expect(actionAvailable('like', without)).toBe(false);
+    expect(actionAvailable('like', { ...without, like: true })).toBe(true);
     expect(actionAvailable('share', without)).toBe(true);
   });
 

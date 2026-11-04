@@ -120,6 +120,18 @@ export async function removeLike(sql: Sql | Tx, userId: string, t: LikeTarget, o
   return gone.length;
 }
 
+/** Unlikes one song like by its own id (Liked songs' Missing rows: no track to name it by). */
+export async function removeLikeById(sql: Sql | Tx, userId: string, likeId: string): Promise<number> {
+  if (!isId(likeId)) return 0;
+  const [l] = await sql<Array<{ local_track_id: string | null; recording_mbid: string | null; title: string | null; artist: string | null }>>`
+    select local_track_id, recording_mbid, title, artist from likes where id = ${likeId} and user_id = ${userId} and kind = 'song'`;
+  if (!l) return 0;
+  if (l.local_track_id || l.recording_mbid) {
+    return removeLike(sql, userId, { kind: 'song', localTrackId: l.local_track_id, recordingMbid: l.recording_mbid, title: l.title, artist: l.artist });
+  }
+  return (await sql`delete from likes where id = ${likeId} and user_id = ${userId}`).count;
+}
+
 /**
  * Keeps likes pointing at what they mean: a song like whose track went
  * points at a live song of the same recording; an album like made before
@@ -170,6 +182,10 @@ export function likedAlbumIdsSql(sql: Sql | Tx, userId: string) {
   return sql`
     select la.id from likes l join local_albums la on la.release_group_id = l.release_group_id
      where l.user_id = ${userId} and l.kind = 'album' and l.release_group_id is not null
+    union
+    -- an album whose release group is known only through its release
+    select la.id from likes l join releases r on r.release_group_id = l.release_group_id join local_albums la on la.release_id = r.id
+     where l.user_id = ${userId} and l.kind = 'album' and l.release_group_id is not null and la.release_group_id is null
     union
     select l.local_album_id from likes l where l.user_id = ${userId} and l.kind = 'album' and l.local_album_id is not null`;
 }

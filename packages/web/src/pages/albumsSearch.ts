@@ -9,7 +9,7 @@ import { MULTI_FILTER_KEYS, type AlbumsQuery, type MultiFilterKey } from '@tagav
 export type AlbumsSearch = AlbumsQuery;
 
 export const ALBUMS_SORTS = ['artist', 'title', 'year', 'added_date', 'rating', 'listened'] as const;
-const SINGLE_KEYS = ['q', 'artist', 'folder', 'root', 'decided', 'review', 'owned'] as const;
+const SINGLE_KEYS = ['q', 'artist', 'folder', 'root', 'decided', 'review', 'owned', 'liked'] as const;
 const MULTI_KEYS = MULTI_FILTER_KEYS;
 
 function toArray(v: unknown): string[] {
@@ -104,6 +104,7 @@ const STATE_WORD: Record<string, string> = {
  */
 export function chipText(key: string, value: string | number): string {
   if (key === 'q') return `“${value}”`;
+  if (key === 'liked') return 'Liked';
   if (key === 'decade') return `${value}s`;
   if (key === 'format' || key === 'genre') return String(value);
   const shown = key === 'state' ? STATE_WORD[String(value)] ?? String(value) : String(value);

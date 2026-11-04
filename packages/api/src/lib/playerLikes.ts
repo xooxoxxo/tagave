@@ -16,8 +16,8 @@
  *   liked here, starred there         agreed (remembered)
  *   liked here, not starred there     agreed before and not liked again since: unstarred in an app,
  *                                     so the like goes; otherwise a new like: star it
- *   starred there, not liked here     the newer of the server's star and tagave's unlike
- *                                     (like_removals, else the last agreement) wins: like it, or unstar it
+ *   starred there, not liked here     the newer of the server's star and tagave's side (its unlike,
+ *                                     like_removals, and the last agreement) wins: like it, or unstar it
  *   neither, but remembered           forgotten
  *
  * Only a person with their own account on the server is synced (a shared
@@ -237,7 +237,7 @@ export async function syncPersonLikes(deps: LikeSyncDeps, backend: PlayerBackend
   const remember = async (kind: Kind, serverId: string, target: string) => {
     await sql`
       insert into player_like_sync (user_id, server_key, kind, server_id, target, synced_at)
-      values (${userId}, ${backend.key}, ${kind}, ${serverId}, ${target}, ${new Date(now).toISOString()})
+      values (${userId}, ${backend.key}, ${kind}, ${serverId}, ${target}, ${new Date(deps.now?.() ?? Date.now()).toISOString()})
       on conflict (user_id, server_key, kind, server_id) do update set target = excluded.target, synced_at = excluded.synced_at`;
   };
   const forget = (kind: Kind, serverId: string) =>
@@ -264,7 +264,10 @@ export async function syncPersonLikes(deps: LikeSyncDeps, backend: PlayerBackend
             toStar.push({ id, target: mine.target });
           }
         } else if (theirs) {
-          const unlikedAt = removed.get(`${kind}|${id}`) ?? (memory ? ms(memory.synced_at) : null);
+          // tagave's side changed at its unlike, or (agreed before) no earlier than the agreement:
+          // a star tagave itself sent is never newer than the agreement written after it
+          const unlike = removed.get(`${kind}|${id}`);
+          const unlikedAt = unlike === undefined && !memory ? null : Math.max(unlike ?? 0, memory ? ms(memory.synced_at) : 0);
           if (unlikedAt !== null && unlikedAt >= theirs.at) {
             toUnstar.push(id);
             if (memory) await forget(kind, id);

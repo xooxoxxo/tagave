@@ -4,7 +4,7 @@
  *   GET    /api/v1/me/likes                 { songs, albums, artists }: the ids the app marks liked
  *   GET    /api/v1/me/likes/songs           Liked songs, newest first
  *   PUT    /api/v1/me/likes/:kind/:id       like: song (a local track), album (a local album), artist
- *   DELETE /api/v1/me/likes/:kind/:id       unlike
+ *   DELETE /api/v1/me/likes/:kind/:id       unlike (a song also by its like's id: a Missing row of Liked songs)
  *
  * Both writes answer the new keys, so the app sets them at once. A thing
  * that is not in the library answers 404.
@@ -13,7 +13,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { likeKindSchema, type LikeKeysView, type LikedSongsView } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getSql } from '../db.js';
-import { addLike, likeKeys, likedSongs, removeLike, targetOf } from '../lib/likes.js';
+import { addLike, likeKeys, likedSongs, removeLike, removeLikeById, targetOf } from '../lib/likes.js';
 import { bustFilterCountsCache } from './albums.js';
 
 function user(request: FastifyRequest): { id: string } {
@@ -47,6 +47,8 @@ export async function createLikeRoutes(fastify: FastifyInstance) {
 
   fastify.delete('/me/likes/:kind/:id', async (request): Promise<LikeKeysView> => {
     const me = user(request);
+    const { kind, id } = request.params as { kind: string; id: string };
+    if (kind === 'song' && (await removeLikeById(sql(), me.id, id)) > 0) return likeKeys(sql(), me.id);
     const t = await target(request);
     await removeLike(sql(), me.id, t);
     if (t.kind === 'album') bustFilterCountsCache();

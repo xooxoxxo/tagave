@@ -19,7 +19,7 @@ interface FilterRailProps {
   /** Toggle one value of a multi-select dimension. */
   onToggle: (key: MultiFilterKey, value: string | number) => void;
   /** Replace a single-select dimension (undefined clears it). */
-  onSet: (key: 'decided' | 'review' | 'owned', value: string | undefined) => void;
+  onSet: (key: 'decided' | 'review' | 'owned' | 'liked', value: string | undefined) => void;
   onClear: () => void;
   onApplyView: (view: SavedView) => void;
   onSaveView: () => void;
@@ -37,6 +37,7 @@ const FORMAT_LABEL: Record<string, string> = { lossless: 'Lossless', lossy: 'Los
 const REVIEW_LABEL: Record<string, string> = { reviewed: 'Reviewed', unreviewed: 'Unreviewed', rated: 'Rated', listened: 'Listened' };
 const GAP_LABEL: Record<string, string> = { incomplete_album: 'Incomplete', duplicate: 'Duplicate', quality: 'Quality flags', none: 'No open issues' };
 const OWNED_LABEL: Record<string, string> = { both: 'Also on physical', digital: 'Digital only' };
+const LIKED_LABEL: Record<string, string> = { yes: 'Liked' };
 const DECIDED_LABEL: Record<string, string> = {
   auto_strong: 'Auto (strong)', chip_rule: 'Auto (chip rule)', first_candidate: 'Auto (first candidate)', by_me: 'Accepted by me', manual_mbid: 'Manual MBID',
 };
@@ -160,6 +161,11 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
         </Button>
       </Section>
 
+      {facets?.liked && (
+        <Section title="Likes">
+          <SingleOptions items={facets.liked} labels={LIKED_LABEL} current={query.liked} onPick={(v) => onSet('liked', v)} hideZero={false} />
+        </Section>
+      )}
       {curation && (
         <Section title="Identification" count={len('state')}>
           <MultiOptions items={facets?.states} labels={STATE_LABEL} isActive={active('state')} onToggle={on('state')} />

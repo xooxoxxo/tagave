@@ -68,6 +68,15 @@ export function useDisconnectScrobbler() {
   });
 }
 
+/** Liked songs as loves on one connection: Off or On. */
+export function useSetLoves() {
+  const refresh = useRefresh();
+  return useMutation({
+    mutationFn: ({ service, on }: { service: ScrobbleService; on: boolean }) => api.put<{ services: ScrobbleAccountView[] }>(`/me/listening/${service}/loves`, { on }),
+    onSuccess: refresh,
+  });
+}
+
 export function useSetPhonePassword() {
   const refresh = useRefresh();
   const { libraryId } = useCurrentLibrary();

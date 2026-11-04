@@ -241,7 +241,7 @@
   min-height: 0;
 }
 
-/* the owner's ⋮ (the delete item): at the end of the title line on a card,
+/* the ⋮ (Like or Unlike; the owner's Delete in Maintenance): at the end of the title line on a card,
    at the end of a list row; on a card it shows on hover or focus, always on touch */
 .albumInfoMore { position: relative; }
 .albumInfoMore > .albumTitle { padding-right: 28px; }

@@ -62,11 +62,13 @@ export interface AlbumTracksProps {
   player?: { currentTrackId: string | null; onPlay: (trackId: string) => void } | null;
   /** a track's ⋮ (Play next, Add to queue, Add to playlist), outside Maintenance */
   trackMenu?: ((track: DetailTrack) => ReactNode) | null | undefined;
+  /** each track's heart (LikeKey): on hover or focus where there is a mouse, always once liked */
+  trackLike?: ((track: DetailTrack) => ReactNode) | null | undefined;
   /** Maintenance, the owner: the songs picked (Move to album, Delete) */
   pick?: { selected: ReadonlySet<string>; onToggle: (id: string) => void } | null | undefined;
 }
 
-export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null, trackMenu = null, pick = null }: AlbumTracksProps) {
+export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null, trackMenu = null, trackLike = null, pick = null }: AlbumTracksProps) {
   const picking = maintenance && !!pick;
   const [openFile, setOpenFile] = useState<string | null>(null);
   const press = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
@@ -179,7 +181,7 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                       {!maintenance && file && !uniform && <span className={styles.srOnly}>, {qualityLine(t)}</span>}
                     </span>
                     <span className={styles.len}>{dur(t.durationMs)}</span>
-                    {!maintenance && trackMenu && <span className={styles.rowMenu}>{trackMenu(t)}</span>}
+                    {!maintenance && (trackMenu || trackLike) && <span className={styles.rowMenu}>{trackLike?.(t)}{trackMenu?.(t)}</span>}
                     {maintenance && (
                       <IconButton
                         label={open ? `Hide file details for ${t.title ?? 'this track'}` : `File details for ${t.title ?? 'this track'}`}

@@ -105,7 +105,8 @@ export function albumQueryParts(
   if (reviewClause) conds.push(reviewClause);
   // Liked (0085): the person liked its release group, or the album itself before it was identified
   const likedSql = sql`exists (select 1 from likes lk where lk.user_id = ${userId} and lk.kind = 'album'
-    and (lk.release_group_id = ${localAlbums.releaseGroupId} or lk.local_album_id = ${localAlbums.id}))`;
+    and (lk.release_group_id = ${localAlbums.releaseGroupId} or lk.local_album_id = ${localAlbums.id}
+      or (${localAlbums.releaseGroupId} is null and lk.release_group_id = (select r.release_group_id from releases r where r.id = ${localAlbums.releaseId}))))`;
   if (str(q['liked']) === 'yes') conds.push(likedSql);
 
   const genres = arr(q['genre']);

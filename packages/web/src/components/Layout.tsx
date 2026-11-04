@@ -20,6 +20,7 @@ import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import { PlayerBar } from './PlayerBar';
 import { MenuPlaylists } from './playlists/MenuPlaylists';
 import { usePlaylistsOn } from '../hooks/usePlaylists';
+import { useLikesOn } from '../hooks/useLikes';
 import { AdaptiveColour } from '../adaptive/AdaptiveColour';
 import { ThemeColours } from '../themes/ThemeColours';
 import { AppDownHost } from './update/UpdateDownScreen';
@@ -57,6 +58,7 @@ export function Layout() {
   const canCare = useCan('library.edit');
   const canSystem = useCan('system.manage');
   const playlistsOn = usePlaylistsOn();
+  const likesOn = useLikesOn();
   useJobEvents(user && libraryId && canCare ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
   // (inside the account compartment; a dot on its row while it is closed)
@@ -215,6 +217,7 @@ export function Layout() {
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>{pageTitles['/artists']}</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>{pageTitles['/collection']}</Link>
           {playlistsOn && <Link to="/playlists" className={`${linkClass(pathname.startsWith('/playlists'))} ${styles.wideOnly}`}>{pageTitles['/playlists']}</Link>}
+          {likesOn && <Link to="/liked" className={linkClass(pathname.startsWith('/liked'))}>{pageTitles['/liked']}</Link>}
         </nav>
         {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
         <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />

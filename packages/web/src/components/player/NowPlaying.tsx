@@ -166,6 +166,8 @@ export interface NowPlayingViewProps extends NowPlayingQueueProps {
   onNavigate?: (() => void) | undefined;
   /** the ⋮ of the playing track */
   actions?: ReactNode;
+  /** the playing song's heart (LikeKey), before the ⋮ */
+  like?: ReactNode;
   initialTab?: QueueTab;
   /** "Casting to …" while casting (player/cast.ts castLine) */
   castLine?: string | null | undefined;
@@ -183,7 +185,7 @@ export function NowPlayingView(p: NowPlayingViewProps) {
       <header className={styles.viewHead}>
         <EmbossIconButton label="Close Now playing" place="header" onClick={p.onClose}><ChevronDownIcon /></EmbossIconButton>
         {from && <span className={styles.from}><span className={styles.fromLabel}>{from.kind === 'album' ? 'Playing from album' : 'Playing from playlist'}</span><span className={styles.fromValue} dir="auto">{from.name}</span></span>}
-        <span className={styles.headEnd}>{p.actions}</span>
+        <span className={styles.headEnd}>{p.like}{p.actions}</span>
       </header>
       <div className={styles.viewBody}>
         <section className={styles.viewLeft} aria-label="Playing">
@@ -227,7 +229,7 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
         <div className={styles.segment}>
           <SegmentedControl<'playing' | 'queue'> label="Now playing" size="sm" value={segment} onChange={setSegment} options={[{ value: 'playing', label: 'Playing' }, { value: 'queue', label: 'Queue' }]} />
         </div>
-        <span className={styles.headEnd}>{p.actions ?? <span className={styles.keySpace} />}</span>
+        <span className={styles.headEnd}>{p.like}{p.actions ?? <span className={styles.keySpace} />}</span>
       </header>
       {segment === 'playing' ? (
         <div className={styles.screenBody}>
