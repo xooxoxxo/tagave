@@ -1,11 +1,11 @@
 /**
- * Settings › Connections (Music Connections spec §2 Linking, §4 Consumer
+ * Settings › Modules › Music Connections (Music Connections spec §2 Linking, §4 Consumer
  * side, §5): tagave as a client. A person links tagave to another music app
  * (review-gatherer, another tagave) and tagave pulls that app's feeds.
  *
  *   GET    /api/v1/me/connections                  the person's links, and this tagave's address (link back)
  *   POST   /api/v1/me/connections                  { url } → { authorizeUrl }: manifest, registration, PKCE
- *   GET    /api/v1/me/connections/callback         the remote sends the browser back here → Settings › Connections
+ *   GET    /api/v1/me/connections/callback         the remote sends the browser back here → Settings › Modules › Music Connections
  *   POST   /api/v1/me/connections/:id/sync         Sync now: queue a pull of this link
  *   POST   /api/v1/me/connections/:id/reapprove    → { authorizeUrl }: the approval again, cursors kept
  *   PATCH  /api/v1/me/connections/:id              { url }: the remote moved; cursors kept, tokens dropped
@@ -307,7 +307,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     return startLink(sql, user.id, link.remote_url, request.log);
   });
 
-  // A page load: always answers with a redirect to Settings › Connections.
+  // A page load: always answers with a redirect to Settings › Modules › Music Connections.
   fastify.get('/me/connections/callback', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { sql } = getAuthHandle();
@@ -319,7 +319,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     reply.header('cache-control', 'no-store');
     const fail = (error: McLinkErrorCode, reason: string) => {
       request.log.info({ event: 'mc.link.failed', userId: user.id, remoteHost: host, reason }, 'music connections link failed');
-      return reply.redirect(`/settings/connections?error=${error}`, 303);
+      return reply.redirect(`/settings/modules/music-connections?error=${error}`, 303);
     };
     if (!state) return fail(remoteError === 'access_denied' ? 'access_denied' : remoteError ? 'remote_error' : 'invalid_state', 'no state');
     if (state.length > 128) return fail('invalid_state', 'state too long');
@@ -410,7 +410,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     });
     if (first && !first.queued) request.log.info({ linkId: saved.linkId, retryAt: first.retryAt }, 'first connections pull already waiting');
     request.log.info({ event: 'mc.link.approved', userId: user.id, remoteHost: host, scopes }, 'music connections link approved');
-    return reply.redirect(`/settings/connections?linked=${saved.linkId}`, 303);
+    return reply.redirect(`/settings/modules/music-connections?linked=${saved.linkId}`, 303);
   });
 
   fastify.post('/me/connections/:id/sync', async (request, reply) => {

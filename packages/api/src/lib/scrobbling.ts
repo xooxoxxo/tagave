@@ -406,7 +406,7 @@ export async function sendDueScrobbles(deps: ScrobbleDeps, limit = 50): Promise<
           const app = apps.get(appKey);
           outcomes = app
             ? await lastfmScrobbleBatch(app, g.secret, items, f)
-            : chunk.map((): SendOutcome => ({ kind: 'retry', reason: 'The Last.fm API key is not set (Settings › Playback › Scrobbling)' }));
+            : chunk.map((): SendOutcome => ({ kind: 'retry', reason: 'The Last.fm API key is not set (Settings › Modules › Player › Scrobbling)' }));
         } else {
           const apiUrl = listenbrainzUrl(env);
           const one = await listenbrainzScrobbleBatch(g.secret, items, { ...f, ...(apiUrl ? { apiUrl } : {}) });
