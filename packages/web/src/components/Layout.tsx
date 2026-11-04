@@ -217,7 +217,7 @@ export function Layout() {
             signingOut={logout.isPending}
             closeKey={pathname}
             onAccount={() => void navigate({ to: '/settings/$section', params: { section: 'account' } })}
-            onListening={() => void navigate({ to: '/settings/$section', params: { section: 'listening' } })}
+            onListening={() => void navigate({ to: '/settings/modules/$module', params: { module: 'player' } })}
             links={careLinks}
             onSignOut={() => { stopPlayback(); logout.mutate(); }}
             glow={<AccountGlow />}

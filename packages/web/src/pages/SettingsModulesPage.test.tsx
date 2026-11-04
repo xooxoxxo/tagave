@@ -1,88 +1,153 @@
 /**
- * Settings › Modules renders from the catalogue it is given: one row per
- * module with its state, the buttons only with the updater and a signed
- * catalogue, the install-tagave.sh command without the updater.
+ * Settings › Modules: the list (who sees which module, with which state)
+ * and a catalogue module's page: Off | On only with the updater and a
+ * signed catalogue, the install-tagave.sh command without the updater, the
+ * run while it runs.
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router';
+import type { ReactNode } from 'react';
 import type { ModulesView } from '@tagave/shared';
-import { McModuleRow, SettingsModulesView, TurnOffChoices } from './SettingsModulesPage';
+import { CatalogueModuleView, ModuleSwitchView, ModulesListView, TurnOffChoices, moduleRows } from './SettingsModulesPage';
+import { MOVED_SECTIONS, moduleSlug } from './moduleSettings';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from '../stories/modulesFixtures';
 
-const render = (view: ModulesView, dismissed: string | null = null) =>
-  renderToStaticMarkup(<SettingsModulesView view={view} dismissed={dismissed} onTurnOn={() => undefined} onTurnOff={() => undefined} onDismiss={() => undefined} />);
-const button = (html: string, label: string) => new RegExp(`<button[^>]*>(?:(?!</button>).)*${label}(?:(?!</button>).)*</button>`, 's').exec(html)?.[0] ?? '';
+const page = (view: ModulesView, id = 'player', dismissed: string | null = null) =>
+  renderToStaticMarkup(<CatalogueModuleView view={view} id={id} name="Player" dismissed={dismissed} onSwitch={() => undefined} onDismiss={() => undefined} />);
+/** the radio of one option of the Off | On control */
+const option = (html: string, label: 'Off' | 'On') => new RegExp(`<input[^>]*value="${label.toLowerCase()}"[^>]*>`).exec(html)?.[0] ?? '';
 
-describe('Settings › Modules', () => {
-  it('lists every module of the catalogue with its state, estimate and the right button', () => {
-    const html = render(BASE_VIEW);
-    expect(html).toContain('Player');
-    expect(html).toContain('Dummy');
+const ALL_ON = { player: true, mc: true, 'listen-links': true, playlists: true, lidarr: true };
+
+describe('the rows of Settings › Modules', () => {
+  it('the owner: every module, in the owner’s order, with its state', () => {
+    const rows = moduleRows({ owner: true, enabled: { ...ALL_ON, mc: false } })!;
+    expect(rows.map((r) => r.name)).toEqual(['Player', 'Lidarr', 'Listen elsewhere', 'Music Connections', 'Playlists']);
+    expect(rows.find((r) => r.slug === 'music-connections')).toMatchObject({ state: 'Off', on: false });
+    expect(rows.find((r) => r.slug === 'lidarr')).toMatchObject({ state: 'On', on: true });
+  });
+
+  it('the owner: the player’s state from the catalogue, and a module the catalogue adds gets a row', () => {
+    const rows = moduleRows({ owner: true, enabled: ALL_ON, catalogue: { ...BASE_VIEW, modules: [{ ...PLAYER, state: 'installing' }, DUMMY] } })!;
+    expect(rows[0]).toMatchObject({ slug: 'player', state: 'Turning on', on: false });
+    expect(rows.at(-1)).toMatchObject({ slug: 'dummy', name: 'Dummy', state: 'On' });
+  });
+
+  it('anyone else: only the modules with something of theirs, while they are on', () => {
+    const rows = (enabled: Record<string, boolean>, playerInstalled: boolean) => moduleRows({ owner: false, enabled, playerInstalled })!.map((r) => r.slug);
+    expect(rows(ALL_ON, true)).toEqual(['player', 'listen-elsewhere', 'music-connections']);
+    expect(rows({ ...ALL_ON, mc: false, 'listen-links': false }, false)).toEqual([]);
+    // the player's Listening works with a server of the owner's own, the bundled player off
+    expect(rows({ ...ALL_ON, player: false }, true)).toContain('player');
+  });
+
+  it('nothing while the modules are not known yet', () => {
+    expect(moduleRows({ owner: true, enabled: null })).toBeNull();
+  });
+});
+
+async function withRouter(children: ReactNode): Promise<string> {
+  const root = createRootRoute({ component: () => <>{children}</> });
+  const mod = createRoute({ getParentRoute: () => root, path: '/settings/modules/$module' });
+  const router = createRouter({ routeTree: root.addChildren([mod]), history: createMemoryHistory({ initialEntries: ['/'] }) });
+  await router.load();
+  return renderToStaticMarkup(<RouterProvider router={router} />);
+}
+
+describe('the list', () => {
+  it('a row is a link to the module’s page with its name and state, no sentence', async () => {
+    const html = await withRouter(<ModulesListView rows={[{ slug: 'lidarr', name: 'Lidarr', state: 'On', on: true }]} />);
+    expect(html).toContain('href="/settings/modules/lidarr"');
+    expect(html).toContain('>Lidarr<');
+    expect(html).toContain('>On<');
+    expect(html).not.toMatch(/\.\s*</);
+  });
+});
+
+describe('where the old sections went', () => {
+  it('each old address has a module page', () => {
+    expect(MOVED_SECTIONS).toEqual({ connections: 'music-connections', 'listen-elsewhere': 'listen-elsewhere', playback: 'player', listening: 'player' });
+    expect(moduleSlug('mc')).toBe('music-connections');
+    expect(moduleSlug('listen-links')).toBe('listen-elsewhere');
+    expect(moduleSlug('lyrics')).toBe('lyrics');
+  });
+});
+
+describe('Off | On', () => {
+  it('one control shape: Off and On, the label when there is one', () => {
+    const html = renderToStaticMarkup(<ModuleSwitchView name="Lidarr" label="Get missing albums" on meta="2 getting" onSwitch={() => undefined} />);
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('aria-label="Get missing albums"');
+    expect(option(html, 'On')).toMatch(/checked/);
+    expect(html).toContain('2 getting');
+  });
+});
+
+describe('Settings › Modules › Player (a catalogue module)', () => {
+  it('Off | On with its memory and disk, choosable with the updater', () => {
+    const html = page(BASE_VIEW);
     expect(html).toContain('512 MB memory · 260 MB disk · one-computer installs');
-    expect(button(html, 'Turn on')).not.toMatch(/disabled/);
-    expect(button(html, 'Turn off')).not.toBe('');
+    expect(option(html, 'On')).not.toMatch(/disabled/);
+    expect(option(html, 'Off')).toMatch(/checked/);
     expect(html).not.toContain('install-tagave.sh enable-module');
   });
 
-  it('a new module in the catalogue shows up with no change to the page', () => {
-    const html = render({ ...BASE_VIEW, modules: [...BASE_VIEW.modules, { ...DUMMY, id: 'lyrics', name: 'Lyrics', purpose: 'Shows synced lyrics.', state: 'off' }] });
-    expect(html).toContain('Lyrics');
-    expect(html).toContain('Shows synced lyrics.');
+  it('a module the catalogue adds has a page with no change to the code', () => {
+    const html = renderToStaticMarkup(<CatalogueModuleView view={{ ...BASE_VIEW, modules: [...BASE_VIEW.modules, { ...DUMMY, id: 'lyrics', name: 'Lyrics', state: 'on' }] }} id="lyrics" name="Lyrics" onSwitch={() => undefined} onDismiss={() => undefined} />);
+    expect(option(html, 'On')).toMatch(/checked/);
   });
 
-  it('shows the run with its steps and holds the buttons while it runs', () => {
-    const html = render({ ...BASE_VIEW, run: playerRun('running'), modules: [{ ...PLAYER, state: 'installing' }, DUMMY] });
+  it('shows the run with its steps and holds the control while it runs', () => {
+    const html = page({ ...BASE_VIEW, run: playerRun('running'), modules: [{ ...PLAYER, state: 'installing' }, DUMMY] });
     expect(html).toContain('Turning on Player');
     expect(html).toContain('Start it…');
     expect(html).toContain('Check the release signature, the disk and download the images');
-    expect(button(html, 'Turn off')).toMatch(/disabled/);
+    expect(option(html, 'On')).toMatch(/disabled/);
+    expect(html).toContain('Turning on');
+  });
+
+  it('a run of another module stays on that module’s page; a dismissed one goes', () => {
+    expect(page({ ...BASE_VIEW, run: { ...playerRun('succeeded'), module: 'dummy' } })).not.toContain('Player is on');
+    expect(page({ ...BASE_VIEW, run: playerRun('succeeded') }, 'player', playerRun('succeeded').id)).not.toContain('Player is on');
   });
 
   it('says why a Turn on failed, and that everything is as it was', () => {
     const reason = 'Player did not report healthy within 120 s: player reports unhealthy';
-    const html = render({ ...BASE_VIEW, run: playerRun('rolled_back', reason), modules: [{ ...PLAYER, state: 'failed', lastError: reason }, DUMMY] });
+    const html = page({ ...BASE_VIEW, run: playerRun('rolled_back', reason), modules: [{ ...PLAYER, state: 'failed', lastError: reason }, DUMMY] });
     expect(html).toContain('Turning on Player failed; everything is as it was');
     expect(html).toContain('Failed');
-    expect(button(html, 'Try again')).not.toBe('');
+    expect(option(html, 'On')).not.toMatch(/disabled/);
   });
 
-  it('without the updater: the command for each module, no buttons', () => {
-    const html = render({ ...BASE_VIEW, mode: 'command', modules: [PLAYER, { ...DUMMY, state: 'on' }] });
+  it('without the updater: the command, the control held', () => {
+    const html = page({ ...BASE_VIEW, mode: 'command', modules: [PLAYER, { ...DUMMY, state: 'on' }] });
     expect(html).toContain('./install-tagave.sh enable-module player');
-    expect(html).toContain('./install-tagave.sh disable-module dummy');
-    expect(button(html, 'Turn on')).toBe('');
+    expect(option(html, 'On')).toMatch(/disabled/);
+    expect(renderToStaticMarkup(<CatalogueModuleView view={{ ...BASE_VIEW, mode: 'command', modules: [PLAYER, { ...DUMMY, state: 'on' }] }} id="dummy" name="Dummy" onSwitch={() => undefined} onDismiss={() => undefined} />)).toContain('./install-tagave.sh disable-module dummy');
   });
 
-  it('without the updater and the catalogue (run from source): each module as it is, no empty command, no warning', () => {
-    const html = render({
-      ...BASE_VIEW, mode: 'command', verified: false, problem: null,
-      modules: [{ ...PLAYER, state: 'off', available: false, reason: 'Not available on this install.' }],
-    });
-    expect(html).toContain('Player');
-    expect(html).toContain('>Off<');
+  it('without the updater and the catalogue (run from source): the player as it is, no empty command', () => {
+    const html = page({ ...BASE_VIEW, mode: 'command', verified: false, problem: null, modules: [{ ...PLAYER, state: 'off', available: false, reason: 'Not available on this install.' }] });
+    expect(option(html, 'Off')).toMatch(/checked/);
     expect(html).toContain('Not available on this install.');
-    expect(html).not.toContain('Run in the install folder');
     expect(html).not.toContain('install-tagave.sh');
-    expect(html).not.toContain('No module can be turned on');
-    expect(button(html, 'Turn on')).toBe('');
   });
 
-  it('without the updater, the command line only above a command', () => {
-    const html = render({ ...BASE_VIEW, mode: 'command', verified: false, problem: 'https://example.test/v0.9.2/release-manifest.json did not answer', modules: [] });
-    expect(html).not.toContain('Run in the install folder');
-    expect(html).toContain('No module can be turned on');
+  it('an unsigned or tampered catalogue: the reason, nothing to switch', () => {
+    const html = page({ ...BASE_VIEW, verified: false, problem: 'the release manifest does not match its signature', modules: [] });
+    expect(html).toContain('Catalogue not verified. The release manifest does not match its signature.');
+    expect(html).not.toContain('radiogroup');
   });
 
-  it('an unsigned or tampered catalogue: the reason, nothing to turn on', () => {
-    const html = render({ ...BASE_VIEW, verified: false, problem: 'the release manifest does not match its signature', modules: [] });
-    expect(html).toContain('No module can be turned on: The release manifest does not match its signature.');
-    expect(button(html, 'Turn on')).toBe('');
+  it('the updater not answering says so', () => {
+    expect(page({ ...BASE_VIEW, mode: 'unreachable', error: 'connect ECONNREFUSED', modules: [] })).toContain('Updater not answering.');
   });
 
-  it('a module that cannot run here says why and has no Turn on', () => {
-    const html = render({ ...BASE_VIEW, role: 'app', modules: [{ ...PLAYER, available: false, reason: 'Player needs everything on one computer; this is the app computer of a split install.' }] });
+  it('a module that cannot run here says why and holds On', () => {
+    const html = page({ ...BASE_VIEW, role: 'app', modules: [{ ...PLAYER, available: false, reason: 'Player needs everything on one computer; this is the app computer of a split install.' }] });
     expect(html).toContain('this is the app computer of a split install');
-    expect(button(html, 'Turn on')).toMatch(/disabled/);
+    expect(option(html, 'On')).toMatch(/disabled/);
   });
 
   it('Turn off says what the data box deletes and what stays, and offers the play history unticked', () => {
@@ -93,7 +158,7 @@ describe('Settings › Modules', () => {
     expect(closed).not.toContain('Your listens stay.');
     expect((closed.match(/type="checkbox"/g) ?? []).length).toBe(1);
     const data = off({ deleteData: true, deleteHistory: false });
-    expect(data).toContain("Deletes Navidrome&#x27;s database and, in tagave, the player&#x27;s library, play counts and connected Last.fm and ListenBrainz accounts. A server of your own in Settings › Playback keeps its data and the accounts. Your listens stay.");
+    expect(data).toContain("Deletes Navidrome&#x27;s database and, in tagave, the player&#x27;s library, play counts and connected Last.fm and ListenBrainz accounts. A server of your own in Settings\u00a0›\u00a0Modules\u00a0›\u00a0Player keeps its data and the accounts. Your listens stay.");
     expect(data).toContain('Also delete the listens the player recorded. Listens you added yourself stay.');
     expect((data.match(/type="checkbox"/g) ?? []).length).toBe(2);
     expect((data.match(/checked=""/g) ?? []).length).toBe(1);
@@ -103,25 +168,5 @@ describe('Settings › Modules', () => {
     // a module with no rows in tagave: the one box, as before
     const dummy = renderToStaticMarkup(<TurnOffChoices m={DUMMY} onChange={() => undefined} initial={{ deleteData: true, deleteHistory: false }} />);
     expect((dummy.match(/type="checkbox"/g) ?? []).length).toBe(1);
-  });
-});
-
-describe('the Music Connections row (a setting, not a container)', () => {
-  const row = (enabled: boolean, error: string | null = null) => renderToStaticMarkup(
-    <McModuleRow view={{ enabled, links: 2, landed: 40, fills: 3 }} error={error} onTurnOn={() => undefined} onTurnOff={() => undefined} />,
-  );
-  it('on: says what it holds and offers Turn off', () => {
-    const html = row(true);
-    expect(html).toContain('Music Connections');
-    expect(html).toContain('>On<');
-    expect(html).toContain('2 connections · 40 items · 3 IDs filled in');
-    expect(button(html, 'Turn off')).not.toBe('');
-    expect(button(html, 'Turn on')).toBe('');
-  });
-  it('off: offers Turn on, and shows a refusal', () => {
-    const html = row(false, 'Confirm it is you first.');
-    expect(html).toContain('>Off<');
-    expect(button(html, 'Turn on')).not.toBe('');
-    expect(html).toContain('Confirm it is you first.');
   });
 });

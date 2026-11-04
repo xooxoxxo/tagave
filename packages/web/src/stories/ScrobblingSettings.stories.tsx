@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { ScrobblingSettingsPanel } from '../pages/SettingsPlaybackPage';
 
 const meta = {
-  title: 'Pages/Settings › Playback › Scrobbling',
+  title: 'Pages/Settings › Modules › Player › Scrobbling',
   component: ScrobblingSettingsPanel,
   tags: ['no-shot'],
   args: {
@@ -13,7 +13,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'The owner’s half of scrobbling, in Settings › Playback: the Last.fm API key and shared secret tagave signs scrobbles with. Without a key: one sentence, the steps behind “How to get a key”, the two fields. With one: a read-only line (last four characters) with Replace and Remove. Below it, the owner’s own Last.fm connection, with Connect when it is missing (plays are only sent for people who connected). tagave checks the key with Last.fm before saving and keeps it sealed.',
+        component: 'The owner’s half of scrobbling, in Settings › Modules › Player: the Last.fm API key and shared secret tagave signs scrobbles with. Without a key: one sentence, the steps behind “How to get a key”, the two fields. With one: a read-only line (last four characters) with Replace and Remove. Below it, the owner’s own Last.fm connection, with Connect when it is missing (plays are only sent for people who connected). tagave checks the key with Last.fm before saving and keeps it sealed.',
       },
     },
   },

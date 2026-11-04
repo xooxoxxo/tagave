@@ -41,16 +41,24 @@ describe('the Settings nav', () => {
   });
 });
 
-describe('the Settings nav with modules off', () => {
-  it('a listener does not see Connections while Music Connections is off (QA Q-42)', () => {
-    expect(settingsNav('listener', { mcOn: false }).map((s) => s.value)).not.toContain('connections');
-    expect(settingsNav('listener', { mcOn: true }).map((s) => s.value)).toContain('connections');
-    // the owner keeps it: it says where to turn the module on
-    expect(settingsNav('owner', { mcOn: false }).map((s) => s.value)).toContain('connections');
+describe('the Settings nav and the modules', () => {
+  it('lists no section of a module: each lives in Settings › Modules', () => {
+    for (const role of ['owner', 'editor', 'listener'] as const) {
+      const nav = settingsNav(role, { rows: 3 }).map((s) => s.value);
+      for (const moved of ['connections', 'listen-elsewhere', 'playback', 'listening']) expect(nav).not.toContain(moved);
+    }
   });
 
-  it('lists Listen elsewhere only while its module is on', () => {
-    expect(settingsNav('listener', { listenOn: false }).map((s) => s.value)).not.toContain('listen-elsewhere');
-    expect(settingsNav('listener', { listenOn: true }).map((s) => s.value)).toContain('listen-elsewhere');
+  it('a listener sees Modules only while a module has something of theirs (QA Q-42)', () => {
+    expect(settingsNav('listener', { rows: 0 }).map((s) => s.value)).not.toContain('modules');
+    expect(settingsNav('listener', { rows: null }).map((s) => s.value)).not.toContain('modules');
+    expect(settingsNav('listener', { rows: 1 }).map((s) => s.value)).toContain('modules');
+    // the owner always: every module's Off | On is there
+    expect(settingsNav('owner', { rows: 0 }).map((s) => s.value)).toContain('modules');
+  });
+
+  it('a listener finds Modules with their account; the owner under System', () => {
+    expect(settingsNav('listener', { rows: 1 }).at(-1)).toMatchObject({ value: 'modules', group: 'Account' });
+    expect(settingsNav('owner').find((s) => s.value === 'modules')?.group).toBe('System');
   });
 });

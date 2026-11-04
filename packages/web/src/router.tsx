@@ -30,6 +30,7 @@ import { signOut } from './hooks/useAuth';
 import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
+import { MOVED_SECTIONS } from './pages/moduleSettings';
 
 /**
  * Parse work page search params: validate optional tab
@@ -218,6 +219,22 @@ const settingsSectionRoute = new Route({
     typeof search['job'] === 'string' && search['job'] ? { job: search['job'] } : {},
 });
 
+// Settings › Modules › <module> (moduleSettings.ts): each module's own page
+const settingsModuleRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/modules/$module',
+  component: SettingsPage,
+});
+
+// Each module's settings moved into Settings › Modules › <module>
+// (2026-11-04): the old sections redirect there, keeping the query (the
+// Music Connections and Last.fm returns carry ?linked=, ?error=, ?lastfm=).
+const movedSectionRedirects = Object.entries(MOVED_SECTIONS).map(([from, to]) => new Route({
+  getParentRoute: () => layoutRoute,
+  path: `/settings/${from}`,
+  beforeLoad: ({ search }) => redirect({ to: '/settings/modules/$module', params: { module: to }, search, replace: true }),
+}));
+
 const settingsLibraryRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/library',
@@ -333,6 +350,8 @@ const routeTree = rootRoute.addChildren([
     workRoute,
     settingsRoute,
     settingsSectionRoute,
+    settingsModuleRoute,
+    ...movedSectionRedirects,
     settingsLibraryRoute,
     settingsSystemRoute,
     settingsProvidersRoute,

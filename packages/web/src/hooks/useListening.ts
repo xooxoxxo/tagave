@@ -1,7 +1,7 @@
 /**
- * Listening, per person (Settings › Listening): their account on the player
+ * Listening, per person (Settings › Modules › Player): their account on the player
  * server, Last.fm and ListenBrainz, their recent plays; and the owner's
- * Last.fm application (Settings › Playback › Scrobbling).
+ * Last.fm application (Settings › Modules › Player › Scrobbling).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ConnectListenbrainzView, LastfmStartView, ListeningHistoryView, ListeningView, OwnPlayerAccount, PlayerAccountView, SaveLastfmApp, ScrobbleAccountView, ScrobbleService, ScrobblingSettingsView } from '@tagave/shared';
@@ -43,7 +43,7 @@ function useRefresh() {
   };
 }
 
-/** Starts the Last.fm web auth: the browser leaves for last.fm and comes back to Settings › Listening. */
+/** Starts the Last.fm web auth: the browser leaves for last.fm and comes back to Settings › Modules › Player. */
 export function useConnectLastfm() {
   const { libraryId } = useCurrentLibrary();
   return useMutation({

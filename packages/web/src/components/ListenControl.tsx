@@ -23,7 +23,7 @@ export function listenLabel(l: ListenLinkView): string {
   return `Listen on ${l.name}${kind ? ` (${kind.toLowerCase()})` : ''}`;
 }
 
-/** The person's primary platform ("Play on …", Settings › Listen elsewhere), for the artist page's missing albums. */
+/** The person's primary platform ("Play on …", Settings › Modules › Listen elsewhere), for the artist page's missing albums. */
 export const MissingPrimary = createContext<ListenPlatform | null>(null);
 
 /**

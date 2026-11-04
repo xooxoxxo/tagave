@@ -126,7 +126,7 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
                   <span className={styles.album} dir="auto">{it.album}</span>
                   <span className={styles.time}>{it.durationMs ? clock(it.durationMs / 1000) : ''}</span>
                 </button>
-                {/* a Missing row: "Play on <primary>" (Settings › Listen elsewhere › Missing albums) */}
+                {/* a Missing row: "Play on <primary>" (Settings › Modules › Listen elsewhere › Missing albums) */}
                 {missing && it.elsewhere && <PlayOnControl link={it.elsewhere} className={styles.playOn} />}
                 <span className={styles.rowMenu}>
                   {missing ? (

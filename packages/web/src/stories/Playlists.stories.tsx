@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PlaylistsGrid } from '../pages/PlaylistsPage';
 import { PlaylistPageView } from '../pages/PlaylistPage';
 import { TrackActions } from '../components/player/TrackActions';
-import { PlaylistsModuleRow } from '../pages/SettingsModulesPage';
 import { playlistsKey } from '../hooks/usePlaylists';
 import { COVERS, PLAYLIST, PLAYLISTS } from './queueFixtures';
 
@@ -67,13 +66,4 @@ export const TrackMenuPhonePlaylists: Story = {
   tags: ['phone'],
   globals: { viewport: { value: 'phone' } },
   render: () => <TrackActions {...actions} drawer defaultOpen defaultStep="playlists" />,
-};
-
-export const ModuleRow: Story = {
-  name: 'Settings › Modules row',
-  render: () => <div style={{ padding: 24, maxWidth: 760 }}><PlaylistsModuleRow view={{ enabled: true, playlists: 14, people: 3 }} onTurnOn={noop} onTurnOff={noop} /></div>,
-};
-export const ModuleRowOff: Story = {
-  name: 'Settings › Modules row · off',
-  render: () => <div style={{ padding: 24, maxWidth: 760 }}><PlaylistsModuleRow view={{ enabled: false, playlists: 14, people: 3 }} onTurnOn={noop} onTurnOff={noop} /></div>,
 };

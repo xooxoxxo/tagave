@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { McLinkView } from '@tagave/shared';
-import { ConnectionsOff, ConnectionsPanel } from '../pages/SettingsConnectionsPage';
+import { ConnectionsPanel } from '../pages/SettingsConnectionsPage';
 
 const now = Date.parse('2026-10-16T10:00:00Z');
 const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
@@ -27,7 +27,7 @@ const linked: McLinkView = {
 const view = (links: McLinkView[]) => ({ links, ownUrl: 'http://192.168.1.10:3000' });
 
 const meta = {
-  title: 'Pages/Settings › Connections',
+  title: 'Pages/Settings › Modules › Music Connections',
   component: ConnectionsPanel,
   tags: ['no-shot'],
   args: {
@@ -42,7 +42,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Settings › Connections: the Music Connections links a person made from tagave to other music apps. Each card shows what tagave reads (granted, not granted, or newly offered: re-link to grant), the last sync and error, and Sync now, Re-approve, Edit address and Revoke. After the first link, Link back gives this tagave’s address to add in the other app.',
+        component: 'Settings › Modules › Music Connections: the Music Connections links a person made from tagave to other music apps. Each card shows what tagave reads (granted, not granted, or newly offered: re-link to grant), the last sync and error, and Sync now, Re-approve, Edit address and Revoke. After the first link, Link back gives this tagave’s address to add in the other app.',
       },
     },
   },
@@ -69,8 +69,4 @@ export const Revoked: Story = { args: { view: view([{ ...linked, state: 'revoked
 export const Refused: Story = {
   name: 'Link refused',
   args: { view: view([]), returned: { error: 'access_denied' }, addError: 'Could not reach a Music Connections service at that address.' },
-};
-export const TurnedOff: Story = {
-  name: 'Module turned off',
-  render: () => <ConnectionsOff modules={<a href="#modules">Modules</a>} />,
 };

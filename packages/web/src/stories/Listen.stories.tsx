@@ -22,7 +22,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Listen elsewhere (the listen-links module): one control on a missing album, the platforms the person picked in Settings › Listen elsewhere. One platform: a direct link with its name. Several: a Listen key with a menu, in the person\'s order. A link that is not the album itself is marked Artist page or Search. Opens in a new tab, or the platform\'s app on a phone.',
+        component: 'Listen elsewhere (the listen-links module): one control on a missing album, the platforms the person picked in Settings › Modules › Listen elsewhere. One platform: a direct link with its name. Several: a Listen key with a menu, in the person\'s order. A link that is not the album itself is marked Artist page or Search. Opens in a new tab, or the platform\'s app on a phone.',
       },
     },
   },

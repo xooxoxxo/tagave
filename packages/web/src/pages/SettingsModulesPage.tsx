@@ -1,21 +1,41 @@
 /**
- * Settings › Modules (owner): the optional parts of tagave, from the signed
- * catalogue of the release this server runs. With the updater each one has
- * Turn on / Turn off (after a step-up) and the run shows step by step like
- * an update; without it, each shows the install-tagave.sh command instead.
+ * Settings › Modules: one row per module (name, On/Off, a chevron), each
+ * opening Settings › Modules › <module>, where everything that module needs
+ * lives: its Off/On (owner), its connection, its per-person settings, and
+ * Turn off's "Also delete its data".
+ *
+ * The player and any module the signed catalogue adds are switched by the
+ * updater (Turn on / Turn off after a step-up, the run step by step like an
+ * update; without the updater the install-tagave.sh command). Music
+ * Connections, Listen elsewhere, Playlists and Lidarr are settings in
+ * tagave's database. Everyone sees the modules that have something for them
+ * (the player's Listening, Listen elsewhere's platforms, their Music
+ * Connections); the owner sees all of them and their switches.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { moduleCommand, type LidarrSettingsView, type ListenLinksModuleView, type McModuleView, type PlaylistsModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
-import { Badge, Banner, Button, confirmDialog, type BadgeTone } from '../components/ui';
+import { can, moduleCommand, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
+import { Banner, Button, ChevronRightIcon, SegmentedControl, confirmDialog } from '../components/ui';
 import { StepList, RunLog, clock, sentence, useNow } from '../components/InAppUpdate';
 import { StepUpDialog } from '../components/StepUpDialog';
+import { useStepUpAction } from '../components/users/useStepUpAction';
+import { LidarrSettings } from '../components/LidarrSettings';
+import { NotAvailable } from '../components/access/NotAvailable';
 import { useModuleAction, useModules, modulesKey } from '../hooks/useModules';
+import { useFacets } from '../hooks/useFacets';
+import { useCapabilities } from '../hooks/usePlayer';
+import { useRole } from '../hooks/usePermissions';
 import { useMcModule, useRemoveMcData, useSetMcModule } from '../hooks/useMcModule';
 import { useListenLinksModule, useRemoveListenLinksData, useSetListenLinksModule } from '../hooks/useListenLinks';
 import { useLidarrSettings, useRemoveLidarrData, useSetLidarrModule } from '../hooks/useLidarr';
 import { allPlaylistsExportUrl, download, usePlaylistsModule, useRemovePlaylistsData, useSetPlaylistsModule } from '../hooks/usePlaylists';
 import { getStepUp } from '../services/stepUp';
+import { MODULE_PAGES, moduleSlug, type ModulePageEntry } from './moduleSettings';
+import { SettingsConnectionsContent } from './SettingsConnectionsPage';
+import { SettingsListenElsewhereContent } from './SettingsListenElsewherePage';
+import { SettingsPlaybackContent } from './SettingsPlaybackPage';
+import { SettingsListeningContent } from './SettingsListeningPage';
 import runStyles from '../components/InAppUpdate.module.css';
 import styles from './SettingsModulesPage.module.css';
 
@@ -37,20 +57,144 @@ function writeDismissed(id: string): void {
   }
 }
 
-const STATE: Record<ModuleStatus['state'], { tone: BadgeTone; label: string }> = {
-  off: { tone: 'neutral', label: 'Off' },
-  installing: { tone: 'info', label: 'Turning on' },
-  removing: { tone: 'info', label: 'Turning off' },
-  on: { tone: 'success', label: 'On' },
-  failed: { tone: 'danger', label: 'Failed' },
-  update_pending: { tone: 'warning', label: 'Update pending' },
+const STATE_LABEL: Record<ModuleStatus['state'], string> = {
+  off: 'Off',
+  installing: 'Turning on',
+  removing: 'Turning off',
+  on: 'On',
+  failed: 'Failed',
+  update_pending: 'Update pending',
 };
+
+const isOn = (m: ModuleStatus) => m.state === 'on' || m.state === 'update_pending';
 
 function size(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
 }
 
-/** The run of a module, on top of the list until dismissed. */
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/* ---------- the list ---------- */
+
+export interface ModuleRowView {
+  slug: string;
+  name: string;
+  /** On, Off, Turning on, Failed, … */
+  state: string;
+  on: boolean;
+}
+
+/** Settings › Modules: name, state and a chevron per module; each row opens its page. */
+export function ModulesListView({ rows, notice = null }: { rows: ModuleRowView[]; notice?: ReactNode }) {
+  return (
+    <div className={styles.page}>
+      {notice}
+      {rows.length > 0 && (
+        <ul className={styles.rows} aria-label="Modules">
+          {rows.map((r) => (
+            <li key={r.slug}>
+              <Link to="/settings/modules/$module" params={{ module: r.slug }} className={styles.row}>
+                <span className={styles.rowName}>{r.name}</span>
+                <span className={styles.rowState} data-on={r.on || undefined}>{r.state}</span>
+                <span className={styles.chevron} aria-hidden="true"><ChevronRightIcon /></span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The rows this person sees. The owner: every module, the player's state
+ * from the catalogue when the updater answers. Anyone else: the modules
+ * that are on and have something of theirs (the player's Listening, Listen
+ * elsewhere, Music Connections). Null while it is not known yet.
+ */
+export function moduleRows(input: {
+  owner: boolean;
+  /** manifest id → on, from GET /facets */
+  enabled: Record<string, boolean> | null;
+  catalogue?: ModulesView | null;
+  /** a player server answers to tagave (the bundled one or the owner's own) */
+  playerInstalled?: boolean | null;
+}): ModuleRowView[] | null {
+  const { owner, enabled, catalogue = null, playerInstalled = null } = input;
+  if (!enabled) return null;
+  const listed = catalogue?.modules ?? [];
+  const extra: ModulePageEntry[] = listed.filter((m) => !MODULE_PAGES.some((p) => p.id === m.id)).map((m) => ({ slug: m.id, id: m.id, name: m.name }));
+  const rows: ModuleRowView[] = [];
+  for (const page of [...MODULE_PAGES, ...extra]) {
+    const fromCatalogue = listed.find((m) => m.id === page.id);
+    if (owner) {
+      if (fromCatalogue) rows.push({ slug: page.slug, name: fromCatalogue.name, state: STATE_LABEL[fromCatalogue.state], on: isOn(fromCatalogue) });
+      else if (page.id in enabled) rows.push({ slug: page.slug, name: page.name, state: enabled[page.id] ? 'On' : 'Off', on: !!enabled[page.id] });
+      continue;
+    }
+    const mine = page.id === 'player' ? playerInstalled === true : (page.id === 'listen-links' || page.id === 'mc') && enabled[page.id] === true;
+    if (mine) rows.push({ slug: page.slug, name: page.name, state: 'On', on: true });
+  }
+  return rows;
+}
+
+/** The rows for the signed-in person, and whether any are known yet. */
+export function useModuleRows(): ModuleRowView[] | null {
+  const owner = can(useRole(), 'system.manage');
+  const facets = useFacets();
+  const catalogue = useModules(owner);
+  const caps = useCapabilities();
+  const enabled = facets.data ? Object.fromEntries(facets.data.modules.filter((m) => !m.builtIn).map((m) => [m.id, m.enabled])) : null;
+  return moduleRows({ owner, enabled, catalogue: catalogue.data ?? null, playerInstalled: caps.data ? !!caps.data.player?.installed : null });
+}
+
+export function SettingsModulesContent() {
+  const owner = can(useRole(), 'system.manage');
+  const rows = useModuleRows();
+  const catalogue = useModules(owner);
+  const view = catalogue.data;
+  const notice = owner && view
+    ? view.mode === 'unreachable'
+      ? <Banner tone="danger">Updater not answering. {sentence(view.error)}</Banner>
+      : !view.verified && view.modules.length === 0
+        ? <Banner tone="warning">Catalogue not verified. {sentence(view.problem)}</Banner>
+        : null
+    : null;
+  if (!rows) return <p className={styles.hint}>Loading…</p>;
+  return <ModulesListView rows={rows} notice={notice} />;
+}
+
+/* ---------- one control shape: Off | On ---------- */
+
+const ON_OFF = (disabled: boolean) => [{ value: 'off' as const, label: 'Off', disabled }, { value: 'on' as const, label: 'On', disabled }];
+
+export interface ModuleSwitchViewProps {
+  /** the module's name: the control's name for screen readers */
+  name: string;
+  /** a visible label above the control (Lidarr: Get missing albums) */
+  label?: string | undefined;
+  on: boolean;
+  disabled?: boolean;
+  /** values under the control: memory and disk, what it holds */
+  meta?: ReactNode;
+  error?: string | null;
+  onSwitch: (on: boolean) => void;
+}
+
+export function ModuleSwitchView({ name, label, on, disabled = false, meta = null, error = null, onSwitch }: ModuleSwitchViewProps) {
+  return (
+    <div className={styles.switch}>
+      {label && <span className={styles.switchLabel} aria-hidden="true">{label}</span>}
+      <SegmentedControl label={label ?? name} value={on ? 'on' : 'off'} onChange={(v) => { if (!disabled) onSwitch(v === 'on'); }} options={ON_OFF(disabled)} />
+      {meta && <p className={styles.meta}>{meta}</p>}
+      {error && <p className={styles.error} role="alert">{error}</p>}
+    </div>
+  );
+}
+
+/* ---------- catalogue modules (the updater switches them) ---------- */
+
+/** The run of a module, on its page until dismissed. */
 export function ModuleRunView({ run, disconnected, onDismiss }: { run: ModuleRun; disconnected: boolean; onDismiss: () => void }) {
   const running = run.status === 'running';
   const now = useNow(running);
@@ -160,88 +304,57 @@ function CommandLine({ command }: { command: string }) {
   );
 }
 
-export interface SettingsModulesViewProps {
+export interface CatalogueModuleViewProps {
   view: ModulesView;
+  /** the module's id in the catalogue */
+  id: string;
+  name: string;
   /** The last refresh failed (the app restarts during some runs). */
   disconnected?: boolean;
-  /** Which module has a request on its way. */
-  pending?: string | null;
+  pending?: boolean;
   error?: string | null;
   dismissed?: string | null;
-  onTurnOn: (m: ModuleStatus) => void;
-  onTurnOff: (m: ModuleStatus) => void;
+  onSwitch: (m: ModuleStatus, on: boolean) => void;
   onDismiss: (runId: string) => void;
 }
 
-export function SettingsModulesView({ view, disconnected = false, pending = null, error = null, dismissed = null, onTurnOn, onTurnOff, onDismiss }: SettingsModulesViewProps) {
-  const run = view.run;
-  const busy = run?.status === 'running';
+/**
+ * A catalogue module's Off | On with what the updater says about it: its
+ * memory and disk, a state between Off and On, why it can't run here, and
+ * without the updater the command to run in the install folder.
+ */
+export function CatalogueModuleView({ view, id, name, disconnected = false, pending = false, error = null, dismissed = null, onSwitch, onDismiss }: CatalogueModuleViewProps) {
+  const m = view.modules.find((x) => x.id === id);
+  const run = view.run && view.run.module === id && view.run.id !== dismissed ? view.run : null;
+  const busy = view.run?.status === 'running';
+  if (view.mode === 'unreachable') return <Banner tone="danger">Updater not answering. {sentence(view.error)}</Banner>;
+  if (!m) return <Banner tone="warning">Catalogue not verified. {sentence(view.problem)}</Banner>;
+  const moving = m.state === 'installing' || m.state === 'removing';
   const command = view.mode === 'command';
+  const canSwitch = view.mode === 'updater' && view.verified && m.available && !busy && !moving && !pending;
+  const meta = [
+    `${size(m.estimate.memoryMb)} memory · ${size(m.estimate.diskMb)} disk${m.roles.includes('app') ? '' : ' · one-computer installs'}`,
+    m.state !== 'on' && m.state !== 'off' ? STATE_LABEL[m.state] : null,
+  ].filter(Boolean).join(' · ');
   return (
-    <div className={styles.page}>
-      {view.mode === 'unreachable' && <Banner tone="danger">The updater does not answer. {sentence(view.error)}</Banner>}
-      {command && view.modules.some((m) => m.available) && (
-        <p className={styles.hint}>
-          Run in the install folder:
-        </p>
-      )}
-      {!view.verified && view.mode !== 'unreachable' && view.modules.length === 0 && (
-        <Banner tone="warning">No module can be turned on: {sentence(view.problem) || 'the signed catalogue of this release is not here.'}</Banner>
-      )}
-      {run && run.id !== dismissed && <ModuleRunView run={run} disconnected={disconnected} onDismiss={() => onDismiss(run.id)} />}
-      {view.modules.length > 0 && (
-        <ul className={styles.list}>
-          {view.modules.map((m) => {
-            const state = STATE[m.state];
-            const isOn = m.state === 'on' || m.state === 'update_pending';
-            const moving = m.state === 'installing' || m.state === 'removing';
-            return (
-              <li key={m.id} className={styles.item}>
-                <div className={styles.head}>
-                  <h3 className={styles.name}>{m.name}</h3>
-                  <Badge tone={state.tone}>{state.label}</Badge>
-                </div>
-                <p className={styles.purpose}>{m.purpose}</p>
-                <p className={styles.meta}>
-                  {size(m.estimate.memoryMb)} memory · {size(m.estimate.diskMb)} disk{m.roles.includes('app') ? '' : ' · one-computer installs'}
-                </p>
-                {m.state === 'failed' && m.lastError && <p className={styles.error}>{sentence(m.lastError)}</p>}
-                {m.state === 'update_pending' && <p className={styles.meta}>Update pending</p>}
-                {!m.available && m.reason && <p className={styles.meta}>{m.reason}</p>}
-                {command ? (
-                  m.available && <CommandLine command={moduleCommand(isOn ? 'disable' : 'enable', m.id)} />
-                ) : (
-                  view.mode === 'updater' && view.verified && (
-                    <div className={styles.actions}>
-                      {isOn ? (
-                        <Button size="sm" variant="secondary" disabled={busy || moving} loading={pending === m.id} onClick={() => onTurnOff(m)}>Turn off</Button>
-                      ) : (
-                        <Button size="sm" disabled={busy || moving || !m.available} loading={pending === m.id || m.state === 'installing'} onClick={() => onTurnOn(m)}>
-                          {m.state === 'failed' ? 'Try again' : 'Turn on'}
-                        </Button>
-                      )}
-                    </div>
-                  )
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {error && <p className={styles.error} role="alert">{error}</p>}
-
-    </div>
+    <>
+      {run && <ModuleRunView run={run} disconnected={disconnected} onDismiss={() => onDismiss(run.id)} />}
+      <ModuleSwitchView name={name} on={isOn(m)} disabled={!canSwitch} meta={meta} error={error} onSwitch={(on) => onSwitch(m, on)} />
+      {m.state === 'failed' && m.lastError && <p className={styles.error}>{sentence(m.lastError)}</p>}
+      {!m.available && m.reason && <p className={styles.meta}>{m.reason}</p>}
+      {command && m.available && <CommandLine command={moduleCommand(isOn(m) ? 'disable' : 'enable', m.id)} />}
+    </>
   );
 }
 
-function CatalogueModules() {
+function CatalogueSwitch({ id, name }: { id: string; name: string }) {
   const modules = useModules();
   const action = useModuleAction();
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState<string | null>(() => readDismissed());
   const [error, setError] = useState<string | null>(null);
   const [stepUp, setStepUp] = useState<{ m: ModuleStatus; act: 'enable' | 'disable'; choice: TurnOffChoice; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
   // A run that finished may have changed what the app offers (the player).
   const finished = modules.data?.run && modules.data.run.status !== 'running' ? modules.data.run.id : null;
@@ -251,7 +364,7 @@ function CatalogueModules() {
 
   const go = async (m: ModuleStatus, act: 'enable' | 'disable', choice: TurnOffChoice) => {
     setError(null);
-    setPending(m.id);
+    setPending(true);
     try {
       await action.mutateAsync({ id: m.id, action: act, ...choice });
       setDismissed(null);
@@ -264,7 +377,7 @@ function CatalogueModules() {
         setError(sentence(e.detail ?? e.title) || `${m.name} could not be turned ${act === 'enable' ? 'on' : 'off'}.`);
       }
     } finally {
-      setPending(null);
+      setPending(false);
     }
   };
 
@@ -281,21 +394,21 @@ function CatalogueModules() {
     await go(m, act, choice);
   };
 
-  const turnOn = async (m: ModuleStatus) => {
-    const ok = await confirmDialog({
-      title: `Turn on ${m.name}?`,
-      message: (
-        <>
-          <p>{m.purpose}</p>
-          <p>Uses up to {size(m.estimate.memoryMb)} of memory.</p>
-        </>
-      ),
-      confirmLabel: 'Turn on',
-    });
-    if (ok) await withStepUp(m, 'enable', { deleteData: false, deleteHistory: false });
-  };
-
-  const turnOff = async (m: ModuleStatus) => {
+  const onSwitch = async (m: ModuleStatus, on: boolean) => {
+    if (on) {
+      const ok = await confirmDialog({
+        title: `Turn on ${m.name}?`,
+        message: (
+          <>
+            <p>{m.purpose}</p>
+            <p>Uses up to {size(m.estimate.memoryMb)} of memory.</p>
+          </>
+        ),
+        confirmLabel: 'Turn on',
+      });
+      if (ok) await withStepUp(m, 'enable', { deleteData: false, deleteHistory: false });
+      return;
+    }
     let choice: TurnOffChoice = { deleteData: false, deleteHistory: false };
     const ok = await confirmDialog({
       title: `Turn off ${m.name}?`,
@@ -307,18 +420,19 @@ function CatalogueModules() {
   };
 
   if (modules.isLoading) return <p className={styles.hint}>Loading…</p>;
-  if (!modules.data) return <Banner tone="danger">Couldn’t load modules. {sentence((modules.error as { detail?: string } | null)?.detail)}</Banner>;
+  if (!modules.data) return <Banner tone="danger">Modules not loaded. {sentence((modules.error as { detail?: string } | null)?.detail)}</Banner>;
   return (
     <>
-      <SettingsModulesView
+      <CatalogueModuleView
         view={modules.data}
+        id={id}
+        name={name}
         disconnected={modules.isError}
         pending={pending}
         error={error}
         dismissed={dismissed}
-        onTurnOn={(m) => void turnOn(m)}
-        onTurnOff={(m) => void turnOff(m)}
-        onDismiss={(id) => { writeDismissed(id); setDismissed(id); void queryClient.invalidateQueries({ queryKey: modulesKey }); }}
+        onSwitch={(m, on) => void onSwitch(m, on)}
+        onDismiss={(runId) => { writeDismissed(runId); setDismissed(runId); void queryClient.invalidateQueries({ queryKey: modulesKey }); }}
       />
       {stepUp && (
         <StepUpDialog
@@ -333,402 +447,211 @@ function CatalogueModules() {
   );
 }
 
-/* ---------- Music Connections: a module switched by a setting (D5) ---------- */
+/* ---------- modules switched by a setting in tagave's database ---------- */
 
-export interface McModuleRowProps {
-  view: McModuleView;
-  pending?: boolean;
-  error?: string | null;
-  onTurnOn: () => void;
-  onTurnOff: () => void;
+export interface OffChoice { deleteData: boolean; keepFills: boolean }
+
+interface SettingSwitchProps {
+  name: string;
+  label?: string;
+  on: boolean;
+  meta: string | null;
+  pending: boolean;
+  /** Turn off's first line: what stays */
+  keeps: string;
+  /** above the delete box (Playlists: Export first) */
+  before?: ReactNode;
+  /** under the delete box (Music Connections: keep the IDs it filled) */
+  after?: (choice: OffChoice) => ReactNode;
+  deleteLabel?: string;
+  setOn: (on: boolean) => Promise<unknown>;
+  removeData: (choice: OffChoice) => Promise<unknown>;
 }
 
-/** The Music Connections row: the same shape as the catalogue's, a setting in place of a container. */
-export function McModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: McModuleRowProps) {
+/** Off | On for a module that is a setting; Off asks first and can delete its data (the API turns it off then). */
+function SettingSwitch({ name, label, on, meta, pending, keeps, before = null, after, deleteLabel = 'Also delete its data. This cannot be undone.', setOn, removeData }: SettingSwitchProps) {
+  const { run, dialog } = useStepUpAction();
+  const [error, setError] = useState<string | null>(null);
+  const act = async (verb: string, fn: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await run(`${verb} ${name}`, fn);
+    } catch (err) {
+      const e = err as { detail?: string; title?: string } | null;
+      setError(sentence(e?.detail ?? e?.title) || `${name} could not be changed.`);
+    }
+  };
+  const onSwitch = async (next: boolean) => {
+    if (next) return act('Turning on', () => setOn(true));
+    const choice: OffChoice = { deleteData: false, keepFills: false };
+    const ok = await confirmDialog({
+      title: `Turn off ${name}?`,
+      message: (
+        <>
+          <p>{keeps}</p>
+          {before}
+          <label className={styles.check}>
+            <input type="checkbox" onChange={(e) => { choice.deleteData = e.target.checked; }} />
+            <span>{deleteLabel}</span>
+          </label>
+          {after?.(choice)}
+        </>
+      ),
+      confirmLabel: 'Turn off',
+      tone: 'danger',
+    });
+    if (ok) await act('Turning off', () => (choice.deleteData ? removeData(choice) : setOn(false)));
+  };
   return (
-    <ul className={styles.list} aria-label="Built-in modules">
-      <li className={styles.item}>
-        <div className={styles.head}>
-          <h3 className={styles.name}>Music Connections</h3>
-          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
-        </div>
-        <p className={styles.purpose}>
-          Links tagave to other music apps you run, such as review-gatherer.
-        </p>
-        <p className={styles.meta}>
-          {view.links === 1 ? '1 connection' : `${view.links} connections`} · {view.landed} items{view.fills > 0 ? ` · ${view.fills} IDs filled in` : ''}
-        </p>
-        <div className={styles.actions}>
-          {view.enabled
-            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
-            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
-        </div>
-        {error && <p className={styles.error} role="alert">{error}</p>}
-      </li>
-    </ul>
+    <>
+      <ModuleSwitchView name={name} label={label} on={on} disabled={pending} meta={meta} error={error} onSwitch={(v) => void onSwitch(v)} />
+      {dialog}
+    </>
   );
 }
 
-type McAction = { kind: 'on' } | { kind: 'off' } | { kind: 'remove'; keepFills: boolean };
-
-function McModuleSection() {
+function McSwitch() {
   const mc = useMcModule();
   const setOn = useSetMcModule();
   const remove = useRemoveMcData();
-  const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ act: McAction; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
-
-  const run = async (act: McAction) => {
-    setError(null);
-    try {
-      if (act.kind === 'remove') await remove.mutateAsync(act.keepFills);
-      else await setOn.mutateAsync(act.kind === 'on');
-    } catch (err) {
-      const e = err as { status?: number; title?: string; detail?: string };
-      if (e.status === 403 && e.title === 'Step-up required') {
-        const s = await getStepUp();
-        setStepUp({ act, methods: s.methods, oidcName: s.oidcName ?? null });
-      } else {
-        setError(sentence(e.detail ?? e.title) || 'Music Connections could not be changed.');
-      }
-    }
-  };
-
-  const turnOff = async () => {
-    let deleteData = false;
-    let keepFills = false;
-    const ok = await confirmDialog({
-      title: 'Turn off Music Connections?',
-      message: (
-        <>
-          <p>Its data is kept unless you tick the box.</p>
-          <label className={styles.check}>
-            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
-            <span>Also delete its data and revoke every connection. This cannot be undone.</span>
-          </label>
-          <label className={styles.check}>
-            <input type="checkbox" onChange={(e) => { keepFills = e.target.checked; }} />
-            <span>Keep the album IDs it filled in</span>
-          </label>
-        </>
-      ),
-      confirmLabel: 'Turn off',
-      tone: 'danger',
-    });
-    if (ok) await run(deleteData ? { kind: 'remove', keepFills } : { kind: 'off' });
-  };
-
   if (!mc.data) return null;
+  const v = mc.data;
   return (
-    <>
-      <McModuleRow view={mc.data} pending={setOn.isPending || remove.isPending} error={error} onTurnOn={() => void run({ kind: 'on' })} onTurnOff={() => void turnOff()} />
-      {stepUp && (
-        <StepUpDialog
-          action={stepUp.act.kind === 'on' ? 'Turning on Music Connections' : 'Turning off Music Connections'}
-          methods={stepUp.methods}
-          oidcName={stepUp.oidcName}
-          onCancel={() => setStepUp(null)}
-          onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
-        />
+    <SettingSwitch
+      name="Music Connections"
+      on={v.enabled}
+      meta={`${plural(v.links, 'connection', 'connections')} · ${v.landed} items${v.fills > 0 ? ` · ${v.fills} IDs filled in` : ''}`}
+      pending={setOn.isPending || remove.isPending}
+      keeps="Its data is kept unless you tick the box."
+      deleteLabel="Also delete its data and revoke every connection. This cannot be undone."
+      after={(choice) => (
+        <label className={styles.check}>
+          <input type="checkbox" onChange={(e) => { choice.keepFills = e.target.checked; }} />
+          <span>Keep the album IDs it filled in</span>
+        </label>
       )}
-    </>
+      setOn={(on) => setOn.mutateAsync(on)}
+      removeData={(c) => remove.mutateAsync(c.keepFills)}
+    />
   );
 }
 
-/* ---------- Listen elsewhere: a module switched by a setting ---------- */
-
-export interface ListenLinksModuleRowProps {
-  view: ListenLinksModuleView;
-  pending?: boolean;
-  error?: string | null;
-  onTurnOn: () => void;
-  onTurnOff: () => void;
-}
-
-/** The Listen elsewhere row: the same shape as Music Connections'. */
-export function ListenLinksModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: ListenLinksModuleRowProps) {
-  return (
-    <ul className={styles.list} aria-label="Listen elsewhere">
-      <li className={styles.item}>
-        <div className={styles.head}>
-          <h3 className={styles.name}>Listen elsewhere</h3>
-          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
-        </div>
-        <p className={styles.purpose}>Links albums to Qobuz, Spotify, Apple Music and other streaming platforms. Each person picks their own.</p>
-        <p className={styles.meta}>
-          {view.albums === 1 ? '1 album' : `${view.albums} albums`} · {view.artists === 1 ? '1 artist' : `${view.artists} artists`} · {view.people === 1 ? '1 person' : `${view.people} people`}
-        </p>
-        <div className={styles.actions}>
-          {view.enabled
-            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
-            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
-        </div>
-        {error && <p className={styles.error} role="alert">{error}</p>}
-      </li>
-    </ul>
-  );
-}
-
-type ListenAction = { kind: 'on' } | { kind: 'off' } | { kind: 'remove' };
-
-function ListenLinksModuleSection() {
+function ListenSwitch() {
   const mod = useListenLinksModule();
   const setOn = useSetListenLinksModule();
   const remove = useRemoveListenLinksData();
-  const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ act: ListenAction; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
-
-  const run = async (act: ListenAction) => {
-    setError(null);
-    try {
-      if (act.kind === 'remove') await remove.mutateAsync();
-      else await setOn.mutateAsync(act.kind === 'on');
-    } catch (err) {
-      const e = err as { status?: number; title?: string; detail?: string };
-      if (e.status === 403 && e.title === 'Step-up required') {
-        const s = await getStepUp();
-        setStepUp({ act, methods: s.methods, oidcName: s.oidcName ?? null });
-      } else {
-        setError(sentence(e.detail ?? e.title) || 'Listen elsewhere could not be changed.');
-      }
-    }
-  };
-
-  const turnOff = async () => {
-    let deleteData = false;
-    const ok = await confirmDialog({
-      title: 'Turn off Listen elsewhere?',
-      message: (
-        <>
-          <p>Its links and everyone’s platforms are kept unless you tick the box.</p>
-          <label className={styles.check}>
-            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
-            <span>Also delete its data. This cannot be undone.</span>
-          </label>
-        </>
-      ),
-      confirmLabel: 'Turn off',
-      tone: 'danger',
-    });
-    if (ok) await run(deleteData ? { kind: 'remove' } : { kind: 'off' });
-  };
-
   if (!mod.data) return null;
+  const v = mod.data;
   return (
-    <>
-      <ListenLinksModuleRow view={mod.data} pending={setOn.isPending || remove.isPending} error={error} onTurnOn={() => void run({ kind: 'on' })} onTurnOff={() => void turnOff()} />
-      {stepUp && (
-        <StepUpDialog
-          action={stepUp.act.kind === 'on' ? 'Turning on Listen elsewhere' : 'Turning off Listen elsewhere'}
-          methods={stepUp.methods}
-          oidcName={stepUp.oidcName}
-          onCancel={() => setStepUp(null)}
-          onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
-        />
-      )}
-    </>
+    <SettingSwitch
+      name="Listen elsewhere"
+      on={v.enabled}
+      meta={`${plural(v.albums, 'album', 'albums')} · ${plural(v.artists, 'artist', 'artists')} · ${plural(v.people, 'person', 'people')}`}
+      pending={setOn.isPending || remove.isPending}
+      keeps="Its links and everyone’s platforms are kept unless you tick the box."
+      setOn={(on) => setOn.mutateAsync(on)}
+      removeData={() => remove.mutateAsync()}
+    />
   );
 }
 
-/* ---------- Playlists: a module switched by a setting ---------- */
-
-export interface PlaylistsModuleRowProps {
-  view: PlaylistsModuleView;
-  pending?: boolean;
-  error?: string | null;
-  onTurnOn: () => void;
-  onTurnOff: () => void;
-}
-
-/** The Playlists row: the same shape as Listen elsewhere's. */
-export function PlaylistsModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: PlaylistsModuleRowProps) {
-  return (
-    <ul className={styles.list} aria-label="Playlists">
-      <li className={styles.item}>
-        <div className={styles.head}>
-          <h3 className={styles.name}>Playlists</h3>
-          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
-        </div>
-        <p className={styles.purpose}>Each person’s own lists of tracks, with a file to take them to another tagave.</p>
-        <p className={styles.meta}>
-          {view.playlists === 1 ? '1 playlist' : `${view.playlists} playlists`} · {view.people === 1 ? '1 person' : `${view.people} people`}
-        </p>
-        <div className={styles.actions}>
-          {view.enabled
-            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
-            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
-        </div>
-        {error && <p className={styles.error} role="alert">{error}</p>}
-      </li>
-    </ul>
-  );
-}
-
-type PlaylistsAction = { kind: 'on' } | { kind: 'off' } | { kind: 'remove' };
-
-function PlaylistsModuleSection() {
+function PlaylistsSwitch() {
   const mod = usePlaylistsModule();
   const setOn = useSetPlaylistsModule();
   const remove = useRemovePlaylistsData();
-  const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ act: PlaylistsAction; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
-
-  const run = async (act: PlaylistsAction) => {
-    setError(null);
-    try {
-      if (act.kind === 'remove') await remove.mutateAsync();
-      else await setOn.mutateAsync(act.kind === 'on');
-    } catch (err) {
-      const e = err as { status?: number; title?: string; detail?: string };
-      if (e.status === 403 && e.title === 'Step-up required') {
-        const s = await getStepUp();
-        setStepUp({ act, methods: s.methods, oidcName: s.oidcName ?? null });
-      } else {
-        setError(sentence(e.detail ?? e.title) || 'Playlists could not be changed.');
-      }
-    }
-  };
-
-  const turnOff = async () => {
-    let deleteData = false;
-    const ok = await confirmDialog({
-      title: 'Turn off Playlists?',
-      message: (
-        <>
-          <p>Everyone’s playlists are kept unless you tick the box.</p>
-          <p><Button size="sm" variant="secondary" onClick={() => download(allPlaylistsExportUrl)}>Export first</Button></p>
-          <label className={styles.check}>
-            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
-            <span>Also delete its data. This cannot be undone.</span>
-          </label>
-        </>
-      ),
-      confirmLabel: 'Turn off',
-      tone: 'danger',
-    });
-    if (ok) await run(deleteData ? { kind: 'remove' } : { kind: 'off' });
-  };
-
   if (!mod.data) return null;
+  const v = mod.data;
   return (
-    <>
-      <PlaylistsModuleRow view={mod.data} pending={setOn.isPending || remove.isPending} error={error} onTurnOn={() => void run({ kind: 'on' })} onTurnOff={() => void turnOff()} />
-      {stepUp && (
-        <StepUpDialog
-          action={stepUp.act.kind === 'on' ? 'Turning on Playlists' : 'Turning off Playlists'}
-          methods={stepUp.methods}
-          oidcName={stepUp.oidcName}
-          onCancel={() => setStepUp(null)}
-          onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
-        />
-      )}
-    </>
+    <SettingSwitch
+      name="Playlists"
+      on={v.enabled}
+      meta={`${plural(v.playlists, 'playlist', 'playlists')} · ${plural(v.people, 'person', 'people')}`}
+      pending={setOn.isPending || remove.isPending}
+      keeps="Everyone’s playlists are kept unless you tick the box."
+      before={<p><Button size="sm" variant="secondary" onClick={() => download(allPlaylistsExportUrl)}>Export first</Button></p>}
+      setOn={(on) => setOn.mutateAsync(on)}
+      removeData={() => remove.mutateAsync()}
+    />
   );
 }
 
-/* ---------- Lidarr: a module switched by a setting ---------- */
-
-export interface LidarrModuleRowProps {
-  view: LidarrSettingsView;
-  pending?: boolean;
-  error?: string | null;
-  onTurnOn: () => void;
-  onTurnOff: () => void;
-}
-
-/** The Lidarr row: the same shape as Listen elsewhere's. */
-export function LidarrModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: LidarrModuleRowProps) {
-  return (
-    <ul className={styles.list} aria-label="Lidarr">
-      <li className={styles.item}>
-        <div className={styles.head}>
-          <h3 className={styles.name}>Lidarr</h3>
-          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
-        </div>
-        <p className={styles.purpose}>Gets missing albums through your Lidarr.</p>
-        <p className={styles.meta}>
-          {view.connection ? `Lidarr ${view.connection.version ?? ''}`.trim() : 'Not connected'} · {view.open === 1 ? '1 getting' : `${view.open} getting`}
-        </p>
-        <div className={styles.actions}>
-          {view.enabled
-            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
-            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
-        </div>
-        {error && <p className={styles.error} role="alert">{error}</p>}
-      </li>
-    </ul>
-  );
-}
-
-type LidarrAction = { kind: 'on' } | { kind: 'off' } | { kind: 'remove' };
-
-function LidarrModuleSection() {
+function LidarrSwitch() {
   const mod = useLidarrSettings();
   const setOn = useSetLidarrModule();
   const remove = useRemoveLidarrData();
-  const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ act: LidarrAction; methods: StepUpMethod[]; oidcName?: string | null } | null>(null);
-
-  const run = async (act: LidarrAction) => {
-    setError(null);
-    try {
-      if (act.kind === 'remove') await remove.mutateAsync();
-      else await setOn.mutateAsync(act.kind === 'on');
-    } catch (err) {
-      const e = err as { status?: number; title?: string; detail?: string };
-      if (e.status === 403 && e.title === 'Step-up required') {
-        const s = await getStepUp();
-        setStepUp({ act, methods: s.methods, oidcName: s.oidcName ?? null });
-      } else {
-        setError(sentence(e.detail ?? e.title) || 'Lidarr could not be changed.');
-      }
-    }
-  };
-
-  const turnOff = async () => {
-    let deleteData = false;
-    const ok = await confirmDialog({
-      title: 'Turn off Lidarr?',
-      message: (
-        <>
-          <p>Its requests are kept unless you tick the box.</p>
-          <label className={styles.check}>
-            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
-            <span>Also delete its data. This cannot be undone.</span>
-          </label>
-        </>
-      ),
-      confirmLabel: 'Turn off',
-      tone: 'danger',
-    });
-    if (ok) await run(deleteData ? { kind: 'remove' } : { kind: 'off' });
-  };
-
   if (!mod.data) return null;
+  const v = mod.data;
   return (
-    <>
-      <LidarrModuleRow view={mod.data} pending={setOn.isPending || remove.isPending} error={error} onTurnOn={() => void run({ kind: 'on' })} onTurnOff={() => void turnOff()} />
-      {stepUp && (
-        <StepUpDialog
-          action={stepUp.act.kind === 'on' ? 'Turning on Lidarr' : 'Turning off Lidarr'}
-          methods={stepUp.methods}
-          oidcName={stepUp.oidcName}
-          onCancel={() => setStepUp(null)}
-          onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
-        />
-      )}
-    </>
+    <SettingSwitch
+      name="Lidarr"
+      label="Get missing albums"
+      on={v.enabled}
+      meta={`${v.open} getting`}
+      pending={setOn.isPending || remove.isPending}
+      keeps="Its requests are kept unless you tick the box."
+      setOn={(on) => setOn.mutateAsync(on)}
+      removeData={() => remove.mutateAsync()}
+    />
   );
 }
 
-export function SettingsModulesContent() {
-  return (
-    <div className={styles.page}>
-      <CatalogueModules />
-      <McModuleSection />
-      <ListenLinksModuleSection />
-      <PlaylistsModuleSection />
-      <LidarrModuleSection />
-    </div>
-  );
+/* ---------- Settings › Modules › <module> ---------- */
+
+/** A module that is off, for someone who can't turn it on: the value alone. */
+function OffValue() {
+  return <p className={styles.offValue}>Off</p>;
+}
+
+/**
+ * One module's page: its Off | On (owner), then everything it needs. Each
+ * part keeps the permission it had on its old page: the player's server,
+ * scan, scrobbling key and quality are the owner's (old Playback); its
+ * Listening is everyone's; Listen elsewhere and Music Connections are each
+ * person's own; Lidarr and Playlists are the owner's alone.
+ */
+export function SettingsModuleContent({ slug }: { slug: string }) {
+  const owner = can(useRole(), 'system.manage');
+  const facets = useFacets();
+  const caps = useCapabilities();
+  const catalogue = useModules(owner);
+  const known = MODULE_PAGES.find((p) => p.slug === slug);
+  const extra = !known ? catalogue.data?.modules.find((m) => moduleSlug(m.id) === slug) : undefined;
+  const entry: ModulePageEntry | undefined = known ?? (extra ? { slug, id: extra.id, name: extra.name } : undefined);
+  if (!entry) {
+    if (owner && catalogue.isLoading) return null;
+    return <NotAvailable inline />;
+  }
+  const on = facets.data?.modules.find((m) => m.id === entry.id)?.enabled ?? null;
+  const heading = <h2>{entry.name}</h2>;
+
+  switch (entry.id) {
+    case 'player': {
+      const installed = caps.data ? !!caps.data.player?.installed : null;
+      if (!owner) {
+        return <>{heading}{installed === false ? <OffValue /> : installed && <SettingsListeningContent heading={false} />}</>;
+      }
+      return (
+        <>
+          {heading}
+          <CatalogueSwitch id="player" name="Player" />
+          <SettingsPlaybackContent />
+          {/* each person's own part, once a player server answers (Not set up says it already) */}
+          {installed && <><h2 className={styles.part}>Listening</h2><SettingsListeningContent heading={false} /></>}
+        </>
+      );
+    }
+    case 'lidarr':
+      if (!owner) return <NotAvailable inline />;
+      return <>{heading}<LidarrSwitch /><LidarrSettings /></>;
+    case 'listen-links':
+      return <>{heading}{owner && <ListenSwitch />}{on === false ? (owner ? null : <OffValue />) : on && <SettingsListenElsewhereContent heading={false} />}</>;
+    case 'mc':
+      return <>{heading}{owner && <McSwitch />}{on === false ? (owner ? null : <OffValue />) : on && <SettingsConnectionsContent heading={false} />}</>;
+    case 'playlists':
+      if (!owner) return <NotAvailable inline />;
+      return <>{heading}<PlaylistsSwitch /></>;
+    default:
+      if (!owner) return <NotAvailable inline />;
+      return <>{heading}<CatalogueSwitch id={entry.id} name={entry.name} /></>;
+  }
 }

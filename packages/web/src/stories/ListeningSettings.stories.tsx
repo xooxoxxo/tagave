@@ -27,7 +27,7 @@ const history: ListeningHistoryView = {
 };
 
 const meta = {
-  title: 'Pages/Settings › Listening',
+  title: 'Pages/Settings › Modules › Player',
   component: ListeningSettingsView,
   tags: ['no-shot'],
   args: {
