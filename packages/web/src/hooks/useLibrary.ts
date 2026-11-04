@@ -89,13 +89,16 @@ export function useAlbum(libraryId: string | undefined, albumId: string | undefi
   });
 }
 
+export const scanRootsKey = (libraryId: string | undefined) => [...SCAN_ROOTS_QUERY_KEY, libraryId];
+
+export function fetchScanRoots(libraryId: string): Promise<ScanRootWithStatus[]> {
+  return api.get<{ data: ScanRootWithStatus[] }>(`/libraries/${libraryId}/scan-roots`).then((r) => r.data);
+}
+
 export function useScanRoots(libraryId: string | undefined) {
   return useQuery({
-    queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId],
-    queryFn: () =>
-      api
-        .get<{ data: ScanRootWithStatus[] }>(`/libraries/${libraryId}/scan-roots`)
-        .then((r) => r.data),
+    queryKey: scanRootsKey(libraryId),
+    queryFn: () => fetchScanRoots(libraryId!),
     enabled: !!libraryId,
     staleTime: 1000 * 30, // 30 seconds
     refetchInterval: (query) => {

@@ -23,6 +23,7 @@ import { AdaptiveColour } from '../adaptive/AdaptiveColour';
 import { ThemeColours } from '../themes/ThemeColours';
 import { AppDownHost } from './update/UpdateDownScreen';
 import { DiskSpaceNotice } from './DiskSpaceNotice';
+import { MusicFolderNotice } from './MusicFolderNotice';
 import { stop as stopPlayback } from '../player/engine';
 import styles from './Layout.module.css';
 
@@ -242,6 +243,8 @@ export function Layout() {
             <PageBackActionContext.Provider value={backAct}>
               {/* the owner only, while a disk tagave writes is filling up */}
               <DiskSpaceNotice />
+              {/* the owner only, while a music folder's latest scan was aborted (unmounted share) */}
+              <MusicFolderNotice />
               <div className={styles.page}><Outlet /></div>
             </PageBackActionContext.Provider>
           </PageBackContext.Provider>
