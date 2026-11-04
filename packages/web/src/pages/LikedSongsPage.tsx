@@ -84,7 +84,7 @@ export function LikedSongsPageView(p: LikedSongsPageViewProps) {
                   <span className={styles.time}>{it.durationMs ? clock(it.durationMs / 1000) : ''}</span>
                 </button>
                 <span className={own.heart}>{p.heart?.(it)}</span>
-                <span className={styles.rowMenu}>
+                <span className={`${styles.rowMenu} ${own.menu}`}>
                   {!missing && (
                     <TrackActions
                       label={`More for ${it.title}`}

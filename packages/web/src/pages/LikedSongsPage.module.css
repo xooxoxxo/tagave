@@ -4,3 +4,5 @@
 /* the rows have no grip: the cover starts at the edge */
 .row .heart { flex: none; display: inline-flex; }
 .row > button:first-child { padding-left: 8px; }
+/* a Missing row has no ⋮: its place stays, so the hearts line up */
+.menu { min-width: 40px; }
