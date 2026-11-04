@@ -19,7 +19,7 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 import {
-  albumKind, detailsState, kickerLine, kindLine, mosaicAlbums, ownedLine, pageSections, regionName, shelves, yearsLine, SECTION_IDS,
+  aboutFacts, albumKind, detailsState, kickerLine, kindLine, mosaicAlbums, ownedLine, pageSections, regionName, shelves, yearsLine, SECTION_IDS,
 } from './artistPageView';
 import { ArtistNameFirst, ArtistNameFirstSkeleton } from './ArtistNameFirst';
 import { ArtistLikeAlbums, ArtistLikeAlbumsSkeleton } from './ArtistLikeAlbums';
@@ -64,7 +64,7 @@ const layoutProps = (artist: ArtistDetail, maintenance = false, details = detail
 });
 const nameFirst = (artist: ArtistDetail, maintenance = false, details?: ReturnType<typeof detailsState>, active: string | null = null) => {
   const props = layoutProps(artist, maintenance, details);
-  const sections = pageSections(artist, props.shelves, maintenance);
+  const sections = pageSections(artist, props.shelves, maintenance, props.details);
   return renderToStaticMarkup(<ArtistNameFirst {...props} sections={sections} active={active ?? sections[0]?.id ?? null} goTo={() => {}} />);
 };
 const likeAlbums = (artist: ArtistDetail, maintenance = false, details?: ReturnType<typeof detailsState>) =>
@@ -113,11 +113,20 @@ describe('artist page words', () => {
     expect(detailsState({ enrichedAt: '2026-10-11T00:00:00Z', enrichError: null, canEnrich: true }, false)).toBe('done');
   });
 
-  it('sections in page order, only those with something in them; Skipped in Maintenance', () => {
+  it('sections in page order, only those with something in them; Skipped in Maintenance; About last', () => {
     const s = shelves(xtc.albums);
-    expect(pageSections(xtc, s, false).map((x) => [x.label, x.count])).toEqual([['Biography', undefined], ['In your library', 1], ['Not in your library', 1]]);
-    expect(pageSections(xtc, s, true).map((x) => x.label)).toContain('Skipped');
-    expect(pageSections(aarni, shelves(aarni.albums), false).map((x) => x.label)).toEqual(['In your library']);
+    expect(pageSections(xtc, s, false).map((x) => [x.label, x.count])).toEqual([['In your library', 1], ['Not in your library', 1], ['About', undefined]]);
+    expect(pageSections(xtc, s, true).map((x) => x.label)).toEqual(['In your library', 'Not in your library', 'Skipped', 'About']);
+    expect(pageSections(aarni, shelves(aarni.albums), false).map((x) => x.label)).toEqual(['In your library', 'About']);
+    // while the details are on their way, About waits
+    expect(pageSections(aarni, shelves(aarni.albums), false, 'fetching').map((x) => x.label)).toEqual(['In your library']);
+  });
+
+  it('About: the trivia, labels and values; the kind and country stay in the kind line', () => {
+    expect(aboutFacts(xtc)).toEqual([['Active', '1976–2006'], ['Aliases', 'The Beech Avenue Boys, The Three Wise Men'], ['Description', 'English rock band']]);
+    expect(aboutFacts({ ...xtc, type: 'Person', beginDate: '1977-09-13', endDate: null, aliases: [], disambiguation: null })).toEqual([['Born', '1977']]);
+    expect(aboutFacts({ ...xtc, type: 'Group', beginDate: '2010-01-01', endDate: null, aliases: [], disambiguation: null })).toEqual([['Active', '2010']]);
+    expect(aboutFacts({ ...aarni, type: null, beginDate: null, aliases: ['aarni', 'Arni'] })).toEqual([['Aliases', 'Arni']]);
   });
 
   it('the mosaic takes covers first, at most four', () => {
@@ -127,21 +136,31 @@ describe('artist page words', () => {
 });
 
 describe('name first (B, the default)', () => {
-  it('rich: kicker, the name, aliases, the bio, both album sections; the column is the section navigation', () => {
+  it('rich: the kind line, the name, the short bio and Follow up top; both album sections, then About; the column is the section navigation', () => {
     const html = nameFirst(xtc, false, 'done', SECTION_IDS.owned);
-    expect(html).toContain('Group · United Kingdom · 1976–2006');
-    expect(html).toMatch(/<h1[^>]*>XTC<\/h1>/);
-    expect(html).toContain('Also known as <em>The Beech Avenue Boys, The Three Wise Men</em>');
+    const band = html.match(/<section[^>]*aria-label="Artist"[\s\S]*?<\/section>/)![0];
+    expect(band).toContain('Group · United Kingdom');
+    expect(band).not.toContain('1976');
+    expect(band).toMatch(/<h1[^>]*>XTC<\/h1>/);
+    // the biography folded to a few lines, More for the rest
+    expect(band).toContain('XTC were an English rock band. Partridge and Moulding met.');
+    expect(band).toMatch(/aria-expanded="false"[^>]*>More</);
+    expect(band).toContain('Follow');
+    // the trivia left the header for About, under the albums
+    expect(band).not.toContain('Beech Avenue');
+    expect(band).not.toContain('English rock band<');
     expect(html).toContain('1 album · 16 tracks');
-    expect(html).toMatch(/id="artist-biography"[\s\S]*Biography/);
-    expect(html).toMatch(/id="artist-in-library"[\s\S]*In your library/);
-    expect(html).toMatch(/id="artist-not-in-library"[\s\S]*Not in your library/);
+    expect(html).toMatch(/id="artist-in-library"[\s\S]*In your library[\s\S]*id="artist-not-in-library"[\s\S]*id="artist-about"/);
+    expect(html).toMatch(/<dt>Aliases<\/dt><dd[^>]*>The Beech Avenue Boys, The Three Wise Men<\/dd>/);
+    expect(html).toMatch(/<dt>Active<\/dt><dd[^>]*>1976–2006<\/dd>/);
+    expect(html).toMatch(/<dt>Links<\/dt><dd[^>]*><span><a href="https:\/\/en.wikipedia.org\/wiki\/XTC"[^>]*>Wikipedia<\/a> · CC BY-SA 4.0<\/span><a href="https:\/\/musicbrainz.org\/artist\/m"/);
+    expect(html).not.toContain('id="artist-biography"');
     // the rail and the one-column row: links to each section, the current one marked
     const navs = html.match(/<nav[^>]*aria-label="Sections"[\s\S]*?<\/nav>/g) ?? [];
     expect(navs).toHaveLength(2);
     for (const nav of navs) {
-      expect(nav).toContain('href="#artist-biography"');
       expect(nav).toContain('href="#artist-not-in-library"');
+      expect(nav).toContain('href="#artist-about"');
       expect(nav.match(/aria-current="location"/g)).toHaveLength(1);
       expect(nav).toMatch(/href="#artist-in-library" aria-current="location"/);
     }
@@ -151,15 +170,15 @@ describe('name first (B, the default)', () => {
     expect(html).not.toContain('Fetching details');
   });
 
-  it('sparse: reads complete — "None on Wikipedia", no empty boxes, no section navigation for one section', () => {
+  it('sparse: reads complete — "None on Wikipedia" in About, no empty boxes, no More without more', () => {
     const html = nameFirst(aarni, false, 'done');
     expect(html).toContain('Group · Finland');
-    expect(html).toContain('None on Wikipedia');
+    expect(html).toMatch(/<dt>Biography<\/dt><dd[^>]*>None on Wikipedia<\/dd>/);
     expect(html).toContain('2 albums · 10 tracks');
     expect(html).toContain('Bathos');
-    expect(html).not.toContain('aria-label="Sections"');
     expect(html).not.toContain('Not in your library');
-    expect(html).not.toContain('Biography</h2>');
+    expect(html).not.toContain('>More<');
+    expect(nameFirst({ ...aarni, aliases: [], links: {} }, false, 'stalled')).not.toContain('aria-label="Sections"');
   });
 
   it('fetching: the calm note for everyone, no kicker, no "None on Wikipedia" yet', () => {
@@ -178,7 +197,7 @@ describe('name first (B, the default)', () => {
     expect(stalled).not.toContain('Couldn’t');
   });
 
-  it('Maintenance: provider links, Refresh details, Release types (followed), when, and the skipped releases', () => {
+  it('Maintenance: Refresh details, Release types (followed), when, and the skipped releases (links are in About for everyone)', () => {
     const html = nameFirst(xtc, true, 'done');
     expect(html).toContain('MusicBrainz');
     expect(html).toContain('Refresh details');
@@ -196,26 +215,26 @@ describe('name first (B, the default)', () => {
 });
 
 describe('like albums (A)', () => {
-  it('rich: the kind line, facts in a row, the bio lede, tabs, the albums by kind and what is missing', () => {
+  it('rich: the kind line, the short bio, Follow; the albums by kind, what is missing, then About', () => {
     const html = likeAlbums(xtc, false, 'done');
-    expect(html).toContain('Group · United Kingdom');
-    expect(html).toMatch(/<dt>From<\/dt><dd[^>]*>United Kingdom<\/dd>/);
+    const hero = html.match(/<section[^>]*aria-label="Artist"[\s\S]*?<\/section>/)![0];
+    expect(hero).toContain('Group · United Kingdom');
+    expect(hero).toContain('XTC were an English rock band.');
+    expect(hero).toMatch(/>More</);
+    expect(hero).not.toContain('<dl');
+    expect(html).not.toContain('role="tab"');
+    expect(html).toMatch(/Not in your library · 1[\s\S]*>About<\/p><dl/);
     expect(html).toMatch(/<dt>Active<\/dt><dd[^>]*>1976–2006<\/dd>/);
     expect(html).toMatch(/<dt>In your library<\/dt><dd[^>]*>1 album · 16 tracks<\/dd>/);
-    expect(html).toContain('XTC were an English rock band.');
-    expect(html).toContain('Read more');
-    expect(html).toMatch(/role="tab"[\s\S]*Albums[\s\S]*role="tab"[\s\S]*Biography/);
-    expect(html).toContain('Not in your library · 1');
     // the mosaic: the owned album's cover, decorative
     expect(html).toMatch(/data-n="1"[^>]*aria-hidden="true"[\s\S]*src="\/api\/v1\/images\/album\/a1"/);
   });
 
-  it('sparse: no photo needed — the mosaic of owned covers; "None on Wikipedia"; one tab', () => {
+  it('sparse: no photo needed — the mosaic of owned covers; "None on Wikipedia" in About', () => {
     const html = likeAlbums(aarni, false, 'done');
     expect(html).toMatch(/data-n="2"/);
     expect(html).toContain('None on Wikipedia');
-    expect(html).toMatch(/<dt>Also known as<\/dt><dd[^>]*>Arni<\/dd>/);
-    expect(html).not.toContain('Biography</span>');
+    expect(html).toMatch(/<dt>Aliases<\/dt><dd[^>]*>Arni<\/dd>/);
   });
 
   it('fetching: the fetch line above the name, bars where the facts land', () => {
