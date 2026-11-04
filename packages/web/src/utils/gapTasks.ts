@@ -6,6 +6,7 @@
  * Transformation (Tracks 1–4: …) and add them to Artist/Transformation").
  * `wrongFix` is the way to correct a gap the owner marked as wrong.
  */
+import { clockOf } from '@tagave/shared';
 import { describeQualityFlag, joinAnd, plural, type DescribeOptions } from './qualityFlags';
 
 export interface MissingTrack {
@@ -34,6 +35,7 @@ export const GAP_KIND_LABEL: Record<string, string> = {
   duplicate: 'Other copies',
   missing_album: 'Missing album',
   quality: 'Tags, artwork and files',
+  one_file_album: 'Whole album in one file',
 };
 
 /** "1–4", "1, 3 and 5–7" for one disc's positions. */
@@ -128,6 +130,11 @@ export function gapLine(gap: GapLike, opts: DescribeOptions & { all?: Record<str
     }
     case 'missing_album':
       return `${(d['title'] as string | undefined) ?? 'An album'} is not in your library`;
+    case 'one_file_album': {
+      const n = num(d['tracks']);
+      const ms = num(d['fileMs']);
+      return ['1 file', n != null ? plural(n, 'track') : null, ms != null ? clockOf(ms) : null].filter(Boolean).join(' · ');
+    }
     case 'quality': {
       if (d['reason'] === 'audio_hash_mismatch') return 'A tag write stopped because a file’s audio changed; the plan is paused';
       const f = qualityFlagOf(gap);
@@ -158,6 +165,8 @@ export function taskText(gap: GapLike, subject: TaskSubject): string {
       const n = num(d['count']) ?? 2;
       return `Choose which of the ${n} copies of ${title} to keep and remove the others from your music folders`;
     }
+    case 'one_file_album':
+      return `Split ${title} into its tracks`;
     case 'missing_album': {
       const t = subject.title?.trim() || (d['title'] as string | undefined) || 'this album';
       return `Get ${t}${subject.artist ? ` by ${subject.artist}` : ''} and add it to your library`;
@@ -219,6 +228,12 @@ export function wrongFix(gap: GapLike): WrongFix {
         text: 'Change which release types count.',
         action: 'follow-rules',
         actionLabel: 'Change what you follow',
+      };
+    case 'one_file_album':
+      return {
+        text: 'The wrong edition may be matched.',
+        action: 'editions',
+        actionLabel: 'Choose the right edition',
       };
     default:
       return { text: 'Hidden for this album.', action: null };

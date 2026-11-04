@@ -58,6 +58,7 @@ import { AlbumMoreButton, useAlbumDrawer, type AlbumInfoTab, type AlbumSummary }
 // The drawers (Base UI Drawer) load when one first opens: their own chunk.
 const AlbumActionsSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumActionsSheet })));
 const AlbumInfoSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumInfoSheet })));
+const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
 import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
 import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
@@ -115,6 +116,8 @@ export function AlbumDetailPage() {
   const [maintenance, setMaintenance] = useMaintenance();
   // a listener's album page is the music: no Manage menu, decisions or Maintenance key
   const canCare = useCan('library.edit');
+  const canSplit = useCan('system.manage');
+  const [splitOpen, setSplitOpen] = useState(false);
   // Play and Shuffle: every role has player.use today; the strip follows the permission
   const mayPlay = useCan('player.use');
   const [{ shortAlbumArt }] = useDisplayPrefs();
@@ -346,7 +349,7 @@ export function AlbumDetailPage() {
     tracks: album.tracks,
     hasRelease: !!album.release,
     match: album.match,
-  }, { request, dismissedRequestKey: dismissedRequest, ackedTaskIds: acked }) : []), [album, request, dismissedRequest, acked]);
+  }, { request, dismissedRequestKey: dismissedRequest, ackedTaskIds: acked, canSplit }) : []), [album, request, dismissedRequest, acked, canSplit]);
   const items = !canCare ? [] : maintenance ? allItems : allItems.filter((i) => i.interrupts);
 
   useEffect(() => {
@@ -525,6 +528,7 @@ export function AlbumDetailPage() {
         break;
       }
       case 'editions': openSection('editions'); break;
+      case 'split-image': setSplitOpen(true); break;
       case 'art': fetchArt.mutate(); break;
       case 'tags': void navigate({ to: '/plans', search: { album: albumId } }); break;
       case 'split': if (item.id) setOpenRows((cur) => new Set(cur).add(item.id)); break;
@@ -1262,6 +1266,20 @@ export function AlbumDetailPage() {
             title={`Set album values · ${title ?? 'this album'}`}
             onClose={() => setEditingTags(false)}
           />
+        )}
+        {/* Whole album in one file: the cut points and Split (owner) */}
+        {canSplit && splitOpen && (
+          <Suspense fallback={null}>
+            <SplitSheet
+              open={splitOpen}
+              onOpenChange={setSplitOpen}
+              libraryId={libraryId}
+              albumId={albumId}
+              title={title ?? 'This album'}
+              artist={artistLine}
+              side={drawer ? 'bottom' : 'right'}
+            />
+          </Suspense>
         )}
         {/* the drawers, loaded the first time one opens */}
         {sheetsWanted && (

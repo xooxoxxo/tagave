@@ -53,7 +53,7 @@ export function WorkPage() {
   const attentionTotal = useMemo(() => {
     const c = gapsData?.counts;
     if (!c) return 0;
-    return (c['incomplete_album'] ?? 0) + (c['duplicate'] ?? 0) + (c['missing_album'] ?? 0);
+    return (c['incomplete_album'] ?? 0) + (c['duplicate'] ?? 0) + (c['missing_album'] ?? 0) + (c['one_file_album'] ?? 0);
   }, [gapsData]);
 
   const tabs: TabItem[] = useMemo(

@@ -215,6 +215,7 @@ export type AttentionAction =
   | { label: string; do: 'dismiss-request' }
   | { label: string; do: 'ack-tasks' }
   | { label: string; do: 'editions' }
+  | { label: string; do: 'split-image' }
   | { label: string; do: QualityAction };
 
 export interface AttentionItem {
@@ -237,6 +238,8 @@ export interface AttentionOptions {
   /** resolved task ids the owner acknowledged */
   ackedTaskIds?: ReadonlySet<string> | undefined;
   now?: number | undefined;
+  /** the viewer may change the music folder (system.manage): Split is offered */
+  canSplit?: boolean | undefined;
 }
 
 export function requestKeyOf(r: IdentifyRequestView | null | undefined): string | null {
@@ -351,9 +354,19 @@ export function attentionItems(album: AttentionAlbum, o: AttentionOptions = {}):
     });
   }
 
-  const order = ['incomplete_album', 'duplicate', 'missing_album'];
+  const order = ['one_file_album', 'incomplete_album', 'duplicate', 'missing_album'];
   const structural = open.filter((g) => g.kind !== 'quality').sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+  // a whole album in one file is also "9 tracks missing": the split answers both
+  const oneFile = structural.some((g) => g.kind === 'one_file_album');
   for (const g of structural) {
+    if (oneFile && g.kind === 'incomplete_album') continue;
+    if (g.kind === 'one_file_album') {
+      items.push({
+        id: `gap:${g.id}`, kind: 'gap', tone: 'attention', line: `Whole album in one file · ${gapLine(g)}`,
+        action: o.canSplit ? { label: 'Split', do: 'split-image' } : { label: 'Review', do: 'expand' }, interrupts: !!o.canSplit, gapIds: [g.id],
+      });
+      continue;
+    }
     const line = g.kind === 'incomplete_album'
       ? `${plural(missingCount(g.details) || album.missingTracks.length || 1, 'track')} missing`
       : gapLine(g);
