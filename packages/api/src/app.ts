@@ -19,6 +19,7 @@ import { createBetterAuthRoutes } from './routes/betterAuth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createSystemRoutes } from './routes/system.js';
+import { createMusicFolderInternalRoutes, createMusicFolderRoutes } from './routes/musicFolder.js';
 import { createAlbumRoutes } from './routes/albums.js';
 import { createFieldLocksRoutes } from './routes/fieldLocks.js';
 import { createJobRoutes } from './routes/jobs.js';
@@ -80,6 +81,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
   // Signed by the updater instead of a session (opt-in updater)
   app.register(createUpdaterInternalRoutes, { prefix: '/api/v1' });
+  app.register(createMusicFolderInternalRoutes, { prefix: '/api/v1' });
 
   // Better Auth: /api/auth/* (sign-in, sign-out, session, 2FA, passkeys)
   app.register(createBetterAuthRoutes);
@@ -117,6 +119,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // System checks with a fix per failure (status page, first-run wizard)
     instance.register(createSystemRoutes, { prefix: '/api/v1' });
+    instance.register(createMusicFolderRoutes, { prefix: '/api/v1' });
 
     // Build identity + release feed (PLT-5 / XO-313)
     instance.register(createUpdateRoutes, { prefix: '/api/v1' });
@@ -171,7 +174,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     // Settings › Storage: disk use and the tag-change cleanup (owner only)
     instance.register(createStorageRoutes, { prefix: '/api/v1', backupDir: deps.backupService.dir, cacheDir: deps.cacheDir });
 
-    // The opt-in player: capabilities, Settings › Playback, queue, stream proxy, play events
+    // The opt-in player: capabilities, Settings › Modules › Player, queue, stream proxy, play events
     instance.register(createPlayerRoutes, { prefix: '/api/v1' });
     // The player per person: listening history, Last.fm and ListenBrainz, phone-app passwords
     instance.register(createPlayerListeningRoutes, { prefix: '/api/v1' });
@@ -181,7 +184,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     // Settings › Users › Sign-in service: your own login service (owner)
     instance.register(createOidcSettingsRoutes, { prefix: '/api/v1' });
 
-    // Settings › Connections: Music Connections links this person made to other apps ('self')
+    // Settings › Modules › Music Connections: Music Connections links this person made to other apps ('self')
     instance.register(createMcConnectionRoutes, { prefix: '/api/v1' });
     // Wantlist suggestions from linked apps, Accept / Dismiss ('self')
     instance.register(createMcWantlistRoutes, { prefix: '/api/v1' });
@@ -197,7 +200,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
     // Deleting songs and albums: Mark or Trash, Library care › Deleting (owner)
     instance.register(createDeletionRoutes, { prefix: '/api/v1' });
-    // Get missing albums through Lidarr: the states, Get (owner), Settings › Connections › Lidarr
+    // Get missing albums through Lidarr: the states, Get (owner), Settings › Modules › Lidarr
     instance.register(createLidarrRoutes, { prefix: '/api/v1' });
   });
 }

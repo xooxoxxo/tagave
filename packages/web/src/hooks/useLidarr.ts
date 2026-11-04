@@ -1,7 +1,7 @@
 /**
  * Get missing albums through Lidarr (the lidarr module; api › routes/lidarr.ts):
  * the artist page's requests, Get / Get all missing / Retry / Cancel,
- * Library care › Getting and Settings › Connections › Lidarr. While a
+ * Library care › Getting and Settings › Modules › Lidarr. While a
  * request is on its way its state is asked for again every half minute.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -81,7 +81,7 @@ export function useLidarrCancel(libraryId: string | undefined) {
   });
 }
 
-/* ---------- Settings › Connections › Lidarr, Settings › Modules ---------- */
+/* ---------- Settings › Modules › Lidarr ---------- */
 
 export function useLidarrSettings(enabled = true) {
   return useQuery({ queryKey: lidarrSettingsKey, queryFn: () => api.get<LidarrSettingsView>('/settings/lidarr'), enabled, retry: false });

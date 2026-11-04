@@ -50,6 +50,7 @@ describe('route permissions', () => {
       'GET /api/v1/auth/setup-required',
       'GET /api/v1/connect/authorize',
       'GET /api/v1/health',
+      'GET /api/v1/internal/updater/music',
       'GET /api/v1/internal/updater/versions',
       'GET /api/v1/invites/:token',
       'GET /api/v1/openapi.json',
@@ -61,6 +62,7 @@ describe('route permissions', () => {
       'POST /api/v1/connect/register',
       'POST /api/v1/connect/revoke',
       'POST /api/v1/connect/token',
+      'POST /api/v1/internal/updater/music-heal',
       'POST /api/v1/invites/:token/accept',
     ]);
   });

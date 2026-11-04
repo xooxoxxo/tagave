@@ -9,7 +9,7 @@
  *   POST   /api/v1/libraries/:libraryId/lidarr/requests/:id/retry     system.manage: search again
  *   DELETE /api/v1/libraries/:libraryId/lidarr/requests/:id           system.manage: Cancel (unmonitor in Lidarr)
  *   POST   /api/v1/libraries/:libraryId/artists/:artistId/lidarr/get-all  system.manage: Get all missing (one job)
- *   GET    /api/v1/settings/lidarr                                    system.manage: Settings › Connections › Lidarr
+ *   GET    /api/v1/settings/lidarr                                    system.manage: Settings › Modules › Lidarr
  *   PUT    /api/v1/settings/lidarr                                    system.manage + fresh step-up: { enabled }
  *   POST   /api/v1/settings/lidarr/test                               system.manage: { url, apiKey? } → version, folders, profiles
  *   PUT    /api/v1/settings/lidarr/connection                         system.manage + fresh step-up: save (tested first)

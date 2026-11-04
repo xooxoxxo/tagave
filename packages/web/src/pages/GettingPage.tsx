@@ -32,7 +32,7 @@ export function GettingPanel() {
     return <p role="alert" className={styles.error}>Couldn’t load. <Button variant="quiet" size="sm" onClick={() => void refetch()}>Try again</Button></p>;
   }
   if (data.items.length === 0) {
-    return <EmptyState title="Nothing getting" action={<Link to="/settings/$section" params={{ section: 'connections' }} className={styles.link}>Lidarr</Link>} />;
+    return <EmptyState title="Nothing getting" action={<Link to="/settings/modules/$module" params={{ module: 'lidarr' }} className={styles.link}>Lidarr</Link>} />;
   }
   return (
     <div className={styles.container}>

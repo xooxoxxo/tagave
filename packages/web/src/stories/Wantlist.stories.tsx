@@ -34,7 +34,7 @@ export const Suggestions: Story = {};
 export const Deciding: Story = { args: { pending: { id: 's1', decision: 'accepted' } } };
 export const Refused: Story = {
   name: 'Refused by the app (403)',
-  args: { errors: { s1: 'review-gatherer refused the decision (403): this connection may not send decisions. Re-approve it in Settings › Connections to grant that.' } },
+  args: { errors: { s1: 'review-gatherer refused the decision (403): this connection may not send decisions. Re-approve it in Settings › Modules › Music Connections to grant that.' } },
 };
 export const Gone: Story = {
   name: 'Gone at the app (404)',

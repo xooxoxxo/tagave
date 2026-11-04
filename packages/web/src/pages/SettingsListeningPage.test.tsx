@@ -1,5 +1,5 @@
 /**
- * Settings › Listening: what each state offers, and that it never shows a
+ * Settings › Modules › Player: what each state offers, and that it never shows a
  * secret.
  */
 import { describe, expect, it } from 'vitest';

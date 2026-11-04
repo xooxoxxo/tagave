@@ -184,11 +184,13 @@ On a split install the updater updates the app computer; run `install-tagave.sh 
 
 ### Optional modules (Settings › Modules)
 
-Optional parts of tagave (the player is the first) are listed in **Settings › Modules**, owner only. The list is the module catalogue in the signed manifest of the release this server runs, so a module that arrives in a later release shows up once you update to it; nothing else needs installing. Each module shows what it adds, how much memory and disk it takes, and whether it is off, being turned on or off, on, failed (with the reason), or waiting for an update to bring in a new image.
+**Settings › Modules** lists every module with its state: Player, Lidarr, Listen elsewhere, Music Connections and Playlists. Each row opens the module's own page, **Settings › Modules › <module>**, which starts with its **Off | On** and holds all of its settings: the player's server, scrobbling and quality, and everyone's own player account and Last.fm and ListenBrainz; Lidarr's connection; each person's Listen elsewhere platforms; each person's Music Connections. The owner sees every module and switches them. Everyone else sees only the modules that are on and have settings of their own (the player, Listen elsewhere, Music Connections). The old addresses (`/settings/playback`, `/settings/listening`, `/settings/listen-elsewhere`, `/settings/connections`) open the new pages.
 
-With the updater, **Turn on** asks you to confirm it is you (like an update), then shows each step: the signature and the disk are checked and its images are pulled by digest and checked; its settings go into `.env` (generated secrets once, kept when it is turned off); it starts; it must report healthy. If any step fails, the updater rolls back and the page says why. **Turn off** stops it and takes it out of the configuration; its data stays unless you tick **Also delete its data**.
+Optional parts that run as their own containers (the player is the first) come from the module catalogue in the signed manifest of the release this server runs, so a module that arrives in a later release shows up once you update to it; nothing else needs installing. Each one's page shows how much memory and disk it takes, and whether it is off, being turned on or off, on, failed (with the reason), or waiting for an update to bring in a new image.
 
-Turned off with its data kept, a module only loses what it does: its background work stops, and turning it on again picks up where it was. **Also delete its data** deletes exactly the module's own data: its Docker volumes, and its rows in tagave's database, and nothing of your library, your people, reviews or ratings. For the player that is Navidrome's database and, in tagave, the player's library (which song on Navidrome is which track), plays and play counts, and the connected Last.fm and ListenBrainz accounts with their keys. While a player server of your own is set up in Settings › Playback, that server keeps working: only the bundled player's rows go (and those of libraries your server does not serve); your server's accounts, play counts, plays, listens and scrobbles, and the Last.fm and ListenBrainz connections, stay. The listens the player recorded stay: they are your history, like the ones you add by hand. A second box, **Also delete the listens the player recorded**, deletes those too; listens you added yourself stay either way. The run's log says how many rows of each kind went and how many listens were kept.
+With the updater, **On** asks you to confirm it is you (like an update), then shows each step: the signature and the disk are checked and its images are pulled by digest and checked; its settings go into `.env` (generated secrets once, kept when it is turned off); it starts; it must report healthy. If any step fails, the updater rolls back and the page says why. **Off** stops it and takes it out of the configuration; its data stays unless you tick **Also delete its data**.
+
+Turned off with its data kept, a module only loses what it does: its background work stops, and turning it on again picks up where it was. **Also delete its data** deletes exactly the module's own data: its Docker volumes, and its rows in tagave's database, and nothing of your library, your people, reviews or ratings. For the player that is Navidrome's database and, in tagave, the player's library (which song on Navidrome is which track), plays and play counts, and the connected Last.fm and ListenBrainz accounts with their keys. While a player server of your own is set up in Settings › Modules › Player, that server keeps working: only the bundled player's rows go (and those of libraries your server does not serve); your server's accounts, play counts, plays, listens and scrobbles, and the Last.fm and ListenBrainz connections, stay. The listens the player recorded stay: they are your history, like the ones you add by hand. A second box, **Also delete the listens the player recorded**, deletes those too; listens you added yourself stay either way. The run's log says how many rows of each kind went and how many listens were kept.
 
 Without the updater, each module shows the command that does the same from the install folder:
 
@@ -202,7 +204,7 @@ It runs the same steps, with the release's own updater image as a one-off contai
 
 ## Play your music (optional player)
 
-tagave can play your albums. The player module is [Navidrome](https://www.navidrome.org), an open-source music server, run unmodified next to tagave. tagave plays albums through it in the browser, and phone apps can use the same Navidrome to stream your library. It is off unless you ask for it: **Settings › Modules › Player › Turn on** (with the updater), or from the install folder:
+tagave can play your albums. The player module is [Navidrome](https://www.navidrome.org), an open-source music server, run unmodified next to tagave. tagave plays albums through it in the browser, and phone apps can use the same Navidrome to stream your library. It is off unless you ask for it: **Settings › Modules › Player › On** (with the updater), or from the install folder:
 
 ```sh
 ./install-tagave.sh --with-player ...      # when installing (role all)
@@ -223,7 +225,7 @@ Navidrome reads your music folder read-only, always, even when you installed wit
 
 **One account per person.** tagave gives everyone on the install their own Navidrome user (made the first time they play, or within a minute of being added; locked when their tagave account is disabled). Their plays, play counts, ratings and stars are theirs, and tagave streams as them, never as the admin. The passwords are random, sealed with `APP_SECRET`, and never shown.
 
-**Phone apps.** Symfonium, Amperfy, play:Sub, Substreamer and Tempus log in to Navidrome directly, not through tagave. Each person sets a password for apps in **Settings › Listening** (tagave shows their Navidrome user name there), then enters this computer's address, port 4533, that user name and that password in the app. Plays from the app come back to tagave as theirs within a minute or two, and are scrobbled like plays in tagave.
+**Phone apps.** Symfonium, Amperfy, play:Sub, Substreamer and Tempus log in to Navidrome directly, not through tagave. Each person sets a password for apps in **Settings › Modules › Player** (tagave shows their Navidrome user name there), then enters this computer's address, port 4533, that user name and that password in the app. Plays from the app come back to tagave as theirs within a minute or two, and are scrobbled like plays in tagave.
 
 **The first scan.** Navidrome scans the whole library once when it first starts, and again every 24 hours. The file watcher is off, because it does not work over NFS; instead tagave asks Navidrome for a scan after it writes tags. On a large library on a NAS the first scan can take hours. Albums play once Navidrome has scanned them; the installer does not wait for it. Until then an album's Play is greyed out with how far the first scan is, and it turns on by itself when the scan reaches the album.
 
@@ -237,28 +239,28 @@ docker compose exec app node packages/doctor/dist/cli.js purge-module player    
 docker compose exec app node packages/doctor/dist/cli.js purge-module player --delete-history   # and the listens it recorded
 ```
 
-`purge-module` deletes the player's rows in one transaction (only the bundled player's while a server of your own is set up, as above) and refuses while the player is on (`TAGAVE_PLAYER_URL` set); running it again deletes nothing. A player server of your own (Settings › Playback) and the Last.fm API key stay: they are settings, not the player's data.
+`purge-module` deletes the player's rows in one transaction (only the bundled player's while a server of your own is set up, as above) and refuses while the player is on (`TAGAVE_PLAYER_URL` set); running it again deletes nothing. A player server of your own (Settings › Modules › Player) and the Last.fm API key stay: they are settings, not the player's data.
 
 **Listens and scrobbling.** When someone has heard at least half of an album's tracks within six hours, in tagave or in a phone app, tagave adds a listen of that release to the album page (only for them). Each play also goes to the person's own Last.fm and ListenBrainz, once: tagave sends every scrobble itself, and Navidrome's own scrobbling is turned off in `compose.yml` so nothing is counted twice. A track counts when it is longer than 30 seconds and half of it (or four minutes) was heard.
 
-- **ListenBrainz** needs nothing from the owner: each person pastes their user token (listenbrainz.org › Settings) in **Settings › Listening**.
+- **ListenBrainz** needs nothing from the owner: each person pastes their user token (listenbrainz.org › Settings) in **Settings › Modules › Player**.
 - **Last.fm** needs an API key for your server, made once by the owner:
   1. Open https://www.last.fm/api/account/create and sign in with any Last.fm account.
   2. Under **Application name**, type a name (for example "tagave at home"). Leave every other field empty.
   3. Press **Submit**. Last.fm shows an **API key** and a **Shared secret**.
-  4. In tagave, open **Settings › Playback › Scrobbling**, paste both, and press **Save**. tagave checks them with Last.fm and stores them sealed with `APP_SECRET`. No restart is needed.
+  4. In tagave, open **Settings › Modules › Player › Scrobbling**, paste both, and press **Save**. tagave checks them with Last.fm and stores them sealed with `APP_SECRET`. No restart is needed.
 
-  Then each person presses **Connect Last.fm** in **Settings › Listening**, allows tagave on last.fm and comes back. (`TAGAVE_LASTFM_API_KEY` and `TAGAVE_LASTFM_SECRET` in `.env` also work; the ones saved in Settings win.)
+  Then each person presses **Connect Last.fm** in **Settings › Modules › Player**, allows tagave on last.fm and comes back. (`TAGAVE_LASTFM_API_KEY` and `TAGAVE_LASTFM_SECRET` in `.env` also work; the ones saved in Settings win.)
 
-To check it for real after setting it up: play one album through to the end in tagave, wait a minute, and look at your profile on last.fm and listenbrainz.org; **Settings › Listening › Recently played** shows each play with "Scrobbled to …" or the reason it was not.
+To check it for real after setting it up: play one album through to the end in tagave, wait a minute, and look at your profile on last.fm and listenbrainz.org; **Settings › Modules › Player › Recently played** shows each play with "Scrobbled to …" or the reason it was not.
 
-**Your own server instead.** If you already run Navidrome (or another Subsonic-compatible server), leave the module off and enter its address, a user name and a password under **Settings › Playback**. tagave stores the password sealed with `APP_SECRET`, like the other provider secrets. Everyone plays through that account unless they add their own login on that server in **Settings › Listening** (then their plays, ratings and phone-app plays are theirs; if that server already scrobbles for them, they say so there and tagave sends nothing). tagave finds the file behind each track by its path. For exact matching, open Navidrome's **Players** page and turn on **Report real path** for the player named `tagave` (it appears after tagave first connects). The bundled player does this for you.
+**Your own server instead.** If you already run Navidrome (or another Subsonic-compatible server), leave the module off and enter its address, a user name and a password under **Settings › Modules › Player**. tagave stores the password sealed with `APP_SECRET`, like the other provider secrets. Everyone plays through that account unless they add their own login on that server in **Settings › Modules › Player** (then their plays, ratings and phone-app plays are theirs; if that server already scrobbles for them, they say so there and tagave sends nothing). tagave finds the file behind each track by its path. For exact matching, open Navidrome's **Players** page and turn on **Report real path** for the player named `tagave` (it appears after tagave first connects). The bundled player does this for you.
 
-**Split installs.** For now the bundled player works only when everything runs on one computer (`--role all`): it has to run next to both the music and the app. On a split install the installer refuses `--with-player` and `enable-player`; run your own Navidrome on the music computer and point Settings › Playback at it.
+**Split installs.** For now the bundled player works only when everything runs on one computer (`--role all`): it has to run next to both the music and the app. On a split install the installer refuses `--with-player` and `enable-player`; run your own Navidrome on the music computer and point Settings › Modules › Player at it.
 
 **Versions.** Each tagave release pins one Navidrome version in `compose.yml`, the newest release that has been out for at least 30 days. `install-tagave.sh update` and the in-app updater pull it with the rest. Navidrome changes its database only forward, so when a release pins a new Navidrome, the update stops the player and copies its data to `/data/snapshots/pre-update` inside the volume first, and the roll back puts that copy back (see [Operations: Roll back](operations.md#roll-back)). If the player does not come back after an update, the update warns and leaves tagave on the new release. `TAGAVE_PLAYER_IMAGE` in `.env` overrides the image; that is not supported.
 
-The one-click platform templates do not include the player yet. On those platforms, run Navidrome yourself and use Settings › Playback.
+The one-click platform templates do not include the player yet. On those platforms, run Navidrome yourself and use Settings › Modules › Player.
 
 ### On your phone
 
@@ -273,7 +275,7 @@ Music keeps playing with the screen locked or another app open. The lock screen,
 
 ### Get missing albums (Lidarr)
 
-If you run [Lidarr](https://lidarr.audio), tagave can ask it for the albums a followed artist is missing. In **Settings › Connections › Lidarr** (owner only), enter Lidarr's address and API key (Lidarr's **Settings › General**), press **Test**, pick the root folder and the two profiles, **Save**, and switch it **On**. The key is sealed with `APP_SECRET` and never shown again.
+If you run [Lidarr](https://lidarr.audio), tagave can ask it for the albums a followed artist is missing. In **Settings › Modules › Lidarr** (owner only), enter Lidarr's address and API key (Lidarr's **Settings › General**), press **Test**, pick the root folder and the two profiles, **Save**, and switch it **On**. The key is sealed with `APP_SECRET` and never shown again.
 
 On an artist page, a missing album's **⋮ › Get** asks Lidarr for that album only; the heading's **⋮ › Get all missing** asks for each one. The card shows **Wanted**, **Downloading**, **Importing** or **Not found** (nothing found after three days: **Retry**), and the album joins your library once tagave's scan finds it. **Library care › Getting** lists what is on its way. **Cancel** unmonitors the album in Lidarr; it never deletes files there.
 
@@ -281,7 +283,7 @@ Lidarr's root folder must be inside one of tagave's music folders, at the same p
 
 ### Play missing albums on your service
 
-With Listen elsewhere on (Settings › Modules), each person picks their streaming platforms in **Settings › Listen elsewhere**, and under **Missing albums** the one to play missing music on. A missing album then shows **▶ Qobuz** (or the platform chosen), which opens the album there; when its own page is not known, the artist's page or a search. A **Missing** row in a playlist gets the same key. The other platforms stay under **Listen**.
+With Listen elsewhere on (Settings › Modules), each person picks their streaming platforms in **Settings › Modules › Listen elsewhere**, and under **Missing albums** the one to play missing music on. A missing album then shows **▶ Qobuz** (or the platform chosen), which opens the album there; when its own page is not known, the artist's page or a search. A **Missing** row in a playlist gets the same key. The other platforms stay under **Listen**.
 
 ## Manual install (build from source)
 

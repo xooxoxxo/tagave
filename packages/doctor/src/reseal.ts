@@ -17,7 +17,7 @@ import { openSecret, sealSecret, isSealed } from '@tagave/core';
 import { resealOidcSecret, resealTwoFactorSecrets } from '@tagave/auth';
 import { tagaveEnv } from '@tagave/shared/env';
 
-/** Provider secrets kept sealed in libraries.settings (playerPassword: Settings › Playback, bring your own server). */
+/** Provider secrets kept sealed in libraries.settings (playerPassword: Settings › Modules › Player, bring your own server). */
 export const SEALED_LIBRARY_KEYS = ['discogsToken', 'acoustidKey', 'playerPassword'] as const;
 
 /** Music Connections' sealed columns: [table, key column, sealed column]. */

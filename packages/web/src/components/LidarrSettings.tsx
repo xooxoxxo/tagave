@@ -1,20 +1,19 @@
 /**
- * Settings › Connections › Lidarr (owner; the lidarr module): the module's
- * Off/On, the address and API key, Test, then the root folder and the two
- * profiles from what Test found, Save and Disconnect. The key is sent,
- * never shown: the field says only whether one is saved. Switching,
- * saving and disconnecting ask for a fresh confirmation (useStepUpAction).
+ * Settings › Modules › Lidarr (owner; the lidarr module), under the page's
+ * heading and Off | On (SettingsModulesPage): the address and API key,
+ * Test, then the root folder and the two profiles from what Test found,
+ * Save and Disconnect. The key is sent, never shown: the field says only
+ * whether one is saved. Saving and disconnecting ask for a fresh
+ * confirmation (useStepUpAction).
  * A root folder outside every music folder, or an import that landed
  * outside them, shows the warning with the music folders.
  */
 import { useState, type FormEvent } from 'react';
 import type { LidarrSettingsView, LidarrTestResult } from '@tagave/shared';
-import { Banner, Button, SegmentedControl, Select, TextField, confirmDialog } from './ui';
-import { useDisconnectLidarr, useLidarrSettings, useSaveLidarr, useSetLidarrModule, useTestLidarr } from '../hooks/useLidarr';
+import { Banner, Button, Select, TextField, confirmDialog } from './ui';
+import { useDisconnectLidarr, useLidarrSettings, useSaveLidarr, useTestLidarr } from '../hooks/useLidarr';
 import { useStepUpAction } from './users/useStepUpAction';
 import styles from './LidarrSettings.module.css';
-
-const ON_OFF = [{ value: 'off' as const, label: 'Off' }, { value: 'on' as const, label: 'On' }];
 
 export interface LidarrDraft {
   url: string;
@@ -36,17 +35,14 @@ export interface LidarrSettingsFormProps {
   error: string | null;
   testing?: boolean;
   saving?: boolean;
-  switching?: boolean;
   onChange: (d: LidarrDraft) => void;
   onTest: () => void;
   onSave: () => void;
   onDisconnect: () => void;
-  onSwitch: (on: boolean) => void;
-  headingClassName?: string | undefined;
 }
 
 /** The form without data fetching (Storybook renders it with fixtures). */
-export function LidarrSettingsForm({ view, draft, tested, error, testing = false, saving = false, switching = false, onChange, onTest, onSave, onDisconnect, onSwitch, headingClassName }: LidarrSettingsFormProps) {
+export function LidarrSettingsForm({ view, draft, tested, error, testing = false, saving = false, onChange, onTest, onSave, onDisconnect }: LidarrSettingsFormProps) {
   const set = <K extends keyof LidarrDraft>(k: K, v: LidarrDraft[K]) => onChange({ ...draft, [k]: v });
   const c = view.connection;
   // the selects: what Test found, else what is saved
@@ -61,14 +57,7 @@ export function LidarrSettingsForm({ view, draft, tested, error, testing = false
     if (ready) onSave();
   };
   return (
-    <section className={styles.section} aria-labelledby="connections-lidarr">
-      <div className={[styles.titleRow, headingClassName].filter(Boolean).join(' ')}>
-        <h2 id="connections-lidarr">Lidarr</h2>
-      </div>
-      <div className={styles.field}>
-        <span className={styles.label} aria-hidden="true">Get missing albums</span>
-        <SegmentedControl label="Get missing albums" value={view.enabled ? 'on' : 'off'} onChange={(v) => { if (!switching) onSwitch(v === 'on'); }} options={ON_OFF} />
-      </div>
+    <section className={styles.section} aria-label="Lidarr connection">
       {c?.keyUnreadable && <Banner tone="warning">Enter the API key again.</Banner>}
       {view.rootFolderOutside && view.scanRoots.length > 0 && (
         <Banner tone="warning">
@@ -128,12 +117,11 @@ const errorText = (err: unknown, fallback: string) => {
   return e?.detail ?? e?.title ?? fallback;
 };
 
-export function LidarrSettings({ headingClassName }: { headingClassName?: string | undefined } = {}) {
+export function LidarrSettings() {
   const settings = useLidarrSettings();
   const test = useTestLidarr();
   const save = useSaveLidarr();
   const disconnect = useDisconnectLidarr();
-  const switchModule = useSetLidarrModule();
   const { run, dialog } = useStepUpAction();
   const [draft, setDraft] = useState<LidarrDraft | null>(null);
   const [tested, setTested] = useState<LidarrTestResult | null>(null);
@@ -194,15 +182,6 @@ export function LidarrSettings({ headingClassName }: { headingClassName?: string
     }
   };
 
-  const onSwitch = async (on: boolean) => {
-    setError(null);
-    try {
-      await run(on ? 'Turn on Lidarr' : 'Turn off Lidarr', () => switchModule.mutateAsync(on));
-    } catch (err) {
-      setError(errorText(err, 'Not changed'));
-    }
-  };
-
   return (
     <>
       <LidarrSettingsForm
@@ -212,13 +191,10 @@ export function LidarrSettings({ headingClassName }: { headingClassName?: string
         error={error}
         testing={test.isPending}
         saving={save.isPending || disconnect.isPending}
-        switching={switchModule.isPending}
         onChange={(d) => setDraft(d)}
         onTest={() => void onTest()}
         onSave={() => void onSave()}
         onDisconnect={() => void onDisconnect()}
-        onSwitch={(on) => void onSwitch(on)}
-        headingClassName={headingClassName}
       />
       {dialog}
     </>

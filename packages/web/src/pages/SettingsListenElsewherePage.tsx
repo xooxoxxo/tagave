@@ -1,5 +1,5 @@
 /**
- * Settings › Listen elsewhere (your account; the listen-links module): the
+ * Settings › Modules › Listen elsewhere (each person's own): the
  * streaming platforms the Listen control offers you, in this order, and
  * which one "Play on …" opens on missing albums and Missing playlist rows
  * (one of yours, or none). None until you tick one. ListenElsewhereView is
@@ -8,7 +8,7 @@
  */
 import { useState } from 'react';
 import { LISTEN_PLATFORMS, LISTEN_PLATFORM_NAMES, type ListenPlatform } from '@tagave/shared';
-import { Banner, Select } from '../components/ui';
+import { Select } from '../components/ui';
 import { useListenPrefs, useSetListenPrefs } from '../hooks/useListenLinks';
 import styles from './SettingsListenElsewherePage.module.css';
 
@@ -20,14 +20,16 @@ export interface ListenElsewhereViewProps {
   error?: string | null;
   onChange: (platforms: ListenPlatform[]) => void;
   onPrimary?: (primary: ListenPlatform | null) => void;
+  /** the module's page carries the heading */
+  heading?: boolean;
 }
 
-export function ListenElsewhereView({ platforms, primary = null, saving = false, error = null, onChange, onPrimary }: ListenElsewhereViewProps) {
+export function ListenElsewhereView({ platforms, primary = null, saving = false, error = null, onChange, onPrimary, heading = true }: ListenElsewhereViewProps) {
   const toggle = (p: ListenPlatform, on: boolean) =>
     onChange(LISTEN_PLATFORMS.filter((x) => (x === p ? on : platforms.includes(x))));
   return (
     <>
-      <h2>Listen elsewhere</h2>
+      {heading && <h2>Listen elsewhere</h2>}
       <fieldset className={styles.list} aria-busy={saving || undefined}>
         <legend className={styles.legend}>Platforms</legend>
         {LISTEN_PLATFORMS.map((p) => (
@@ -51,22 +53,12 @@ export function ListenElsewhereView({ platforms, primary = null, saving = false,
   );
 }
 
-/** Listen elsewhere is off (Settings › Modules): the section says so. */
-export function ListenElsewhereOff({ owner }: { owner: boolean }) {
-  return (
-    <>
-      <h2>Listen elsewhere</h2>
-      <Banner tone="info">Listen elsewhere is turned off.{owner ? ' Turn it on in Settings › Modules.' : ''}</Banner>
-    </>
-  );
-}
-
-export function SettingsListenElsewhereContent() {
+export function SettingsListenElsewhereContent({ heading = true }: { heading?: boolean } = {}) {
   const prefs = useListenPrefs();
   const save = useSetListenPrefs();
   // the ticks show at once; the server's answer replaces them
   const [draft, setDraft] = useState<{ platforms: ListenPlatform[]; primary: ListenPlatform | null } | null>(null);
-  if (!prefs.data) return <h2>Listen elsewhere</h2>;
+  if (!prefs.data) return heading ? <h2>Listen elsewhere</h2> : null;
   const current = draft ?? { platforms: prefs.data.platforms, primary: prefs.data.primary };
   const send = (next: { platforms: ListenPlatform[]; primary: ListenPlatform | null }) => {
     setDraft(next);
@@ -81,6 +73,7 @@ export function SettingsListenElsewhereContent() {
       // a platform taken off the list is no longer the primary one
       onChange={(platforms) => send({ platforms, primary: current.primary && platforms.includes(current.primary) ? current.primary : null })}
       onPrimary={(primary) => send({ platforms: current.platforms, primary })}
+      heading={heading}
     />
   );
 }

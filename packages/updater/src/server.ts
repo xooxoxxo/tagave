@@ -97,6 +97,11 @@ export class UpdaterService {
     });
   }
 
+  /** An update or a module run is moving containers (the music self-heal waits). */
+  moving(): boolean {
+    return this.active !== null || this.moduleActive !== null;
+  }
+
   /** Loads the last runs; a run still marked running was cut off (the updater or the host restarted). */
   async load(): Promise<void> {
     await this.loadModuleRun();

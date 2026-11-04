@@ -10,7 +10,7 @@
  */
 import { z } from 'zod';
 
-/** In the order Settings › Listen elsewhere lists them. Deezer is listed last and stays unticked like the rest. */
+/** In the order Settings › Modules › Listen elsewhere lists them. Deezer is listed last and stays unticked like the rest. */
 export const LISTEN_PLATFORMS = ['qobuz', 'spotify', 'apple', 'youtube-music', 'tidal', 'bandcamp', 'amazon', 'deezer'] as const;
 export const listenPlatformSchema = z.enum(LISTEN_PLATFORMS);
 export type ListenPlatform = z.infer<typeof listenPlatformSchema>;

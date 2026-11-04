@@ -51,7 +51,7 @@ export interface LidarrTestResult {
   metadataProfiles: LidarrChoice[];
 }
 
-/** Settings › Connections › Lidarr (owner). */
+/** Settings › Modules › Lidarr (owner). */
 export interface LidarrSettingsView {
   enabled: boolean;
   connection: {

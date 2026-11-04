@@ -1,5 +1,5 @@
 /**
- * Settings › Listening (your account): what the player knows as you. Your
+ * Settings › Modules › Player › Listening (each person's own): what the player knows as you. Your
  * own account on the player server (and a password for phone apps), your
  * Last.fm and ListenBrainz, and your recent plays with what was scrobbled.
  * ListeningSettingsView is the page alone, driven by props (stories,
@@ -321,7 +321,7 @@ function HistorySection({ history }: { history: ListeningHistoryView | null }) {
 
 // ---- connected ----
 
-export function SettingsListeningContent() {
+export function SettingsListeningContent({ heading = true }: { heading?: boolean } = {}) {
   const listening = useListening();
   const history = useListeningHistory();
   const lastfm = useConnectLastfm();
@@ -337,7 +337,7 @@ export function SettingsListeningContent() {
       return { lastfmReturn: q.get('lastfm'), lastfmQueued: Number(q.get('queued')) || null };
     } catch { return { lastfmReturn: null, lastfmQueued: null }; }
   });
-  // the ?lastfm= note is read once; the address goes back to plain Settings › Listening
+  // the ?lastfm= note is read once; the address goes back to plain Settings › Modules › Player
   useEffect(() => {
     if (lastfmReturn) {
       try { globalThis.history?.replaceState(globalThis.history.state, '', globalThis.location.pathname); } catch { /* keep it */ }
@@ -345,7 +345,7 @@ export function SettingsListeningContent() {
   }, [lastfmReturn]);
   return (
     <>
-      <h2>Listening</h2>
+      {heading && <h2>Listening</h2>}
       {listening.isLoading && <p className={styles.muted}>Loading…</p>}
       {listening.isError && <Banner tone="danger">Couldn’t load listening settings. {problem(listening.error, '')}</Banner>}
       {listening.data && (

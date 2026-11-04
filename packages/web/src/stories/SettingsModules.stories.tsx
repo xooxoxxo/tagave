@@ -1,46 +1,56 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { SettingsModulesView, TurnOffChoices, type TurnOffChoice } from '../pages/SettingsModulesPage';
+import { CatalogueModuleView, ModuleSwitchView, ModulesListView, TurnOffChoices, type CatalogueModuleViewProps, type TurnOffChoice } from '../pages/SettingsModulesPage';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from './modulesFixtures';
 
 const meta = {
   title: 'Settings/Modules',
-  component: SettingsModulesView,
+  component: ModulesListView,
   // No screenshot baseline yet: render one on the CI runner (DESIGN.md) and drop `no-shot`.
   tags: ['no-shot'],
-  args: { view: BASE_VIEW, onTurnOn: () => undefined, onTurnOff: () => undefined, onDismiss: () => undefined },
+  args: {
+    rows: [
+      { slug: 'player', name: 'Player', state: 'On', on: true },
+      { slug: 'lidarr', name: 'Lidarr', state: 'On', on: true },
+      { slug: 'listen-elsewhere', name: 'Listen elsewhere', state: 'On', on: true },
+      { slug: 'music-connections', name: 'Music Connections', state: 'Off', on: false },
+      { slug: 'playlists', name: 'Playlists', state: 'On', on: true },
+    ],
+  },
   parameters: {
     docs: {
       description: {
-        component: 'Settings › Modules: optional parts from the signed catalogue of the running release. With the updater, Turn on / Turn off (after a step-up) and the run step by step; without it, the install-tagave.sh command for each module.',
+        component: 'Settings › Modules: one row per module with its state; each opens Settings › Modules › <module>, which starts with the module’s Off | On and holds everything it needs.',
       },
     },
   },
-} satisfies Meta<typeof SettingsModulesView>;
+  decorators: [(Story) => <div style={{ maxWidth: 850, padding: 24 }}><Story /></div>],
+} satisfies Meta<typeof ModulesListView>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const List: Story = {};
-const turning = { view: { ...BASE_VIEW, run: playerRun('running'), modules: [{ ...PLAYER, state: 'installing' as const }, DUMMY] } };
-export const TurningOn: Story = { args: turning };
-export const On: Story = {
-  args: { view: { ...BASE_VIEW, run: playerRun('succeeded'), modules: [{ ...PLAYER, state: 'on' }, DUMMY] } },
-};
+/** A listener: only the modules with something of theirs. */
+export const Member: Story = { args: { rows: [{ slug: 'player', name: 'Player', state: 'On', on: true }, { slug: 'listen-elsewhere', name: 'Listen elsewhere', state: 'On', on: true }] } };
+export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
+
+const noop = () => undefined;
+const page = (p: Partial<CatalogueModuleViewProps>) => <><h2>Player</h2><CatalogueModuleView view={BASE_VIEW} id="player" name="Player" onSwitch={noop} onDismiss={noop} {...p} /></>;
+
+/** Settings › Modules › Player, its Off | On from the updater. */
+export const PlayerOff: Story = { render: () => page({}) };
+export const PlayerTurningOn: Story = { render: () => page({ view: { ...BASE_VIEW, run: playerRun('running'), modules: [{ ...PLAYER, state: 'installing' }, DUMMY] } }) };
+export const PlayerOn: Story = { render: () => page({ view: { ...BASE_VIEW, run: playerRun('succeeded'), modules: [{ ...PLAYER, state: 'on' }, DUMMY] } }) };
 const FAILED = 'Player did not report healthy within 120 s: player reports unhealthy';
-export const Failed: Story = {
-  args: { view: { ...BASE_VIEW, run: playerRun('rolled_back', FAILED), modules: [{ ...PLAYER, state: 'failed', lastError: FAILED }, DUMMY] } },
-};
-export const WithoutUpdater: Story = {
-  args: { view: { ...BASE_VIEW, mode: 'command', modules: [PLAYER, { ...DUMMY, state: 'off' }] } },
-};
-/** Run from source: no updater, no release keys, so nothing to run; the player as it is. */
-export const NotAvailableHere: Story = {
-  args: { view: { ...BASE_VIEW, mode: 'command', verified: false, problem: null, modules: [{ ...PLAYER, available: false, reason: 'Not available on this install.' }] } },
-};
-export const NotSigned: Story = {
-  args: { view: { ...BASE_VIEW, verified: false, problem: 'the release manifest does not match its signature: it was changed after tagave signed it (key 3f0c9a1e5b7d2c44)', modules: [] } },
-};
-export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: turning };
+export const PlayerFailed: Story = { render: () => page({ view: { ...BASE_VIEW, run: playerRun('rolled_back', FAILED), modules: [{ ...PLAYER, state: 'failed', lastError: FAILED }, DUMMY] } }) };
+export const PlayerWithoutUpdater: Story = { render: () => page({ view: { ...BASE_VIEW, mode: 'command', modules: [PLAYER, DUMMY] } }) };
+/** Run from source: no updater, no release keys, so nothing to run. */
+export const PlayerNotAvailableHere: Story = { render: () => page({ view: { ...BASE_VIEW, mode: 'command', verified: false, problem: null, modules: [{ ...PLAYER, available: false, reason: 'Not available on this install.' }] } }) };
+export const NotSigned: Story = { render: () => page({ view: { ...BASE_VIEW, verified: false, problem: 'the release manifest does not match its signature: it was changed after tagave signed it (key 3f0c9a1e5b7d2c44)', modules: [] } }) };
+export const PlayerPhone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => page({ view: { ...BASE_VIEW, run: playerRun('running'), modules: [{ ...PLAYER, state: 'installing' }, DUMMY] } }) };
+
+/** A module that is a setting (Lidarr): the same Off | On, with its label and what it holds. */
+export const SettingSwitch: Story = { render: () => <><h2>Lidarr</h2><ModuleSwitchView name="Lidarr" label="Get missing albums" on meta="2 getting" onSwitch={noop} /></> };
 
 /** The Turn off dialog of the player: the boxes as given (they still tick in the story). */
 function TurnOffDialog({ initial }: { initial?: TurnOffChoice }) {

@@ -1,6 +1,6 @@
 /**
  * connections.pull (Music Connections spec §4 Consumer side, §5): tagave
- * pulls the feeds of every app a person linked in Settings › Connections.
+ * pulls the feeds of every app a person linked in Settings › Modules › Music Connections.
  *
  *   { }          the 15-minute tick: re-reads stale manifests (daily; 8 at a
  *                time, none started after 5 minutes), then queues one job

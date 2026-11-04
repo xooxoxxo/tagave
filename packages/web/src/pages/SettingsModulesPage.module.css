@@ -28,3 +28,21 @@
 .choice { display: flex; flex-direction: column; gap: var(--space-xs); margin: var(--space-xs) 0 0 1.5rem; }
 .consequence { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); line-height: var(--line-height-relaxed); }
 .choice .check { margin-top: 0; }
+
+/* The list: one row per module, a hairline between, the whole row a link. */
+.rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.rows > li { border-bottom: 1px solid var(--line); }
+.row { display: flex; align-items: center; gap: var(--space-md); min-height: 3.25rem; padding: var(--space-sm) var(--space-xs) var(--space-sm) 0; color: var(--ink); text-decoration: none; min-width: 0; }
+.rowName { flex: 1 1 auto; min-width: 0; font-size: var(--font-size-base); font-weight: 600; overflow-wrap: anywhere; transition: color var(--dur) ease; }
+.row:hover .rowName { color: var(--chip-on-ink); }
+.rowState { flex: none; color: var(--ink-3); font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; }
+.rowState[data-on] { color: var(--ink-2); }
+.chevron { flex: none; display: inline-flex; color: var(--ink-3); }
+.chevron svg { width: 18px; height: 18px; }
+
+/* A module's page: Off | On first, its values under it. */
+.switch { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-xs); min-width: 0; }
+.switchLabel { font-size: var(--font-size-sm); font-weight: 500; color: var(--ink); }
+.offValue { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); }
+/* a second part of the page (the player's Listening): the rhythm of Appearance › Maintenance */
+.part { margin-top: var(--space-xl); }

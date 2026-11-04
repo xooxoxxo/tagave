@@ -1,5 +1,5 @@
 /**
- * Settings › Connections (Music Connections, tagave as a client): the links
+ * Settings › Modules › Music Connections (Music Connections, tagave as a client): the links
  * a person made from this tagave to other music apps, and what the page
  * sends. api › routes/mcConnections.ts answers with these.
  */
@@ -61,5 +61,5 @@ export interface McStartView {
   authorizeUrl: string;
 }
 
-/** What `?error=` on Settings › Connections can say after the remote sent the browser back. */
+/** What `?error=` on Settings › Modules › Music Connections can say after the remote sent the browser back. */
 export type McLinkErrorCode = 'access_denied' | 'invalid_state' | 'remote_error' | 'invalid_response';
