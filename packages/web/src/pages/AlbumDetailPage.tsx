@@ -44,7 +44,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, CloseIcon, Collapse, CoverArt, KebabIcon, LinkButton, Menu, PageShell, Tabs, TrashIcon, embossClassName, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, CloseIcon, Collapse, CoverArt, KebabIcon, LinkButton, Menu, PageShell, Tabs, embossClassName, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import { AlbumFacts, showsDiscogsData } from './AlbumFacts';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
@@ -1085,7 +1085,6 @@ export function AlbumDetailPage() {
                 summary={{ title: t.title ?? 'Untitled', subtitle: [t.artist || artistLine, title].filter(Boolean).join(' · '), coverUrl: album.coverUrl }}
                 source={{ trackIds: [t.id] }}
                 artist={album.artists?.[0] ? { id: album.artists[0].id, name: album.artists[0].name } : null}
-                extra={del ? [{ key: 'delete', label: del.label, icon: <TrashIcon />, tone: 'danger', onSelect: () => del.tracks([t.id], t.title ?? 'Untitled') }] : undefined}
               />
             ) : null}
           />

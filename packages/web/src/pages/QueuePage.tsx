@@ -19,6 +19,7 @@ import { Button, IconButton, Input } from '../components/ui';
 import { MatchMeter, SourceIcon, StatusTag } from './review/reviewParts';
 import { ShortcutsSheet } from './review/ReviewDialog';
 import { AutoAcceptDialog } from './review/AutoAcceptDialog';
+import { TrackActions } from '../components/player/TrackActions';
 import styles from './review/review.module.css';
 
 interface QueueTrack {
@@ -355,6 +356,14 @@ export function ReviewPanel() {
               <span className={styles.trackNo}>{t.trackNo ?? '–'}</span>
               <span className={styles.trackTitle}>{t.title ?? '(untitled)'}</span>
               <span className={styles.trackDur}>{fmtDur(t.durationMs)}</span>
+              <span className={styles.trackMenu}>
+                <TrackActions
+                  label={`More for ${t.title ?? 'this track'}`}
+                  summary={{ title: t.title ?? 'Untitled', subtitle: [item.artist, item.title].filter(Boolean).join(' · '), coverUrl: null }}
+                  source={{ trackIds: [t.id] }}
+                  albumId={item.id}
+                />
+              </span>
             </li>
           ))}
         </ol>
