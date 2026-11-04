@@ -19,6 +19,7 @@ import { createBetterAuthRoutes } from './routes/betterAuth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createSystemRoutes } from './routes/system.js';
+import { createMusicFolderInternalRoutes, createMusicFolderRoutes } from './routes/musicFolder.js';
 import { createAlbumRoutes } from './routes/albums.js';
 import { createFieldLocksRoutes } from './routes/fieldLocks.js';
 import { createJobRoutes } from './routes/jobs.js';
@@ -80,6 +81,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
   // Signed by the updater instead of a session (opt-in updater)
   app.register(createUpdaterInternalRoutes, { prefix: '/api/v1' });
+  app.register(createMusicFolderInternalRoutes, { prefix: '/api/v1' });
 
   // Better Auth: /api/auth/* (sign-in, sign-out, session, 2FA, passkeys)
   app.register(createBetterAuthRoutes);
@@ -117,6 +119,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // System checks with a fix per failure (status page, first-run wizard)
     instance.register(createSystemRoutes, { prefix: '/api/v1' });
+    instance.register(createMusicFolderRoutes, { prefix: '/api/v1' });
 
     // Build identity + release feed (PLT-5 / XO-313)
     instance.register(createUpdateRoutes, { prefix: '/api/v1' });

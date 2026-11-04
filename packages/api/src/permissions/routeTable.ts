@@ -18,6 +18,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/auth/setup-required': 'public',
   'GET /api/v1/health': 'public',
   'GET /api/v1/internal/updater/versions': 'public',
+  'GET /api/v1/internal/updater/music': 'public',
+  'POST /api/v1/internal/updater/music-heal': 'public',
   'GET /api/v1/invites/:token': 'public',
   'GET /api/v1/openapi.json': 'public',
   'POST /api/v1/invites/:token/accept': 'public',
@@ -267,6 +269,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/storage/tag-changes': 'system.manage',
   'POST /api/v1/storage/tag-changes/cleanup': 'system.manage',
   'GET /api/v1/system/checks': 'system.manage',
+  'GET /api/v1/system/music-folder': 'system.manage',
   'GET /api/v1/updater': 'system.manage',
   'POST /api/v1/updater/update': 'system.manage',
   // users.manage: Owner: Settings › Users.

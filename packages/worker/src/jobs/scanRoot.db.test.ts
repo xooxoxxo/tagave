@@ -91,6 +91,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('sca
     expect(scan.status).toBe('aborted');
     expect(scan.stats.error).toMatch(/nothing marked missing; could not read Only; nothing under them was marked missing; the root looks unmounted, so moved files are not matched in this scan$/);
     expect((await lastRun(loneId)).error).toBe(scan.stats.error);
+    // the flag the owner's notice and the updater's self-heal read (db › musicFolder.ts)
+    expect(scan.stats.unmounted).toBe(true);
     await chmod(path.join(lonePath, 'Only'), 0o755);
   });
 });

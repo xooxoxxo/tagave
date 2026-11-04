@@ -65,10 +65,11 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   const scanId = scanRow.id;
   const startedMs = Date.now();
 
-  const fail = async (status: string, message: string) => {
+  // unmounted: the LIB-5 guard stopped it (db › musicFolder.ts reads it for the notice and the updater's self-heal)
+  const fail = async (status: string, message: string, unmounted = false) => {
     await ctx.db
       .update(scans)
-      .set({ status, finishedAt: new Date(), stats: { mode, error: message } })
+      .set({ status, finishedAt: new Date(), stats: { mode, error: message, ...(unmounted ? { unmounted: true } : {}) } })
       .where(eq(scans.id, scanId));
     await ctx.db
       .update(scanRoots)
@@ -112,7 +113,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
 
   // LIB-5: previously non-empty root that now yields nothing = unmounted share.
   if (walk.looksUnmounted) {
-    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing' + finishNotes(walk));
+    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing' + finishNotes(walk), true);
     return;
   }
 
