@@ -195,6 +195,10 @@ export {
 } from './audio/splitImage.js';
 export type { RefinedCut, RefineInput, PlanInput, PlanTrackInput, WrittenTrack } from './audio/splitImage.js';
 
+// Move to album: the names a moved file and a new album folder take (0080)
+export { DEFAULT_NAMING, namingOf, folderNaming, describeNaming, movedFileName, newAlbumDir } from './audio/moveNaming.js';
+export type { NamingPattern, NameInput } from './audio/moveNaming.js';
+
 // Physical collection: format lines and one-click album suggestions
 export { physicalFormatLabel, discogsArtistName, matchTitle, scoreSuggestion, rankPhysicalSuggestions } from './collection/index.js';
 export type { PhysicalRecordInfo, LibraryAlbumCandidate, RankedSuggestion } from './collection/index.js';

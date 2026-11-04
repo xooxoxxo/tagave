@@ -12,7 +12,7 @@ export const WORKER_QUEUES = [
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
-  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'files.trash', 'files.split', 'lidarr.poll', 'lidarr.get',
+  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'files.trash', 'files.split', 'files.move', 'lidarr.poll', 'lidarr.get',
 ] as const;
 
 /**
@@ -50,6 +50,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'files.trash': 'tags.apply',
   // Whole album in one file: one FLAC per track, the source into the trash; with the tag writer too
   'files.split': 'tags.apply',
+  // Move to album: tags written and files moved into another album's folder; with the tag writer too
+  'files.move': 'tags.apply',
 };
 
 /** The names TAGAVE_QUEUES chooses from: each needs some live worker. */
