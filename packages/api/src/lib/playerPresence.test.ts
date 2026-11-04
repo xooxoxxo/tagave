@@ -4,9 +4,16 @@
  * reach only the person they belong to, and a second process hears what
  * the first one publishes.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { PlayerDeviceState } from '@tagave/shared';
-import { HIDDEN_ONLINE_MS, ONLINE_MS, PlayerPresence, type PresenceMessage } from './playerPresence.js';
+import { DEVICES_THROTTLE_MS, HIDDEN_ONLINE_MS, MAX_DEVICES, MAX_SUBSCRIBERS, ONLINE_MS, PlayerPresence as Presence, type PresenceBus, type PresenceMessage } from './playerPresence.js';
+
+/** No throttle unless a test asks for it: each change is heard at once. */
+class PlayerPresence extends Presence {
+  constructor(bus: PresenceBus | null = null, now: () => number = Date.now, opts: { throttleMs?: number } = { throttleMs: 0 }) {
+    super(bus, now, opts);
+  }
+}
 
 const state = (deviceId: string, patch: Partial<PlayerDeviceState> = {}): PlayerDeviceState => ({
   deviceId, name: `Chrome on ${deviceId}`, track: null, index: -1, positionMs: 0, playing: false, blocked: false, volume: 1, hidden: false, casting: null, ...patch,
@@ -115,5 +122,63 @@ describe('player presence', () => {
     const p = new PlayerPresence({ publish: async () => { throw new Error('no LISTEN'); } });
     await p.publish({ t: 'state', userId: 'anna', state: state('mac-tab-1'), at: 0 });
     expect(p.hasDevice('anna', 'mac-tab-1')).toBe(true);
+  });
+
+  it('keeps at most MAX_DEVICES per person: a new one replaces the longest-gone offline one, and is refused when all are online', async () => {
+    let now = 0;
+    const p = new PlayerPresence(null, () => now);
+    for (let i = 0; i < MAX_DEVICES; i++) {
+      now = i;
+      await p.publish({ t: 'state', userId: 'anna', state: state(`device-${String(i).padStart(4, '0')}`), at: now });
+    }
+    expect(p.deviceCount('anna')).toBe(MAX_DEVICES);
+    // all online: no room
+    expect(p.admits('anna', 'device-new-1')).toBe(false);
+    expect(p.admits('anna', 'device-0005')).toBe(true);
+    await p.publish({ t: 'state', userId: 'anna', state: state('device-new-1'), at: now });
+    expect(p.deviceCount('anna')).toBe(MAX_DEVICES);
+    expect(p.hasDevice('anna', 'device-new-1')).toBe(false);
+    // three go offline (0001 longest ago, but it plays: kept even offline; 0003 next)
+    p.setActive('anna', { deviceId: 'device-0001', revision: 1 });
+    await p.publish({ t: 'leave', userId: 'anna', deviceId: 'device-0001', at: now });
+    await p.publish({ t: 'leave', userId: 'anna', deviceId: 'device-0003', at: now });
+    await p.publish({ t: 'leave', userId: 'anna', deviceId: 'device-0007', at: now });
+    expect(p.admits('anna', 'device-new-1')).toBe(true);
+    await p.publish({ t: 'state', userId: 'anna', state: state('device-new-1'), at: now });
+    const ids = p.snapshot('anna').devices.map((d) => d.deviceId);
+    expect(ids).toContain('device-new-1');
+    expect(ids).toContain('device-0001');
+    expect(ids).not.toContain('device-0003');
+    expect(ids).toContain('device-0007');
+    expect(p.deviceCount('anna')).toBe(MAX_DEVICES);
+    // another person is not limited by Anna's devices
+    expect(p.admits('ben', 'device-new-1')).toBe(true);
+  });
+
+  it('keeps at most MAX_SUBSCRIBERS streams per person, closing the oldest', () => {
+    const p = new PlayerPresence();
+    const closed: number[] = [];
+    for (let i = 0; i <= MAX_SUBSCRIBERS; i++) p.subscribe('anna', { send: () => undefined, close: () => closed.push(i) });
+    expect(closed).toEqual([0]);
+    expect(p.subscriberCount('anna')).toBe(MAX_SUBSCRIBERS);
+  });
+
+  it('sends a person’s devices event at most once per DEVICES_THROTTLE_MS, with the latest state', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = new Presence(null, () => Date.now());
+      const heard = listen(p, 'anna');
+      for (let i = 0; i < 10; i++) await p.publish({ t: 'state', userId: 'anna', state: state(`device-${i}0000000`), at: 0 });
+      const devices = () => heard.filter((h) => h.type === 'devices');
+      // the snapshot on subscribe and the first change at once; the rest wait
+      expect(devices()).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(DEVICES_THROTTLE_MS);
+      expect(devices()).toHaveLength(3);
+      expect(devices().at(-1)!.data.devices).toHaveLength(10);
+      await vi.advanceTimersByTimeAsync(DEVICES_THROTTLE_MS * 4);
+      expect(devices()).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -13,6 +13,9 @@ import { z } from 'zod';
 
 export const PLAYER_DEVICE_NAME_MAX = 60;
 
+/** A device id: letters, digits and dashes (a UUID from the browser). */
+export const playerDeviceIdSchema = z.string().regex(/^[A-Za-z0-9-]{8,64}$/, 'deviceId: 8 to 64 letters, digits or dashes');
+
 const trackSummarySchema = z.object({
   localTrackId: z.string().uuid(),
   title: z.string().max(500),
@@ -27,7 +30,7 @@ export type PlayerTrackSummary = z.infer<typeof trackSummarySchema>;
 /** PUT /api/v1/me/player/device */
 export const playerDeviceStateSchema = z.object({
   /** a random id per tab (sessionStorage) */
-  deviceId: z.string().min(8).max(64),
+  deviceId: playerDeviceIdSchema,
   /** "Chrome on Mac", or the name the person gave this browser */
   name: z.string().trim().min(1).max(PLAYER_DEVICE_NAME_MAX),
   /** what this device has loaded and plays (null on a device that only shows another one) */
@@ -58,12 +61,12 @@ export type PlayerCommandAction = (typeof PLAYER_COMMANDS)[number];
  *   transfer  index and value (seconds): load the queue there and play
  */
 export const playerCommandSchema = z.object({
-  deviceId: z.string().min(8).max(64),
+  deviceId: playerDeviceIdSchema,
   action: z.enum(PLAYER_COMMANDS),
   value: z.number().min(0).max(24 * 3600).optional(),
   index: z.number().int().min(0).optional(),
   /** the device that sent it */
-  from: z.string().min(8).max(64).optional(),
+  from: playerDeviceIdSchema.optional(),
 }).strict();
 export type PlayerCommand = z.infer<typeof playerCommandSchema>;
 

@@ -15,22 +15,59 @@
  * command reaches only their own.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { playerCommandSchema, playerDeviceStateSchema } from '@tagave/shared';
+import { playerCommandSchema, playerDeviceIdSchema, playerDeviceStateSchema } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getSql } from '../db.js';
 import { permission, requirePlayer } from '../lib/playerAccess.js';
 import { connectPresenceBus, playerPresence } from '../lib/playerPresence.js';
 
 export const EVENTS_PING_MS = 15_000;
+/** PUT /me/player/device per person: about 4 a second, with a burst of 8 (the heartbeats of a few tabs plus their changes). */
+export const DEVICE_RATE_PER_SEC = 4;
+export const DEVICE_BURST = 8;
 
-export async function createPlayerDeviceRoutes(fastify: FastifyInstance) {
+/** A token bucket per person. */
+export class RateLimiter {
+  private readonly buckets = new Map<string, { tokens: number; at: number }>();
+
+  constructor(private readonly perSec: number, private readonly burst: number, private readonly now: () => number = Date.now) {}
+
+  take(key: string): boolean {
+    const t = this.now();
+    const b = this.buckets.get(key) ?? { tokens: this.burst, at: t };
+    b.tokens = Math.min(this.burst, b.tokens + ((t - b.at) / 1000) * this.perSec);
+    b.at = t;
+    if (!this.buckets.has(key) && this.buckets.size >= 10_000) this.buckets.clear();
+    this.buckets.set(key, b);
+    if (b.tokens < 1) return false;
+    b.tokens -= 1;
+    return true;
+  }
+}
+
+export async function createPlayerDeviceRoutes(fastify: FastifyInstance, opts: { limiter?: RateLimiter } = {}) {
+  const limiter = opts.limiter ?? new RateLimiter(DEVICE_RATE_PER_SEC, DEVICE_BURST);
   const ready = () => connectPresenceBus(getSql() as never, playerPresence(), (err) => fastify.log.warn({ err }, 'LISTEN tagave_player failed; presence stays in this process'));
 
   fastify.get('/me/player/events', permission('player.use'), async (request: FastifyRequest, reply: FastifyReply) => {
     const user = requirePlayer(request);
+    // the stream may close while the bus and the queue's row are read: nothing is left behind then
+    let closed = false;
+    let cleanup = () => {};
+    const ended = new Promise<void>((resolve) => {
+      request.raw.on('close', () => {
+        closed = true;
+        cleanup();
+        resolve();
+      });
+    });
     await ready();
     const presence = playerPresence();
     const [row] = await getSql()<Array<{ device_id: string; revision: number | string }>>`select device_id, revision from player_queue_state where user_id = ${user.id}`;
+    if (closed || request.raw.destroyed) {
+      reply.hijack();
+      return;
+    }
     presence.setActive(user.id, row ? { deviceId: row.device_id, revision: Number(row.revision) } : null);
 
     reply.raw.writeHead(200, {
@@ -45,22 +82,27 @@ export async function createPlayerDeviceRoutes(fastify: FastifyInstance) {
     // a retry hint for the browser's own reconnect, then hello: the devices send their state at once
     write('retry: 2000\n\n');
     write('event: hello\ndata: {}\n\n');
-    const unsubscribe = presence.subscribe(user.id, { send: (type, data) => write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`) });
-    const ping = setInterval(() => write(': ping\n\n'), EVENTS_PING_MS);
-    await new Promise<void>((resolve) => {
-      request.raw.on('close', () => {
-        clearInterval(ping);
-        unsubscribe();
-        resolve();
-      });
+    const unsubscribe = presence.subscribe(user.id, {
+      send: (type, data) => write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`),
+      // one stream too many for this person: the oldest ends
+      close: () => { try { reply.raw.end(); } catch { /* gone */ } },
     });
+    const ping = setInterval(() => write(': ping\n\n'), EVENTS_PING_MS);
+    cleanup = () => {
+      clearInterval(ping);
+      unsubscribe();
+    };
+    if (closed) cleanup();
+    await ended;
   });
 
   fastify.put('/me/player/device', permission('player.use'), async (request: FastifyRequest) => {
     const user = requirePlayer(request);
+    if (!limiter.take(user.id)) throw new ApiError(429, 'Too Many Requests', 'Too many device updates');
     const parsed = playerDeviceStateSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Not a device state');
     await ready();
+    if (!playerPresence().admits(user.id, parsed.data.deviceId)) throw new ApiError(429, 'Too Many Requests', 'Too many devices are online');
     await playerPresence().publish({ t: 'state', userId: user.id, state: parsed.data, at: Date.now() });
     return { ok: true };
   });
@@ -68,7 +110,7 @@ export async function createPlayerDeviceRoutes(fastify: FastifyInstance) {
   fastify.delete('/me/player/device/:deviceId', permission('player.use'), async (request: FastifyRequest) => {
     const user = requirePlayer(request);
     const { deviceId } = request.params as { deviceId: string };
-    if (!deviceId || deviceId.length > 64) throw new ApiError(400, 'Bad Request', 'deviceId');
+    if (!playerDeviceIdSchema.safeParse(deviceId).success) throw new ApiError(400, 'Bad Request', 'deviceId');
     await ready();
     await playerPresence().publish({ t: 'leave', userId: user.id, deviceId, at: Date.now() });
     return { ok: true };
