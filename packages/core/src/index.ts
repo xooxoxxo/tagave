@@ -188,6 +188,13 @@ export {
   hashDffStream,
 } from './audio/streamHash.js';
 
+// Whole album in one file: cut points, file names, the written tracks' check (0078)
+export {
+  expectedBoundariesMs, msToSample, frameSamplesOf, frameRms, sustained, refineCut, confidenceOf, windowAround,
+  safeNamePart, trackFileName, planSplit, verifySplit, FRAME_MS, MIN_DIP_DB, SURE_DIP_DB,
+} from './audio/splitImage.js';
+export type { RefinedCut, RefineInput, PlanInput, PlanTrackInput, WrittenTrack } from './audio/splitImage.js';
+
 // Physical collection: format lines and one-click album suggestions
 export { physicalFormatLabel, discogsArtistName, matchTitle, scoreSuggestion, rankPhysicalSuggestions } from './collection/index.js';
 export type { PhysicalRecordInfo, LibraryAlbumCandidate, RankedSuggestion } from './collection/index.js';

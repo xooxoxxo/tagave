@@ -548,6 +548,7 @@ export * from './userPrefs.js';
 
 // Deleting songs and albums: Mark or Trash, Library care › Deleting
 export * from './deletions.js';
+export * from './albumSplits.js';
 
 // Get missing albums through Lidarr (the lidarr module)
 export * from './lidarr.js';
