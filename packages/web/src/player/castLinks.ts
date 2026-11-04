@@ -94,10 +94,3 @@ export function castSrc(view: CastUrlView, format: StreamFormat, offsetSec = 0, 
   if (format !== 'original' && offset > 0) u.searchParams.set('offset', String(offset));
   return origin && u.origin === origin ? `${u.pathname}${u.search}` : u.href;
 }
-
-/** Tests. */
-export function forgetCastLinks(): void {
-  cache.clear();
-  inflight.clear();
-  failed.clear();
-}
