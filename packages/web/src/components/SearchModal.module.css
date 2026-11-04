@@ -170,6 +170,15 @@ so it follows the app theme. */
   transition: background var(--transition-fast);
 }
 
+.trackRow { position: relative; display: flex; align-items: center; gap: 4px; }
+.trackRow > [role="option"] { flex: 1 1 auto; min-width: 0; }
+.trackMenu { flex: none; display: inline-flex; }
+.trackMenu > button { width: 36px; height: 36px; }
+.trackMenu > button svg { width: 18px; height: 18px; }
+@media (hover: hover) and (pointer: fine) {
+  .trackRow:not(:hover):not(:focus-within) .trackMenu:not(:has([aria-expanded="true"])) { opacity: 0; }
+}
+
 .row:hover {
   background: color-mix(in srgb, var(--mist) 80%, transparent);
 }

@@ -33,7 +33,7 @@ import { createScratchDb, migrateAll, migrateUpTo, migrationsBefore } from '../t
 const url = process.env.TEST_DATABASE_URL;
 const STEP2 = ['0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql'];
 /** Core migrations after step 2: they apply on the same upgrade. */
-const AFTER_STEP2 = ['0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql'];
+const AFTER_STEP2 = ['0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql', '0079_playlist_collaborators.sql'];
 const UPGRADE = [...STEP2, ...AFTER_STEP2];
 
 /** A database as 0.15 left it: the ledger in its old shape, migrated to 0059. */

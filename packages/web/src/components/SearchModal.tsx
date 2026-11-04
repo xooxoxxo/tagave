@@ -2,7 +2,9 @@
  * ⌘K search (BRW-4): one box over albums, artists, tracks; arrow keys to
  * move, Enter to open, Esc to close. On a list page (Albums, Artists) the
  * first row narrows that list to the words typed ("In albums"), so the
- * header's search is the page's search too (utils/pageSearch.ts).
+ * header's search is the page's search too (utils/pageSearch.ts). A track
+ * has every song's ⋮ beside it (TrackActions); going to its album or
+ * artist from there closes the search.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -10,6 +12,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
 import { Button } from './ui';
+import { TrackActions } from './player/TrackActions';
 import styles from './SearchModal.module.css';
 
 export interface SearchResult {
@@ -22,7 +25,7 @@ export type Row =
   | { type: 'scope'; primary: string; secondary: string }
   | { type: 'album'; id: string; primary: string; secondary: string }
   | { type: 'artist'; id: string | null; primary: string; secondary: string }
-  | { type: 'track'; albumId: string; primary: string; secondary: string };
+  | { type: 'track'; id: string; albumId: string; albumTitle: string; primary: string; secondary: string };
 
 export interface SearchScope {
   /** the group's heading: "In albums" */
@@ -52,7 +55,7 @@ export function searchRows(data: SearchResult | undefined, words: string, settle
       secondary: `${a.albumCount} album${a.albumCount === 1 ? '' : 's'}${a.id ? '' : ' · from tags'}`,
     })),
     ...data.tracks.map<Row>((t) => ({
-      type: 'track', albumId: t.albumId,
+      type: 'track', id: t.id, albumId: t.albumId, albumTitle: t.albumTitle,
       primary: t.title,
       secondary: `${t.artist ?? 'Unknown'} — ${t.albumTitle}`,
     })),
@@ -184,20 +187,38 @@ export function SearchModal({ onClose, scope }: { onClose: () => void; scope?: S
             {sections.map((s) => (
               <div key={s.label}>
                 <div className={styles.sectionLabel}>{s.label}</div>
-                {s.rows.map(({ row, index }) => (
-                  <div
-                    key={index}
-                    id={`search-result-${index}`}
-                    role="option"
-                    aria-selected={index === selected}
-                    className={index === selected ? styles.rowSelected : styles.row}
-                    onMouseEnter={() => setSelected(index)}
-                    onClick={() => open(row)}
-                  >
-                    <span className={styles.primary}>{row.primary}</span>
-                    {row.secondary && <span className={styles.secondary}>{row.secondary}</span>}
-                  </div>
-                ))}
+                {s.rows.map(({ row, index }) => {
+                  const option = (
+                    <div
+                      key={index}
+                      id={`search-result-${index}`}
+                      role="option"
+                      aria-selected={index === selected}
+                      className={index === selected ? styles.rowSelected : styles.row}
+                      onMouseEnter={() => setSelected(index)}
+                      onClick={() => open(row)}
+                    >
+                      <span className={styles.primary}>{row.primary}</span>
+                      {row.secondary && <span className={styles.secondary}>{row.secondary}</span>}
+                    </div>
+                  );
+                  if (row.type !== 'track') return option;
+                  return (
+                    <div key={index} className={styles.trackRow} role="presentation" onMouseEnter={() => setSelected(index)}>
+                      {option}
+                      {/* the menu's own keys (it is portalled; React still bubbles them here) stay in the menu */}
+                      <span className={styles.trackMenu} onKeyDown={(e) => { if (!e.currentTarget.contains(e.target as Node)) e.stopPropagation(); }}>
+                        <TrackActions
+                          label={`More for ${row.primary}`}
+                          summary={{ title: row.primary, subtitle: row.secondary, coverUrl: null }}
+                          source={{ trackIds: [row.id] }}
+                          albumId={row.albumId}
+                          onAction={(key) => { if (key === 'album' || key === 'artist') onClose(); }}
+                        />
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             ))}
             {hasSearched && !found && !isFetching && !isError && (

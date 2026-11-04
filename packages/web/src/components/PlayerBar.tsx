@@ -319,6 +319,7 @@ export function PlayerBar() {
     onMove: moveInQueue,
     onRemove: removeFromQueue,
     onClear: clearQueue,
+    menus: true,
     history: history.data ?? (historyWanted ? null : []),
     onHistoryOpen: () => { setHistoryWanted(true); void client.invalidateQueries({ queryKey: playHistoryKey }); },
     onPlayHistory: (h: PlayHistoryEntry) => {

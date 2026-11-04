@@ -1,28 +1,35 @@
 /**
- * One playlist: its mosaic cover, its name (rename in place), how many
- * tracks and how long, Shuffle | Play | ⋮ (Export, Delete), and its tracks.
- * A row plays the list from there; its handle reorders (drag, or Arrow up /
- * down on it); its ⋮ has Play next, Add to queue, Add to playlist, the
- * album and the artist, and Remove from this playlist. A track that left
- * the library stays, dimmed, as "Missing".
+ * One playlist: its mosaic cover, its name (its owner renames it in place),
+ * how many tracks and how long, the people when it is collaborative (0079),
+ * Shuffle | Play | ⋮ (Collaborators and Delete for its owner, Export), and
+ * its tracks. A row plays the list from there; its handle reorders (drag, or
+ * Arrow up / down on it); its ⋮ is every song's (TrackActions) with Remove
+ * from playlist for what the person may take out. Each row shows who added
+ * it once more than one person has. A track that left the library stays,
+ * dimmed, as "Missing".
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import type { PlaylistItemView, PlaylistView } from '@tagave/shared';
 import {
-  CoverArt, EmbossIconButton, EmptyState, ExportIcon, GripIcon, KebabIcon, PageShell, PauseIcon, PlayIcon, ShuffleIcon, TrashIcon, CloseIcon, confirmDialog, showToast,
+  CoverArt, EmbossIconButton, EmptyState, ExportIcon, GripIcon, KebabIcon, PageShell, PauseIcon, PeopleIcon, PlayIcon, ShuffleIcon, TrashIcon, CloseIcon, confirmDialog, showToast,
 } from '../components/ui';
 import { InlineRename } from '../components/InlineRename';
 import { PlayOnControl } from '../components/ListenControl';
 import { PlaylistCover } from '../components/playlists/PlaylistCover';
+import { PeopleRow, PersonTile, showAdders } from '../components/playlists/People';
 import { TrackActions } from '../components/player/TrackActions';
 import { useDragReorder } from '../components/player/useDragReorder';
 import { download, playlistExportUrl, useDeletePlaylist, usePatchPlaylist, usePlaylist, useRemovePlaylistItem } from '../hooks/usePlaylists';
 import { useCapabilities } from '../hooks/usePlayer';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useHiddenDeletions } from './deleteAction';
 import { currentTrack, playTracks, toggle, usePlayerStore } from '../player/engine';
 import { clock } from '../player/logic';
 import { tracksLabel } from './PlaylistsPage';
 import styles from './PlaylistPage.module.css';
+
+const CollaboratorsSheet = lazy(() => import('../components/playlists/CollaboratorsSheet').then((m) => ({ default: m.CollaboratorsSheet })));
 
 export function playlistLength(ms: number): string {
   const min = Math.round(ms / 60000);
@@ -43,11 +50,13 @@ export interface PlaylistPageViewProps {
   onRename: (name: string) => Promise<unknown>;
   onMove: (from: number, to: number) => void;
   onRemove: (item: PlaylistItemView) => void;
-  onDelete: () => void;
+  /** the owner's: delete the list, its collaborators */
+  onDelete?: (() => void) | undefined;
+  onCollaborators?: (() => void) | undefined;
   onExport: () => void;
 }
 
-function ListMenu({ onExport, onDelete }: { onExport: () => void; onDelete: () => void }) {
+function ListMenu({ onExport, onDelete, onCollaborators }: { onExport: () => void; onDelete?: (() => void) | undefined; onCollaborators?: (() => void) | undefined }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -61,8 +70,9 @@ function ListMenu({ onExport, onDelete }: { onExport: () => void; onDelete: () =
       <EmbossIconButton label="More for this playlist" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><KebabIcon /></EmbossIconButton>
       {open && (
         <span role="menu" className={styles.listMenu}>
-          <button type="button" role="menuitem" autoFocus className={styles.listItem} onClick={() => { setOpen(false); onExport(); }}><ExportIcon /><span>Export</span></button>
-          <button type="button" role="menuitem" className={`${styles.listItem} ${styles.danger}`} onClick={() => { setOpen(false); onDelete(); }}><TrashIcon /><span>Delete</span></button>
+          {onCollaborators && <button type="button" role="menuitem" autoFocus className={styles.listItem} onClick={() => { setOpen(false); onCollaborators(); }}><PeopleIcon /><span>Collaborators</span></button>}
+          <button type="button" role="menuitem" autoFocus={!onCollaborators} className={styles.listItem} onClick={() => { setOpen(false); onExport(); }}><ExportIcon /><span>Export</span></button>
+          {onDelete && <button type="button" role="menuitem" className={`${styles.listItem} ${styles.danger}`} onClick={() => { setOpen(false); onDelete(); }}><TrashIcon /><span>Delete</span></button>}
         </span>
       )}
     </span>
@@ -75,6 +85,8 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
   const { drag, handle } = useDragReorder({ list, canMove: () => true, onMove: p.onMove });
   const items = p.playlist.items;
   const playable = items.some((i) => i.localTrackId);
+  const adders = showAdders(items);
+  const people = p.playlist.collaborators.length > 0;
   return (
     <PageShell
       back
@@ -84,8 +96,9 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
           <PlaylistCover covers={p.playlist.covers} name={p.playlist.name} className={styles.cover} />
           <div className={styles.heroText}>
             <span className={styles.kicker}>Playlist</span>
-            <h1 className={styles.name}><InlineRename value={p.playlist.name} label="Rename playlist" onSave={p.onRename} /></h1>
+            <h1 className={styles.name}>{p.playlist.mine ? <InlineRename value={p.playlist.name} label="Rename playlist" onSave={p.onRename} /> : <span dir="auto">{p.playlist.name}</span>}</h1>
             <span className={styles.meta}>{tracksLabel(p.playlist.tracks)}{p.playlist.durationMs > 0 ? ` · ${playlistLength(p.playlist.durationMs)}` : ''}</span>
+            {people && <PeopleRow className={styles.people} owner={p.playlist.owner} collaborators={p.playlist.collaborators} />}
             <div className={styles.actions} role="group" aria-label="Playlist actions">
               {p.canPlay && <EmbossIconButton label="Shuffle" disabled={!playable} onClick={p.onShuffle}><ShuffleIcon /></EmbossIconButton>}
               {p.canPlay && (
@@ -93,7 +106,7 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
                   {p.playing === 'playing' ? <PauseIcon /> : <PlayIcon />}
                 </EmbossIconButton>
               )}
-              <ListMenu onExport={p.onExport} onDelete={p.onDelete} />
+              <ListMenu onExport={p.onExport} onDelete={p.onDelete} onCollaborators={p.onCollaborators} />
             </div>
           </div>
         </div>
@@ -124,20 +137,23 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
                     <span className={styles.artist} dir="auto">{missing ? 'Missing' : it.artist}</span>
                   </span>
                   <span className={styles.album} dir="auto">{it.album}</span>
+                  {adders && it.addedBy && <span className={styles.srOnly}>{`, added by ${it.addedBy.name}`}</span>}
                   <span className={styles.time}>{it.durationMs ? clock(it.durationMs / 1000) : ''}</span>
                 </button>
+                {adders && <span className={styles.adder}>{it.addedBy && <PersonTile person={it.addedBy} size="sm" />}</span>}
                 {/* a Missing row: "Play on <primary>" (Settings › Modules › Listen elsewhere › Missing albums) */}
                 {missing && it.elsewhere && <PlayOnControl link={it.elsewhere} className={styles.playOn} />}
                 <span className={styles.rowMenu}>
                   {missing ? (
-                    <EmbossIconButton label={`Remove ${it.title}`} onClick={() => p.onRemove(it)}><CloseIcon /></EmbossIconButton>
+                    it.removable && <EmbossIconButton label={`Remove ${it.title}`} onClick={() => p.onRemove(it)}><CloseIcon /></EmbossIconButton>
                   ) : (
                     <TrackActions
                       label={`More for ${it.title}`}
                       summary={{ title: it.title, subtitle: [it.artist, it.album].filter(Boolean).join(' · '), coverUrl: it.coverUrl }}
                       source={{ trackIds: [it.localTrackId!] }}
                       albumId={it.albumId}
-                      extra={[{ key: 'remove', label: 'Remove from this playlist', icon: <TrashIcon />, tone: 'danger', onSelect: () => p.onRemove(it) }]}
+                      artist={it.artistLink}
+                      extra={it.removable ? [{ key: 'remove', label: 'Remove from playlist', icon: <CloseIcon />, onSelect: () => p.onRemove(it) }] : undefined}
                     />
                   )}
                 </span>
@@ -161,18 +177,25 @@ export function PlaylistPage() {
   const status = usePlayerStore((s) => s.status);
   const context = usePlayerStore((s) => s.queue?.context);
   const currentId = usePlayerStore((s) => currentTrack(s)?.localTrackId ?? null);
+  const hiddenDel = useHiddenDeletions();
+  const phone = useMediaQuery('(max-width: 720px), (pointer: coarse)');
+  const [people, setPeople] = useState(false);
+  const [peopleWanted, setPeopleWanted] = useState(false);
   // a reorder shows at once; the server's answer replaces it
   const [order, setOrder] = useState<PlaylistItemView[] | null>(null);
   useEffect(() => { setOrder(null); }, [q.data]);
 
   if (q.isError) return <PageShell title="Playlist" back><EmptyState title="Not found" /></PageShell>;
   if (!q.data) return null;
-  const view: PlaylistView = order ? { ...q.data, items: order } : q.data;
+  const base: PlaylistView = order ? { ...q.data, items: order } : q.data;
+  // a song deleted from here waits out its Undo out of the list
+  const view: PlaylistView = { ...base, items: base.items.filter((i) => !i.localTrackId || !hiddenDel.track(i.localTrackId)) };
   const mine = context?.kind === 'playlist' && context.id === view.id;
   const playing = mine ? (status === 'playing' || status === 'buffering' || status === 'loading' ? 'playing' : 'paused') : null;
   const ids = view.items.map((i) => i.localTrackId).filter((x): x is string => !!x);
   const ctx = { kind: 'playlist' as const, id: view.id, name: view.name };
   return (
+    <>
     <PlaylistPageView
       playlist={view}
       canPlay={canPlay}
@@ -191,12 +214,19 @@ export function PlaylistPage() {
       }}
       onRemove={(it) => remove.mutate({ id: view.id, itemId: it.id }, { onError: () => showToast({ message: 'Not removed. Try again.', tone: 'danger' }) })}
       onExport={() => download(playlistExportUrl(view.id))}
-      onDelete={() => {
+      onCollaborators={view.mine ? () => { setPeopleWanted(true); setPeople(true); } : undefined}
+      onDelete={view.mine ? () => {
         void confirmDialog({ title: `Delete ${view.name}?`, confirmLabel: 'Delete', tone: 'danger' }).then((ok) => {
           if (!ok) return;
           del.mutate(view.id, { onSuccess: () => void navigate({ to: '/playlists' }) });
         });
-      }}
+      } : undefined}
     />
+    {peopleWanted && (
+      <Suspense fallback={null}>
+        <CollaboratorsSheet playlistId={view.id} open={people} onOpenChange={setPeople} side={phone ? 'bottom' : 'right'} />
+      </Suspense>
+    )}
+    </>
   );
 }

@@ -4,7 +4,7 @@
  *
  *   turn off          the Playlists page, the menus' "Add to playlist" and
  *                     Settings › Modules' counts hide; every row stays
- *   delete its data   its two tables are emptied, nothing else (tracks,
+ *   delete its data   its three tables are emptied, nothing else (tracks,
  *                     albums and people stay as they are)
  *
  * The switch is the module ledger's row 'playlists' (installed_modules,
@@ -20,7 +20,7 @@ type Tx = postgres.TransactionSql<any>;
 export const PLAYLISTS_MODULE_ID = 'playlists';
 
 /** Every table the module owns, a table before the one it references. */
-export const PLAYLISTS_TABLES = ['playlist_items', 'playlists'] as const;
+export const PLAYLISTS_TABLES = ['playlist_collaborators', 'playlist_items', 'playlists'] as const;
 
 export async function playlistsEnabled(sql: Sql | Tx): Promise<boolean> {
   return moduleEnabled(sql, PLAYLISTS_MODULE_ID);

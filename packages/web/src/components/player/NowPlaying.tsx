@@ -42,6 +42,8 @@ export interface NowPlayingQueueProps {
   onSave?: ((name: string) => Promise<void>) | undefined;
   /** History was opened: the caller loads it */
   onHistoryOpen?: (() => void) | undefined;
+  /** each queue row's ⋮ */
+  menus?: boolean | undefined;
 }
 
 export interface NowPlayingTransport {
@@ -196,7 +198,7 @@ export function NowPlayingView(p: NowPlayingViewProps) {
             tracks={p.tracks} index={p.index} context={p.context} tab={tab}
             onTab={(t) => { setTab(t); if (t === 'history') p.onHistoryOpen?.(); }}
             onPlay={p.onPlay} onMove={p.onMove} onRemove={p.onRemove} onClear={p.onClear}
-            history={p.history} onPlayHistory={p.onPlayHistory} onSave={p.onSave}
+            history={p.history} onPlayHistory={p.onPlayHistory} onSave={p.onSave} menus={p.menus}
           />
         </section>
       </div>
@@ -253,7 +255,7 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
             tracks={p.tracks} index={p.index} context={p.context} tab={tab}
             onTab={(t) => { setTab(t); if (t === 'history') p.onHistoryOpen?.(); }}
             onPlay={p.onPlay} onMove={p.onMove} onRemove={p.onRemove} onClear={p.onClear}
-            history={p.history} onPlayHistory={p.onPlayHistory} onSave={p.onSave}
+            history={p.history} onPlayHistory={p.onPlayHistory} onSave={p.onSave} menus={p.menus}
           />
         </div>
       )}
