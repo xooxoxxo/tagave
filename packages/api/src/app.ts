@@ -50,6 +50,7 @@ import { createFacetRoutes } from './routes/facets.js';
 import { createListenLinksRoutes } from './routes/listenLinks.js';
 import { createLidarrRoutes } from './routes/lidarr.js';
 import { createPlayerQueueRoutes } from './routes/playerQueue.js';
+import { createPlayerDeviceRoutes } from './routes/playerDevices.js';
 import { createPlaylistRoutes } from './routes/playlists.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
@@ -196,6 +197,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createListenLinksRoutes, { prefix: '/api/v1' });
     // The play queue per person (follows them across devices) and their history
     instance.register(createPlayerQueueRoutes, { prefix: '/api/v1' });
+    // Play in one place: the person's devices, their events, commands to the one that plays
+    instance.register(createPlayerDeviceRoutes, { prefix: '/api/v1' });
     // Playlists: each person's own lists, export and import, the module row
     instance.register(createPlaylistRoutes, { prefix: '/api/v1' });
     // Each person's own preferences that follow them between devices (the colour theme)

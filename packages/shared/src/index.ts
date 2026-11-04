@@ -545,6 +545,7 @@ export {
 
 // The play queue per person (player module) and playlists (their own module)
 export * from './playQueue.js';
+export * from './playerDevices.js';
 export * from './playlists.js';
 
 // Each person's own preferences that follow them between devices (the colour theme)
