@@ -89,7 +89,7 @@ export function trashRelPath(relPath: string, day: string): string {
   return `${TRASH_DIR}/${day}/${relPath}`;
 }
 
-async function exists(p: string): Promise<boolean> {
+export async function exists(p: string): Promise<boolean> {
   try {
     await lstat(p);
     return true;
@@ -99,7 +99,7 @@ async function exists(p: string): Promise<boolean> {
 }
 
 /** The path on disk of a relative path, trying the NFC and NFD spellings (the archive mixes them). */
-async function onDisk(root: string, relPath: string): Promise<string | null> {
+export async function onDisk(root: string, relPath: string): Promise<string | null> {
   for (const cand of new Set([relPath, relPath.normalize('NFD'), relPath.normalize('NFC')])) {
     const p = path.join(root, cand);
     if (await exists(p)) return p;
