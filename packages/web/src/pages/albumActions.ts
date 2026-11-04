@@ -141,7 +141,7 @@ export interface AlbumMenuInput {
   queue?: { next: () => void; end: () => void } | null | undefined;
   /** Add to playlist… (the playlists module) */
   addToPlaylist?: (() => void) | null | undefined;
-  /** the owner's one delete item, in the library's mode ("Mark for deletion" or "Move to trash") */
+  /** the owner's one delete item, in the library's mode ("Mark for deletion" or "Move to trash"): the last Maintenance tool */
   remove?: { label: string; onSelect: () => void } | null | undefined;
 }
 
@@ -169,12 +169,15 @@ export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
     ...(i.addToPlaylist ? [{ key: 'playlist', label: 'Add to playlist…', icon: 'playlist' as const, onSelect: i.addToPlaylist }] : []),
     { key: 'info', label: 'Album info', hint: 'Details and reviews', icon: 'info', onSelect: i.onInfo },
     ...(one ? [] : i.artists.map(artist)),
-    ...(i.remove ? [{ key: 'delete', label: i.remove.label, icon: 'trash' as const, tone: 'danger' as const, separated: true, onSelect: i.remove.onSelect }] : []),
   ];
   return {
     tiles,
     rows,
-    tools: i.canCare && i.maintenance ? [...(i.tools ?? [])] : [],
+    // Delete only in Maintenance (owner, 2026-11-04)
+    tools: i.canCare && i.maintenance ? [
+      ...(i.tools ?? []),
+      ...(i.remove ? [{ key: 'delete', label: i.remove.label, icon: 'trash' as const, tone: 'danger' as const, separated: true, onSelect: i.remove.onSelect }] : []),
+    ] : [],
     maintenance: i.canCare ? { on: i.maintenance, onToggle: i.onToggleMaintenance } : null,
     ...(i.listen && i.listen.length > 0 ? { listen: [...i.listen] } : {}),
   };

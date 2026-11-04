@@ -67,11 +67,11 @@ export const Collaborators: Story = {
 };
 
 const actions = { label: 'More for Blue in Green', summary: { title: 'Blue in Green', subtitle: 'Miles Davis · Kind of Blue', coverUrl: COVERS.kob }, source: { trackIds: ['l1'] }, albumId: 'album-kob', abilities: { queue: true, playlists: true } };
-/** the owner's, on a playlist row: every song's rows, Remove from playlist, Delete */
+/** the owner's, on a playlist row: every song's rows and Remove from playlist (no Delete outside Maintenance) */
 const ownerActions = {
   ...actions,
   artist: { id: 'artist-miles', name: 'Miles Davis' },
-  abilities: { queue: true, playlists: true, delete: true },
+  abilities: { queue: true, playlists: true },
   extra: [{ key: 'remove', label: 'Remove from playlist', icon: <CloseIcon />, onSelect: noop }],
 };
 export const TrackMenuOwner: Story = {

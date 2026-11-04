@@ -29,25 +29,22 @@ const { PlaylistPageView } = await import('./PlaylistPage');
 const { PLAYLIST, PLAYLIST_SHARED, PLAYLIST_SHARED_OWNER } = await import('../stories/queueFixtures');
 
 const noop = () => undefined;
-const all = { queue: true, playlists: true, album: true, artist: true, delete: true };
+const all = { queue: true, playlists: true, album: true, artist: true };
 
 describe('trackMenuKeys: every song’s menu, one order', () => {
-  it('Play next · Add to queue · Add to playlist | Go to album · Go to artist | own rows | Delete', () => {
+  it('Play next · Add to queue · Add to playlist | Go to album · Go to artist | own rows; never Delete', () => {
     expect(trackMenuKeys(all, ['remove'])).toEqual([
       { key: 'next', separated: false }, { key: 'queue', separated: false }, { key: 'playlist', separated: false },
       { key: 'album', separated: true }, { key: 'artist', separated: false },
       { key: 'remove', separated: true },
-      { key: 'delete', separated: true },
     ]);
   });
   it('leaves out what does not apply, and separates only between groups', () => {
-    expect(trackMenuKeys({ ...all, queue: false, album: false, delete: false })).toEqual([
+    expect(trackMenuKeys({ ...all, queue: false, album: false })).toEqual([
       { key: 'playlist', separated: false }, { key: 'artist', separated: true },
     ]);
-    // a listener with no player, on the album page: nothing to do, no menu
-    expect(trackMenuKeys({ queue: false, playlists: false, album: false, artist: false, delete: false })).toEqual([]);
-    // the owner with no player and playlists off: Delete alone, unseparated
-    expect(trackMenuKeys({ queue: false, playlists: false, album: false, artist: false, delete: true })).toEqual([{ key: 'delete', separated: false }]);
+    // a listener (or the owner) with no player, on the album page: nothing to do, no menu
+    expect(trackMenuKeys({ queue: false, playlists: false, album: false, artist: false })).toEqual([]);
   });
 });
 

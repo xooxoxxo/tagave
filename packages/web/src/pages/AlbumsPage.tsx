@@ -141,12 +141,12 @@ export function AlbumsPage() {
   const [sheetUsed, setSheetUsed] = useState(false);
   const filterKey = useRef<HTMLButtonElement>(null);
 
-  // the owner's one delete item on each card and row; an album waiting out its Undo is left out
+  // the owner's one delete item on each card and row, in Maintenance only; an album waiting out its Undo is left out
   const del = useDeleteAction(libraryId);
   const hiddenDel = useHiddenDeletions();
   const allItems = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
   const items = useMemo(() => allItems.filter((a) => !hiddenDel.album(a.id)), [allItems, hiddenDel]);
-  const albumMore = (album: AlbumSummary) => del && (
+  const albumMore = (album: AlbumSummary) => del && maintenance && (
     <span className={styles.more} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       <Menu
         label={`More for ${album.title}`}
