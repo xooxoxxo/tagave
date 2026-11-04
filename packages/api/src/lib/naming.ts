@@ -126,8 +126,8 @@ export async function namingExamples(sql: Sql, libraryId: string, rules: NamingR
     const fields = currentFieldsFrom(f.tags);
     return !!fields.album && !!fields.title;
   });
-  return tagged.slice(0, 3).map((a) => {
-    const planned = albumRulePaths(rules, a);
+  // a Leave alone folder never moves: not an example
+  return tagged.map((a) => ({ a, planned: albumRulePaths(rules, a) })).filter((x) => !x.planned.leftAlone).slice(0, 3).map(({ a, planned }) => {
     const first = planned.files[0]!;
     return { albumId: a.albumId, from: first.relPath, to: first.toPath };
   });
