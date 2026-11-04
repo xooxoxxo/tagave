@@ -11,7 +11,7 @@ export { Tooltip } from './Tooltip';
 export { PageShell } from './PageShell';
 export { Input, Select, Textarea, TextField, SearchField, PendingValue, type TextFieldProps, type SearchFieldProps } from './FormControl';
 export { SegmentedControl, ThemeSwitch, type SegmentedOption } from './SegmentedControl';
-export { ConfirmDialog, ConfirmHost, confirmDialog, type ConfirmOptions } from './ConfirmDialog';
+export { ConfirmDialog, ConfirmHost, confirmDialog, updateConfirm, type ConfirmOptions } from './ConfirmDialog';
 export { UndoIcon, PlayIcon, PauseIcon, ShuffleIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon, QueueIcon, ChevronUpIcon, ChevronDownIcon, KebabIcon, BackIcon, InfoIcon, PersonIcon, DiscIcon, WrenchIcon, ListenIcon, PlayNextIcon, AddQueueIcon, PlaylistIcon, PeopleIcon, PlusIcon, GripIcon, ExportIcon, ImportIcon, RenameIcon, TrashIcon, ChevronRightIcon, SaveListIcon, OnDiskIcon, SortIcon, FilterIcon, GridIcon, ListIcon, CastIcon, AirPlayIcon, DevicesIcon } from './icons';
 export { EmbossIconButton, embossClassName, type EmbossIconButtonProps, type EmbossPlace } from './EmbossIconButton';
 export { CoverArt, CoverChip, coverHue, coverInitials, type CoverChipTone } from './CoverArt';
