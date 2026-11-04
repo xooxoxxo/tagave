@@ -72,6 +72,13 @@
   white-space: nowrap;
 }
 
+/* a worker still restarting onto the new build: the same chip, in the info tone */
+.updating {
+  composes: attention;
+  background: var(--surface-info);
+  color: var(--chip-on-ink);
+}
+
 .attentionText {
   color: var(--warning);
   font-weight: 600;
