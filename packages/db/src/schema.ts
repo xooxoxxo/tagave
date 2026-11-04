@@ -1033,6 +1033,11 @@ export const tagPlanItems = pgTable(
     // pairing's distance (local_tracks.match_distance). No FK, see 0077.
     canonicalTrackId: uuid('canonical_track_id'),
     matchDistance: numeric('match_distance', { precision: 5, scale: 4 }),
+    // 0081: the file's path now and under the naming rules (null: it stays),
+    // and why it cannot move (clash, unwritable)
+    pathBefore: text('path_before'),
+    pathAfter: text('path_after'),
+    pathState: text('path_state'),
   },
   (table) => ({
     planIdx: index('idx_tag_plan_items_plan').on(table.tagPlanId),

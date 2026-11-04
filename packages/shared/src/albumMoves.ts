@@ -17,6 +17,14 @@
 import { z } from 'zod';
 import type { TagDiffEntry } from './tagPlan.js';
 
+/**
+ * What a move moves (0081): songs into another album (Maintenance), an
+ * album to the path its naming rules give (a tag plan, Library care ›
+ * Organize), or a dropped album out of the drop pool into the library.
+ */
+export const ALBUM_MOVE_KINDS = ['move', 'organize', 'import'] as const;
+export type AlbumMoveKind = (typeof ALBUM_MOVE_KINDS)[number];
+
 export const ALBUM_MOVE_STATES = ['searching', 'choosing', 'planning', 'ready', 'moving', 'done', 'undoing', 'undone', 'failed'] as const;
 export type AlbumMoveState = (typeof ALBUM_MOVE_STATES)[number];
 
@@ -53,8 +61,9 @@ export interface MoveCandidate {
 
 /** One file of the plan. */
 export interface MovePlanFile {
-  fileId: string;
-  localTrackId: string;
+  /** null: a file not in the library yet (a drop pool import) */
+  fileId: string | null;
+  localTrackId: string | null;
   /** the song as it is now */
   title: string;
   /** relative to its root, now and after */
@@ -83,11 +92,16 @@ export interface MovePlan {
   naming: string;
   release: { id: string; mbid: string | null; title: string; artist: string; year: number | null; tracks: number };
   files: MovePlanFile[];
+  /** covers, cue sheets, logs and other files of the album's folder that go with it (organize, import) */
+  extras?: Array<{ fromPath: string; toPath: string }>;
+  /** the folder the emptied folders are trashed up to, never past (organize, import) */
+  keepDir?: string;
 }
 
 /** What a move did, for Undo: per file its paths and the tags before and after. */
 export interface MoveJournalFile {
-  fileId: string;
+  /** null: a file not in the library when it moved (a drop pool import) */
+  fileId: string | null;
   fromPath: string;
   toPath: string;
   before: Record<string, unknown>;
@@ -104,6 +118,10 @@ export interface MoveJournal {
   files: MoveJournalFile[];
   /** the source folder went to the trash, empty (relative to the root) */
   trashedDir: { dir: string; trashRelPath: string } | null;
+  /** more emptied folders, each in the trash (organize, import) */
+  trashedDirs?: Array<{ dir: string; trashRelPath: string }>;
+  /** the companion files moved, and whether each is moved now */
+  extras?: Array<{ fromPath: string; toPath: string; moved: boolean }>;
   /** the target folder was made by the move */
   madeDir: string | null;
   /** file-to-album pins the move lifted (Undo puts them back) */
@@ -142,6 +160,7 @@ export interface MoveAlbumOption {
 /** Library care › Moved: one finished move. */
 export interface MoveListItem {
   id: string;
+  kind: AlbumMoveKind;
   state: AlbumMoveState;
   title: string;
   artist: string | null;
