@@ -12,13 +12,16 @@ import { CoverArt, PageShell } from '../components/ui';
 import { COVERS, COVER_KEYS } from './adaptiveCovers';
 import { DesktopFrame } from './DesktopFrame';
 import { CastKeyView } from '../components/player/CastKey';
+import { DeviceStripView, DevicesKeyView } from '../components/player/DevicesKey';
 import { BEAT_LEVELS, demoBeat } from './glowFixtures';
 import s from './DesktopFrame.module.css';
 
 type BarState = 'empty' | 'paused' | 'playing';
 type CastShown = 'none' | 'available' | 'casting';
 type Glow = 'off' | 'beat' | 'still' | 'live';
-interface Args { state: BarState; compartmentOpen?: boolean; glow?: Glow; cast?: CastShown }
+/** play in one place: another device plays (remote), or playback was handed here and waits for a tap */
+type DeviceShown = 'none' | 'remote' | 'tap';
+interface Args { state: BarState; compartmentOpen?: boolean; glow?: Glow; cast?: CastShown; device?: DeviceShown }
 
 const noop = () => undefined;
 const TRACK = COVERS.moody;
@@ -40,7 +43,7 @@ function Albums() {
   );
 }
 
-function Bar({ state, glow = 'off', cast = 'none' }: { state: BarState; glow?: Glow; cast?: CastShown }) {
+function Bar({ state, glow = 'off', cast = 'none', device = 'none' }: { state: BarState; glow?: Glow; cast?: CastShown; device?: DeviceShown }) {
   const empty = state === 'empty';
   const casting = cast === 'casting';
   return (
@@ -50,15 +53,23 @@ function Bar({ state, glow = 'off', cast = 'none' }: { state: BarState; glow?: G
       canPrevious={!empty} canNext={!empty} empty={empty}
       onToggle={noop} onPrevious={noop} onNext={noop} onSeek={noop} onVolume={noop} onRetry={noop} onQueue={noop}
       glow={glow === 'off' ? null : <BarGlow playing={state === 'playing'} anchor="right" source={glow === 'live' ? DEMO : 'still'} levels={glow === 'beat' ? BEAT_LEVELS : undefined} />}
-      cast={cast === 'none' ? null : <CastKeyView kind="cast" available state={casting ? 'on' : 'off'} device={casting ? 'Living Room' : null} reach="ok" host={null} onChoose={noop} />}
+      cast={device !== 'none' ? (
+        <DevicesKeyView lit={device === 'remote'} onChoose={noop} devices={[{ id: 'mac', name: 'Chrome on Mac', here: true, playing: device === 'tap' }, { id: 'phone', name: 'Safari on iPhone', here: false, playing: device === 'remote' }]} />
+      ) : cast === 'none' ? null : <CastKeyView kind="cast" available state={casting ? 'on' : 'off'} device={casting ? 'Living Room' : null} reach="ok" host={null} onChoose={noop} />}
       castLine={casting ? 'Casting to Living Room' : null}
     />
   );
 }
 
-function InTheApp({ state, compartmentOpen = false, glow = 'off', cast = 'none' }: Args) {
+function InTheApp({ state, compartmentOpen = false, glow = 'off', cast = 'none', device = 'none' }: Args) {
+  const dock = (
+    <>
+      {device !== 'none' && <DeviceStripView playingOn={device === 'remote' ? 'Safari on iPhone' : null} needsTap={device === 'tap'} onTap={noop} />}
+      <Bar state={state} glow={glow} cast={cast} device={device} />
+    </>
+  );
   return (
-    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} glow={glow} cast={cast} />}>
+    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={dock}>
       <Albums />
     </DesktopFrame>
   );
@@ -98,3 +109,8 @@ export const CastAvailable: Story = { name: 'Cast, device there', tags: wide, ar
 /** Casting: the key in the player's accent, the device beside it. */
 export const Casting: Story = { name: 'Cast, casting', tags: wide, args: { state: 'playing', cast: 'casting' } };
 export const CastingNarrow: Story = { name: 'Cast, casting, 1000', tags: narrow, args: { state: 'playing', cast: 'casting' } };
+/** Another of the person's devices plays: the strip says where, the device key is lit, the keys control it. */
+export const PlayingElsewhere: Story = { name: 'Playing on another device', tags: wide, args: { state: 'playing', device: 'remote' } };
+export const PlayingElsewhereNarrow: Story = { name: 'Playing on another device, 1000', tags: narrow, args: { state: 'playing', device: 'remote' } };
+/** Playback was handed here and the browser waits for a tap. */
+export const TapToPlay: Story = { name: 'Tap to play here', tags: wide, args: { state: 'paused', device: 'tap' } };

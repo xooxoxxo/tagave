@@ -1,0 +1,74 @@
+/* The device key and the strip (DevicesKey.tsx). The key is an embossed
+   icon like the other keys, in the player's accent (the play key's colour)
+   while another device plays or this one casts. */
+.key {
+  flex: none;
+}
+
+.on,
+.on:hover:not(:disabled) {
+  color: var(--dew);
+}
+
+/* A thin line on top of the bar: one quiet line of the accent colour, the
+   bar's glass behind it. */
+.strip {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 3px var(--page-pad, 24px) 2px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  border-top: 2px solid var(--dew);
+  appearance: none;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  color: var(--dew);
+  font: 600 0.75rem / 1.35 var(--font-body);
+  letter-spacing: 0.01em;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .strip {
+    background: var(--surface);
+  }
+}
+
+/* adaptive colour and generated themes: the bar's own surface and accent */
+:global(html:is([data-adaptive], [data-themed])) .strip {
+  border-top-color: var(--ad-bar-accent);
+  background: var(--ad-bar);
+  color: var(--ad-bar-accent);
+}
+
+.tap {
+  cursor: pointer;
+}
+
+.tap:focus {
+  outline: none;
+}
+
+.tap:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -3px;
+}
+
+.rename {
+  display: grid;
+  gap: var(--space-md, 12px);
+  padding: var(--space-md, 12px) var(--space-lg, 16px) var(--space-lg, 16px);
+}
+
+@media (forced-colors: active) {
+  .on,
+  .strip {
+    color: Highlight;
+    border-top-color: Highlight;
+  }
+}
