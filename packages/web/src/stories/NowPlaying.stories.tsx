@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from '../components/player/NowPlaying';
 import { HISTORY, QUEUE } from './queueFixtures';
 import { CastKeyView } from '../components/player/CastKey';
+import { MixChip } from '../components/player/MixChip';
 import { DeviceStripView, DevicesKeyView } from '../components/player/DevicesKey';
 
 const noop = () => undefined;
@@ -71,6 +72,18 @@ export const PhoneMiniBar: Story = {
   render: () => (
     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
       <MiniPlayer track={QUEUE[0]!} status="playing" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} />
+    </div>
+  ),
+};
+
+/** The DJ module fades one track into the next: the Mix chip beside the keys, held halfway. */
+export const PhoneMiniBarMix: Story = {
+  name: 'Phone · Mini bar · Mix',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
+      <MiniPlayer track={QUEUE[0]!} status="playing" position={3} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} mix={<MixChip lengthMs={6000} frozenAt={0.5} />} />
     </div>
   ),
 };

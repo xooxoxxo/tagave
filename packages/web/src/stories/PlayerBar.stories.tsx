@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { PlayerBarView } from '../components/PlayerBar';
 import { COVER_SRC } from './fixtures';
+import { MixChip } from '../components/player/MixChip';
 
 const meta = {
   title: 'Components/Player bar',
@@ -72,5 +73,7 @@ export const TwoArtists: Story = {
 export const NotIdentified: Story = { name: 'Artist not identified (no links)', args: { artists: null, albumId: null } };
 export const NoCover: Story = { args: { coverUrl: null } };
 export const AtTheEnd: Story = { args: { canNext: false, position: 296 } };
+/** The DJ module fades one track into the next: the Mix chip, held halfway through a 6 s fade. */
+export const Mix: Story = { args: { mix: <MixChip lengthMs={6000} frozenAt={0.5} />, position: 3 } };
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
 export const PhoneError: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { status: 'error', message: 'Not on the player yet — its first scan is at 34\u202f%.' } };

@@ -5,7 +5,7 @@
  * between devices; the device that plays applies it. An iOS home-screen app can't mix (a running audio graph stops the
  * music in the background), so the page says so and nothing else.
  */
-import { DJ_LENGTH_MAX_SEC, DJ_LENGTH_MIN_SEC, type DjCrossfade } from '@tagave/shared';
+import { DJ_LENGTH_MAX_SEC, DJ_LENGTH_MIN_SEC, type DjCrossfade, type DjSimpleSettings } from '@tagave/shared';
 import { SegmentedControl, Select } from '../components/ui';
 import { useDjAvailableHere, useDjSettings } from '../hooks/useDj';
 import styles from './SettingsDjPage.module.css';
@@ -32,12 +32,20 @@ function OffOn({ label, on, onChange }: { label: string; on: boolean; onChange: 
 export interface SettingsDjViewProps {
   /** false in an iOS home-screen app */
   availableHere: boolean;
+  settings: DjSimpleSettings;
+  onChange: (patch: Partial<DjSimpleSettings>) => void;
 }
 
-export function SettingsDjContent({ availableHere }: Partial<SettingsDjViewProps> = {}) {
+/** The person's Simple mode, connected (their user_prefs, this browser's copy). */
+export function SettingsDjContent() {
   const here = useDjAvailableHere();
   const [s, update] = useDjSettings();
-  if (!(availableHere ?? here)) {
+  return <SettingsDjView availableHere={here} settings={s} onChange={update} />;
+}
+
+/** The rows alone, driven by props (stories, tests). */
+export function SettingsDjView({ availableHere, settings: s, onChange: update }: SettingsDjViewProps) {
+  if (!availableHere) {
     return (
       <div className={styles.field}>
         <span className={styles.fieldLabel}>Simple mode</span>
