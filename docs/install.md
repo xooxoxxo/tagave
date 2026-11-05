@@ -184,7 +184,7 @@ On a split install the updater updates the app computer; run `install-tagave.sh 
 
 ### Optional modules (Settings › Modules)
 
-**Settings › Modules** lists every module with its state: Player, Lidarr, Listen elsewhere, Music Connections, Playlists and Similar artists. Each row opens the module's own page, **Settings › Modules › <module>**, which starts with its **Off | On** and holds all of its settings: the player's server, scrobbling and quality, and everyone's own player account and Last.fm and ListenBrainz; Lidarr's connection; each person's Listen elsewhere platforms; each person's Music Connections. The owner sees every module and switches them. Everyone else sees only the modules that are on and have settings of their own (the player, Listen elsewhere, Music Connections). The old addresses (`/settings/playback`, `/settings/listening`, `/settings/listen-elsewhere`, `/settings/connections`) open the new pages.
+**Settings › Modules** lists every module with its state: Player, DJ, Lidarr, Listen elsewhere, Music Connections, Playlists and Similar artists. Each row opens the module's own page, **Settings › Modules › <module>**, which starts with its **Off | On** and holds all of its settings: the player's server, scrobbling and quality, and everyone's own player account and Last.fm and ListenBrainz; Lidarr's connection; each person's Listen elsewhere platforms; each person's Music Connections. The owner sees every module and switches them. Everyone else sees only the modules that are on and have settings of their own (the player, Listen elsewhere, Music Connections). The old addresses (`/settings/playback`, `/settings/listening`, `/settings/listen-elsewhere`, `/settings/connections`) open the new pages.
 
 Optional parts that run as their own containers (the player is the first) come from the module catalogue in the signed manifest of the release this server runs, so a module that arrives in a later release shows up once you update to it; nothing else needs installing. Each one's page shows how much memory and disk it takes, and whether it is off, being turned on or off, on, failed (with the reason), or waiting for an update to bring in a new image.
 
@@ -298,6 +298,12 @@ The device fetches the music itself, so it must reach tagave at **`PUBLIC_URL`**
 - Many Chromecasts ask Google's DNS (8.8.8.8), not your router. A name only your local DNS knows (a `.lan` name, a Pi-hole record, a Tailscale `*.ts.net` name) may not resolve there. Use a public name whose DNS points to tagave's address on your network, or let your router answer the Chromecast's DNS.
 - A device on another network (a guest network, a VLAN that cannot reach tagave) cannot fetch the music.
 - Sonos, UPnP/DLNA renderers and casting from the server are not supported.
+
+### DJ
+
+**Settings › Modules › DJ** (owner only, off by default) adds crossfades and beat-matched transitions to the player. While it is on, the worker reads each track once and measures its tempo (BPM), where the first beat falls, where the sound starts and ends (below −45 dBFS counts as silence), and a waveform of about 900 points. Tracks in someone's queue and recent plays go first; the rest follow one at a time at low priority, so a large library takes a while. A re-tag keeps the measurements; changed audio is measured again.
+
+It all stays local: the worker measures your files itself and keeps the results in tagave's database. Nothing is sent anywhere. Turn it off, or delete its measurements, on the same page.
 
 ### Get missing albums (Lidarr)
 

@@ -13,6 +13,7 @@ export const WORKER_QUEUES = [
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
   'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'similarArtists.fetch', 'files.trash', 'files.split', 'files.move', 'lidarr.poll', 'lidarr.get', 'pool.scan',
+  'dj.analyze',
 ] as const;
 
 /**
@@ -56,6 +57,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'files.split': 'tags.apply',
   // Move to album: tags written and files moved into another album's folder; with the tag writer too
   'files.move': 'tags.apply',
+  // DJ analysis: ffmpeg decodes each file once; on the file worker, with the fingerprints (the other decode of every file)
+  'dj.analyze': 'fingerprint.album',
 };
 
 /** The names TAGAVE_QUEUES chooses from: each needs some live worker. */

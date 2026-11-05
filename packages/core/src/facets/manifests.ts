@@ -193,7 +193,28 @@ export const LIDARR_MODULE = defineModule({
   defaultEnabled: false,
 });
 
-export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE, LIDARR_MODULE, SIMILAR_ARTISTS_MODULE];
+/**
+ * DJ (vault "tagave - DJ Module"): crossfades, tempo transitions and a
+ * two-deck view in the player, from each track's tempo, first beat, trim
+ * points and waveform, which the worker measures from the file (dj.analyze,
+ * 0086). Off: the job skips, the player is exactly the player without it,
+ * the /me/dj routes answer 404; the data stays until "Delete its data"
+ * (api › routes/dj.ts). Its settings are the ledger row's settings.
+ */
+export const DJ_MODULE = defineModule({
+  id: 'dj',
+  version: '1.0.0',
+  compatibleWith: MUSIC_1,
+  provides: [],
+  consumes: [],
+  jobs: ['dj.analyze'],
+  prefix: 'dj_',
+  tables: ['dj_track_analysis'],
+  // off until the owner turns it on: it reads every file once, which takes a while
+  defaultEnabled: false,
+});
+
+export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE, LIDARR_MODULE, SIMILAR_ARTISTS_MODULE, DJ_MODULE];
 
 /** A ledger row (installed_modules) for every app and in-process module: what a boot syncs. */
 export interface LedgerEntry {

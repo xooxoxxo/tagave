@@ -546,6 +546,9 @@ export {
 // Similar artists (the similar-artists module)
 export * from './similarArtists.js';
 
+// DJ (the dj module): what the player's DJ engine reads, the module's page
+export * from './dj.js';
+
 // The play queue per person (player module) and playlists (their own module)
 export * from './playQueue.js';
 export * from './playerDevices.js';
