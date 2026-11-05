@@ -29,6 +29,12 @@ export interface SplitSheetProps {
   artist?: string | null | undefined;
   side?: 'bottom' | 'right';
   returnFocus?: RefObject<HTMLElement | null> | undefined;
+  /**
+   * 0089: the cuts checked for a tag plan that splits first: the button
+   * confirms them (the plan then splits and tags) instead of splitting here,
+   * and opening never asks for new cut points.
+   */
+  confirm?: { label: string; onConfirm: (splitId: string) => void } | undefined;
 }
 
 /** "24-bit · 192 kHz". */
@@ -37,7 +43,7 @@ function formatOf(plan: SplitPlan): string {
   return `${plan.bitsPerSample}-bit · ${Number.isInteger(khz) ? khz : khz.toFixed(1)} kHz`;
 }
 
-export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, artist, side = 'bottom', returnFocus }: SplitSheetProps) {
+export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, artist, side = 'bottom', returnFocus, confirm }: SplitSheetProps) {
   const qc = useQueryClient();
   const view = useAlbumSplit(libraryId, albumId, open);
   const analyze = useAnalyzeSplit(libraryId, albumId);
@@ -54,8 +60,8 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
   // opening finds the cut points when there is no plan to check
   useEffect(() => {
     if (!open) { asked.current = false; return; }
-    if (!data || asked.current || analyze.isPending) return;
-    if (data.eligible && (!split || state === 'done')) {
+    if (!data || asked.current || analyze.isPending || confirm) return;
+    if (data.eligible && (!split || state === 'done' || state === 'undone')) {
       asked.current = true;
       analyze.mutate();
     }
@@ -171,7 +177,10 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
           {failed && data?.eligible && (
             <Button variant="secondary" onClick={() => analyze.mutate()} loading={analyze.isPending}>Find cut points</Button>
           )}
-          {state !== 'done' && (
+          {confirm && ready && split && (
+            <Button variant="primary" disabled={!data?.writable} onClick={() => confirm.onConfirm(split.id)}>{confirm.label}</Button>
+          )}
+          {!confirm && state !== 'done' && (
             <Button
               variant="primary"
               disabled={!ready || !data?.writable || busy || run.isPending}

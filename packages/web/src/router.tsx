@@ -181,7 +181,7 @@ const plansRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/plans',
   component: guarded('library.edit', PlansPage),
-  // ?album=<localAlbumId> opens the wizard scoped to that album (album page "Fix tags").
+  // ?album=<localAlbumId> opens the Tag sheet for that album (older "Fix tags" links).
   validateSearch: (search: Record<string, unknown>): { album?: string } =>
     typeof search['album'] === 'string' && search['album'] ? { album: search['album'] } : {},
 });

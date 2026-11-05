@@ -61,7 +61,8 @@ export interface SplitPlan {
   tracks: SplitTrackPlan[];
 }
 
-export type AlbumSplitState = 'analyzing' | 'ready' | 'splitting' | 'done' | 'failed';
+/** undone (0089): a tag plan's revert put the source back and took the tracks away */
+export type AlbumSplitState = 'analyzing' | 'ready' | 'splitting' | 'done' | 'failed' | 'undone';
 
 /** GET /libraries/:libraryId/albums/:albumId/split */
 export interface AlbumSplitView {
@@ -81,12 +82,48 @@ export interface AlbumSplitView {
   writable: boolean;
   /** the source's track, for Play around cut (the stream route) */
   localTrackId: string | null;
+  /** the release's tracks the split makes (when eligible) */
+  tracks?: number | null;
+}
+
+/**
+ * A tag plan's split of one album (0089 album_splits.tag_plan_id): the plan
+ * splits the album first, then tags the new tracks. On GET /tag-plans/:id.
+ */
+export interface PlanSplit {
+  splitId: string;
+  albumId: string | null;
+  state: AlbumSplitState;
+  /** the tracks it makes: the plan's when found, else the release's */
+  tracks: number;
+  /** cuts by confidence, once found */
+  low: number;
+  medium: number;
+  /** the tracks with their cut points, once found */
+  plan: SplitPlan | null;
+  outputs: string[] | null;
+  error: string | null;
+}
+
+/** Cuts the owner must check before the split runs. */
+export function lowCuts(plan: SplitPlan | null | undefined): number {
+  return plan ? plan.tracks.filter((t) => t.confidence === 'low').length : 0;
 }
 
 /** files.split job data */
 export interface FilesSplitJobData {
   splitId: string;
   action: 'analyze' | 'split';
+}
+
+/** "One file holds the whole album. Tagging splits it into 11 tracks first." */
+export function splitFirstLine(tracks: number): string {
+  return `One file holds the whole album. Tagging splits it into ${tracks} tracks first.`;
+}
+
+/** "Split into 11 tracks · tagged" (the apply's result). */
+export function splitDoneLine(tracks: number, tagged = true): string {
+  return `Split into ${tracks} tracks${tagged ? ' · tagged' : ''}`;
 }
 
 /** Milliseconds of a sample position. */

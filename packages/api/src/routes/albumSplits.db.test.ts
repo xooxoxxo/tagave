@@ -97,7 +97,7 @@ describe.skipIf(!adminUrl)('splitting a whole album in one file (integration)', 
   });
 
   it('says whether the album fits and the folder is writable', async () => {
-    expect((await call(owner, 'GET', base())).json()).toEqual({ split: null, eligible: true, writable: false, localTrackId: trackId });
+    expect((await call(owner, 'GET', base())).json()).toEqual({ split: null, eligible: true, writable: false, localTrackId: trackId, tracks: 2 });
     expect((await call(owner, 'GET', base(twoFiles))).json()).toMatchObject({ split: null, eligible: false, localTrackId: null });
   });
 

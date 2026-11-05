@@ -22,11 +22,13 @@ export interface SheetProps {
   side?: 'bottom' | 'right';
   /** where focus goes when it closes: the button that opened it */
   returnFocus?: RefObject<HTMLElement | null> | undefined;
+  /** where focus goes when it opens (the first control otherwise): a sheet whose Enter is one action focuses that action */
+  initialFocus?: RefObject<HTMLElement | null> | undefined;
   children: ReactNode;
   className?: string | undefined;
 }
 
-export function Sheet({ open, onOpenChange, title, side = 'bottom', returnFocus, children, className }: SheetProps) {
+export function Sheet({ open, onOpenChange, title, side = 'bottom', returnFocus, initialFocus, children, className }: SheetProps) {
   return (
     <Drawer.Root open={open} onOpenChange={(next) => onOpenChange(next)} swipeDirection={side === 'right' ? 'right' : 'down'}>
       <Drawer.Portal>
@@ -36,6 +38,7 @@ export function Sheet({ open, onOpenChange, title, side = 'bottom', returnFocus,
             className={[styles.popup, side === 'right' ? styles.right : styles.bottom, className].filter(Boolean).join(' ')}
             data-sheet={side}
             {...(returnFocus ? { finalFocus: returnFocus } : {})}
+            {...(initialFocus ? { initialFocus } : {})}
           >
             {side === 'bottom' && <div className={styles.grab} aria-hidden="true" />}
             <Drawer.Content className={styles.content}>

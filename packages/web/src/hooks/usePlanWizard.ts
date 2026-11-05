@@ -203,7 +203,8 @@ export function previewTagPlanOptions(
 export function useApplyTagPlan(libraryId: string | undefined, planId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/apply`, {}),
+    // 0089: the splits whose Low cuts the owner checked
+    mutationFn: (body?: { confirmSplits?: string[] }) => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/apply`, body ?? {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
       queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });

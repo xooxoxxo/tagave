@@ -335,9 +335,22 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
     pairing: { canonicalTrackId: string | null; matchDistance: string | null };
   }> = [];
 
+  // 0089: a file the plan splits first is not tagged as it stands: its new
+  // tracks take the plan's values when the split runs
+  const splitSources = fileIds.length === 0 ? new Map<string, string>() : new Map(((await ctx.sql`
+    select s.file_id::text as "fileId", s.local_album_id::text as "albumId" from album_splits s
+     where s.tag_plan_id = ${planId} and s.state in ('analyzing', 'ready', 'splitting', 'done')
+       and s.file_id = any(${fileIds}::uuid[])`) as unknown as Array<{ fileId: string; albumId: string | null }>)
+    .map((r) => [r.fileId, r.albumId ?? ''] as const));
+
   for (const [i, audioFileId] of fileIds.entries()) {
     await progress.files(i, fileIds.length);
     try {
+      const splitAlbum = splitSources.get(audioFileId);
+      if (splitAlbum !== undefined) {
+        filesSkipped.push({ audioFileId, reason: 'split_first', ...(splitAlbum ? { localAlbumId: splitAlbum } : {}) });
+        continue;
+      }
       const [file] = await db.select().from(files).where(eq(files.id, audioFileId));
       if (!file) {
         filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: 'File not found' });

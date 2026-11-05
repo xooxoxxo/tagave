@@ -239,6 +239,11 @@ export function TrashIcon() {
   return <svg {...LINE}><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" /></svg>;
 }
 
+/** A luggage tag: write tags to the files. */
+export function TagIcon() {
+  return <svg {...LINE}><path d="M4 12.5V5h7.5l8 8-7.5 7.5-8-8Z" /><path d="M8.5 8.5h.01" /></svg>;
+}
+
 /** A chevron pointing right: a submenu. */
 export function ChevronRightIcon() {
   return <svg {...LINE}><path d="M9.5 6 15.5 12l-6 6" /></svg>;

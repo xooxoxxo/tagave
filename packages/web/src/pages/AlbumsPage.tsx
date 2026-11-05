@@ -24,7 +24,8 @@ import {
   albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds, selectionSize,
   setAlbumListMemory, toggled, useAlbumListMemory, withIds,
 } from './albumSelection';
-import { PlanWizard } from '../components/PlanWizard';
+import { TagSheet } from '../components/TagSheet';
+import { useAlbumDrawer } from './AlbumMenu';
 import { useMaintenance } from '../maintenance';
 import { plural } from '../utils/qualityFlags';
 import { useEntry, useScrollPlace } from '../utils/listPlace';
@@ -308,6 +309,7 @@ export function AlbumsPage() {
   useScrollPlace(scroller, 'albums', useEntry(router.history, '/albums'), { resetOnEnter: true });
 
   const [planIds, setPlanIds] = useState<string[] | null>(null);
+  const tagDrawer = useAlbumDrawer();
   const labelsFor = (ids: string[]) => {
     const want = new Set(ids);
     return Object.fromEntries(items.filter((it) => want.has(it.id)).map((it) => [it.id, `${it.artistCredit} – ${it.title}`]));
@@ -453,11 +455,13 @@ export function AlbumsPage() {
         )}
         {/* Once the selection is in the plan it is dropped, so moving on to the plan page does not ask. */}
         {planIds && libraryId && (
-          <PlanWizard
+          <TagSheet
+            open
+            onOpenChange={(open) => { if (!open) setPlanIds(null); }}
             libraryId={libraryId}
-            initialScope={{ albumIds: planIds, albumLabels: labelsFor(planIds) }}
+            albums={{ ids: planIds, labels: labelsFor(planIds) }}
+            side={tagDrawer ? 'bottom' : 'right'}
             onDone={clearSelection}
-            onClose={() => setPlanIds(null)}
           />
         )}
         {bulkResult && !bulk.isPending && (

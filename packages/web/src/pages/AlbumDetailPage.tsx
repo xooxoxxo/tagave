@@ -62,6 +62,7 @@ import { AlbumMoreButton, useAlbumDrawer, type AlbumInfoTab, type AlbumSummary }
 const AlbumActionsSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumActionsSheet })));
 const AlbumInfoSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumInfoSheet })));
 const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
+const TagSheet = lazy(() => import('../components/TagSheet').then((m) => ({ default: m.TagSheet })));
 const MoveSheet = lazy(() => import('../components/MoveSheet').then((m) => ({ default: m.MoveSheet })));
 import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
@@ -304,7 +305,7 @@ export function AlbumDetailPage() {
   // ⋮: a bottom drawer on a phone or tablet, a dropdown on a desktop; the album info
   // is a drawer too (a side sheet on a desktop). Focus goes back to what opened it.
   const drawer = useAlbumDrawer();
-  const [sheet, setSheet] = useState<'actions' | 'info' | 'playlist' | null>(null);
+  const [sheet, setSheet] = useState<'actions' | 'info' | 'playlist' | 'tag' | null>(null);
   const [infoTab, setInfoTab] = useState<string>('about');
   // the drawers' code loads on the first open and stays (so they can animate closed)
   const [sheetsWanted, setSheetsWanted] = useState(false);
@@ -537,6 +538,11 @@ export function AlbumDetailPage() {
     requestAnimationFrame(() => document.getElementById(PANEL_MATCH_INPUT)?.focus({ preventScroll: true }));
   };
 
+  // Tag: the sheet with the defaults; focus goes back to what opened it (the Tag key, or ⋮ from the drawer)
+  const openTag = () => {
+    if (!drawer || sheet !== 'actions') opener.current = document.activeElement as HTMLElement | null;
+    setSheet('tag');
+  };
   const onAction = (item: AttentionItem) => {
     const a = item.action;
     if (!a) return;
@@ -555,7 +561,7 @@ export function AlbumDetailPage() {
       case 'editions': openSection('editions'); break;
       case 'split-image': setSplitOpen(true); break;
       case 'art': fetchArt.mutate(); break;
-      case 'tags': void navigate({ to: '/plans', search: { album: albumId } }); break;
+      case 'tags': openTag(); break;
       case 'split': if (item.id) setOpenRows((cur) => new Set(cur).add(item.id)); break;
       case 'expand': toggleRow(item.id); break;
     }
@@ -769,7 +775,7 @@ export function AlbumDetailPage() {
                     <span className={styles.muted}> · added {shortDate(t.acceptedAt)}{t.note ? ` · ${t.note}` : ''}</span>
                   </div>
                   <div className={styles.inlineActions}>
-                    {f?.action === 'tags' && <LinkButton variant="quiet" size="sm" to="/plans" search={{ album: albumId }}>Fix tags</LinkButton>}
+                    {f?.action === 'tags' && <Button variant="quiet" size="sm" onClick={() => openTag()}>Fix tags</Button>}
                     {f?.action === 'art' && <Button variant="quiet" size="sm" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>Fetch art</Button>}
                     <ReopenGapButton gapId={t.id} onDecided={() => refresh()} title="Take it off your task list; it shows as an issue again">Remove from tasks</ReopenGapButton>
                   </div>
@@ -923,6 +929,7 @@ export function AlbumDetailPage() {
       next: () => void enqueueWithToast({ albumId }, 'next'),
       end: () => void enqueueWithToast({ albumId }, 'end'),
     } : null,
+    tag: canCare && libraryId ? openTag : null,
     addToPlaylist: playlistsOn ? () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; setSheet('playlist'); } : null,
     // the album leaves the library at once: back to the albums, with Undo on the toast
     remove: del ? { label: del.label, onSelect: () => { del.album(albumId, title ?? 'Untitled'); leaveDeleted(deletedFallback); } } : null,
@@ -1405,6 +1412,17 @@ export function AlbumDetailPage() {
                 onOpenChange={(open) => setSheet(open ? 'playlist' : null)}
                 returnFocus={opener}
                 source={{ albumId }}
+                side={drawer ? 'bottom' : 'right'}
+              />
+            )}
+            {/* Tag: a new plan with the defaults, from "Tag…" in ⋮ and Fix tags */}
+            {canCare && libraryId && sheet === 'tag' && (
+              <TagSheet
+                open
+                onOpenChange={(open) => setSheet(open ? 'tag' : null)}
+                returnFocus={opener}
+                libraryId={libraryId}
+                albums={{ ids: [albumId], labels: { [albumId]: `${artistLine} — ${title ?? 'Untitled'}` } }}
                 side={drawer ? 'bottom' : 'right'}
               />
             )}

@@ -95,7 +95,7 @@ export const playLabel = (mode: AlbumPlayState['mode']) => (mode === 'pause' ? '
 
 /* ---------------- the ⋮ menu ---------------- */
 
-export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance' | 'next' | 'queue' | 'playlist' | 'trash';
+export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance' | 'next' | 'queue' | 'playlist' | 'trash' | 'tag';
 
 export interface AlbumMenuAction {
   key: string;
@@ -143,6 +143,8 @@ export interface AlbumMenuInput {
   queue?: { next: () => void; end: () => void } | null | undefined;
   /** Add to playlist… (the playlists module) */
   addToPlaylist?: (() => void) | null | undefined;
+  /** Tag… (library care): the Tag sheet, a new plan with the defaults */
+  tag?: (() => void) | null | undefined;
   /** the owner's one delete item, in the library's mode ("Mark for deletion" or "Move to trash"): the last Maintenance tool */
   remove?: { label: string; onSelect: () => void } | null | undefined;
 }
@@ -169,6 +171,7 @@ export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
       { key: 'queue', label: 'Add to queue', icon: 'queue' as const, onSelect: i.queue.end },
     ] : []),
     ...(i.addToPlaylist ? [{ key: 'playlist', label: 'Add to playlist…', icon: 'playlist' as const, onSelect: i.addToPlaylist }] : []),
+    ...(i.canCare && i.tag ? [{ key: 'tag', label: 'Tag…', icon: 'tag' as const, onSelect: i.tag }] : []),
     { key: 'info', label: 'Album info', hint: 'Details and reviews', icon: 'info', onSelect: i.onInfo },
     ...(one ? [] : i.artists.map(artist)),
   ];

@@ -26,8 +26,10 @@ import {
 } from '@tagave/core';
 import { oneFileAlbums, writableRootIds, type OneFileAlbum } from '@tagave/db';
 import {
-  ONE_FILE_ALBUM_GAP, SPLIT_LENGTH_SLACK_MS, SPLIT_SEARCH_MS, type FilesSplitJobData, type SplitPlan, type TagSet,
+  ONE_FILE_ALBUM_GAP, SPLIT_LENGTH_SLACK_MS, SPLIT_SEARCH_MS, type FilesSplitJobData, type SplitPlan, type TagPolicies, type TagSet,
 } from '@tagave/shared';
+import { currentFieldsFrom } from '../lib/canonicalTags.js';
+import { decideField, fieldPolicyFor } from './tagsPreview.js';
 import type { WorkerContext } from '../lib/context.js';
 import { exists, markLibraryDirty, onDisk, trashDay, trashOne } from '../lib/deletions.js';
 import { FlacTools } from '../lib/flacTools.js';
@@ -37,8 +39,47 @@ import { MutagenTagWriter } from '../lib/tagWriter.js';
 export interface SplitDeps {
   tools: FlacTools;
   /** the tag writer (mutagen); tests pass a stand-in */
-  tags: { write(path: string, tags: TagSet): Promise<void> };
+  tags: { write(path: string, tags: TagSet): Promise<unknown> };
   now?: () => Date;
+  /**
+   * 0089: the tag plan's policy when a plan splits first: each track takes
+   * the plan's values (splitTagsUnderPolicy) instead of every release value.
+   */
+  policy?: TagPolicies;
+}
+
+/**
+ * The fields a split track owns. The source's value of these describes the
+ * whole file, not the track, so a new track starts without them.
+ */
+const TRACK_FIELDS = new Set([
+  'title', 'artist', 'artistsort', 'musicbrainz_artistid', 'musicbrainz_recordingid', 'musicbrainz_releasetrackid', 'isrc',
+  'tracknumber', 'totaltracks', 'discnumber', 'totaldiscs',
+]);
+/** Always written: without them the tracks would not know their name and order. */
+const STRUCTURAL_FIELDS = ['title', 'tracknumber', 'totaltracks', 'discnumber', 'totaldiscs'];
+
+type FieldValue = string | string[] | null;
+
+/**
+ * The tags a split track takes under a tag plan's policy. flac copies the
+ * source's tags into every track, so a track starts with the source's album
+ * fields and none of its own (TRACK_FIELDS); each value the release gives is
+ * then decided as the plan's preview decides it (overwrite, fill, never). Its
+ * title and position always go in.
+ */
+export function splitTagsUnderPolicy(policy: TagPolicies, source: Record<string, FieldValue | undefined>, release: TagSet): TagSet {
+  const out: TagSet = {};
+  for (const [field, canonical] of Object.entries(release)) {
+    if (STRUCTURAL_FIELDS.includes(field)) {
+      out[field] = canonical;
+      continue;
+    }
+    const before: FieldValue = TRACK_FIELDS.has(field) ? null : (source[field] ?? null);
+    const d = decideField(fieldPolicyFor(policy, field), before, (canonical ?? null) as FieldValue, false);
+    if (d.reason === 'policy:fill' || d.reason === 'policy:overwrite') out[field] = d.after as string | string[];
+  }
+  return out;
 }
 
 export interface SplitRow {
@@ -259,7 +300,13 @@ export async function runSplit(ctx: WorkerContext, row: SplitRow, deps: SplitDep
       }
       if (await exists(p.temp)) throw new SplitStop(`${path.basename(p.temp)} is already in the folder`);
     }
-    const tags = await releaseTags(ctx, src.album.releaseId, src.tracks);
+    const released = await releaseTags(ctx, src.album.releaseId, src.tracks);
+    let tags = released;
+    if (deps.policy) {
+      const [f] = (await ctx.sql`select tags_raw as "tagsRaw" from files where id = ${src.album.fileId}`) as unknown as Array<{ tagsRaw: unknown }>;
+      const source = currentFieldsFrom(f?.tagsRaw ?? null) as Record<string, FieldValue | undefined>;
+      tags = new Map([...released].map(([id, t]) => [id, splitTagsUnderPolicy(deps.policy!, source, t)]));
+    }
 
     // 1. write and tag each track under a hidden name the scan skips
     for (const p of parts) {
