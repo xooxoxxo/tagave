@@ -5,15 +5,15 @@ import type { WorkerContext } from '../lib/context.js';
 import { recomputeMissingAlbumGaps } from '../lib/missingAlbumGaps.js';
 import { keepDecisionOnConflict } from '../lib/gapUpsert.js';
 import { reportProgress } from './progress.js';
-import { oneFileAlbums } from '@tagave/db';
-import { ONE_FILE_ALBUM_GAP } from '@tagave/shared';
+import { albumLiveSql, recomputeAlbumGaps } from '@tagave/db';
 
 export interface GapsRecomputeJobData {
   libraryId: string;
   /**
-   * Only re-lint these albums (after a tag plan wrote them). The set-based
-   * gap kinds (incomplete, duplicate, missing) are skipped; the nightly
-   * unscoped run covers them.
+   * Only these albums: the ones an operation touched (a tag plan, a move, a
+   * merge, a rescan …). Their album-level gaps and quality flags are
+   * recomputed; the library-wide missing-albums pass is left to the nightly
+   * unscoped run.
    */
   albumIds?: string[];
 }
@@ -32,94 +32,16 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
   const scoped = data.albumIds !== undefined;
   const albumScope = data.albumIds ?? [];
 
-  if (!scoped) {
-  // --- GAP-1: incomplete albums (matched, fewer local tracks than canonical)
-  await ctx.sql`
-    insert into gaps (library_id, kind, subject_type, subject_id, details, state)
-    select ${lib}, 'incomplete_album', 'local_album', la.id,
-           jsonb_build_object(
-             'have', la.track_count,
-             'want', r.track_count,
-             'missing', missing.tracks
-           ),
-           'open'
-    from local_albums la
-    join releases r on r.id = la.release_id
-    join lateral (
-      select jsonb_agg(jsonb_build_object(
-               'disc', ct.medium_no, 'position', ct.position,
-               'title', ct.title, 'lengthMs', ct.length_ms)
-             order by ct.medium_no, ct.position) as tracks
-      from canonical_tracks ct
-      where ct.release_id = r.id
-        and not ct.is_data_track and not ct.is_video
-        and not exists (
-          select 1 from local_tracks lt
-          where lt.local_album_id = la.id
-            and coalesce(lt.disc_no, 1) = coalesce(ct.medium_no, 1)
-            and lt.track_no = ct.position)
-    ) missing on true
-    where la.library_id = ${lib}
-      and la.state = 'matched'
-      and r.track_count is not null
-      and la.track_count < r.track_count
-    ${keepDecisionOnConflict(ctx.sql)}`;
-
-  // resolve incomplete gaps that no longer hold
-  await ctx.sql`
-    update gaps g set state = 'resolved', resolved_at = now()
-    where g.library_id = ${lib} and g.kind = 'incomplete_album' and g.state != 'resolved'
-      and not exists (
-        select 1 from local_albums la
-        join releases r on r.id = la.release_id
-        where la.id = g.subject_id and la.state = 'matched'
-          and r.track_count is not null and la.track_count < r.track_count)`;
-
-  // --- GAP-4: duplicates (several local albums on one release group)
-  await ctx.sql`
-    insert into gaps (library_id, kind, subject_type, subject_id, details, state)
-    select ${lib}, 'duplicate', 'release_group', d.release_group_id,
-           jsonb_build_object('albumIds', d.ids, 'count', d.n), 'open'
-    from (
-      select release_group_id, count(*) as n, jsonb_agg(id) as ids
-      from local_albums
-      where library_id = ${lib} and release_group_id is not null and state != 'ignored'
-      group by release_group_id having count(*) > 1
-    ) d
-    ${keepDecisionOnConflict(ctx.sql)}`;
-  await ctx.sql`
-    update gaps g set state = 'resolved', resolved_at = now()
-    where g.library_id = ${lib} and g.kind = 'duplicate' and g.state != 'resolved'
-      and (select count(*) from local_albums la
-           where la.library_id = ${lib} and la.release_group_id = g.subject_id
-             and la.state != 'ignored') < 2`;
-
-  // --- Whole album in one file (0078): one FLAC, no cue sheet, matched to a
-  // release of several tracks whose lengths add up to it (@tagave/db ›
-  // oneFileAlbums). Mark-and-sweep as the quality flags: the upsert clears
-  // the mark on albums that still fit, the rest resolve (a split, a rematch).
-  await ctx.sql`
-    update gaps set resolved_at = now()
-    where library_id = ${lib} and kind = ${ONE_FILE_ALBUM_GAP} and state != 'resolved'`;
-  const oneFile = await oneFileAlbums(ctx.sql, lib);
-  if (oneFile.length > 0) {
-    await ctx.sql`
-      insert into gaps (library_id, kind, subject_type, subject_id, details, state)
-      select ${lib}, ${ONE_FILE_ALBUM_GAP}, 'local_album', u.id, u.d::jsonb, 'open'
-        from unnest(${oneFile.map((a) => a.albumId)}::uuid[],
-                    ${oneFile.map((a) => JSON.stringify({ fileId: a.fileId, fileMs: a.fileMs, releaseMs: a.releaseMs, tracks: a.tracks }))}::text[]) as u(id, d)
-      ${keepDecisionOnConflict(ctx.sql)}`;
-  }
-  await ctx.sql`
-    update gaps set state = 'resolved'
-    where library_id = ${lib} and kind = ${ONE_FILE_ALBUM_GAP} and state != 'resolved' and resolved_at is not null`;
+  // --- GAP-1/4 and whole album in one file (0078): incomplete albums,
+  // duplicates, one-file albums, and the gaps of albums that are gone. One
+  // definition shared with the api, which runs it for the albums an
+  // operation touched in the same request (@tagave/db › recomputeAlbumGaps).
+  await recomputeAlbumGaps(ctx.sql, lib, scoped ? albumScope : null);
 
   // --- GAP-2: missing albums per followed artist (release groups not owned
   // locally, filtered by the artist's follow rules). Shared with artist.refresh,
   // which runs the same pass scoped to the refreshed artist.
-  await recomputeMissingAlbumGaps(ctx, lib);
-
-  }
+  if (!scoped) await recomputeMissingAlbumGaps(ctx, lib);
 
   // --- GAP-5: quality flags per album, one row per (album, flag) (0032), so
   // each flag can be hidden or taken on as a task on its own
@@ -190,6 +112,7 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
       where lt.local_album_id = la.id) notags on true
     where la.library_id = ${lib} and la.state not in ('ignored')
       and (${!scoped} or la.id = any(${albumScope}::uuid[]))
+      and ${ctx.sql.unsafe(albumLiveSql('la.id'))}
   ` as unknown as Array<{ id: string; audio_flags: Record<string, unknown>; has_embedded_art: boolean }>;
 
   // For each album, fetch tracks and compute lint flags

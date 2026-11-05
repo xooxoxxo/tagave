@@ -42,6 +42,7 @@ export * from './dj.js';
 export * from './playlistsModule.js';
 export * from './deletions.js';
 export * from './albumSplits.js';
+export * from './albumGaps.js';
 export * from './modules.js';
 export * from './lidarr.js';
 export * from './musicFolder.js';
