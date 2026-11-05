@@ -468,7 +468,8 @@
 .floatClose:focus { outline: none; }
 .floatButton:focus-visible,
 .floatClose:focus-visible { outline: 2px solid var(--dew-hi); outline-offset: 1px; }
-.floatDanger { color: var(--danger-hi); }
+/* the bar is the inverse of the page, so no danger tone reads on it in both themes: the word carries it */
+.floatDanger { color: inherit; }
 .floatClose { display: inline-grid; place-items: center; width: 40px; padding: 0; }
 .floatClose svg { width: 16px; height: 16px; }
 
