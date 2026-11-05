@@ -48,7 +48,8 @@ const legacyReason = (s: Skipped): Skipped['reason'] => {
 
 export function explainPreview(stats: Partial<TagPlanStats> | undefined | null): PreviewOutcome | null {
   if (!stats) return null;
-  const skipped = stats.filesSkipped ?? [];
+  // 0089: a file the plan splits first is not left out: its tracks are tagged when the split runs
+  const skipped = (stats.filesSkipped ?? []).filter((s) => s.reason !== 'split_first');
   const notIdentifiedAlbums = new Set<string>();
   const releaseMissingAlbums = new Set<string>();
   let notIdentified = 0;

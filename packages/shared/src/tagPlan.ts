@@ -152,6 +152,9 @@ export const tagPlanStatsSchema = z.object({
   filesToMove: z.number().int().nonnegative().optional().describe('0081: files the naming rules give another path'),
   filesMoveBlocked: z.number().int().nonnegative().optional().describe('0081: files whose new path is taken or cannot be written (their tags still apply)'),
   movesQueued: z.number().int().nonnegative().optional().describe('0081: album moves queued after the tags were written'),
+  splitsDone: z.number().int().nonnegative().optional().describe('0089: albums the apply split into their tracks first'),
+  splitsFailed: z.number().int().nonnegative().optional().describe('0089: splits that stopped, changing nothing'),
+  splitTracks: z.number().int().nonnegative().optional().describe('0089: tracks the splits wrote'),
 }).strict().describe('Aggregate summary of a plan preview');
 
 export type TagPlanStats = z.infer<typeof tagPlanStatsSchema>;

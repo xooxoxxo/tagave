@@ -7,11 +7,15 @@ import { Input, Select } from '../components/ui/FormControl';
  * is written until Apply.
  */
 import { FIELD_LABELS } from '../utils/tagFieldLabels';
-import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import type { TagDiffEntry, TagPlanItem } from '@tagave/shared';
-import { PageShell, Button, Badge, Banner, SegmentedControl, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
+import { splitDoneLine, type PlanSplit, type TagDiffEntry, type TagPlanItem } from '@tagave/shared';
+import { PageShell, Button, Badge, Banner, SegmentedControl, UndoIcon, confirmDialog, showToast, type ConfirmOptions } from '../components/ui';
+import { PlanSplits } from './PlanSplits';
+import { useAlbumDrawer } from './AlbumMenu';
+
+const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
 import { usePlanOrganize } from '../hooks/useNaming';
 import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { useCurrentLibrary } from '../hooks';
@@ -229,6 +233,10 @@ export function PlanPage() {
   // Track whether we've fired auto-preview for this mount to prevent re-firing
   const previewAutoFiredRef = useRef(false);
   const [editingValues, setEditingValues] = useState(false);
+  // 0089: the splits whose Low cuts the owner checked, and the one being checked
+  const [confirmedSplits, setConfirmedSplits] = useState<string[]>([]);
+  const [checking, setChecking] = useState<PlanSplit | null>(null);
+  const drawer = useAlbumDrawer();
   const [identifyNote, setIdentifyNote] = useState<string | null>(null);
   const identifyAlbums = useIdentifyAlbums(libraryId);
   // Revert builds a new, already previewed plan from the journal; open it
@@ -447,7 +455,11 @@ export function PlanPage() {
   const progress = p?.progress;
   const tagWritesDisabled = settings.data !== undefined && !settings.data.tagWritesEnabled;
   const noWritableRoots = roots.data !== undefined && !roots.data.some((r) => r.writable);
-  const nothingToDo = previewed && stats !== undefined && stats.filesTouched === 0;
+  // 0089: the albums this plan splits first; a plan that only splits still has something to do
+  const splits = p?.splits ?? [];
+  const pendingSplits = splits.filter((x) => x.state === 'analyzing' || x.state === 'ready');
+  const splitsDone = splits.filter((x) => x.state === 'done');
+  const nothingToDo = previewed && stats !== undefined && stats.filesTouched === 0 && pendingSplits.length === 0;
   const outcome = previewed ? explainPreview(stats) : null;
   const isManual = p?.policy.preset === 'manual';
   const isRevert = p?.policy.preset === 'revert';
@@ -482,9 +494,10 @@ export function PlanPage() {
     }
     void qc.invalidateQueries({ queryKey: ['identify-status', libraryId] });
   };
-  const canApply = p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots;
+  const canApply = p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots && !pendingSplits.some((x) => x.state === 'analyzing');
   const applyTitle = !previewed ? 'Preview has not finished yet'
     : nothingToDo ? 'Nothing to change'
+      : pendingSplits.some((x) => x.state === 'analyzing') ? 'Finding cut points'
       : tagWritesDisabled ? 'Tag writes are off in Settings › Tag preferences'
         : noWritableRoots ? 'No scan root allows writes (Settings › Tag preferences)'
           : p?.status !== 'previewed' ? `Plan is ${p?.status}` : undefined;
@@ -499,6 +512,34 @@ export function PlanPage() {
       setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
     }
   };
+
+  // Apply: the splits' Low cuts are checked first (the split sheet), then split, then tag
+  const apply = async (confirmed: string[]) => {
+    const unchecked = pendingSplits.find((x) => x.state === 'ready' && x.low > 0 && !confirmed.includes(x.splitId));
+    if (unchecked) { setChecking(unchecked); return; }
+    const tracks = pendingSplits.reduce((n, x) => n + x.tracks, 0);
+    const files = stats?.filesTouched ?? 0;
+    const ok = await confirmDialog(pendingSplits.length > 0
+      ? { title: files > 0 ? `Split into ${tracks} tracks, then write ${plural(files, 'file')}?` : `Split into ${tracks} tracks and tag them?`, message: 'Revert puts it back.', confirmLabel: 'Apply' }
+      : { title: `Write the previewed changes to ${plural(files, 'file')}?`, message: 'Every write can be reverted.', confirmLabel: 'Apply' });
+    if (!ok) return;
+    setError(null);
+    try {
+      await applyM.mutateAsync(confirmed.length > 0 ? { confirmSplits: confirmed } : undefined);
+      setAwaiting(p?.status ?? null);
+    } catch (e) {
+      setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
+    }
+  };
+
+  // the notice when a plan that split finishes: "Split into 11 tracks · tagged"
+  const lastStatus = useRef(status);
+  useEffect(() => {
+    if (lastStatus.current === 'applying' && (status === 'applied' || status === 'partially_failed') && (stats?.splitsDone ?? 0) > 0) {
+      showToast({ message: splitDoneLine(stats?.splitTracks ?? 0), durationMs: 8000 });
+    }
+    lastStatus.current = status;
+  }, [status, stats]);
 
   const byField = useMemo(() => {
     const map = new Map<string, { files: number; reasons: Record<string, number> }>();
@@ -539,6 +580,8 @@ export function PlanPage() {
   }
 
   const statusView = planStatusView(p.status, progress);
+  // a file the plan splits first is not skipped: its tracks are tagged by the split
+  const skippedCount = (stats?.filesSkipped ?? []).filter((x) => x.reason !== 'split_first').length;
   // A plan that wrote files keeps its journal for Revert; the API refuses to
   // delete it, so the page does not offer it (a reverted plan can go).
   const wroteFiles = (progress?.applied ?? 0) > 0 && p.status !== 'reverted';
@@ -580,7 +623,7 @@ export function PlanPage() {
             </Button>
           )}
           {p.status === 'previewed' && (
-            <Button variant="primary" loading={applyM.isPending} onClick={run(applyM, { title: `Write the previewed changes to ${plural(stats?.filesTouched ?? 0, 'file')}?`, message: 'Every write can be reverted.', confirmLabel: 'Apply' })} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
+            <Button variant="primary" loading={applyM.isPending} onClick={() => void apply(confirmedSplits)} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
               {applyM.isPending || awaiting !== null ? 'Starting…' : 'Apply now'}
             </Button>
           )}
@@ -596,16 +639,20 @@ export function PlanPage() {
               <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
-          {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && (progress?.applied ?? 0) > 0 && (
+          {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && ((progress?.applied ?? 0) > 0 || splitsDone.length > 0) && (
             <Button
               variant="secondary"
               loading={revertM.isPending || revertPlanId !== null}
               onClick={async () => {
-                if (!(await confirmDialog({ title: 'Prepare a revert plan?', message: `It restores the previous tags on ${plural(progress?.applied ?? 0, 'file')}. You will see it before anything is written.`, confirmLabel: 'Prepare revert' }))) return;
+                const onlySplit = (progress?.applied ?? 0) === 0;
+                if (!(await confirmDialog(onlySplit
+                  ? { title: 'Undo the split?', message: 'The one file comes back; the new tracks go to the trash.', confirmLabel: 'Revert' }
+                  : { title: 'Prepare a revert plan?', message: `It restores the previous tags on ${plural(progress?.applied ?? 0, 'file')}. You will see it before anything is written.`, confirmLabel: 'Prepare revert' }))) return;
                 setError(null);
                 try {
                   const r = await revertM.mutateAsync();
                   if (r.revertPlanId) setRevertPlanId(r.revertPlanId);
+                  else if (onlySplit) setAwaiting(p.status);
                   else await navigate({ to: '/plans' });
                 } catch (e) {
                   setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
@@ -758,17 +805,40 @@ export function PlanPage() {
           <Banner tone="info">Every file in scope already carries {isManual ? 'the values you set' : 'the canonical values under this policy'}. Nothing to apply.</Banner>
         ) : null}
 
+        <PlanSplits splits={splits} onCheck={p.status === 'previewed' ? (x) => setChecking(x) : null} />
+        {checking?.albumId && libraryId && (
+          <Suspense fallback={null}>
+            <SplitSheet
+              open
+              onOpenChange={(o) => { if (!o) setChecking(null); }}
+              libraryId={libraryId}
+              albumId={checking.albumId}
+              title={p.name || 'Split'}
+              side={drawer ? 'bottom' : 'right'}
+              confirm={{
+                label: 'Split and tag',
+                onConfirm: (splitId) => {
+                  const next = [...new Set([...confirmedSplits, splitId])];
+                  setConfirmedSplits(next);
+                  setChecking(null);
+                  void apply(next);
+                },
+              }}
+            />
+          </Suspense>
+        )}
+
         {editingValues && libraryId && valueScopes.length > 0 && (
           <BulkTagEditor libraryId={libraryId} scopes={valueScopes} title="Set the values yourself" onClose={() => setEditingValues(false)} />
         )}
 
         {/* The file list below already counts files and changes; only what
             it cannot show (locks kept, files skipped) gets a quiet line. */}
-        {previewed && stats && !hasResults && p.status !== 'reverted' && !nothingToDo && (stats.lockedFieldsRespected > 0 || stats.filesSkipped.length > 0) && (
+        {previewed && stats && !hasResults && p.status !== 'reverted' && !nothingToDo && (stats.lockedFieldsRespected > 0 || skippedCount > 0) && (
           <p className={styles.previewNotes}>
             {[
               stats.lockedFieldsRespected > 0 ? `${stats.lockedFieldsRespected.toLocaleString()} locked ${stats.lockedFieldsRespected === 1 ? 'field' : 'fields'} kept` : null,
-              stats.filesSkipped.length > 0 ? `${plural(stats.filesSkipped.length, 'file')} skipped` : null,
+              skippedCount > 0 ? `${plural(skippedCount, 'file')} skipped` : null,
             ].filter(Boolean).join(' · ')}
           </p>
         )}
@@ -804,7 +874,7 @@ export function PlanPage() {
           </dl>
         </details>
 
-        {progress && BUSY.has(p.status) && (
+        {progress && BUSY.has(p.status) && progress.total > 0 && (
           <div className={styles.progress}>
             <div className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
               <div className={styles.fill} style={{ ['--scale' as string]: `${pct / 100}` }} />
