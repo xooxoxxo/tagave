@@ -416,6 +416,17 @@ export {
   type StepUpStatus,
 } from './updater.js';
 
+// The DJ module: track analysis the player mixes with, and Simple mode settings
+export {
+  DJ_DEFAULTS,
+  DJ_LENGTH_MAX_SEC,
+  DJ_LENGTH_MIN_SEC,
+  DJ_SETTINGS_STORAGE_KEY,
+  type DjCrossfade,
+  type DjSettings,
+  type DjTrackInfo,
+} from './dj.js';
+
 // Optional modules (Settings › Modules) and the signed release manifest
 export {
   MODULE_ENABLE_STEPS,
