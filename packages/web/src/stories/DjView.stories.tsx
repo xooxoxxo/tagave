@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
-import { PageShell } from '../ui';
-import { DjHead, DjUnavailable, DjView } from './DjView';
-import { FX_DEFAULTS, cloneFx } from '../../player/deckFx';
-import type { DeckView } from '../../player/djDecks';
+import { PageShell } from '../components/ui';
+import { DjHead, DjUnavailable, DjView } from '../components/dj/DjView';
+import { FX_DEFAULTS, cloneFx } from '../player/deckFx';
+import type { DeckView } from '../player/djDecks';
 
 const peaks = (seed: number) => Array.from({ length: 900 }, (_, i) => {
   if (i < 15 || i > 870) return 0.02;
@@ -35,7 +35,7 @@ function Screen({ x = 0.35, auto = false, a = A, b = B }: { x?: number; auto?: b
 }
 
 const meta = {
-  title: 'Pages/DJ',
+  title: 'Components/DJ',
   component: Screen,
   parameters: { layout: 'fullscreen', docs: { description: { component: 'The DJ view (the dj module\'s Advanced mode): two decks (cover, names, the tempo heard, the waveform with downbeats, Play, Cue, Sync, Pitch, Filter, EQ with kills, Echo), the crossfader, the queue. Auto mix Off/On in the header. Stacked on a phone.' } } },
 } satisfies Meta<typeof Screen>;
@@ -43,6 +43,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const BothPlaying: Story = {};
+export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
 export const AutoMixOn: Story = { args: { auto: true, x: 0.62 } };
 export const OneDeckEmpty: Story = { args: { x: 0, b: deck({ uid: null, trackId: null, title: '', artist: '', playing: false, peaks: null, bpm: null }) } };
 export const BeingMeasured: Story = { args: { b: deck({ uid: 'q3', title: 'Far Tempo', artist: 'Fast Hands', playing: false, peaks: [], bpm: null, firstBeatSec: null }) } };

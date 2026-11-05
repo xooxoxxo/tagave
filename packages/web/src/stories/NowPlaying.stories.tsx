@@ -4,6 +4,7 @@ import { HISTORY, QUEUE } from './queueFixtures';
 import { CastKeyView } from '../components/player/CastKey';
 import { MixChip } from '../components/player/MixChip';
 import { DeviceStripView, DevicesKeyView } from '../components/player/DevicesKey';
+import { DjIcon, EmbossIconButton } from '../components/ui';
 
 const noop = () => undefined;
 const queue = {
@@ -49,6 +50,22 @@ export const DesktopHistory: Story = {
   name: 'Desktop · History',
   tags: ['shot-viewport'],
   render: () => <OverPage><NowPlayingView {...queue} track={QUEUE[0]!} onClose={noop} initialTab="history" /></OverPage>,
+};
+
+/** The DJ module's DJ key (where the DJ view can run here): in the header on a desktop, beside the cast key on a phone. */
+const djKey = (place: 'page' | 'header') => <EmbossIconButton label="DJ" place={place} onClick={noop}><DjIcon /></EmbossIconButton>;
+
+export const DesktopDjKey: Story = {
+  name: 'Desktop · DJ key',
+  tags: ['shot-viewport'],
+  render: () => <OverPage><NowPlayingView {...queue} track={QUEUE[0]!} onClose={noop} dj={djKey('header')} /></OverPage>,
+};
+
+export const PhoneDjKey: Story = {
+  name: 'Phone · DJ key',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => <NowPlayingScreen {...queue} {...transport} track={QUEUE[0]!} onClose={noop} dj={djKey('page')} />,
 };
 
 export const PhonePlaying: Story = {
