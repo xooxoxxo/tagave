@@ -35,8 +35,6 @@ function Form({ v = view, rootCheck }: { v?: LidarrSettingsView; rootCheck: Lida
 
 const meta = {
   title: 'Settings/Modules/Lidarr',
-  // No screenshot baseline yet: render one on the CI runner (DESIGN.md) and drop `no-shot`.
-  tags: ['no-shot'],
   parameters: {
     docs: {
       description: {

@@ -19,8 +19,6 @@ const noop = () => undefined;
 const meta = {
   title: 'Settings/Library/Drop pool',
   component: DropPoolSettingsView,
-  // No screenshot baseline yet: render one on the CI runner (DESIGN.md) and drop `no-shot`.
-  tags: ['no-shot'],
   args: { view: base, onPut: noop },
   parameters: {
     docs: {
