@@ -50,6 +50,7 @@ export async function splitView(libraryId: string, albumId: string): Promise<Alb
     eligible: !!fit,
     writable: fit ? (await writableRootIds(sql, libraryId)).has(fit.scanRootId) : false,
     localTrackId: fit?.localTrackId ?? null,
+    tracks: fit?.tracks ?? null,
   };
 }
 
