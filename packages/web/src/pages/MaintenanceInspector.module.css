@@ -184,7 +184,7 @@
   gap: 8px;
   min-width: 0;
   min-height: 36px;
-  padding: 0;
+  padding: 7px 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -210,13 +210,14 @@
 .rowLine {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   text-decoration: line-through;
   text-decoration-color: transparent;
   transition: color var(--dur-slow) var(--ease-out), text-decoration-color var(--dur-slow) var(--ease-out);
 }
-.row[data-open] .rowLine { white-space: normal; }
+.row[data-open] .rowLine { -webkit-line-clamp: unset; }
 .row[data-ticked] .rowLine {
   color: var(--ink-3);
   text-decoration-color: currentColor;
@@ -380,7 +381,6 @@
 .inspector[data-variant="sheet"] .item { min-height: 44px; font-size: 0.875rem; }
 .inspector[data-variant="sheet"] .textButton { min-height: 36px; font-size: 0.8125rem; }
 .inspector[data-variant="sheet"] .rowBody { padding-left: 30px; }
-.inspector[data-variant="sheet"] .rowLine { white-space: normal; }
 
 /* ---- the phone's row under the album ---- */
 .summary {
@@ -412,6 +412,8 @@
    A zero-height sticky layer at the bottom of the scroll pane: the bar
    floats over the tracks and takes no room in the page. */
 .floatLayer {
+  /* last in the album flow, whatever order its sections take */
+  order: 99;
   position: sticky;
   bottom: 0;
   z-index: var(--z-sticky);

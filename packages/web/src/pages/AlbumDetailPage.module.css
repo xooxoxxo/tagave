@@ -1194,6 +1194,16 @@ td.cellOff {
   align-self: stretch;
   min-width: 0;
 }
+/* beside the sidebar on a narrower desktop (1024px) the album column is
+   about 450px: a smaller cover and title, so the title wraps between words */
+.inspectorLayout[data-inspector] > .flow {
+  container: album-flow / inline-size;
+}
+@container album-flow (max-width: 620px) {
+  .hero { grid-template-columns: 148px minmax(0, 1fr); }
+  .nameB { font-size: 28px; line-height: 1.15; overflow-wrap: break-word; }
+  .nameA { font-size: 16px; }
+}
 .inspectorSide {
   position: sticky;
   top: 0;
