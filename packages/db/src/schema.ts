@@ -1986,10 +1986,12 @@ export const djTrackAnalysis = pgTable(
 );
 
 // Each person's own preferences that follow them between devices (0059):
-// the colour theme of Settings › Appearance. Written by api › routes/userPrefs.ts.
+// the colour theme of Settings › Appearance, and the DJ module's Simple mode
+// (0087). Written by api › routes/userPrefs.ts.
 export const userPrefs = pgTable('user_prefs', {
   userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   theme: jsonb(),
+  dj: jsonb(),
   updatedAt: tstz('updated_at').notNull().defaultNow(),
 });
 

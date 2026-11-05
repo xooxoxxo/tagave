@@ -67,3 +67,28 @@ export interface DjModuleView {
 }
 
 export const djModuleSchema = z.object({ enabled: z.boolean() }).strict();
+
+/**
+ * Simple mode, each person's own (Settings › Modules › DJ): kept in their
+ * user_prefs row (0087, GET/PUT /api/v1/me/prefs { dj }), so it follows them
+ * between devices; the device that plays applies them.
+ */
+export type DjCrossfade = 'off' | 'fixed' | 'auto';
+
+export const DJ_LENGTH_MIN_SEC = 2;
+export const DJ_LENGTH_MAX_SEC = 12;
+
+export const djSimpleSettingsSchema = z.object({
+  crossfade: z.enum(['off', 'fixed', 'auto']),
+  /** seconds, for Fixed */
+  lengthSec: z.number().int().min(DJ_LENGTH_MIN_SEC).max(DJ_LENGTH_MAX_SEC),
+  beatAligned: z.boolean(),
+  /** never fade between consecutive tracks of one album */
+  gaplessAlbums: z.boolean(),
+}).strict();
+export type DjSimpleSettings = z.infer<typeof djSimpleSettingsSchema>;
+
+export const DJ_DEFAULTS: DjSimpleSettings = { crossfade: 'off', lengthSec: 6, beatAligned: false, gaplessAlbums: true };
+
+/** This browser's copy of the person's Simple mode (read before the server answers). */
+export const DJ_SETTINGS_STORAGE_KEY = 'tagave-dj';

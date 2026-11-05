@@ -39,6 +39,7 @@ import { SettingsConnectionsContent } from './SettingsConnectionsPage';
 import { SettingsListenElsewhereContent } from './SettingsListenElsewherePage';
 import { SettingsPlaybackContent } from './SettingsPlaybackPage';
 import { SettingsListeningContent } from './SettingsListeningPage';
+import { SettingsDjContent } from './SettingsDjPage';
 import runStyles from '../components/InAppUpdate.module.css';
 import styles from './SettingsModulesPage.module.css';
 
@@ -135,7 +136,7 @@ export function moduleRows(input: {
       else if (page.id in enabled) rows.push({ slug: page.slug, name: page.name, state: enabled[page.id] ? 'On' : 'Off', on: !!enabled[page.id] });
       continue;
     }
-    const mine = page.id === 'player' ? playerInstalled === true : (page.id === 'listen-links' || page.id === 'mc') && enabled[page.id] === true;
+    const mine = page.id === 'player' ? playerInstalled === true : (page.id === 'listen-links' || page.id === 'mc' || page.id === 'dj') && enabled[page.id] === true;
     if (mine) rows.push({ slug: page.slug, name: page.name, state: 'On', on: true });
   }
   return rows;
@@ -670,9 +671,9 @@ function DjSwitch() {
   );
 }
 
-/** DJ's settings (crossfade and the rest): the player engine's part of the module fills this. */
+/** DJ's Simple mode, each person's own (crossfade, length, beat-aligned, gapless albums): SettingsDjPage. */
 function DjSettings() {
-  return null;
+  return <SettingsDjContent />;
 }
 
 /* ---------- Settings › Modules › <module> ---------- */

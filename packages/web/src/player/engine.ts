@@ -37,7 +37,7 @@
  *     state and time come back through the sink* functions below.
  */
 import { create } from 'zustand';
-import type { PlayEventKind, PlayerCommandAction, PlayerQueueView, PlayerScanStatus, QueueContext, QueueOrigin, QueueStampView, QueueStateView, QueueTrack, StreamFormat } from '@tagave/shared';
+import type { DjTrackInfo, PlayEventKind, PlayerCommandAction, PlayerQueueView, PlayerScanStatus, QueueContext, QueueOrigin, QueueStampView, QueueStateView, QueueTrack, StreamFormat } from '@tagave/shared';
 import { api, type ApiError } from '../services/api';
 import {
   FAILURE_TEXT, chooseFormat, classifyFailure, clearQueued, handoffDelayMs, heardDelta, insertQueued, moveUpcoming, nextPlayable, nothingPlayableMessage, queueOrder,
@@ -47,6 +47,9 @@ import { getPlayerQuality } from './quality';
 import { cachedCastLink, castSrc, fetchCastLink } from './castLinks';
 import { isAppleMobile } from './platform';
 import { deviceId, randomId } from './deviceIdentity';
+import { allRouted, elementGain, existingContext, onContextTrouble, resetGains, routeElements, setGainNow, startContext as resumeGraph } from './audioGraph';
+import { djWanted, getDjSettings, subscribeDj } from './djSettings';
+import { equalPowerFrom, expectedIncoming, lockRate, planTransition, preloadAtSec, rampRate, trackFacts, type DjTransition } from './djPlan';
 
 export { deviceId } from './deviceIdentity';
 
@@ -87,9 +90,11 @@ export interface PlayerState {
   needsTap: boolean;
   /** another of the person's devices plays: this one shows it, and its keys control it */
   remoteDeviceId: string | null;
+  /** the DJ module mixes the last track into this one now (the bar's Mix chip): the fade's length */
+  mix: { lengthMs: number; at: number } | null;
 }
 
-const initial: PlayerState = { queue: null, queueId: null, index: -1, status: 'idle', message: null, retry: null, loadingAlbumId: null, position: 0, duration: null, volume: 1, needsTap: false, remoteDeviceId: null };
+const initial: PlayerState = { queue: null, queueId: null, index: -1, status: 'idle', message: null, retry: null, loadingAlbumId: null, position: 0, duration: null, volume: 1, needsTap: false, remoteDeviceId: null, mix: null };
 
 export const usePlayerStore = create<PlayerState>()(() => ({ ...initial }));
 const get = () => usePlayerStore.getState();
@@ -117,8 +122,11 @@ let elements: [HTMLAudioElement, HTMLAudioElement] | null = null;
 let active = 0;
 /** the track the active element holds, and what has been heard of it */
 let cur: { trackId: string; index: number; format: StreamFormat; base: number; triedFallback: boolean; started: boolean; completed: boolean; heardSec: number; lastTime: number | null } | null = null;
-/** the next track waiting in the other element */
-let preloaded: { index: number; trackId: string; format: StreamFormat } | null = null;
+/**
+ * the next track waiting in the other element; a DJ fade loads it from near
+ * where it comes in (`base` for a transcode, `seeked` for the original)
+ */
+let preloaded: { index: number; trackId: string; format: StreamFormat; base: number; seeked: boolean } | null = null;
 /** the last Play request, for Retry when the queue itself could not be played */
 let lastRequest:
   | { kind: 'album'; album: AlbumRef; startTrackId: string | null; shuffle: boolean }
@@ -133,6 +141,8 @@ let handoffTimer: ReturnType<typeof setTimeout> | null = null;
 function clearHandoff() {
   if (handoffTimer) clearTimeout(handoffTimer);
   handoffTimer = null;
+  // anything that moves playback (a load, a seek, a pause, casting) ends a DJ fade at once
+  cancelMix();
 }
 
 const el = () => elements?.[active] ?? null;
@@ -412,8 +422,10 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
     lastTime: null,
   };
   clearHandoff();
+  endRamp();
   const nextIdx = nextPlayable(s.queue!.tracks, index);
   if (preloaded && preloaded.trackId !== s.queue!.tracks[nextIdx]?.localTrackId) { release(standby()); preloaded = null; }
+  djPrepare(index);
   set({ index, status: 'loading', message: null, retry: null, needsTap: false, position: offset, duration: shownDuration(format, track.durationMs, Number.NaN) });
   updateMetadata(track);
   persistSoon();
@@ -424,6 +436,10 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
   }
   // the key armed links for the picker, and no device was chosen: the session URL again
   if (!routed) armed = false;
+  a.playbackRate = 1;
+  const g = elementGain(a);
+  if (g) setGainNow(g, 1);
+  djGesture();
   assignSrc(a, track.localTrackId, format, offset, () => {
     if (format === 'original' && offset > 0) {
       const seekTo = offset;
@@ -480,8 +496,13 @@ function onTime(a: HTMLAudioElement) {
   const track = currentTrack();
   const duration = shownDuration(cur.format, track?.durationMs ?? null, a.duration);
   set({ position, duration });
-  if (!preloaded && shouldPreload(position, duration)) preloadNext();
-  if (preloaded && !handoffTimer) {
+  tickRamp();
+  // a DJ fade on its way (or the next one planned) takes the place of the handoff below
+  if (mix) mixTick();
+  else if (!djTime(a, position, duration)) {
+    if (!preloaded && shouldPreload(position, duration)) preloadNext();
+  }
+  if (preloaded && !handoffTimer && !mix && !djFadeAhead) {
     const b = standby();
     const delay = handoffDelayMs(position, duration, !!b && b.readyState >= 3, a.paused);
     if (delay != null) {
@@ -526,6 +547,12 @@ function advance(early: boolean) {
   }
   const a = el();
   if (!a || !cur) return;
+  // the track ran out while the next one was already starting under it (a late timer): straight into it
+  if (mix && mix.phase === 'preroll' && mix.from === a && !mix.to.paused) {
+    swapToIncoming();
+    finishMix();
+    return;
+  }
   clearHandoff();
   if (early) {
     // only straight into a loaded next track; anything else waits for `ended`
@@ -546,18 +573,25 @@ function advance(early: boolean) {
     setPlaybackState('paused');
     return;
   }
+  // a track a DJ fade had loaded from a later second (a transcode) loads again from its start
+  if (preloaded && preloaded.base > 0) { release(standby()); preloaded = null; }
   if (preloaded && preloaded.trackId === tracks[next]!.localTrackId && elements) {
     const p = preloaded;
     preloaded = null;
     const old = a;
     active = 1 - active;
     const b = elements[active]!;
+    if (p.seeked) { try { b.currentTime = 0; } catch { /* plays from where it is */ } }
+    b.playbackRate = 1;
+    const gb = elementGain(b);
+    if (gb) setGainNow(gb, 1);
     generation++;
     cur = { trackId: p.trackId, index: next, format: p.format, base: 0, triedFallback: false, started: false, completed: false, heardSec: 0, lastTime: null };
     const track = tracks[next]!;
     set({ index: next, status: 'loading', message: null, retry: null, position: 0, duration: shownDuration(p.format, track.durationMs, b.duration) });
     updateMetadata(track);
     persistSoon();
+    djPrepare(next);
     startPlayback(b, () => {
       // The preloaded element may not start without a tap (iOS allows play()
       // only on an element a tap started once; with the screen locked there
@@ -579,7 +613,8 @@ function advance(early: boolean) {
   loadTrack(next);
 }
 
-function preloadNext() {
+/** Loads the next track into the other element; `startAt` (a DJ fade): from near where it comes in. */
+function preloadNext(startAt = 0) {
   const s = get();
   const b = standby();
   if (!s.queue || !b) return;
@@ -593,11 +628,363 @@ function preloadNext() {
     void fetchCastLink(track.localTrackId, format, getPlayerQuality().bitrate).catch(() => undefined);
     return;
   }
-  preloaded = { index: next, trackId: track.localTrackId, format };
+  const from = Math.max(0, startAt);
+  const base = format === 'original' ? 0 : Math.floor(from);
+  const p = { index: next, trackId: track.localTrackId, format, base, seeked: false };
+  preloaded = p;
   b.preload = 'auto';
-  b.src = streamUrl(track.localTrackId, format, getPlayerQuality().bitrate, 0);
+  b.src = streamUrl(track.localTrackId, format, getPlayerQuality().bitrate, base);
   try { b.load(); } catch { /* loads on play */ }
+  b.playbackRate = 1;
+  if (format === 'original' && from > 0) {
+    b.addEventListener('loadedmetadata', () => {
+      if (preloaded !== p || standby() !== b) return;
+      try { b.currentTime = from; p.seeked = true; } catch { /* not seekable yet: the fade seeks */ }
+    }, { once: true });
+  }
 }
+
+// ---- the DJ module, Simple mode: crossfades and tempo transitions (djPlan.ts) ----
+//
+// While the module is on, the person's crossfade is not Off and this device
+// can mix (not an iOS home-screen app), the two elements run through the
+// page's graph (audioGraph.ts), made from a play gesture. A fade is gain
+// automation on the audio clock (equal power); el.play() is not on that
+// clock, so the incoming element starts a little early, silent, and is kept
+// on the outgoing one's beat by nudging its playbackRate until and through
+// the fade. Anything the person does (pause, seek, next, a queue change,
+// casting) ends a fade at once: the incoming track plays on at full gain.
+// Nothing here may stop playback: without the analysis, the graph, or a
+// started element, the transition is today's gapless handoff.
+
+/** the analysis per track: absent until asked, null when there is none */
+const djInfo = new Map<string, DjTrackInfo | null>();
+/** GET /me/dj/tracks answered 404: the module is off on the server */
+let djServerOff = false;
+/** the playing track's next transition is a fade: no gapless handoff timer */
+let djFadeAhead = false;
+
+/** The incoming element starts this long before its fade, silent (gain 0). */
+const PREROLL_SEC = 0.6;
+/** el.play() to sound (Chrome, measured for rr82): the element is started this much early. */
+const START_LATENCY_SEC = 0.03;
+/**
+ * How far the lock may move the incoming rate while it is silent. Once the
+ * fade begins both elements run on the same audio clock at fixed rates, so
+ * they stay together without it (measured: a lock during the fade only added
+ * the time-stretcher's jitter).
+ */
+const LOCK_PREROLL_SLEW = 0.15;
+/** Before the fade, an incoming element further off than this is moved there. */
+const RESEEK_SEC = 0.12;
+
+type FadePlan = Extract<DjTransition, { kind: 'fade' }>;
+
+interface Mix {
+  /** armed: the next one waits; preroll: it plays, silent; fading: it is the current track */
+  phase: 'armed' | 'preroll' | 'fading';
+  from: HTMLAudioElement;
+  to: HTMLAudioElement;
+  fromBase: number;
+  toBase: number;
+  plan: FadePlan;
+  nextIndex: number;
+  trackId: string;
+  format: StreamFormat;
+  /** the audio-clock second the fade ends */
+  fadeEndCtx: number;
+}
+let mix: Mix | null = null;
+/** after a tempo-matched fade: the incoming track easing back to its own tempo */
+let ramp: { el: HTMLAudioElement; fromRate: number; startPos: number; lengthSec: number } | null = null;
+let djTimer: ReturnType<typeof setInterval> | null = null;
+
+/** DJ runs now: wanted, this device plays its own elements, and the graph runs. */
+function djOn(): boolean {
+  if (!djWanted() || sink || useLinks() || remoteCtl || !elements) return false;
+  const c = existingContext();
+  return !!c && c.state === 'running' && allRouted(elements);
+}
+
+/** A play gesture: route the elements once (DJ wanted), or resume a context the browser stopped. */
+function djGesture() {
+  if (!elements || sink || useLinks()) return;
+  if (allRouted(elements)) { void resumeGraph(); return; }
+  if (djWanted()) void routeElements(elements);
+}
+
+/** when each track was last asked for: one not measured yet is asked again (the first ask queued its analysis) */
+const djAskedAt = new Map<string, number>();
+const DJ_ASK_AGAIN_MS = 20_000;
+const measured = (i: DjTrackInfo | null | undefined) => !!i && (i.trimEndMs != null || i.bpm != null);
+
+/** Asks for the analysis of this track and the next two (never waited for; again later while one is not measured yet). */
+function djPrepare(index: number) {
+  if (!djWanted() || djServerOff) return;
+  const tracks = get().queue?.tracks ?? [];
+  const ids: string[] = [];
+  const now = Date.now();
+  for (let i = index, k = 0; i >= 0 && k < 3; i = nextPlayable(tracks, i), k++) {
+    const t = tracks[i];
+    if (!t || ids.includes(t.localTrackId) || measured(djInfo.get(t.localTrackId))) continue;
+    const at = djAskedAt.get(t.localTrackId);
+    if (at == null || now - at > DJ_ASK_AGAIN_MS) ids.push(t.localTrackId);
+  }
+  if (ids.length === 0) return;
+  for (const id of ids) { djAskedAt.set(id, now); if (!djInfo.has(id)) djInfo.set(id, null); }
+  void api.get<Array<DjTrackInfo | null>>(`/me/dj/tracks?ids=${ids.map(encodeURIComponent).join(',')}`).then(
+    (list) => { for (const info of Array.isArray(list) ? list : []) if (info?.localTrackId) djInfo.set(info.localTrackId, info); },
+    (err: ApiError) => { if (err?.status === 404) djServerOff = true; },
+  );
+}
+
+/** The playing track's way into the next one. */
+function djNextPlan(a: HTMLAudioElement): { next: number; plan: DjTransition } | null {
+  const tracks = get().queue?.tracks;
+  if (!tracks || !cur) return null;
+  const next = nextPlayable(tracks, cur.index);
+  const out = tracks[cur.index];
+  const inc = tracks[next];
+  if (next < 0 || !out || !inc) return null;
+  const plan = planTransition(
+    trackFacts(out, djInfo.get(out.localTrackId), cur.format === 'original' ? a.duration : null),
+    trackFacts(inc, djInfo.get(inc.localTrackId)),
+    getDjSettings(),
+  );
+  return { next, plan };
+}
+
+/** On the playing element's timeupdate: loads and arms a planned fade. False: today's handoff applies. */
+function djTime(a: HTMLAudioElement, position: number, duration: number | null): boolean {
+  djFadeAhead = false;
+  if (!djOn() || !cur || a.paused) return false;
+  // a track measured since it was first asked for (asks again at most every 20 s)
+  djPrepare(cur.index);
+  const p = djNextPlan(a);
+  if (!p || p.plan.kind !== 'fade') return false;
+  const plan = p.plan;
+  // too late for this one (a seek near the end): the plain handoff
+  if (position > plan.startSec + plan.lengthSec - 1) return false;
+  djFadeAhead = true;
+  if (!preloaded && duration != null && position >= preloadAtSec(plan, duration)) preloadNext(plan.inAtSec - 1.5 * plan.rateIn);
+  if (preloaded && preloaded.index === p.next && position >= plan.startSec - PREROLL_SEC - 1.5) armMix(p.next, plan);
+  return true;
+}
+
+function setPitchKept(a: HTMLAudioElement) {
+  try { a.preservesPitch = true; } catch { /* not settable here */ }
+  try { (a as HTMLAudioElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true; } catch { /* older Safari */ }
+}
+
+function armMix(nextIndex: number, plan: FadePlan) {
+  const a = el();
+  const b = standby();
+  const ga = elementGain(a);
+  const gb = elementGain(b);
+  if (!a || !b || !ga || !gb || !preloaded || !cur) return;
+  mix = { phase: 'armed', from: a, to: b, fromBase: cur.base, toBase: preloaded.base, plan, nextIndex, trackId: preloaded.trackId, format: preloaded.format, fadeEndCtx: Number.POSITIVE_INFINITY };
+  setGainNow(gb, 0);
+  setGainNow(ga, 1);
+  setPitchKept(b);
+  b.playbackRate = plan.rateIn;
+  syncDjTimer();
+  mixTick();
+}
+
+/** Every 20 ms while a fade is on its way (and on each timeupdate, which a background tab still gets). */
+function mixTick() {
+  const m = mix;
+  if (!m) return;
+  const ctx = existingContext();
+  if (!ctx) { cancelMix(); return; }
+  const { from: a, to: b, plan } = m;
+  const rateA = a.playbackRate || 1;
+  const posA = m.fromBase + a.currentTime;
+  if (m.phase === 'armed') {
+    if (a.paused) return;
+    if (posA > plan.startSec + plan.lengthSec - 1) { cancelMix(); return; }
+    const dt = (plan.startSec - posA) / rateA;
+    if (dt > PREROLL_SEC + START_LATENCY_SEC) return;
+    // where the incoming track should be when its sound starts, START_LATENCY_SEC from now
+    const at = plan.inAtSec - (dt - START_LATENCY_SEC) * plan.rateIn;
+    // it comes in at its very start: wait until that is due
+    if (at < 0) return;
+    const local = at - m.toBase;
+    if (local < 0) { cancelMix(); return; }
+    try { if (Math.abs(b.currentTime - local) > 0.005) b.currentTime = local; } catch { /* not seekable yet */ }
+    m.phase = 'preroll';
+    const started = () => { if (mix === m) scheduleFade(m); };
+    const p = b.play();
+    if (p && typeof p.then === 'function') p.then(started, () => { if (mix === m) cancelMix(); });
+    else started();
+    return;
+  }
+  // silent, the incoming track is pulled onto the outgoing one's beat
+  if (m.phase === 'preroll' && plan.beatAligned && !b.paused && b.readyState >= 3 && !a.paused) {
+    const want = expectedIncoming(posA, plan.startSec, plan.inAtSec, plan.rateIn, rateA);
+    const err = m.toBase + b.currentTime - want;
+    if (Math.abs(err) > RESEEK_SEC) {
+      try { b.currentTime = want + START_LATENCY_SEC * plan.rateIn - m.toBase; } catch { /* next tick */ }
+    } else {
+      b.playbackRate = lockRate(err, plan.rateIn, LOCK_PREROLL_SLEW);
+    }
+  }
+  if (m.phase === 'preroll' && posA >= plan.startSec) {
+    if (b.paused || b.readyState < 3) {
+      // the next one did not start in time: the outgoing track plays out, the handoff follows
+      if (posA > plan.startSec + plan.lengthSec / 2) cancelMix();
+      return;
+    }
+    b.playbackRate = plan.rateIn;
+    swapToIncoming();
+    return;
+  }
+  if (m.phase === 'fading' && ctx.currentTime >= m.fadeEndCtx) finishMix();
+}
+
+/** The incoming element sounds: both gains move on the audio clock, from the fade's start (or as far in as it already is). */
+function scheduleFade(m: Mix) {
+  const ctx = existingContext();
+  const ga = elementGain(m.from);
+  const gb = elementGain(m.to);
+  if (!ctx || !ga || !gb) { cancelMix(); return; }
+  const rateA = m.from.playbackRate || 1;
+  const posA = m.fromBase + m.from.currentTime;
+  const now = ctx.currentTime;
+  const wallLength = m.plan.lengthSec / rateA;
+  const dt = (m.plan.startSec - posA) / rateA;
+  const progress = dt < 0 ? Math.min(0.95, -dt / wallLength) : 0;
+  const at = now + Math.max(0.01, dt);
+  const length = Math.max(0.05, wallLength * (1 - progress));
+  try {
+    ga.gain.cancelScheduledValues(0);
+    ga.gain.setValueAtTime(1, now);
+    ga.gain.setValueCurveAtTime(equalPowerFrom(256, false, progress), at, length);
+    gb.gain.cancelScheduledValues(0);
+    gb.gain.setValueAtTime(0, now);
+    gb.gain.setValueCurveAtTime(equalPowerFrom(256, true, progress), at, length);
+  } catch {
+    ga.gain.cancelScheduledValues(0);
+    gb.gain.cancelScheduledValues(0);
+    ga.gain.setValueAtTime(1, now);
+    gb.gain.setValueAtTime(0, now);
+    ga.gain.linearRampToValueAtTime(0, at + length);
+    gb.gain.linearRampToValueAtTime(1, at + length);
+  }
+  m.fadeEndCtx = at + length;
+}
+
+/** The fade begins: the outgoing track is done, the incoming one is the current track (the bar, the events, the queue). */
+function swapToIncoming() {
+  const m = mix;
+  if (!m || !elements) return;
+  if (cur) {
+    if (m.from.currentTime > 0) cur.heardSec += heardDelta(cur.lastTime, m.from.currentTime);
+    cur.completed = true;
+    set({ position: get().duration ?? get().position });
+    sendEvent('completed');
+  }
+  active = elements.indexOf(m.to) as 0 | 1;
+  generation++;
+  preloaded = null;
+  const track = get().queue?.tracks[m.nextIndex];
+  cur = { trackId: m.trackId, index: m.nextIndex, format: m.format, base: m.toBase, triedFallback: false, started: false, completed: false, heardSec: 0, lastTime: m.to.currentTime };
+  m.phase = 'fading';
+  const lengthMs = Math.round((m.plan.lengthSec / (m.from.playbackRate || 1)) * 1000);
+  set({
+    index: m.nextIndex, message: null, retry: null, mix: { lengthMs, at: Date.now() },
+    position: shownPosition(m.toBase, m.to.currentTime),
+    duration: track ? shownDuration(m.format, track.durationMs, m.to.duration) : null,
+  });
+  if (track) updateMetadata(track);
+  markPlaying();
+  persistSoon();
+  djPrepare(m.nextIndex);
+}
+
+/** The fade is over (or cut short): the outgoing element goes, the incoming one at full gain; a tempo-matched one eases back. */
+function finishMix() {
+  const m = mix;
+  if (!m) return;
+  mix = null;
+  release(m.from);
+  const ga = elementGain(m.from);
+  if (ga) setGainNow(ga, 1);
+  const gb = elementGain(m.to);
+  if (gb) setGainNow(gb, 1);
+  if (get().mix) set({ mix: null });
+  if (m.plan.rampSec > 0 && cur && el() === m.to) {
+    ramp = { el: m.to, fromRate: m.to.playbackRate, startPos: cur.base + m.to.currentTime, lengthSec: m.plan.rampSec };
+  } else {
+    m.to.playbackRate = 1;
+  }
+  syncDjTimer();
+}
+
+/** Ends a fade at once. Before it began: the next track waits again, silent and paused. */
+function cancelMix() {
+  const m = mix;
+  if (!m) return;
+  if (m.phase === 'fading') { finishMix(); return; }
+  mix = null;
+  try { m.to.pause(); } catch { /* already stopped */ }
+  m.to.playbackRate = 1;
+  if (preloaded) preloaded.seeked = true;
+  const ga = elementGain(m.from);
+  if (ga) setGainNow(ga, 1);
+  const gb = elementGain(m.to);
+  if (gb) setGainNow(gb, 1);
+  syncDjTimer();
+}
+
+/** Along the ease back to the track's own tempo (on timeupdate and the DJ timer). */
+function tickRamp() {
+  const r = ramp;
+  if (!r) return;
+  const a = el();
+  if (a !== r.el || !cur) { endRamp(); return; }
+  const p = (cur.base + a.currentTime - r.startPos) / r.lengthSec;
+  if (p >= 1) { endRamp(); return; }
+  const rate = rampRate(r.fromRate, p);
+  if (Math.abs(a.playbackRate - rate) > 0.0005) a.playbackRate = rate;
+}
+
+function endRamp() {
+  const r = ramp;
+  ramp = null;
+  if (r) { try { r.el.playbackRate = 1; } catch { /* released */ } }
+  syncDjTimer();
+}
+
+function syncDjTimer() {
+  const wanted = !!mix || !!ramp;
+  if (wanted && !djTimer) {
+    djTimer = setInterval(() => { if (mix) mixTick(); tickRamp(); }, 20);
+  } else if (!wanted && djTimer) {
+    clearInterval(djTimer);
+    djTimer = null;
+  }
+}
+
+// DJ turned off (or this device can no longer mix): a fade ends, the gains go back to 1, the graph stays
+subscribeDj(() => {
+  if (djWanted()) return;
+  cancelMix();
+  endRamp();
+  resetGains();
+});
+
+// the browser stopped the context (a call, the lock screen, a Bluetooth switch): nothing stays half faded,
+// and a player that would be silent is shown paused, so the next Play (a gesture) resumes it
+onContextTrouble(() => {
+  cancelMix();
+  resetGains();
+  setTimeout(() => {
+    const c = existingContext();
+    const a = el();
+    if (c && c.state !== 'running' && a && !a.paused && elements && allRouted(elements)) pause();
+  }, 1500);
+});
 
 /** A one-byte request to the stream URL: its status tells a 409 or 429 from a decode failure. */
 async function probe(url: string): Promise<number | null> {
@@ -616,7 +1003,7 @@ async function probe(url: string): Promise<number | null> {
 async function onError(a: HTMLAudioElement) {
   if (a !== el()) {
     // the preload failed: drop it, the track loads normally when its turn comes
-    if (a === standby()) { preloaded = null; release(a); }
+    if (a === standby()) { if (mix?.to === a) cancelMix(); preloaded = null; release(a); }
     return;
   }
   if (!cur || !a.getAttribute('src')) return;
@@ -889,6 +1276,8 @@ export function play() {
   ensureElements();
   const a = el();
   if (!s.queue || !a) return;
+  // a play gesture: the DJ graph may start (or resume after a call or the lock screen)
+  djGesture();
   if (s.status === 'error') { retry(); return; }
   if (sink) {
     if (!cur) { if (s.index >= 0) loadTrack(s.index, { offset: s.position }); return; }
@@ -928,6 +1317,7 @@ export function pause() {
   }
   const a = el();
   if (!a) return;
+  cancelMix();
   a.pause();
   if (get().status !== 'error' && get().status !== 'idle') set({ status: 'paused' });
 }
@@ -973,6 +1363,7 @@ export function seek(sec: number) {
   const plan = seekPlan(cur.format, sec, s.duration);
   cur.lastTime = null;
   clearHandoff();
+  endRamp();
   if (sink) {
     if (plan.kind === 'native') {
       sink.seek(plan.time);

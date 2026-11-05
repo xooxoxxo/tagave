@@ -4,31 +4,37 @@
  *
  * - The stream is same-origin (/api/v1/player/stream/:id, proxied by the api),
  *   so the analyser reads real samples.
- * - Where the browser can copy an element's sound (captureStream: Chrome,
- *   Edge, Chrome on Android), the analyser reads the copy and the music never
- *   passes through Web Audio. A context the browser suspends (the phone
- *   locked, a call, a Bluetooth switch in a car) then only stills the glow;
- *   it can never silence the music. This is the only way it runs on a phone.
+ * - When the page's graph exists (player/audioGraph.ts: the DJ module routed
+ *   the elements, or the glow did below), the analyser taps its master bus:
+ *   it hears the mix, and no element is ever given a second source.
+ * - Otherwise, where the browser can copy an element's sound (captureStream:
+ *   Chrome, Edge, Chrome on Android), the analyser reads the copy and the
+ *   music never passes through Web Audio. A context the browser suspends (the
+ *   phone locked, a call, a Bluetooth switch in a car) then only stills the
+ *   glow; it can never silence the music. This is the only way it runs on a
+ *   phone. When the graph is made later, the copies are let go for the bus.
  * - Elsewhere on a desktop (Firefox, Safari), the elements are routed through
- *   the context (createMediaElementSource, one-way for the life of the page),
- *   and the context is resumed whenever it stops while music plays.
+ *   the shared graph (createMediaElementSource, one-way for the life of the
+ *   page; gains at 1), which resumes the context whenever it stops while
+ *   music plays.
  * - Never on iOS or iPadOS, nor on another phone without captureStream: the
  *   glow there, and wherever a context cannot start, is the calm one.
  * - Elements join only once the context is running.
  */
 import { mediaElements } from '../player/engine';
 import { isAppleMobile } from '../player/platform';
+import { graphMaster, onGraph, routeElements, sharedContext } from '../player/audioGraph';
 
 /** The equalizer glow's bands: log-spaced from LOW_HZ to HIGH_HZ. */
 export const BANDS = 32;
 export const LOW_HZ = 40;
 export const HIGH_HZ = 14000;
 
-let ctx: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
 const joined = new WeakSet<HTMLMediaElement>();
-/** some element's sound runs through the context (the analyser then feeds the speakers) */
-let routing = false;
+/** the copies read before the graph existed, let go once it does */
+const copies: Array<() => void> = [];
+let tapped = false;
 
 type Capturable = HTMLMediaElement & { captureStream?: () => MediaStream };
 
@@ -54,7 +60,7 @@ function captureInto(el: HTMLMediaElement, context: AudioContext, node: Analyser
   const sources = new Map<string, MediaStreamAudioSourceNode>();
   // a new src gives the stream a new track; the old one is removed
   const add = (track: MediaStreamTrack) => {
-    if (track.kind !== 'audio' || sources.has(track.id)) return;
+    if (tapped || track.kind !== 'audio' || sources.has(track.id)) return;
     const source = context.createMediaStreamSource(new MediaStream([track]));
     source.connect(node);
     sources.set(track.id, source);
@@ -63,25 +69,29 @@ function captureInto(el: HTMLMediaElement, context: AudioContext, node: Analyser
     sources.get(track.id)?.disconnect();
     sources.delete(track.id);
   };
+  const onAdd = (e: MediaStreamTrackEvent) => add(e.track);
+  const onRemove = (e: MediaStreamTrackEvent) => drop(e.track);
   stream.getAudioTracks().forEach(add);
-  stream.addEventListener('addtrack', (e) => add(e.track));
-  stream.addEventListener('removetrack', (e) => drop(e.track));
+  stream.addEventListener('addtrack', onAdd);
+  stream.addEventListener('removetrack', onRemove);
+  copies.push(() => {
+    stream.removeEventListener('addtrack', onAdd);
+    stream.removeEventListener('removetrack', onRemove);
+    for (const s of sources.values()) s.disconnect();
+    sources.clear();
+  });
 }
 
-/** The elements' sound runs through the context: it must never stay stopped while they play. */
-function routeInto(el: HTMLMediaElement, context: AudioContext, node: AnalyserNode) {
-  const wake = () => { if (context.state !== 'running') void context.resume().catch(() => undefined); };
-  if (!routing) {
-    routing = true;
-    node.connect(context.destination);
-    context.addEventListener('statechange', () => { if (mediaElements().some((m) => !m.paused)) wake(); });
-  }
-  context.createMediaElementSource(el).connect(node);
-  el.addEventListener('play', wake);
+/** The graph exists: the analyser hears its master bus, and the copies go. */
+function tap(bus: GainNode, node: AnalyserNode) {
+  if (tapped) return;
+  tapped = true;
+  copies.splice(0).forEach((letGo) => letGo());
+  bus.connect(node);
 }
 
 /**
- * The analyser on the player's elements, or null (the still glow): not
+ * The analyser on the player's sound, or null (the still glow): not
  * allowed here, no elements yet, or a context that does not start.
  */
 export async function playerAnalyser(): Promise<AnalyserNode | null> {
@@ -89,20 +99,27 @@ export async function playerAnalyser(): Promise<AnalyserNode | null> {
   const els = mediaElements();
   if (!els.length) return null;
   try {
-    ctx ??= new AudioContext();
+    const ctx = sharedContext();
+    if (!ctx) return null;
     if (ctx.state !== 'running') await ctx.resume();
-    if (ctx.state !== 'running') return null;
+    if ((ctx.state as string) !== 'running') return null;
     if (!analyser) {
-      analyser = ctx.createAnalyser();
+      const node = ctx.createAnalyser();
       // 4096 points: about 12 Hz a bin, so the lowest bands have bins of their own
-      analyser.fftSize = 4096;
+      node.fftSize = 4096;
       // the glow keeps its own attack and release (components/glowDriver.ts)
-      analyser.smoothingTimeConstant = 0;
+      node.smoothingTimeConstant = 0;
+      analyser = node;
+      onGraph((bus) => tap(bus, node));
+    }
+    if (graphMaster()) return analyser;
+    if (!els.every((el) => canCapture(el))) {
+      // Firefox, Safari on a desktop: the sound runs through the shared graph, which the analyser taps
+      return (await routeElements(els)) ? analyser : null;
     }
     for (const el of els) {
-      if (joined.has(el)) continue;
-      if (canCapture(el)) captureInto(el, ctx, analyser);
-      else routeInto(el, ctx, analyser);
+      if (joined.has(el) || tapped) continue;
+      captureInto(el, ctx, analyser);
       joined.add(el);
     }
     return analyser;

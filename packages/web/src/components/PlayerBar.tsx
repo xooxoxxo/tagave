@@ -29,6 +29,8 @@ import { MiniPlayer, NowPlayingScreen, NowPlayingView } from './player/NowPlayin
 import { TrackActions } from './player/TrackActions';
 import { LikeKey } from './LikeKey';
 import { BarGlow } from './BarGlow';
+import { MixChip } from './player/MixChip';
+import { useDjBridge } from '../hooks/useDj';
 import { CastKey } from './player/CastKey';
 import { DeviceStrip, DevicesKey, useDevicesShown } from './player/DevicesKey';
 import { remoteDevice, startDevices, useDevicesStore } from '../player/devices';
@@ -76,10 +78,12 @@ export interface PlayerBarViewProps {
   castLine?: string | null | undefined;
   /** the playing song's heart (LikeKey), beside its names */
   like?: ReactNode;
+  /** the DJ module's Mix chip while one track fades into the next (MixChip) */
+  mix?: ReactNode;
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow, cast, castLine, like }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow, cast, castLine, like, mix }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -175,7 +179,8 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
       </div>
 
       <div className={styles.ends}>
-        {castLine && <span className={styles.castTo} role="status" title={castLine}>{castLine}</span>}
+        {mix}
+        {castLine &&<span className={styles.castTo} role="status" title={castLine}>{castLine}</span>}
         {cast}
         {onQueue && (
           <IconButton label="Queue" variant="quiet" size="sm" className={styles.key} aria-pressed={queueOpen} aria-expanded={queueOpen} data-queue-key="" onClick={onQueue} disabled={empty}>
@@ -204,6 +209,8 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
 export function PlayerBar() {
   const s = usePlayerStore();
   const [prefs] = useDisplayPrefs();
+  // the DJ module's switch and the person reach the engine
+  useDjBridge();
   const player = useCapabilities().data?.player;
   const phone = useMediaQuery(PHONE_QUERY);
   const playlistsOn = usePlaylistsOn();
@@ -344,6 +351,8 @@ export function PlayerBar() {
   const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing' && !casting && !s.remoteDeviceId} anchor={phone ? 'centre' : 'right'} /> : null;
   // with another device to play on, the device key holds the cast picker too
   const cast = devicesShown ? <DevicesKey /> : castShown ? <CastKey /> : null;
+  // a DJ fade here: never while casting or while another device plays (that one mixes by its own settings)
+  const mix = s.mix && !casting && !s.remoteDeviceId ? <MixChip key={s.mix.at} lengthMs={s.mix.lengthMs} at={s.mix.at} /> : null;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
       <DeviceStrip />
@@ -362,6 +371,7 @@ export function PlayerBar() {
             onRetry={retry}
             glow={glow}
             castLine={s.remoteDeviceId ? null : castLine}
+            mix={mix}
           />
           {nowOpen && (
             <NowPlayingScreen
@@ -415,6 +425,7 @@ export function PlayerBar() {
             cast={cast}
             castLine={s.remoteDeviceId ? null : castLine}
             like={like('page', 'sm')}
+            mix={mix}
           />
         </>
       )}
