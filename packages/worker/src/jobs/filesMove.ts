@@ -74,6 +74,7 @@ import { mbRelease, mbSearch, persistFetched } from './identifyAlbum.js';
 import { scanDirJob } from './scanDir.js';
 import { scanParseJob } from './scanParse.js';
 import { clusterDirJob, retireEmptyAlbums } from './clusterDir.js';
+import { albumsChanged } from '../lib/albumCare.js';
 
 /** The tag plan preset a move writes with: ids and album fields overwritten, titles and genres filled. */
 const MOVE_POLICY: TagPolicies = { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' };
@@ -544,7 +545,8 @@ async function settle(ctx: WorkerContext, row: MoveRow, done: Done, matchTo: str
     }
     await requestPlayerRescan(ctx, paths.map((p) => ({ libraryId: row.libraryId, fileId: p.fileId, scanRootPath: roots.get(p.rootId) ?? '', relPath: p.relPath })));
   });
-  await step('gaps', () => ctx.boss.send('gaps.recompute', { libraryId: row.libraryId, albumIds: albums.map((a) => a.id) }, {}));
+  // Library care: the albums the songs left and joined (one the move emptied resolves)
+  await step('gaps', () => albumsChanged(ctx, row.libraryId, [...albums.map((a) => a.id), row.sourceAlbumId, row.targetAlbumId]));
   await step('facets', () => markLibraryDirty(ctx, row.libraryId));
 }
 

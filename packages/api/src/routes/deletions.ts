@@ -18,6 +18,7 @@ import { getDb, getSql } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { markFilterCountsDirty } from '../lib/filterCounts.js';
 import { bustFilterCountsCache } from './albums.js';
+import { albumsChanged } from '../lib/albumCare.js';
 import {
   createDeletions, deleteModeOf, deletingView, librarySettings, restoreFiles, sendTrashJob, trashRootIds, unmarkFiles,
 } from '../lib/deletions.js';
@@ -43,6 +44,22 @@ async function settingsOf(libraryId: string): Promise<Record<string, unknown>> {
 async function changed(libraryId: string): Promise<void> {
   bustFilterCountsCache(libraryId);
   await markFilterCountsDirty(getDb(), libraryId);
+}
+
+/** The albums these files belong to (Library care rechecks them: a deleted album's problems go). */
+async function albumsOfFiles(fileIds: readonly string[]): Promise<string[]> {
+  if (fileIds.length === 0) return [];
+  const rows = await getSql()<Array<{ id: string }>>`
+    select distinct local_album_id::text as id from local_tracks
+     where audio_file_id = any(${fileIds as string[]}::uuid[]) and local_album_id is not null`;
+  return rows.map((r) => r.id);
+}
+
+async function albumsOfSelection(libraryId: string, trackIds: string[], albumIds: string[]): Promise<string[]> {
+  const rows = await getSql()<Array<{ id: string }>>`
+    select distinct lt.local_album_id::text as id from local_tracks lt join local_albums la on la.id = lt.local_album_id
+     where la.library_id = ${libraryId} and (lt.id = any(${trackIds}::uuid[]) or lt.local_album_id = any(${albumIds}::uuid[]))`;
+  return rows.map((r) => r.id);
 }
 
 const libraryOf = (request: FastifyRequest) => (request.params as { libraryId: string }).libraryId;
@@ -79,6 +96,7 @@ export async function createDeletionRoutes(fastify: FastifyInstance) {
       trackIds: body.trackIds ?? [], albumIds: body.albumIds ?? [],
     });
     await changed(libraryId);
+    await albumsChanged(libraryId, await albumsOfSelection(libraryId, body.trackIds ?? [], body.albumIds ?? []), request.log);
     reply.status(201);
     return result;
   });
@@ -88,6 +106,7 @@ export async function createDeletionRoutes(fastify: FastifyInstance) {
     const { fileIds } = parse(deletionFilesSchema, request.body);
     const unmarked = await unmarkFiles(getSql(), libraryId, fileIds);
     await changed(libraryId);
+    await albumsChanged(libraryId, await albumsOfFiles(fileIds), request.log);
     return { unmarked };
   });
 

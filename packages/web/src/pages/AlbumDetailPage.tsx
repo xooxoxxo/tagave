@@ -25,6 +25,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useCan, useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned, type PreviousPhysicalLink } from '../hooks';
 import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
+import { invalidateAlbumCare } from '../hooks/useGaps';
 import { api } from '../services/api';
 // Reviews render markdown (react-markdown + micromark, ~100 KB) and show on
 // the About tab only: their own chunk, fetched when that tab opens.
@@ -190,8 +191,8 @@ export function AlbumDetailPage() {
 
   const refresh = (delayMs = 0) =>
     setTimeout(() => {
-      queryClient.invalidateQueries({ queryKey: ['album', albumId] });
-      queryClient.invalidateQueries({ queryKey: ['albums'] });
+      // the album, the grid, and Library care (a match or Ignore changes what is incomplete or a duplicate)
+      void invalidateAlbumCare(queryClient);
     }, delayMs);
 
   const { data: album, isLoading, isError, error: albumError, refetch } = useQuery({

@@ -18,6 +18,7 @@ import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
 import { scanRoots as scanRootRows, files as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
+import { albumsChanged } from '../lib/albumCare.js';
 import { containsPattern, textMatches } from '../lib/textMatch.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
@@ -1653,6 +1654,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
     const result = await splitAlbumByFormat(db, { libraryId, albumId, userId: request.user.id, keep }).catch(splitFailure);
     await recluster(libraryId, result.dirs);
+    await albumsChanged(libraryId, [albumId, result.newAlbumId], request.log);
     // the new album is pending; identify it now rather than at the sweep's pace
     const boss = await getBoss();
     await boss.send('identify.album', { localAlbumId: result.newAlbumId },
@@ -1674,6 +1676,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     await cancelQueuedIdentifyFor(await getBoss(), [albumId]).catch((err: Error) =>
       request.log.warn({ err: err.message }, 'could not cancel identify jobs of the merged-back album'));
     await recluster(libraryId, result.dirs);
+    await albumsChanged(libraryId, [result.originalAlbumId, albumId], request.log);
     bustFilterCountsCache(libraryId);
     await markFilterCountsDirty(db, libraryId);
     reply.send({ originalAlbumId: result.originalAlbumId, moved: result.fileIds.length });
@@ -1708,6 +1711,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       await boss.send('identify.album', { localAlbumId: result.albumId },
         { singletonKey: IDENTIFY_SINGLETON(result.albumId), priority: IDENTIFY_PRIORITY.manual });
     }
+    await albumsChanged(libraryId, [result.albumId, ...result.mergedAlbumIds], request.log);
     bustFilterCountsCache(libraryId);
     await markFilterCountsDirty(db, libraryId);
     reply.send({ albumId: result.albumId, mergedAlbumIds: result.mergedAlbumIds, files: result.fileIds.length, identifyQueued: result.needsIdentify });
@@ -1721,6 +1725,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     const db = getDb();
     const result = await unmergeAlbum(db, { libraryId, albumId }).catch(mergeFailure);
     await recluster(libraryId, result.dirs);
+    await albumsChanged(libraryId, [result.albumId, ...result.restoredAlbumIds], request.log);
     bustFilterCountsCache(libraryId);
     await markFilterCountsDirty(db, libraryId);
     reply.send({ albumId: result.albumId, files: result.fileIds.length, folders: result.dirs.length, restoredAlbumIds: result.restoredAlbumIds });

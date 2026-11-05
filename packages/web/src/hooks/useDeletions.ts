@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import type { CreateDeletionsResult, DeleteMode, DeletingView } from '@tagave/shared';
 import { api } from '../services/api';
 import { useCan } from './usePermissions';
+import { invalidateAlbumCare } from './useGaps';
 
 export const DELETIONS_KEY = ['deletions'];
 
@@ -36,10 +37,13 @@ export function useDeletingView(libraryId: string | undefined) {
   });
 }
 
-/** Everything a deletion changes: the albums, the album page, search, counts, artists, playlists, the Deleting page. */
+/** Everything a deletion changes: the albums, the album page, search, counts, artists, playlists, the Deleting page, Library care. */
 export function invalidateLibraryViews(qc: QueryClient): Promise<unknown> {
-  return Promise.all(['albums', 'album', 'album-facets', 'library-stats', 'search', 'artists-list', 'artists', 'artist', 'playlist', 'playlists', 'deletions']
-    .map((k) => qc.invalidateQueries({ queryKey: [k] })));
+  return Promise.all([
+    ...['library-stats', 'search', 'artists-list', 'artists', 'artist', 'playlist', 'playlists', 'deletions']
+      .map((k) => qc.invalidateQueries({ queryKey: [k] })),
+    invalidateAlbumCare(qc),
+  ]);
 }
 
 /** Sends a deletion (after its Undo window): tracks or albums, in the library's mode. */

@@ -608,6 +608,11 @@ async function main() {
     // every library unless TAGAVE_LIBRARY_ID pins one.
     const gapsLibrary = pinnedLibraryId();
     await boss.schedule('gaps.recompute', '15 3 * * *', gapsLibrary ? { libraryId: gapsLibrary } : {}, {});
+    // At every boot (an update included), the album-level gaps of every
+    // library: puts right what an operation left stale before album changes
+    // rechecked their own gaps (rr85: a merged album still "3 songs missing").
+    await boss.send('gaps.recompute', { ...(gapsLibrary ? { libraryId: gapsLibrary } : {}), albumGapsOnly: true },
+      { singletonKey: 'gaps.recompute:boot' });
   }
 
   if (wants('tags.preview')) {
