@@ -40,8 +40,10 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   // Lidarr (Get missing albums): calls to the owner's Lidarr, outside work like the two above
   'lidarr.poll': 'identify.album',
   'lidarr.get': 'identify.album',
-  // the drop pool: reads the pool folder and identifies what is dropped (MusicBrainz, identify's pace)
-  'pool.scan': 'identify.album',
+  // the drop pool: reads, makes and imports from the pool folder, so it runs where the music folder is mounted,
+  // with the tag writer. Its MusicBrainz and AcoustID calls keep identify's pace from any worker: the pacer and
+  // the response cache live in the database (provider_state, provider_cache), shared by every process.
+  'pool.scan': 'tags.apply',
   // a release the owner pasted on Review matches: fetched and scored like identify's
   'edition.add': 'identify.album',
   // cover thumbnails rebuilt from the originals art.fetch keeps on its cache volume
@@ -60,6 +62,26 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   // DJ analysis: ffmpeg decodes each file once; on the file worker, with the fingerprints (the other decode of every file)
   'dj.analyze': 'fingerprint.album',
 };
+
+/**
+ * Queues whose jobs read or write the music folder (a scan root's files).
+ * Each must be worked by the file worker, the one worker that mounts the
+ * music folder: in TAGAVE_QUEUES there, or riding with a queue that is.
+ * A job like that on the identify worker sees an empty or missing folder,
+ * and anything it makes lands on that container's own disk (pool.scan in
+ * 0.26.0). packages/worker/src/deployQueues.test.ts holds every compose
+ * file and every handler in the worker to this list.
+ */
+export const MUSIC_FOLDER_QUEUES: readonly string[] = [
+  'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir',
+  'art.fetch', 'fingerprint.album', 'fingerprint.sweep', 'dj.analyze',
+  'tags.preview', 'tags.apply', 'tags.revert', 'files.trash', 'files.split', 'files.move', 'pool.scan',
+];
+
+/** The queue whose worker works this one: itself, or the queue it rides with. */
+export function workedWith(queue: string): string {
+  return QUEUES_RIDING_WITH[queue] ?? queue;
+}
 
 /** The names TAGAVE_QUEUES chooses from: each needs some live worker. */
 export const GATED_QUEUES: readonly string[] = WORKER_QUEUES.filter((q) => !(q in QUEUES_RIDING_WITH));
