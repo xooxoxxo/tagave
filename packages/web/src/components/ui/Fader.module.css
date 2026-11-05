@@ -1,0 +1,55 @@
+/* Fader (Fader.tsx): the fill and the thumb move by transform. Tokens only. */
+.wrap { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 auto; }
+.end { font: 500 13px / 1 var(--font-body); color: var(--ink-2); min-width: 1em; text-align: center; }
+
+.fader {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 96px;
+  height: 28px;
+  touch-action: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* the rail runs between the thumb's centres at either end */
+.rail {
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  top: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--mist-2);
+  overflow: hidden;
+}
+.fill { position: absolute; inset: 0; background: var(--dew); transform-origin: 0 50%; }
+
+.tick { position: absolute; left: 50%; top: 8px; width: 1px; height: 12px; background: var(--line-strong); }
+
+.runway { position: absolute; left: 7px; right: 7px; top: 0; height: 28px; pointer-events: none; }
+.runner { position: absolute; inset: 0; }
+.thumb {
+  position: absolute;
+  left: -7px;
+  top: 7px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 1px 3px rgba(var(--shadow-tint), 0.3);
+}
+.fader:focus-visible .thumb { box-shadow: 0 0 0 2px var(--ring); }
+
+.wrap[data-disabled] { opacity: var(--opacity-disabled, 0.45); }
+.wrap[data-disabled] .fader { cursor: not-allowed; }
+
+@media (forced-colors: active) {
+  .rail { border: 1px solid ButtonText; }
+  .fill { background: Highlight; }
+  .thumb { border: 1px solid ButtonText; }
+  .fader:focus-visible .thumb { outline: 2px solid Highlight; }
+}

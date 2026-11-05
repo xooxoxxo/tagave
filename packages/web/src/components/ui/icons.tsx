@@ -300,3 +300,20 @@ export function AirPlayIcon() {
 export function DevicesIcon() {
   return <svg {...LINE}><rect x="3.5" y="3.5" width="10" height="17" rx="2" /><circle cx="8.5" cy="14" r="2.6" /><path d="M8.5 7.5h.01" strokeWidth="2.4" /><rect x="16" y="8.5" width="4.5" height="12" rx="1.4" /><path d="M18.25 18h.01" strokeWidth="2.2" /></svg>;
 }
+
+/* The DJ view (2026-11-05). */
+
+/** Two channel faders over a crossfader: the DJ view. */
+export function DjIcon() {
+  return <svg {...LINE}><path d="M7 3.5v10M17 3.5v10M4 19.5h16" /><rect x="5" y="6.5" width="4" height="3" rx="1" /><rect x="15" y="9" width="4" height="3" rx="1" /><rect x="10" y="17.5" width="4" height="4" rx="1" /></svg>;
+}
+
+/** A bar and a triangle pointing right: back to the cue point. */
+export function CueIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+      <rect x="5" y="5.5" width="2.6" height="13" rx="1" />
+      <path d="M10.5 6.6v10.8c0 .8.9 1.3 1.6.8l8.2-5.4a1 1 0 0 0 0-1.6l-8.2-5.4c-.7-.5-1.6 0-1.6.8z" />
+    </svg>
+  );
+}

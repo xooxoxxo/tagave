@@ -1,0 +1,50 @@
+/* Knob (Knob.tsx): a still ring, a notch that turns by transform. Tokens only. */
+.knob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 52px;
+  flex: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.dial {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--mist);
+  box-shadow: inset 0 1px 0 var(--emboss-hi), inset 0 -1px 2px rgba(var(--shadow-tint), 0.12), 0 0 0 1px var(--line);
+  cursor: ns-resize;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.dial:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+
+.notch {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 2px;
+  height: 11px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--ink-2);
+  transform-origin: 1px 15px;
+}
+.knob[data-away] .notch { background: var(--dew); }
+
+.caption { font: 500 11px / 1 var(--font-body); color: var(--ink-2); white-space: nowrap; }
+.value { font: 400 10.5px / 1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-3); white-space: nowrap; }
+
+.knob[data-disabled] { opacity: var(--opacity-disabled, 0.45); }
+.knob[data-disabled] .dial { cursor: not-allowed; }
+
+@media (forced-colors: active) {
+  .dial { border: 1px solid ButtonText; }
+  .notch { background: ButtonText; }
+  .knob[data-away] .notch { background: Highlight; }
+}
