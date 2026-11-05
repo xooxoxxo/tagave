@@ -8,7 +8,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFAULT_NAMING_RULES, rulesProblems, type NamingRules } from '@tagave/core';
 import { handlerForName } from '@tagave/core/files';
-import { TRASH_DIR, namingRulesSchema } from '@tagave/shared';
+import { DROP_POOL_STATES, TRASH_DIR, namingRulesSchema, type DropPoolState, type DropPoolStatus } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { skipDir } from './helpers.js';
 
@@ -42,6 +42,22 @@ export function dropPoolFrom(settings: Record<string, unknown>): DropPool {
 
 export async function dropPoolOf(ctx: Pick<WorkerContext, 'sql'>, libraryId: string): Promise<DropPool> {
   return dropPoolFrom(await settingsOf(ctx, libraryId));
+}
+
+/** The pool status pool.scan last wrote, when it is for this pool (the same music folder and folder). */
+export async function dropPoolStatusOf(ctx: Pick<WorkerContext, 'sql'>, libraryId: string, scanRootId: string, dirPath: string): Promise<DropPoolStatus | null> {
+  const s = (await settingsOf(ctx, libraryId))['dropPoolStatus'] as Partial<DropPoolStatus> | undefined;
+  if (!s || s.scanRootId !== scanRootId || s.dirPath !== dirPath || !DROP_POOL_STATES.includes(s.state as DropPoolState)) return null;
+  return { state: s.state as DropPoolState, scanRootId, dirPath, seenReady: s.seenReady === true, at: String(s.at ?? '') };
+}
+
+/** Write the pool's status (its own key of libraries.settings: the owner's dropPool setting is never touched). */
+export async function saveDropPoolStatus(ctx: Pick<WorkerContext, 'sql'>, libraryId: string, status: DropPoolStatus): Promise<void> {
+  await ctx.sql`
+    update libraries
+       set settings = (case when jsonb_typeof(settings) = 'object' then settings else '{}'::jsonb end)
+                      || jsonb_build_object('dropPoolStatus', ${JSON.stringify(status)}::text::jsonb)
+     where id = ${libraryId}`;
 }
 
 /**

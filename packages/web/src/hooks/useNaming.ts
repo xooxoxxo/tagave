@@ -52,6 +52,8 @@ export function useDropPool(libraryId: string | undefined) {
     queryKey: dropPoolKey(libraryId),
     queryFn: () => api.get<DropPoolView>(`/libraries/${libraryId}/drop-pool`),
     enabled: owner && !!libraryId,
+    // the file worker's first look at a pool just turned on lands within seconds
+    refetchInterval: (q) => (q.state.data?.enabled && q.state.data.state === null ? 5_000 : false),
   });
 }
 
