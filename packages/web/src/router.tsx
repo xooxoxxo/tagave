@@ -27,6 +27,7 @@ const ConnectConsentPage = lazyRouteComponent(() => import('./pages/ConnectConse
 const PlaylistsPage = lazyRouteComponent(() => import('./pages/PlaylistsPage'), 'PlaylistsPage');
 const PlaylistPage = lazyRouteComponent(() => import('./pages/PlaylistPage'), 'PlaylistPage');
 const LikedSongsPage = lazyRouteComponent(() => import('./pages/LikedSongsPage'), 'LikedSongsPage');
+const DjPage = lazyRouteComponent(() => import('./pages/DjPage'), 'DjPage');
 import { signOut } from './hooks/useAuth';
 import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
@@ -167,6 +168,13 @@ const likedRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/liked',
   component: LikedSongsPage,
+});
+
+// The DJ view (the dj module's Advanced mode): two decks over the player's elements
+const djRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/dj',
+  component: DjPage,
 });
 
 const plansRoute = new Route({
@@ -356,6 +364,7 @@ const routeTree = rootRoute.addChildren([
     playlistsRoute,
     playlistRoute,
     likedRoute,
+    djRoute,
     plansRoute,
     planRoute,
     albumDetailRoute,

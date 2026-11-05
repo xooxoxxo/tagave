@@ -13,6 +13,8 @@ import { api } from '../services/api';
 import { djAvailableHere, getDjSettings, setDjModuleOn, setDjPerson, setDjSettings, subscribeDj } from '../player/djSettings';
 import { userPrefsKey } from '../themes/ThemeColours';
 import { useModuleOn } from './useFacets';
+import { isCasting, useCastStore } from '../player/cast';
+import { usePlayerStore } from '../player/engine';
 import { useMe } from './useAuth';
 
 const SAVE_MS = 300;
@@ -63,4 +65,39 @@ export function useDjBridge(): void {
     if (!server || unsaved()) return;
     setDjSettings(server.dj ?? DJ_DEFAULTS);
   }, [server]);
+}
+
+/** Whether the DJ view can run here now, or why not. */
+export type DjViewAvailability = 'ok' | 'unknown' | 'off' | 'device' | 'casting' | 'elsewhere';
+
+/** The rule, alone (tests). */
+export function djViewAvailability(p: { moduleOn: boolean | null; availableHere: boolean; casting: boolean; remoteDeviceId: string | null }): DjViewAvailability {
+  if (p.moduleOn === null) return 'unknown';
+  if (!p.moduleOn) return 'off';
+  if (!p.availableHere) return 'device';
+  if (p.casting) return 'casting';
+  if (p.remoteDeviceId) return 'elsewhere';
+  return 'ok';
+}
+
+/**
+ * The DJ view (Advanced mode) runs while the module is on, this device can
+ * run the graph (not an iOS home-screen app), nothing is casting and no
+ * other device of the person's plays.
+ */
+export function useDjViewAvailability(): DjViewAvailability {
+  const moduleOn = useModuleOn('dj');
+  const casting = isCasting(useCastStore());
+  const remoteDeviceId = usePlayerStore((s) => s.remoteDeviceId);
+  return djViewAvailability({ moduleOn, availableHere: djAvailableHere(), casting, remoteDeviceId });
+}
+
+/** What the /dj route says when the view cannot run here. */
+export function djUnavailableText(a: DjViewAvailability): string | null {
+  switch (a) {
+    case 'off': return 'Off';
+    case 'device': case 'elsewhere': return 'Not on this device';
+    case 'casting': return 'Casting';
+    default: return null;
+  }
 }

@@ -47,7 +47,7 @@ import { getPlayerQuality } from './quality';
 import { cachedCastLink, castSrc, fetchCastLink } from './castLinks';
 import { isAppleMobile } from './platform';
 import { deviceId, randomId } from './deviceIdentity';
-import { allRouted, elementGain, existingContext, onContextTrouble, resetGains, routeElements, setGainNow, startContext as resumeGraph } from './audioGraph';
+import { allRouted, bypassEffects, elementGain, existingContext, onContextTrouble, resetGains, routeElements, setGainNow, startContext as resumeGraph } from './audioGraph';
 import { djWanted, getDjSettings, subscribeDj } from './djSettings';
 import { equalPowerFrom, expectedIncoming, lockRate, planTransition, preloadAtSec, rampRate, trackFacts, type DjTransition } from './djPlan';
 
@@ -137,6 +137,8 @@ let generation = 0;
 let lastPositionState = 0;
 /** the timed switch to the preloaded track near the end of the current one */
 let handoffTimer: ReturnType<typeof setTimeout> | null = null;
+/** the DJ view: its decks play both elements (djDecks.ts); the engine's own keys and events go there */
+let deckOwner: DeckOwner | null = null;
 
 function clearHandoff() {
   if (handoffTimer) clearTimeout(handoffTimer);
@@ -199,6 +201,7 @@ function assignSrc(a: HTMLAudioElement, trackId: string, format: StreamFormat, o
  */
 export function setElementRoute(on: boolean) {
   if (routed === on) return;
+  if (on) deckOwner?.leave(true);
   routed = on;
   if (!on) armed = false;
   if (on) {
@@ -248,6 +251,7 @@ async function relink() {
  * moves to it when it arrives.
  */
 export function armCastLinks(): boolean {
+  deckOwner?.leave(true);
   armed = true;
   if (moveToLink()) return true;
   void relink();
@@ -261,6 +265,8 @@ export function disarmCastLinks() {
 
 /** A receiver plays from now on: the elements go quiet and the track moves there, from where it was. */
 export function attachSink(next: RemoteSink) {
+  // casting takes the heard deck's track from where it is
+  deckOwner?.leave(true);
   const s = get();
   const wasPlaying = s.status === 'playing' || s.status === 'buffering' || s.status === 'loading';
   clearHandoff();
@@ -337,16 +343,18 @@ function ensureElements(): [HTMLAudioElement, HTMLAudioElement] | null {
   for (const a of elements) {
     a.preload = 'auto';
     a.volume = get().volume;
-    a.addEventListener('playing', () => onPlaying(a));
-    a.addEventListener('pause', () => onPause(a));
-    a.addEventListener('waiting', () => { if (a === el() && get().status === 'playing') set({ status: 'buffering' }); });
-    a.addEventListener('timeupdate', () => onTime(a));
-    a.addEventListener('durationchange', () => onDuration(a));
-    a.addEventListener('loadedmetadata', () => onDuration(a));
-    a.addEventListener('seeking', () => { if (a === el() && cur) cur.lastTime = null; });
-    a.addEventListener('seeked', () => { if (a === el() && cur) cur.lastTime = a.currentTime; });
-    a.addEventListener('ended', () => onEnded(a));
-    a.addEventListener('error', () => onError(a));
+    // in the DJ view the decks own both elements (djDecks.ts)
+    const on = (type: DeckEventType, fn: () => void) => a.addEventListener(type, () => { if (deckOwner) deckOwner.event(a, type); else fn(); });
+    on('playing', () => onPlaying(a));
+    on('pause', () => onPause(a));
+    on('waiting', () => { if (a === el() && get().status === 'playing') set({ status: 'buffering' }); });
+    on('timeupdate', () => onTime(a));
+    on('durationchange', () => onDuration(a));
+    on('loadedmetadata', () => onDuration(a));
+    on('seeking', () => { if (a === el() && cur) cur.lastTime = null; });
+    on('seeked', () => { if (a === el() && cur) cur.lastTime = a.currentTime; });
+    on('ended', () => onEnded(a));
+    on('error', () => { void onError(a); });
     // Safari offers AirPlay for an <audio> it may route there
     try { a.setAttribute('x-webkit-airplay', 'allow'); } catch { /* not an element here */ }
   }
@@ -405,6 +413,8 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
   if (!els || !track) return;
   // a play here: this device plays from now on, not the other one
   if (remoteCtl) leaveRemote();
+  // the DJ view: the heard deck takes it
+  if (deckOwner) { deckOwner.load(index, opts); return; }
   generation++;
   const a = els[active]!;
   const format = opts.format ?? chooseFormat(getPlayerQuality(), track.mime, sink ? sink.canPlay : canPlayOf(a));
@@ -968,7 +978,7 @@ function syncDjTimer() {
 
 // DJ turned off (or this device can no longer mix): a fade ends, the gains go back to 1, the graph stays
 subscribeDj(() => {
-  if (djWanted()) return;
+  if (djWanted() || deckOwner) return;
   cancelMix();
   endRamp();
   resetGains();
@@ -977,6 +987,7 @@ subscribeDj(() => {
 // the browser stopped the context (a call, the lock screen, a Bluetooth switch): nothing stays half faded,
 // and a player that would be silent is shown paused, so the next Play (a gesture) resumes it
 onContextTrouble(() => {
+  if (deckOwner) { deckOwner.trouble(); return; }
   cancelMix();
   resetGains();
   setTimeout(() => {
@@ -1048,9 +1059,14 @@ const clampMs = (sec: number) => Math.min(MAX_MS, Math.max(0, Math.round(sec * 1
 
 /** Fire and forget: never blocks playback, never retries. */
 function sendEvent(kind: PlayEventKind) {
+  if (!cur) return;
+  postEvent(kind, cur.trackId, cur.heardSec, get().position);
+}
+
+function postEvent(kind: PlayEventKind, trackId: string, heardSec: number, positionSec: number) {
   const s = get();
-  if (!cur || !s.queueId || typeof fetch === 'undefined') return;
-  const body = JSON.stringify({ kind, localTrackId: cur.trackId, queueId: s.queueId, playedMs: clampMs(cur.heardSec), positionMs: clampMs(s.position) });
+  if (!s.queueId || typeof fetch === 'undefined') return;
+  const body = JSON.stringify({ kind, localTrackId: trackId, queueId: s.queueId, playedMs: clampMs(heardSec), positionMs: clampMs(positionSec) });
   try {
     void fetch('/api/v1/player/events', { method: 'POST', body, keepalive: true, credentials: 'include', headers: { 'Content-Type': 'application/json' } }).catch(() => undefined);
   } catch { /* dropped */ }
@@ -1273,6 +1289,7 @@ export function play() {
     set({ status: 'playing' });
     return;
   }
+  if (deckOwner) { deckOwner.play(); return; }
   ensureElements();
   const a = el();
   if (!s.queue || !a) return;
@@ -1310,6 +1327,7 @@ export function pause() {
     if (get().status !== 'idle') set({ status: 'paused' });
     return;
   }
+  if (deckOwner) { deckOwner.pause(); return; }
   if (sink) {
     sink.pause();
     if (get().status !== 'error' && get().status !== 'idle') set({ status: 'paused' });
@@ -1331,6 +1349,7 @@ export function toggle() {
 export function next() {
   const s = get();
   if (remoteCtl) { remoteCtl.send('next'); return; }
+  if (deckOwner) { deckOwner.next(); return; }
   if (!s.queue) return;
   const n = nextPlayable(s.queue.tracks, s.index);
   if (n < 0) return;
@@ -1341,6 +1360,7 @@ export function next() {
 export function previous() {
   const s = get();
   if (remoteCtl) { remoteCtl.send('previous'); return; }
+  if (deckOwner) { deckOwner.previous(); return; }
   if (!s.queue || s.index < 0) return;
   const action = previousAction(s.queue.tracks, s.index, s.position);
   if (action.kind === 'restart') { seek(0); if (s.status === 'paused') play(); return; }
@@ -1357,6 +1377,7 @@ export function seek(sec: number) {
     set({ position: at });
     return;
   }
+  if (deckOwner) { deckOwner.seek(sec); return; }
   const a = el();
   const s = get();
   if (!a || !cur) return;
@@ -1428,6 +1449,7 @@ export function playAt(index: number) {
   }
   const track = s.queue?.tracks[index];
   if (!track || !track.available || index === s.index) return;
+  if (deckOwner) { deckOwner.playAt(index); return; }
   leaveCurrent();
   loadTrack(index);
 }
@@ -1437,6 +1459,7 @@ function replaceTracks(tracks: readonly QueueEntry[], index = get().index) {
   const s = get();
   if (!s.queue) return;
   set({ queue: { ...s.queue, tracks: [...tracks] }, index });
+  if (deckOwner) { deckOwner.queueChanged(); return; }
   const next = nextPlayable(tracks, index);
   if (preloaded && preloaded.trackId !== tracks[next]?.localTrackId) {
     clearHandoff();
@@ -1504,6 +1527,7 @@ export function clearQueue() {
  * leave the person's queue there for their next visit.
  */
 export function stop(opts: { forget?: boolean } = {}) {
+  deckOwner?.leave(false);
   // the receiver stops too; the cast session stays, for the next Play
   try { sink?.stop(); } catch { /* the session is gone already */ }
   clearHandoff();
@@ -1608,6 +1632,7 @@ export function persistOnLeave() {
 
 /** Drops the audio loaded here (another device plays the queue now). */
 function unload() {
+  deckOwner?.leave(false);
   try { sink?.pause(); } catch { /* the session is gone already */ }
   clearHandoff();
   leaveCurrent();
@@ -1901,4 +1926,160 @@ export function playHere() {
   loadTrack(s.index, { offset: s.position });
   claimed = true;
   void persistNow({ mode: 'play' });
+}
+
+// ---- the DJ view (Advanced mode, djDecks.ts) ----
+//
+// While the DJ view is open its two decks are the two elements: the deck
+// engine plays, pauses, seeks and pitches them, and the crossfader moves
+// their gains. The engine's own keys (the bar, the Media Session, space)
+// go to the deck heard, the one the crossfader favours; the bar, Now
+// playing, the queue, the play events and the Media Session show that deck.
+// Leaving the view hands playback back: the heard deck plays on as the
+// engine's track, the other one stops.
+
+export type DeckEventType = 'playing' | 'pause' | 'waiting' | 'timeupdate' | 'durationchange' | 'loadedmetadata' | 'seeking' | 'seeked' | 'ended' | 'error';
+
+/** What a deck holds, as the engine's own record of the playing track. */
+export interface DeckSession {
+  uid: string;
+  trackId: string;
+  format: StreamFormat;
+  /** the second a transcode was loaded from (0 for the original) */
+  base: number;
+  started: boolean;
+  heardSec: number;
+}
+
+export interface DeckOwner {
+  event(a: HTMLAudioElement, type: DeckEventType): void;
+  play(): void;
+  pause(): void;
+  next(): void;
+  previous(): void;
+  seek(sec: number): void;
+  /** a queue row: that track onto the free deck */
+  playAt(index: number): void;
+  /** a play action elsewhere (an album, ⌘K, a hand-over): onto the heard deck */
+  load(index: number, opts: { offset?: number; autoplay?: boolean }): void;
+  queueChanged(): void;
+  /** the browser stopped the audio context */
+  trouble(): void;
+  /** the engine takes playback back (casting, another device, Stop); handBack: the heard deck plays on */
+  leave(handBack: boolean): void;
+}
+
+export interface DeckStart {
+  elements: readonly [HTMLAudioElement, HTMLAudioElement];
+  /** the element that played */
+  active: 0 | 1;
+  /** what it held, from where */
+  current: (DeckSession & { position: number; playing: boolean }) | null;
+  /** the other element already holds this entry, loaded from `base` */
+  standby: { uid: string; trackId: string; format: StreamFormat; base: number } | null;
+}
+
+/** The decks take both elements. Null when they cannot here (casting, another device plays, no elements). */
+export function enterDecks(owner: DeckOwner): DeckStart | null {
+  if (deckOwner === owner) return null;
+  if (deckOwner) deckOwner.leave(true);
+  if (sink || useLinks() || remoteCtl) return null;
+  const els = ensureElements();
+  if (!els) return null;
+  // a fade on its way finishes now (the incoming track is the current one), a tempo ramp stops where it is
+  clearHandoff();
+  if (ramp) { ramp = null; syncDjTimer(); }
+  const tracks = get().queue?.tracks ?? [];
+  const a = els[active]!;
+  const entryNow = cur ? tracks[cur.index] : null;
+  const current = cur && entryNow && a.getAttribute('src')
+    ? { uid: entryNow.uid, trackId: cur.trackId, format: cur.format, base: cur.base, started: cur.started, heardSec: cur.heardSec, position: get().position, playing: !a.paused }
+    : null;
+  const p = preloaded;
+  const pe = p ? tracks[p.index] : null;
+  const standbyNow = p && pe && pe.localTrackId === p.trackId && standby()?.getAttribute('src') ? { uid: pe.uid, trackId: p.trackId, format: p.format, base: p.base } : null;
+  if (!standbyNow) release(standby());
+  preloaded = null;
+  // the decks keep their own records; nothing here sends events for them now
+  cur = null;
+  generation++;
+  deckOwner = owner;
+  return { elements: els, active: active as 0 | 1, current, standby: standbyNow };
+}
+
+/**
+ * The view closed: `deck` (the heard one) plays on as the engine's track,
+ * the other element stops; the effects are bypassed and every gain is back
+ * at 1. A pitched deck eases back to its own tempo over 8 bars.
+ */
+export function leaveDecks(owner: DeckOwner, back: { deck: 0 | 1; session: DeckSession | null; rampSec: number }) {
+  if (deckOwner !== owner) return;
+  deckOwner = null;
+  const els = elements;
+  if (!els) return;
+  active = back.deck;
+  const a = els[active]!;
+  release(els[1 - active]!);
+  preloaded = null;
+  bypassEffects();
+  for (const e of els) { const g = elementGain(e); if (g) setGainNow(g, 1); }
+  generation++;
+  const tracks = get().queue?.tracks ?? [];
+  const index = back.session ? tracks.findIndex((t) => t.uid === back.session!.uid) : -1;
+  if (!back.session || index < 0 || !a.getAttribute('src')) {
+    cur = null;
+    release(a);
+    if (get().status !== 'idle') set({ status: 'paused' });
+    setPlaybackState('paused');
+    return;
+  }
+  const sn = back.session;
+  cur = { trackId: sn.trackId, index, format: sn.format, base: sn.base, triedFallback: false, started: sn.started, completed: false, heardSec: sn.heardSec, lastTime: a.paused ? null : a.currentTime };
+  const track = tracks[index]!;
+  set({ index, status: a.paused ? 'paused' : 'playing', position: shownPosition(sn.base, a.currentTime), duration: shownDuration(sn.format, track.durationMs, a.duration), mix: null });
+  updateMetadata(track);
+  setPlaybackState(a.paused ? 'paused' : 'playing');
+  if (Math.abs(a.playbackRate - 1) > 1e-4) {
+    ramp = { el: a, fromRate: a.playbackRate, startPos: sn.base + a.currentTime, lengthSec: Math.max(2, back.rampSec) };
+    syncDjTimer();
+  }
+  persistSoon();
+}
+
+/** The bar, Now playing, the queue and the Media Session show the heard deck. */
+export function showDeck(p: { uid: string | null; status: PlayerStatus; position: number; duration: number | null }) {
+  if (!deckOwner) return;
+  const s = get();
+  const tracks = s.queue?.tracks ?? [];
+  const index = p.uid ? tracks.findIndex((t) => t.uid === p.uid) : -1;
+  const patch: Partial<PlayerState> = {};
+  if (index >= 0 && index !== s.index) {
+    patch.index = index;
+    updateMetadata(tracks[index]!);
+  }
+  if (p.status !== s.status) patch.status = p.status;
+  if (Math.abs(p.position - s.position) > 0.2 || patch.index != null) patch.position = p.position;
+  if (p.duration !== s.duration) patch.duration = p.duration;
+  if (s.message || s.retry) { patch.message = null; patch.retry = null; }
+  if (s.needsTap && p.status === 'playing') patch.needsTap = false;
+  if (Object.keys(patch).length) set(patch);
+  if (patch.status) setPlaybackState(p.status === 'playing' ? 'playing' : 'paused');
+  const t = Date.now();
+  if (t - lastPositionState > 1000 || patch.index != null) { lastPositionState = t; updatePositionState(); }
+  if (patch.index != null || t - lastPositionSave > POSITION_SAVE_MS) { lastPositionSave = t; persistSoon(); }
+}
+
+/** A deck's play event (now_playing when it is first heard; completed or skipped when it lets the track go). */
+export function deckEvent(kind: PlayEventKind, trackId: string, heardSec: number, positionSec: number) {
+  postEvent(kind, trackId, heardSec, positionSec);
+}
+
+/** The heard deck plays: this device plays the queue now (said once, so another device pauses). */
+export function deckClaim() {
+  if (!claimed) { claimed = true; void persistNow({ mode: 'play' }); }
+}
+
+/** The DJ view holds the elements. */
+export function decksOpen(): boolean {
+  return deckOwner !== null;
 }
