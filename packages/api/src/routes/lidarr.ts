@@ -15,6 +15,15 @@
  *   PUT    /api/v1/settings/lidarr/connection                         system.manage + fresh step-up: save (tested first)
  *   DELETE /api/v1/settings/lidarr/connection                         system.manage + fresh step-up: disconnect
  *   POST   /api/v1/settings/lidarr/remove-data                        system.manage + fresh step-up: turn off, delete the requests
+ *   POST   /api/v1/settings/lidarr/root-folder                        system.manage: make the root folder when it is the
+ *                                                                     drop pool, and say whether Lidarr can write there
+ *
+ * Paths: Lidarr and tagave each see the music share at their own path. The
+ * mapping ("Lidarr sees the music folder as", the arr convention) turns one
+ * into the other in every comparison: the warning, the pool's folder as
+ * Lidarr's root folder, and the imports lidarr.poll scans. Without it, a
+ * root's own path and its host path are tried (Lidarr and tagave share
+ * paths, or Lidarr runs on the computer that holds the music).
  *
  * Get spends disk and bandwidth, so it is the owner's (system.manage, the
  * route table), checked here again. The key is sealed with APP_SECRET and
@@ -30,19 +39,21 @@
  * owner may test 10 times a minute. Every other call goes to the saved
  * address only.
  */
+import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { sealSecret } from '@tagave/core';
 import {
-  LIDARR_ERRORS, LidarrClient, LidarrError, getAlbumInLidarr, inScanRoot, lidarrConnectionOf, lidarrErrorText, normalizeLidarrUrl,
-  type LidarrConnection, type LidarrSettings,
+  LIDARR_ERRORS, LidarrClient, LidarrError, checkLidarrRoot, getAlbumInLidarr, inScanRoot, lidarrConnectionOf, lidarrErrorText, lidarrPathOf,
+  normalizeLidarrUrl, pathMapOf, type LidarrConnection, type LidarrPathMap, type LidarrSettings, type ScanRootPath,
 } from '@tagave/core/lidarr';
 import {
-  forgetLidarrSettings, lidarrEnabled, lidarrStoredSettings, removeLidarrData, saveLidarrSettings, setLidarrEnabled, upsertLidarrRequest,
-  type LidarrRequestRow,
+  LIDARR_MODULE_ID, forgetLidarrSettings, lidarrEnabled, lidarrStoredSettings, removeLidarrData, saveLidarrSettings, setLidarrEnabled,
+  setModuleSettings, upsertLidarrRequest, type LidarrRequestRow,
 } from '@tagave/db';
 import {
   can, displayArtistName, lidarrConnectionSchema, lidarrGetSchema, lidarrModuleSchema, lidarrTestSchema,
-  type ArtistLidarrView, type LidarrGettingView, type LidarrRequestView, type LidarrSettingsView, type LidarrStatusView, type LidarrTestResult,
+  type ArtistLidarrView, type LidarrGettingView, type LidarrRequestView, type LidarrRootCheckView, type LidarrSettingsView, type LidarrStatusView,
+  type LidarrTestResult,
 } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { RateLimiter } from '../lib/rateLimit.js';
@@ -118,9 +129,36 @@ async function scanRoots(sql: Sql) {
     select id::text as id, path, host_path from scan_roots where enabled order by path`;
 }
 
+/** The drop pool while it is on (the first library with one): its music folder and its folder in it. */
+async function dropPool(sql: Sql): Promise<{ root: ScanRootPath; dirPath: string } | null> {
+  const [p] = await sql<Array<{ id: string; path: string; hostPath: string | null; dirPath: string }>>`
+    select sr.id::text as id, sr.path, sr.host_path as "hostPath", l.settings->'dropPool'->>'dirPath' as "dirPath"
+      from libraries l
+      join scan_roots sr on sr.library_id = l.id and sr.id::text = l.settings->'dropPool'->>'scanRootId'
+     where jsonb_typeof(l.settings) = 'object' and (l.settings->'dropPool'->>'enabled')::boolean is true
+       and sr.enabled and sr.writable and coalesce(l.settings->'dropPool'->>'dirPath', '') <> ''
+     order by l.created_at, l.id limit 1`;
+  return p ? { root: { id: p.id, path: p.path, hostPath: p.hostPath }, dirPath: p.dirPath } : null;
+}
+
+/** The saved mapping, when its music folder is still one. */
+const mapOf = (s: Record<string, unknown>, roots: readonly ScanRootPath[]): LidarrPathMap | null => {
+  const m = pathMapOf(s['pathMap']);
+  return m && roots.some((r) => r.id === m.scanRootId) ? m : null;
+};
+
+/** The root folder is the drop pool: as saved, else on while the pool is on. Never without a pool. */
+const usesPool = (s: Record<string, unknown>, pool: unknown): boolean => !!pool && (typeof s['useDropPool'] === 'boolean' ? s['useDropPool'] : true);
+
+const rootsOf = (rows: Array<{ id: string; path: string; host_path: string | null }>): ScanRootPath[] =>
+  rows.map((r) => ({ id: r.id, path: r.path, hostPath: r.host_path }));
+
 async function settingsView(sql: Sql): Promise<LidarrSettingsView> {
   const s = await lidarrStoredSettings(sql);
   const roots = await scanRoots(sql);
+  const rootsList = rootsOf(roots);
+  const map = mapOf(s, rootsList);
+  const pool = await dropPool(sql);
   let keyUnreadable = false;
   if (typeof s['apiKey'] === 'string') {
     try {
@@ -134,7 +172,6 @@ async function settingsView(sql: Sql): Promise<LidarrSettingsView> {
   const [counts] = await sql<Array<{ open: number; outside: number }>>`
     select count(*) filter (where state <> 'done')::int as open, count(*) filter (where outside_roots and state <> 'done')::int as outside
       from lidarr_requests`;
-  const rootsList = roots.map((r) => ({ id: r.id, path: r.path, hostPath: r.host_path }));
   return {
     enabled: await lidarrEnabled(sql),
     connection: saved ? {
@@ -147,9 +184,13 @@ async function settingsView(sql: Sql): Promise<LidarrSettingsView> {
       version: typeof s['version'] === 'string' ? s['version'] : null,
       qualityProfileName: typeof s['qualityProfileName'] === 'string' ? s['qualityProfileName'] : null,
       metadataProfileName: typeof s['metadataProfileName'] === 'string' ? s['metadataProfileName'] : null,
+      useDropPool: usesPool(s, pool),
+      pathMap: map,
     } : null,
     scanRoots: roots.map((r) => r.path),
-    rootFolderOutside: (rootPath !== null && roots.length > 0 && !inScanRoot(rootPath, rootsList)) || (counts?.outside ?? 0) > 0,
+    musicFolders: roots.map((r) => ({ id: r.id, path: r.path })),
+    pool: pool ? { scanRootId: pool.root.id, path: path.posix.join(pool.root.path, pool.dirPath), lidarrPath: lidarrPathOf(pool.root, pool.dirPath, map) } : null,
+    rootFolderOutside: (rootPath !== null && roots.length > 0 && !inScanRoot(rootPath, rootsList, map)) || (counts?.outside ?? 0) > 0,
     open: counts?.open ?? 0,
   };
 }
@@ -387,18 +428,41 @@ export async function createLidarrRoutes(fastify: FastifyInstance) {
     const url = normalized(parsed.data.url);
     const apiKey = await keyFor(sql, url, parsed.data.apiKey);
     const found = await test({ url, apiKey });
-    if (!found.rootFolders.includes(parsed.data.rootFolderPath)) throw new ApiError(400, 'Bad Request', 'Pick a root folder Lidarr has');
-    if (!found.qualityProfiles.some((p) => p.id === parsed.data.qualityProfileId)) throw new ApiError(400, 'Bad Request', 'Pick a quality profile Lidarr has');
-    if (!found.metadataProfiles.some((p) => p.id === parsed.data.metadataProfileId)) throw new ApiError(400, 'Bad Request', 'Pick a metadata profile Lidarr has');
+    const body = parsed.data;
+    if (!found.qualityProfiles.some((p) => p.id === body.qualityProfileId)) throw new ApiError(400, 'Bad Request', 'Pick a quality profile Lidarr has');
+    if (!found.metadataProfiles.some((p) => p.id === body.metadataProfileId)) throw new ApiError(400, 'Bad Request', 'Pick a metadata profile Lidarr has');
+    const roots = rootsOf(await scanRoots(sql));
+    const stored = await lidarrStoredSettings(sql);
+    // the mapping: as sent (null clears it), else as saved
+    if (body.pathMap && !roots.some((r) => r.id === body.pathMap!.scanRootId)) throw new ApiError(400, 'Bad Request', 'Pick a music folder');
+    const map = body.pathMap === undefined ? mapOf(stored, roots) : body.pathMap ? pathMapOf(body.pathMap) : null;
+    const pool = await dropPool(sql);
+    const useDropPool = body.useDropPool ?? (!body.rootFolderPath && !!pool);
+    if (useDropPool && !pool) throw new ApiError(409, 'Conflict', 'Turn the drop pool on first');
+    let rootFolderPath: string;
+    if (useDropPool) {
+      // the pool as Lidarr sees it, made one of its root folders when it can be (Lidarr checks it can write there)
+      rootFolderPath = lidarrPathOf(pool!.root, pool!.dirPath, map);
+      try {
+        await checkLidarrRoot(new LidarrClient({ url, apiKey }), rootFolderPath, { create: true, qualityProfileId: body.qualityProfileId, metadataProfileId: body.metadataProfileId });
+      } catch (err) {
+        if (!(err instanceof LidarrError)) throw err;
+      }
+    } else {
+      if (!body.rootFolderPath || !found.rootFolders.includes(body.rootFolderPath)) throw new ApiError(400, 'Bad Request', 'Pick a root folder Lidarr has');
+      rootFolderPath = body.rootFolderPath;
+    }
     await saveLidarrSettings(sql, {
       url,
       apiKey: sealSecret(apiKey, appSecret()),
-      rootFolderPath: parsed.data.rootFolderPath,
-      qualityProfileId: parsed.data.qualityProfileId,
-      metadataProfileId: parsed.data.metadataProfileId,
+      rootFolderPath,
+      qualityProfileId: body.qualityProfileId,
+      metadataProfileId: body.metadataProfileId,
       version: found.version,
-      qualityProfileName: found.qualityProfiles.find((p) => p.id === parsed.data.qualityProfileId)!.name,
-      metadataProfileName: found.metadataProfiles.find((p) => p.id === parsed.data.metadataProfileId)!.name,
+      qualityProfileName: found.qualityProfiles.find((p) => p.id === body.qualityProfileId)!.name,
+      metadataProfileName: found.metadataProfiles.find((p) => p.id === body.metadataProfileId)!.name,
+      useDropPool: pool ? useDropPool : (body.useDropPool ?? null),
+      pathMap: map,
     });
     await audit(sql, null, me.id, 'lidarr.connect', { version: found.version, key: parsed.data.apiKey ? 'set' : 'kept' });
     request.log.info({ event: 'lidarr.connect', userId: me.id, version: found.version }, 'lidarr connected');
@@ -414,6 +478,33 @@ export async function createLidarrRoutes(fastify: FastifyInstance) {
     await audit(sql, null, me.id, 'lidarr.disconnect', {});
     request.log.info({ event: 'lidarr.disconnect', userId: me.id }, 'lidarr disconnected');
     return settingsView(sql);
+  });
+
+  fastify.post('/settings/lidarr/root-folder', async (request): Promise<LidarrRootCheckView> => {
+    owner(request);
+    sameSite(request);
+    const { sql } = getAuthHandle();
+    const conn = await connection(sql);
+    if (!conn) return { reach: null, path: null, mountPath: null, error: null };
+    const s = await lidarrStoredSettings(sql);
+    const roots = rootsOf(await scanRoots(sql));
+    const map = mapOf(s, roots);
+    const pool = await dropPool(sql);
+    const pooled = usesPool(s, pool);
+    const target = pooled ? lidarrPathOf(pool!.root, pool!.dirPath, map) : conn.rootFolderPath;
+    // where Lidarr needs the share: its music folder as Lidarr sees it
+    const at = pooled ? pool!.root : roots.find((r) => r.id === inScanRoot(target, roots, map)?.scanRootId) ?? null;
+    const mountPath = at ? lidarrPathOf(at, '', map) : null;
+    try {
+      const r = await checkLidarrRoot(client(conn), target, { create: pooled, qualityProfileId: conn.qualityProfileId, metadataProfileId: conn.metadataProfileId });
+      // the pool moved, or the mapping changed: Get adds new artists there
+      if (pooled && r.reach === 'writable' && target !== conn.rootFolderPath) await setModuleSettings(sql, LIDARR_MODULE_ID, { rootFolderPath: target });
+      if (r.created) request.log.info({ event: 'lidarr.root_folder', path: r.path }, 'drop pool added to lidarr as a root folder');
+      return { reach: r.reach, path: r.path, mountPath, error: null };
+    } catch (err) {
+      if (!(err instanceof LidarrError)) throw err;
+      return { reach: null, path: target, mountPath, error: lidarrErrorText(err) };
+    }
   });
 
   fastify.post('/settings/lidarr/remove-data', async (request): Promise<LidarrSettingsView & { removed: Record<string, number> }> => {

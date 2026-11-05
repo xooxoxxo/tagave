@@ -35,15 +35,23 @@ export interface FakeLidarr {
   commands: Array<{ name: string; albumIds: number[] }>;
   /** answer every call with this status (500, 401…) while set */
   failWith: number | null;
+  /** Lidarr's root folders (POST /rootfolder adds to them) */
+  rootFolders: string[];
+  /**
+   * The folders Lidarr's container sees, and whether it may write each (a
+   * folder inside one counts as it). Null: every path is there and writable.
+   */
+  disk: Map<string, { writable: boolean }> | null;
   download(albumId: number, size: number, left: number): void;
   importAlbum(albumId: number, filePaths: string[]): void;
   close(): Promise<void>;
 }
 
-export async function startFakeLidarr(opts: { apiKey: string; version?: string; rootFolders?: string[] }): Promise<FakeLidarr> {
+export async function startFakeLidarr(opts: { apiKey: string; version?: string; rootFolders?: string[]; disk?: Record<string, { writable: boolean }> }): Promise<FakeLidarr> {
   let nextId = 100;
-  const rootFolders = opts.rootFolders ?? ['/music'];
   const state: Omit<FakeLidarr, 'url' | 'close' | 'download' | 'importAlbum'> = {
+    rootFolders: [...(opts.rootFolders ?? ['/music'])],
+    disk: opts.disk ? new Map(Object.entries(opts.disk)) : null,
     apiKey: opts.apiKey,
     catalog: new Map(),
     artists: [],
@@ -53,6 +61,23 @@ export async function startFakeLidarr(opts: { apiKey: string; version?: string; 
     calls: [],
     commands: [],
     failWith: null,
+  };
+
+  const trim = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') : p);
+  /** what the container sees at a path: null when nothing is there */
+  const seen = (p: string): { writable: boolean } | null => {
+    if (!state.disk) return { writable: true };
+    const t = trim(p);
+    let best: { writable: boolean } | null = null;
+    let len = -1;
+    for (const [d, v] of state.disk) {
+      if ((t === d || t.startsWith(`${d}/`)) && d.length > len) { best = v; len = d.length; }
+    }
+    return best;
+  };
+  const rootJson = (path: string, i: number) => {
+    const s = seen(path);
+    return { id: i + 1, name: path.split('/').pop(), path, accessible: !!s, freeSpace: s ? 1e12 : null, unmappedFolders: [] };
   };
 
   const albumJson = (a: FakeAlbum) => ({
@@ -84,7 +109,22 @@ export async function startFakeLidarr(opts: { apiKey: string; version?: string; 
     const p = u.pathname.replace(/\/+$/, '').toLowerCase();
     const q = u.searchParams;
     if (req.method === 'GET' && p === '/api/v1/system/status') return send(res, 200, { appName: 'Lidarr', version: opts.version ?? '2.9.6.4552' });
-    if (req.method === 'GET' && p === '/api/v1/rootfolder') return send(res, 200, rootFolders.map((path, i) => ({ id: i + 1, name: path.split('/').pop(), path, accessible: true, freeSpace: 1e12 })));
+    if (req.method === 'GET' && p === '/api/v1/rootfolder') return send(res, 200, state.rootFolders.map(rootJson));
+    if (req.method === 'POST' && p === '/api/v1/rootfolder') {
+      const b = body as { path?: string; name?: string; defaultQualityProfileId?: number; defaultMetadataProfileId?: number } | null;
+      if (!b?.path || !b.name) return send(res, 400, [{ propertyName: 'Path', errorMessage: 'Invalid Path' }]);
+      if (state.rootFolders.includes(trim(b.path))) return send(res, 400, [{ propertyName: 'Path', errorMessage: 'Path is already configured as a root folder' }]);
+      // Lidarr's FolderWritableValidator: a folder it cannot see fails the same way as one it cannot write
+      if (!seen(b.path)?.writable) return send(res, 400, [{ propertyName: 'Path', errorMessage: `Folder '${b.path}' is not writable by user 'abc'` }]);
+      state.rootFolders.push(trim(b.path));
+      return send(res, 201, rootJson(trim(b.path), state.rootFolders.length - 1));
+    }
+    if (req.method === 'GET' && p === '/api/v1/filesystem') {
+      const dir = trim(q.get('path') ?? '');
+      if (!seen(dir)) return send(res, 200, { parent: null, directories: [], files: [] });
+      const kids = state.disk ? [...state.disk.keys()].filter((d) => d.startsWith(`${dir}/`) && !d.slice(dir.length + 1).includes('/')) : [];
+      return send(res, 200, { parent: dir, directories: kids.map((d) => ({ type: 'folder', name: d.split('/').pop(), path: `${d}/` })), files: [] });
+    }
     if (req.method === 'GET' && p === '/api/v1/qualityprofile') return send(res, 200, [{ id: 1, name: 'Any' }, { id: 2, name: 'Lossless' }]);
     if (req.method === 'GET' && p === '/api/v1/metadataprofile') return send(res, 200, [{ id: 1, name: 'Standard' }, { id: 2, name: 'None' }]);
     if (req.method === 'GET' && p === '/api/v1/artist') {
@@ -105,7 +145,7 @@ export async function startFakeLidarr(opts: { apiKey: string; version?: string; 
       if (!known) return send(res, 400, [{ propertyName: 'ForeignAlbumId', errorMessage: 'Album was not found' }]);
       let artist = state.artists.find((a) => a.foreignArtistId === b.artist!.foreignArtistId);
       if (!artist) {
-        if (!b.artist.rootFolderPath || !rootFolders.includes(b.artist.rootFolderPath)) return send(res, 400, [{ propertyName: 'RootFolderPath', errorMessage: 'Root folder does not exist' }]);
+        if (!b.artist.rootFolderPath || !state.rootFolders.includes(b.artist.rootFolderPath)) return send(res, 400, [{ propertyName: 'RootFolderPath', errorMessage: 'Root folder does not exist' }]);
         artist = { id: nextId++, foreignArtistId: b.artist.foreignArtistId, artistName: known.artistName, path: `${b.artist.rootFolderPath}/${known.artistName}`, qualityProfileId: b.artist.qualityProfileId ?? 1, metadataProfileId: b.artist.metadataProfileId ?? 1 };
         state.artists.push(artist);
       }

@@ -6,8 +6,10 @@
  *                 one album call for every open request, then each request's
  *                 state (Wanted, Downloading, Importing, Not found). An album
  *                 Lidarr imported gets a scan of the folder its files are in,
- *                 when that folder is inside a music folder; otherwise the
- *                 request says so (Settings warns). A request is done when
+ *                 when that folder is inside a music folder (as the path
+ *                 mapping, "Lidarr sees the music folder as", turns Lidarr's
+ *                 path into tagave's); otherwise the request says so
+ *                 (Settings warns). A request is done when
  *                 tagave holds a local album of its release group. Nothing
  *                 open: nothing is asked.
  *   lidarr.get    Get all missing: the artist's missing albums, one after
@@ -134,7 +136,8 @@ export async function lidarrPollJob(ctx: WorkerContext, data: LidarrPollJobData 
         }
       }
       if (path) {
-        const where = inScanRoot(path, roots);
+        // through the mapping when one is saved: Lidarr's /data/music/A/B is A/B of that music folder
+        const where = inScanRoot(path, roots, s.conn.pathMap ?? null);
         outside = where === null;
         if (where && (!scanAt || now - new Date(scanAt).getTime() > RESCAN_AFTER_MS)) {
           // Lidarr's root folder may be the drop pool (0081): the pool imports

@@ -24,14 +24,26 @@ const apiKey = z.string().trim().min(8).max(200).regex(/^[A-Za-z0-9._-]+$/, { me
 export const lidarrTestSchema = z.object({ url: lidarrUrl, apiKey: apiKey.optional() }).strict();
 export type LidarrTestRequest = z.infer<typeof lidarrTestSchema>;
 
-/** PUT /settings/lidarr/connection: tested again before it is saved. */
+const absolutePath = z.string().trim().min(1).max(1024).refine((s) => s.startsWith('/') && !s.split('/').includes('..'), { message: 'Use an absolute path' });
+
+/** "Lidarr sees the music folder as": the path in Lidarr's container that is this music folder. */
+export const lidarrPathMapSchema = z.object({ lidarrPath: absolutePath, scanRootId: z.string().uuid() }).strict();
+export type LidarrPathMapInput = z.infer<typeof lidarrPathMapSchema>;
+
+/**
+ * PUT /settings/lidarr/connection: tested again before it is saved. With
+ * useDropPool the root folder is the drop pool (made in Lidarr when it has
+ * none there), else the root folder picked from Lidarr's.
+ */
 export const lidarrConnectionSchema = z.object({
   url: lidarrUrl,
   apiKey: apiKey.optional(),
-  rootFolderPath: z.string().min(1).max(1024),
+  rootFolderPath: z.string().min(1).max(1024).optional(),
   qualityProfileId: z.number().int().nonnegative(),
   metadataProfileId: z.number().int().nonnegative(),
-}).strict();
+  useDropPool: z.boolean().optional(),
+  pathMap: lidarrPathMapSchema.nullable().optional(),
+}).strict().refine((b) => b.useDropPool === true || !!b.rootFolderPath, { message: 'Pick a root folder', path: ['rootFolderPath'] });
 export type LidarrConnectionRequest = z.infer<typeof lidarrConnectionSchema>;
 
 export const lidarrModuleSchema = z.object({ enabled: z.boolean() }).strict();
@@ -65,13 +77,44 @@ export interface LidarrSettingsView {
     version: string | null;
     qualityProfileName: string | null;
     metadataProfileName: string | null;
+    /** the root folder is the drop pool (on by default while the pool is on) */
+    useDropPool: boolean;
+    pathMap: LidarrPathMapInput | null;
   } | null;
   /** tagave's music folders, for the warning */
   scanRoots: string[];
+  /** the same, with their ids (the mapping's music folder) */
+  musicFolders: Array<{ id: string; path: string }>;
+  /** the drop pool while it is on: its folder in tagave, and as Lidarr sees it (with the saved mapping) */
+  pool: { scanRootId: string; path: string; lidarrPath: string } | null;
   /** an album Lidarr imported is in none of them (or the root folder is not) */
   rootFolderOutside: boolean;
   /** requests not done yet */
   open: number;
+}
+
+export const LIDARR_REACH_STATES = ['writable', 'unseen', 'readonly'] as const;
+export type LidarrReachState = (typeof LIDARR_REACH_STATES)[number];
+
+/** POST /settings/lidarr/root-folder: the root folder made when it should be, and what Lidarr can do there. */
+export interface LidarrRootCheckView {
+  /** null: not connected, or Lidarr did not answer */
+  reach: LidarrReachState | null;
+  /** the root folder as Lidarr sees it */
+  path: string | null;
+  /** where Lidarr's container needs the music share: the music folder as Lidarr sees it */
+  mountPath: string | null;
+  /** Lidarr did not answer: its one line */
+  error: string | null;
+}
+
+/** The one line under the root folder. */
+export function lidarrReachLine(reach: LidarrReachState, mountPath: string | null): string {
+  if (reach === 'writable') return 'Lidarr can write here';
+  if (reach === 'readonly') return 'Lidarr can see it but can’t write';
+  return mountPath
+    ? `Lidarr can’t see this folder: mount the music share into Lidarr’s container at ${mountPath}`
+    : 'Lidarr can’t see this folder';
 }
 
 /** GET /lidarr: may this person Get, and is it set up. */

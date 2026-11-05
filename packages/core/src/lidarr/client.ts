@@ -4,7 +4,9 @@
  * own controllers (src/Lidarr.Api.V1):
  *
  *   GET  /api/v1/system/status                 version (Test)
- *   GET  /api/v1/rootfolder                    root folders (Test, settings)
+ *   GET  /api/v1/rootfolder                    root folders (Test, settings), each with accessible and free space
+ *   POST /api/v1/rootfolder                    add the drop pool as a root folder (Use the drop pool)
+ *   GET  /api/v1/filesystem?path=<dir>/        the folders Lidarr sees in one folder (can it see the pool)
  *   GET  /api/v1/qualityprofile                quality profiles
  *   GET  /api/v1/metadataprofile               metadata profiles
  *   GET  /api/v1/artist?mbId=<uuid>            the artist by MusicBrainz id ([] or [artist])
@@ -74,7 +76,17 @@ const text = (max: number) => z.string().max(max * 4).transform((s) => s.slice(0
 const id = z.number().int().nonnegative();
 
 export const lidarrStatusSchema = z.object({ version: text(40) });
-export const lidarrRootFolderSchema = z.object({ id, path: text(1024), name: text(200).nullish(), accessible: z.boolean().optional() });
+export const lidarrRootFolderSchema = z.object({
+  id,
+  path: text(1024),
+  name: text(200).nullish(),
+  accessible: z.boolean().optional(),
+  freeSpace: z.number().nullish(),
+  unmappedFolders: z.array(z.object({ name: text(500).nullish(), path: text(2048).nullish() })).max(10_000).optional(),
+});
+export const lidarrFolderListingSchema = z.object({
+  directories: z.array(z.object({ name: text(500).nullish(), path: text(2048) })).max(10_000).default([]),
+});
 export const lidarrProfileSchema = z.object({ id, name: text(200) });
 export const lidarrArtistSchema = z.object({
   id,
@@ -202,6 +214,26 @@ export class LidarrClient {
 
   status() { return this.call('GET', '/system/status', lidarrStatusSchema); }
   rootFolders() { return this.call('GET', '/rootfolder', z.array(lidarrRootFolderSchema).max(200)); }
+  /**
+   * Add a root folder. Lidarr checks the folder is there and writable as it
+   * sees it; refused (400), the caller tells why with folderListing.
+   */
+  addRootFolder(input: { name: string; path: string; defaultQualityProfileId: number; defaultMetadataProfileId: number }): Promise<LidarrRootFolder> {
+    return this.call('POST', '/rootfolder', lidarrRootFolderSchema, {
+      ...input,
+      defaultMonitorOption: 'none',
+      defaultNewItemMonitorOption: 'none',
+      defaultTags: [],
+    });
+  }
+
+  /** The folders Lidarr sees in `dir` (empty when it sees no such folder). */
+  async folderListing(dir: string): Promise<Array<{ name: string | null; path: string }>> {
+    const p = dir.endsWith('/') ? dir : `${dir}/`;
+    const out = await this.call('GET', `/filesystem?path=${encodeURIComponent(p)}&includeFiles=false&allowFoldersWithoutTrailingSlashes=true`, lidarrFolderListingSchema);
+    return out.directories.map((d) => ({ name: d.name ?? null, path: d.path }));
+  }
+
   qualityProfiles() { return this.call('GET', '/qualityprofile', z.array(lidarrProfileSchema).max(500)); }
   metadataProfiles() { return this.call('GET', '/metadataprofile', z.array(lidarrProfileSchema).max(500)); }
 

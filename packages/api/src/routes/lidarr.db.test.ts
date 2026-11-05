@@ -262,6 +262,69 @@ describe.skipIf(!adminUrl)('lidarr: connect, Get, Retry, Cancel, the views, who 
     expect(await sql`select 1 from lidarr_requests`).toHaveLength(0);
   });
 
+  it('Use the drop pool: the root folder made in Lidarr through the mapping, and whether Lidarr can write there', async () => {
+    // Lidarr in Docker on another computer, seeing the share as /data/music
+    const far = await startFakeLidarr({ apiKey: KEY, rootFolders: ['/data/old'], disk: { '/data': { writable: true }, '/data/music': { writable: true }, '/data/music/_Inbox': { writable: true } } });
+    const [root] = await sql<Array<{ id: string }>>`select id::text as id from scan_roots where library_id = ${libraryId}`;
+    const setPool = (on: boolean) => sql`update libraries set settings = settings || ${JSON.stringify({ dropPool: { enabled: on, scanRootId: root!.id, dirPath: '_Inbox' } })}::text::jsonb where id = ${libraryId}`;
+    await setPool(true);
+    const check = async () => (await call(owner, 'POST', '/settings/lidarr/root-folder')).json();
+    try {
+      // the pool is on: Use the drop pool is on unless turned off
+      expect((await call(owner, 'GET', '/settings/lidarr')).json()).toMatchObject({
+        connection: { rootFolderPath: '/music', useDropPool: true, pathMap: null },
+        pool: { scanRootId: root!.id, path: '/music/_Inbox', lidarrPath: '/music/_Inbox' },
+        musicFolders: [{ id: root!.id, path: '/music' }],
+      });
+      const save = await call(owner, 'PUT', '/settings/lidarr/connection', {
+        url: far.url, apiKey: KEY, qualityProfileId: 2, metadataProfileId: 1, useDropPool: true, pathMap: { lidarrPath: '/data/music/', scanRootId: root!.id },
+      });
+      expect(save.statusCode).toBe(200);
+      expect(save.json()).toMatchObject({
+        connection: { rootFolderPath: '/data/music/_Inbox', useDropPool: true, pathMap: { lidarrPath: '/data/music', scanRootId: root!.id } },
+        pool: { lidarrPath: '/data/music/_Inbox' },
+        rootFolderOutside: false,
+      });
+      expect(far.rootFolders).toEqual(['/data/old', '/data/music/_Inbox']);
+      expect(far.calls.find((c) => c.method === 'POST' && c.url === '/api/v1/rootfolder')!.body).toMatchObject({ path: '/data/music/_Inbox', defaultQualityProfileId: 2, defaultMetadataProfileId: 1 });
+      expect(await check()).toEqual({ reach: 'writable', path: '/data/music/_Inbox', mountPath: '/data/music', error: null });
+      // a second look adds nothing
+      expect(far.calls.filter((c) => c.method === 'POST' && c.url === '/api/v1/rootfolder')).toHaveLength(1);
+
+      // no mapping: Lidarr would need the share at tagave's own path, and does not see it there
+      await call(owner, 'PUT', '/settings/lidarr/connection', { url: far.url, qualityProfileId: 2, metadataProfileId: 1, useDropPool: true, pathMap: null });
+      expect(await check()).toEqual({ reach: 'unseen', path: '/music/_Inbox', mountPath: '/music', error: null });
+      expect(far.rootFolders).not.toContain('/music/_Inbox');
+      // mounted read-only there: seen, not writable
+      far.disk!.set('/music', { writable: false });
+      far.disk!.set('/music/_Inbox', { writable: false });
+      expect((await check()).reach).toBe('readonly');
+      // the owner fixes the mount: the next look makes the root folder on its own
+      far.disk!.set('/music', { writable: true });
+      far.disk!.set('/music/_Inbox', { writable: true });
+      expect(await check()).toMatchObject({ reach: 'writable', path: '/music/_Inbox' });
+      expect(far.rootFolders).toContain('/music/_Inbox');
+
+      // turned off: the root folder picked from Lidarr's, as before; the pool's line is about that folder
+      const picked = await call(owner, 'PUT', '/settings/lidarr/connection', { url: far.url, qualityProfileId: 2, metadataProfileId: 1, useDropPool: false, rootFolderPath: '/data/old' });
+      expect(picked.json()).toMatchObject({ connection: { rootFolderPath: '/data/old', useDropPool: false }, rootFolderOutside: true });
+      expect(await check()).toMatchObject({ reach: 'writable', path: '/data/old', mountPath: null });
+      // the mapping makes a Lidarr path under it one of tagave's
+      const mapped = await call(owner, 'PUT', '/settings/lidarr/connection', { url: far.url, qualityProfileId: 2, metadataProfileId: 1, useDropPool: false, rootFolderPath: '/data/old', pathMap: { lidarrPath: '/data', scanRootId: root!.id } });
+      expect(mapped.json()).toMatchObject({ rootFolderOutside: false });
+      // a mapping to a music folder tagave does not have is refused; Use the drop pool needs a pool
+      expect((await call(owner, 'PUT', '/settings/lidarr/connection', { url: far.url, qualityProfileId: 2, metadataProfileId: 1, useDropPool: false, rootFolderPath: '/data/old', pathMap: { lidarrPath: '/data', scanRootId: randomUUID() } })).statusCode).toBe(400);
+      await setPool(false);
+      expect((await call(owner, 'PUT', '/settings/lidarr/connection', { url: far.url, qualityProfileId: 2, metadataProfileId: 1, useDropPool: true })).statusCode).toBe(409);
+      // editors and listeners: no
+      expect((await call(editor, 'POST', '/settings/lidarr/root-folder')).statusCode).toBe(403);
+    } finally {
+      await setPool(false);
+      await call(owner, 'PUT', '/settings/lidarr/connection', { url: lidarr.url, apiKey: KEY, rootFolderPath: '/music', qualityProfileId: 2, metadataProfileId: 1, useDropPool: false, pathMap: null });
+      await far.close();
+    }
+  });
+
   it('disconnect forgets the address and the key; delete its data empties only its table', async () => {
     await call(owner, 'POST', `/libraries/${libraryId}/lidarr/requests`, { releaseGroupId: rgSecond });
     expect(await sql`select 1 from lidarr_requests`).toHaveLength(1);
