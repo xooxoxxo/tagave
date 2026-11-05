@@ -33,8 +33,11 @@ export interface OneFileAlbum {
   tracks: number;
 }
 
-/** The library's albums that fit the rule; one album when `albumId` is given. */
-export async function oneFileAlbums(sql: Sql, libraryId: string, albumId?: string): Promise<OneFileAlbum[]> {
+/** The library's albums that fit the rule; one album when `albumId` is given, these albums for a list. */
+export async function oneFileAlbums(sql: Sql, libraryId: string, albumId?: string | readonly string[]): Promise<OneFileAlbum[]> {
+  if (Array.isArray(albumId) && albumId.length === 0) return [];
+  const only = albumId === undefined ? sql``
+    : typeof albumId === 'string' ? sql`and la.id = ${albumId}` : sql`and la.id = any(${[...albumId]}::uuid[])`;
   const rows = await sql<Array<OneFileAlbum & { fileMs: number | string; releaseMs: number | string }>>`
     select la.id::text as "albumId", f.id::text as "fileId", t.track_id::text as "localTrackId",
            f.scan_root_id::text as "scanRootId", f.rel_path as "relPath", f.duration_ms as "fileMs",
@@ -53,7 +56,7 @@ export async function oneFileAlbums(sql: Sql, libraryId: string, albumId?: strin
         on ct.n > 1 and ct.unknown = 0
      where la.library_id = ${libraryId}
        and la.state = 'matched' and la.release_id is not null
-       ${albumId ? sql`and la.id = ${albumId}` : sql``}
+       ${only}
        and f.status = 'present' and lower(f.rel_path) like '%.flac'
        and f.duration_ms is not null
        and abs(f.duration_ms - ct.total_ms) <= greatest(${TOLERANCE_MS}::bigint, ct.total_ms * ${TOLERANCE_SHARE}::numeric)

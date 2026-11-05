@@ -92,6 +92,7 @@ export const tagPoliciesSchema = z.object({
   values: manualTagValuesSchema.optional().describe('Manual preset only: the values to write'),
   revertOf: z.string().uuid().optional().describe('Revert preset only: the plan whose writes this plan undoes'),
   organize: z.boolean().optional().describe('0081: after the tags, move each file to the path the naming rules give (Settings › Library › Naming); on by default when rules are saved'),
+  split: z.boolean().optional().describe('0089: an album that is one FLAC holding the whole album is split into its tracks first, then the new tracks are tagged; on unless false (owner only)'),
 }).strict().describe('Write policy: preset + per-field overrides');
 
 export type TagPolicies = z.infer<typeof tagPoliciesSchema>;
@@ -124,6 +125,8 @@ export const tagPlanSkippedFileSchema = z.object({
     'release_missing',
     // the album is matched, but linking placed this file on none of the release's tracks
     'track_not_on_release',
+    // 0089: the file holds the whole album; the plan splits it and tags the new tracks
+    'split_first',
   ]).describe('Why the file was skipped'),
   message: z.string().optional().describe('Additional error details'),
   localAlbumId: z.string().uuid().optional().describe('Album the file belongs to, so the page can offer to identify it'),
@@ -182,6 +185,17 @@ export const tagPlanSchema = z.object({
   archivedAt: z.string().datetime().optional().describe('ISO 8601 timestamp when the owner archived this finished plan; archived plans leave the default list'),
   formats: z.array(z.string()).optional().describe('Distinct lower-case file extensions of the files in the plan (detail only, once previewed): the ID3 version matters only when one is an ID3 format'),
   progress: z.record(z.string(), z.number()).optional().describe('Item counts by status (applied, failed, …); on the detail, and on list rows whose apply finished with failures'),
+  splits: z.array(z.object({
+    splitId: z.string().uuid(),
+    albumId: z.string().uuid().nullable(),
+    state: z.enum(['analyzing', 'ready', 'splitting', 'done', 'failed', 'undone']),
+    tracks: z.number().int().nonnegative(),
+    low: z.number().int().nonnegative(),
+    medium: z.number().int().nonnegative(),
+    plan: z.any().nullable(),
+    outputs: z.array(z.string()).nullable(),
+    error: z.string().nullable(),
+  }).strict()).optional().describe('0089: the albums this plan splits first (detail only): PlanSplit'),
 }).strict().describe('A tag correction plan');
 
 export type TagPlan = z.infer<typeof tagPlanSchema>;

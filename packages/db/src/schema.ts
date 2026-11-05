@@ -2140,7 +2140,7 @@ export const albumSplits = pgTable(
     localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'set null' }),
     fileId: uuid('file_id').references(() => files.id, { onDelete: 'set null' }),
     releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'set null' }),
-    /** analyzing | ready | splitting | done | failed */
+    /** analyzing | ready | splitting | done | failed | undone (0089: a plan's revert) */
     state: text().notNull(),
     /** SplitPlan (@tagave/shared) */
     plan: jsonb(),
@@ -2151,9 +2151,11 @@ export const albumSplits = pgTable(
     createdAt: tstz('created_at').notNull().defaultNow(),
     updatedAt: tstz('updated_at').notNull().defaultNow(),
     finishedAt: tstz('finished_at'),
+    /** 0089: the tag plan that asked for the split (null for the album page's Split) */
+    tagPlanId: uuid('tag_plan_id').references(() => tagPlans.id, { onDelete: 'set null' }),
   },
   (table) => ({
     albumIdx: index('idx_album_splits_album').on(table.localAlbumId, table.createdAt),
-    stateCheck: check('album_splits_state_check', sql`state in ('analyzing', 'ready', 'splitting', 'done', 'failed')`),
+    stateCheck: check('album_splits_state_check', sql`state in ('analyzing', 'ready', 'splitting', 'done', 'failed', 'undone')`),
   })
 );
