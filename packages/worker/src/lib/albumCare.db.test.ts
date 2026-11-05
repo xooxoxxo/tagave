@@ -84,6 +84,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Library care after worker album
     expect(sent.find((s) => s.name === 'gaps.recompute')?.data).toEqual({ libraryId, albumIds: [album.id] });
   });
 
+  it('the boot sweep puts right a gap an earlier version left stale (the album was completed meanwhile)', async () => {
+    const album = await albumIn(dir);
+    // as 0.25 left a merged album: complete, still listed as missing three songs
+    await sql`update gaps set state = 'open', resolved_at = null
+               where library_id = ${libraryId} and kind = 'incomplete_album' and subject_id = ${album.id}`;
+    expect(await open('incomplete_album', album.id)).toHaveLength(1);
+    await gapsRecomputeJob(ctx, { libraryId, albumGapsOnly: true });
+    expect(await open('incomplete_album', album.id)).toEqual([]);
+  });
+
   it('deleting a second copy resolves the duplicate it made', async () => {
     const ids: string[] = [];
     for (let n = 1; n <= 10; n++) ids.push(await addFile(copyDir, n));

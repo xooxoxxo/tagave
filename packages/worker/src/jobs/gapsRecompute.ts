@@ -16,6 +16,13 @@ export interface GapsRecomputeJobData {
    * unscoped run.
    */
   albumIds?: string[];
+  /**
+   * Only the album-level gaps (incomplete, duplicate, one file, gone), for
+   * the whole library: the worker's boot sweep (rr85). Cheap SQL that puts
+   * right what an operation left stale before albums changed rechecked their
+   * gaps, without waiting for the nightly run.
+   */
+  albumGapsOnly?: boolean;
 }
 
 /**
@@ -37,6 +44,11 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
   // definition shared with the api, which runs it for the albums an
   // operation touched in the same request (@tagave/db › recomputeAlbumGaps).
   await recomputeAlbumGaps(ctx.sql, lib, scoped ? albumScope : null);
+  if (data.albumGapsOnly && !scoped) {
+    await reportProgress(ctx, null, { libraryId: lib, type: 'gaps.recompute', state: 'completed', message: 'album gaps rechecked' });
+    ctx.logger.info({ libraryId: lib, elapsedMs: Date.now() - started }, 'album gaps rechecked');
+    return;
+  }
 
   // --- GAP-2: missing albums per followed artist (release groups not owned
   // locally, filtered by the artist's follow rules). Shared with artist.refresh,
