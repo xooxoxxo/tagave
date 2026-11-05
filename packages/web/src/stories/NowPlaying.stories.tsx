@@ -162,7 +162,7 @@ export const PhoneMiniBarRemote: Story = {
   globals: { viewport: { value: 'phone' } },
   render: () => (
     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
-      <DeviceStripView playingOn="Chrome on Mac" />
+      <DeviceStripView playingOn="Chrome on Mac" menu={{ onChoose: noop, devices: [{ id: 'phone', name: 'Safari on iPhone', here: true, playing: false }, { id: 'mac', name: 'Chrome on Mac', here: false, playing: true }] }} />
       <MiniPlayer track={QUEUE[0]!} status="playing" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} />
     </div>
   ),

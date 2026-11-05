@@ -1,9 +1,9 @@
 /*
  * The equalizer glow (BarGlow.tsx): a box standing on the bar's top edge,
  * the bar's width (so never over the sidebar) and at most --rise tall, so
- * the light over the page stays low and faint. Its canvas holds the columns
- * (glowDriver.ts paints them, small, and the browser's smoothing as it scales
- * the canvas up softens them); the line lies along the edge. Only opacity
+ * the light over the page stays low and faint. Its canvas holds the light
+ * (glowDriver.ts paints it, small, and the browser's smoothing as it scales
+ * the canvas up blends it into one wash); the line lies along the edge. Only opacity
  * moves here: the whole glow fades in and out, the line follows the music.
  * One hue, the album's accent: its lighter tint on a dark theme, deeper
  * tones on a light one, so it shows on either.
@@ -43,12 +43,12 @@
   --glow-core: var(--dew-hi);
 }
 
-.columns {
+.light {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  /* the columns' colour: the canvas reads it */
+  /* the light's colour: the canvas reads it */
   color: var(--glow-body);
 }
 

@@ -1,10 +1,11 @@
 /**
  * The equalizer glow (Settings › Appearance › Equalizer glow, off by
  * default): a bright line along the player bar's top edge and, rising from
- * it into the page, an equalizer of soft columns of light, one hue, the
- * playing album's accent (glowDriver.ts lays them out and moves them). On a
- * desktop it comes from the bar's right side and falls off toward the left;
- * on a phone it spans the mini bar. It stays within the bar's own column.
+ * it into the page, one soft wash of light that swells and flows with the
+ * music, never separate bars; one hue, the playing album's accent
+ * (glowDriver.ts shapes and moves it). On a desktop it comes from the bar's
+ * right side and falls off toward the left; on a phone it spans the mini
+ * bar. It stays within the bar's own column.
  *
  * Only while music plays here: paused, stopped or casting it fades out in
  * 400 ms and its loop stops. Reduced motion, and where the music cannot be
@@ -14,7 +15,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { BANDS, analyserAllowed, bandReader, playerAnalyser } from '../adaptive/levels';
 import {
-  STRENGTH, Y_SCALE, canvasScale, emptySpectrum, heldSpectrum, layoutColumns, paintColumns, stepSpectrum, stillSpectrum,
+  STRENGTH, Y_SCALE, canvasScale, emptySpectrum, heldSpectrum, layoutGlow, paintGlow, stepSpectrum, stillSpectrum,
   type Anchor, type Colours, type Layout, type Spectrum,
 } from './glowDriver';
 import styles from './BarGlow.module.css';
@@ -68,14 +69,14 @@ export function BarGlow({ playing, anchor = 'centre', source = 'auto', levels }:
   const feed = typeof source === 'function' ? source : node;
   const mode: 'held' | 'live' | 'still' = levels ? 'held' : feed && !reduce && source !== 'still' ? 'live' : 'still';
 
-  // the bar's width: the columns, and a canvas of about four px a column (smoothed up, a soft glow)
+  // the bar's width: the light's layout, and a small canvas (smoothed up, a soft wash)
   useLayoutEffect(() => {
     const el = root.current, cv = canvas.current;
     if (!el || !cv) return;
     const measure = () => {
       const { width, height } = el.getBoundingClientRect();
-      const layout = layoutColumns(width, anchor);
-      const scale = canvasScale(layout.pitch);
+      const layout = layoutGlow(width, anchor);
+      const scale = canvasScale(layout);
       const w = Math.max(1, Math.ceil(width / scale)), h = Math.max(1, Math.ceil(height / Y_SCALE));
       if (cv.width !== w) cv.width = w;
       if (cv.height !== h) cv.height = h;
@@ -100,7 +101,7 @@ export function BarGlow({ playing, anchor = 'centre', source = 'auto', levels }:
       return { colours: { body, core }, dark: getComputedStyle(el).getPropertyValue('--glow-scheme').trim() !== 'light' };
     };
     const draw = (s: Spectrum, look: ReturnType<typeof read>) => {
-      paintColumns(sf.ctx, sf.layout, s, look.colours, STRENGTH[look.dark ? 'dark' : 'light'], sf.scale);
+      paintGlow(sf.ctx, sf.layout, s, look.colours, STRENGTH[look.dark ? 'dark' : 'light'], sf.scale);
       ln.style.opacity = (0.35 + 0.65 * s.loud).toFixed(3);
     };
 
@@ -147,7 +148,7 @@ export function BarGlow({ playing, anchor = 'centre', source = 'auto', levels }:
 
   return (
     <span ref={root} className={styles.glow} data-on={playing} data-mode={mode} aria-hidden="true" data-bar-glow="" data-anchor={anchor}>
-      <canvas ref={canvas} className={styles.columns} />
+      <canvas ref={canvas} className={styles.light} />
       <span ref={line} className={styles.line} />
     </span>
   );

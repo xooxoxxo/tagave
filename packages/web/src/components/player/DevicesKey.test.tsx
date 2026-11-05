@@ -52,4 +52,10 @@ describe('the device key and strip', () => {
     expect(tap).toContain('Tap to play here');
     expect(renderToStaticMarkup(<DeviceStripView />)).toBe('');
   });
+
+  it('opens the devices menu from the strip', () => {
+    const html = renderToStaticMarkup(<DeviceStripView playingOn="Safari on iPhone" menu={base} />);
+    expect(html).toContain('aria-label="Playing on Safari on iPhone"');
+    expect(html).toContain('aria-haspopup="menu"');
+  });
 });

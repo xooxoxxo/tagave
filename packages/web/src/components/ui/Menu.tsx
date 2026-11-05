@@ -37,6 +37,8 @@ export interface MenuProps {
   triggerClassName?: string;
   /** extra props for that plain trigger (pointer handlers for a press feel) */
   triggerProps?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'onKeyDown' | 'className' | 'type'>;
+  /** where the list lines up with a wide trigger: its right edge (the default) or its middle */
+  align?: 'end' | 'centre';
 }
 
 export function MoreIcon() {
@@ -55,7 +57,7 @@ export function MoreIcon() {
  * and closes when the page scrolls under it. It renders into <body>, so no
  * stacking context on the page can cover it.
  */
-export function Menu({ label, items, heading, icon, size, className, triggerClassName, triggerProps }: MenuProps) {
+export function Menu({ label, items, heading, icon, size, className, triggerClassName, triggerProps, align = 'end' }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   // phones: a sheet from the bottom edge, like a music app's track menu
@@ -84,11 +86,11 @@ export function Menu({ label, items, heading, icon, size, className, triggerClas
     const h = m.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const left = Math.min(Math.max(8, t.right - w), vw - w - 8);
+    const left = Math.min(Math.max(8, align === 'centre' ? t.left + t.width / 2 - w / 2 : t.right - w), vw - w - 8);
     const below = t.bottom + 6;
     const top = below + h > vh - 8 && t.top - 6 - h > 8 ? t.top - 6 - h : below;
     setPos({ top, left });
-  }, []);
+  }, [align]);
 
   useLayoutEffect(() => {
     if (open) place();

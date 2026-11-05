@@ -66,7 +66,7 @@ function Bar({ state, glow = 'off', cast = 'none', device = 'none' }: { state: B
 function InTheApp({ state, compartmentOpen = false, glow = 'off', cast = 'none', device = 'none' }: Args) {
   const dock = (
     <>
-      {device !== 'none' && <DeviceStripView playingOn={device === 'remote' ? 'Safari on iPhone' : null} needsTap={device === 'tap'} onTap={noop} />}
+      {device !== 'none' && <DeviceStripView playingOn={device === 'remote' ? 'Safari on iPhone' : null} needsTap={device === 'tap'} onTap={noop} menu={{ onChoose: noop, devices: [{ id: 'mac', name: 'Chrome on Mac', here: true, playing: false }, { id: 'phone', name: 'Safari on iPhone', here: false, playing: true }] }} />}
       <Bar state={state} glow={glow} cast={cast} device={device} />
     </>
   );

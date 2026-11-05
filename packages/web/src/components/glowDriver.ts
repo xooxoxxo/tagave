@@ -1,44 +1,42 @@
 /**
  * The equalizer glow's motion and drawing (BarGlow.tsx): the bands of
- * adaptive/levels.ts become columns of light rising from the player bar's
- * top edge, an equalizer laid out sideways and mirrored about one point (the
- * bass there, the treble out toward both ends). On a desktop that point sits
- * on the bar's right side, so the light comes from there and falls off
- * toward the left; on a phone it is the mini bar's middle.
+ * adaptive/levels.ts become one soft wash of light rising from the player
+ * bar's top edge, never separate bars. Each band is a point along the bar,
+ * mirrored about one spot (the bass there, the treble out toward both ends;
+ * on a desktop that spot sits on the bar's right side, on a phone the mini
+ * bar's middle), and the light's height between them is a wide, smooth
+ * blend of their levels: hills that swell with the music and melt into one
+ * another. The points drift slowly and a faint brightness travels along the
+ * edge, so the light flows even on a held note.
  *
- * Every band has a quick attack and a slower release, and a peak that holds
- * a moment before it falls, so a beat reads at once and a column settles
- * rather than flickers. The line along the edge follows the overall
- * loudness. Pure functions here (tests); BarGlow runs the one loop.
+ * Every band has a quick attack and a slower release, so a beat reads at
+ * once and the light settles rather than flickers. The line along the edge
+ * follows the overall loudness. Pure functions here (tests); BarGlow runs
+ * the one loop.
  */
 import { BANDS } from '../adaptive/levels';
 
-/** Time constants (s): a band rises within about 50 ms and falls over about 300. */
-export const ATTACK = 0.025;
-export const RELEASE = 0.13;
-/** A band's peak holds this long (s), then falls at FALL of the column's height a second. */
-export const HOLD = 0.3;
-export const FALL = 1.2;
+/** Time constants (s): a band rises within about 80 ms and falls over about 500. */
+export const ATTACK = 0.04;
+export const RELEASE = 0.22;
 /** The line's loudness: a touch slower both ways than a band. */
-const LOUD_ATTACK = 0.03;
-const LOUD_RELEASE = 0.16;
+const LOUD_ATTACK = 0.05;
+const LOUD_RELEASE = 0.26;
 
 /** Where the mirror point sits, as a share of the bar's width. */
 export const ANCHOR = { right: 0.72, centre: 0.5 } as const;
 export type Anchor = keyof typeof ANCHOR;
 
 export interface Spectrum {
-  /** each band's column, 0 to 1 */
+  /** each band's level, 0 to 1 */
   level: Float32Array;
-  /** each band's held peak, 0 to 1 */
-  peak: Float32Array;
-  /** how long each peak has held (s) */
-  held: Float32Array;
   /** the line: overall loudness, 0 to 1 */
   loud: number;
+  /** the light's own clock (s): the drift; still while nothing plays */
+  t: number;
 }
 
-export const emptySpectrum = (bands = BANDS): Spectrum => ({ level: new Float32Array(bands), peak: new Float32Array(bands), held: new Float32Array(bands), loud: 0 });
+export const emptySpectrum = (bands = BANDS): Spectrum => ({ level: new Float32Array(bands), loud: 0, t: 0 });
 
 const approach = (cur: number, target: number, dt: number, up: number, down: number) =>
   cur + (target - cur) * (1 - Math.exp(-dt / (target > cur ? up : down)));
@@ -58,118 +56,117 @@ export function loudnessOf(raw: ArrayLike<number>): number {
 export function stepSpectrum(s: Spectrum, raw: ArrayLike<number>, dt: number): Spectrum {
   for (let i = 0; i < s.level.length; i++) {
     const v = Math.min(1, Math.max(0, raw[i] ?? 0));
-    const level = approach(s.level[i]!, v, dt, ATTACK, RELEASE);
-    s.level[i] = level;
-    if (level >= s.peak[i]!) {
-      s.peak[i] = level;
-      s.held[i] = 0;
-    } else {
-      s.held[i]! += dt;
-      if (s.held[i]! > HOLD) s.peak[i] = Math.max(level, s.peak[i]! - FALL * dt);
-    }
+    s.level[i] = approach(s.level[i]!, v, dt, ATTACK, RELEASE);
   }
   s.loud = approach(s.loud, loudnessOf(raw), dt, LOUD_ATTACK, LOUD_RELEASE);
+  s.t += dt;
   return s;
 }
 
 /**
  * The still glow (reduced motion, and where the music cannot be read): a
- * gentle, fixed equalizer, fuller in the bass, and the line half lit.
+ * gentle, fixed swell, fuller toward the bass, and the line half lit.
  */
 export function stillSpectrum(bands = BANDS): Spectrum {
   const s = emptySpectrum(bands);
   for (let i = 0; i < bands; i++) {
     const t = i / Math.max(1, bands - 1);
-    s.level[i] = 0.12 + 0.3 * (1 - t) ** 1.4;
-    s.peak[i] = s.level[i]!;
+    s.level[i] = 0.14 + 0.3 * (1 - t) ** 1.4;
   }
   s.loud = 0.55;
   return s;
 }
 
-/** A spectrum held at given levels (stories, screenshots): the peaks a little above. */
+/** A spectrum held at given levels (stories, screenshots). */
 export function heldSpectrum(levels: ArrayLike<number>, bands = BANDS): Spectrum {
   const s = emptySpectrum(bands);
-  for (let i = 0; i < bands; i++) {
-    const v = Math.min(1, Math.max(0, levels[i] ?? 0));
-    s.level[i] = v;
-    s.peak[i] = Math.min(1, v + 0.06);
-  }
+  for (let i = 0; i < bands; i++) s.level[i] = Math.min(1, Math.max(0, levels[i] ?? 0));
   s.loud = loudnessOf(s.level);
   return s;
 }
 
-export interface Column {
-  /** its middle, in CSS px from the bar's left */
-  x: number;
-  /** its first band, and how many it shows (the loudest of them): more than one on a narrow bar */
-  band: number;
-  span: number;
-  /** 0 to 1: how much of its band it shows (the light falls off away from the mirror point) */
-  gain: number;
-}
-
 export interface Layout {
+  /** the bar's width, CSS px */
+  width: number;
   /** the mirror point, CSS px from the left */
   centre: number;
-  /** one column's width, CSS px */
-  pitch: number;
-  columns: Column[];
+  /** the longer way from it to an edge, CSS px: the bands spread over it */
+  arm: number;
+  /** between two bands, CSS px */
+  spacing: number;
+  /** how wide a band's light spreads, CSS px: wider than the spacing, so no band stands alone */
+  sigma: number;
 }
 
-/** The narrowest a column gets, CSS px. */
-export const MIN_PITCH = 10;
+/** A band's light spreads at least this far (CSS px), however narrow the bar. */
+export const MIN_SIGMA = 18;
+/** ... and over this many bands' spacing. */
+export const SPREAD = 1.7;
 
-/** How much a column `k` steps from the mirror point shows: all of it there, a quarter at the far end. */
-export const gainAt = (k: number, bands = BANDS) => 1 - 0.75 * (k / Math.max(1, bands - 1)) ** 1.3;
+/** The light across a bar `width` wide. */
+export function layoutGlow(width: number, anchor: Anchor, bands = BANDS): Layout {
+  const w = Math.max(0, width);
+  const centre = w * ANCHOR[anchor];
+  const arm = Math.max(centre, w - centre);
+  const spacing = arm / bands;
+  return { width: w, centre, arm, spacing, sigma: Math.max(MIN_SIGMA, SPREAD * spacing) };
+}
+
+/** How much light a spot `u` CSS px from the mirror point keeps: all of it there, a third at the far end. */
+export const gainAt = (u: number, arm: number) => (arm > 0 ? 1 - 0.68 * Math.min(1, u / arm) ** 1.2 : 1);
+
+/** How far a band drifts, in band spacings, and how fast (radians a second). */
+const DRIFT = 0.7;
+const DRIFT_RATE = 0.31;
+/** How much of the light the travelling brightness takes away at most. */
+const FLOW = 0.22;
+
+/** Where band `k` sits now, CSS px from the mirror point. */
+const bandAt = (layout: Layout, k: number, t: number) =>
+  layout.spacing * (k + 0.5 + DRIFT * Math.sin(DRIFT_RATE * t + k * 1.7));
 
 /**
- * The columns across a bar `width` wide: the bass at the mirror point, a
- * band a step further out on each side, every band on the longer side (the
- * left one on a desktop), the shorter side cut off by the bar's edge.
+ * The light's height at `x` (CSS px from the bar's left), 0 to 1: a smooth
+ * blend of the bands near it (each one also mirrored past the mirror point,
+ * so the light runs through it without a crease), times how much the spot
+ * keeps (gainAt), times a faint brightness that travels out along the edge.
  */
-export function layoutColumns(width: number, anchor: Anchor, bands = BANDS): Layout {
-  const centre = width * ANCHOR[anchor];
-  const arm = Math.max(centre, width - centre);
-  // a narrow bar (a phone) takes the bands two or more to a column, so a column stays MIN_PITCH wide
-  const span = width > 0 ? Math.max(1, Math.ceil((MIN_PITCH * (bands - 0.5)) / arm)) : 1;
-  const count = Math.ceil(bands / span);
-  const pitch = width > 0 ? arm / (count - 0.5) : 0;
-  const columns: Column[] = [];
-  if (!pitch) return { centre, pitch, columns };
-  for (let k = 0; k < count; k++) {
-    for (const side of k === 0 ? [0] : [-1, 1]) {
-      const x = centre + side * k * pitch;
-      if (x < -pitch / 2 || x > width + pitch / 2) continue;
-      columns.push({ x, band: k * span, span: Math.min(span, bands - k * span), gain: gainAt(k, count) });
-    }
+export function heightAt(layout: Layout, s: Spectrum, x: number): number {
+  if (!layout.width) return 0;
+  const u = x - layout.centre;
+  const two = 2 * layout.sigma * layout.sigma;
+  let sum = 0, weight = 0;
+  for (let k = 0; k < s.level.length; k++) {
+    const d = bandAt(layout, k, s.t);
+    const a = u - d, b = u + d;
+    const w = Math.exp(-(a * a) / two) + Math.exp(-(b * b) / two);
+    sum += w * s.level[k]!;
+    weight += w;
   }
-  return { centre, pitch, columns };
+  const blend = weight > 1e-6 ? sum / weight : 0;
+  // the brightness that travels out from the mirror point (rounded there, so no crease)
+  const r = Math.sqrt(u * u + 400);
+  const flow = 1 - FLOW * (0.5 + 0.5 * Math.sin(r / 90 - 0.9 * s.t) * Math.sin(r / 47 - 0.5 * s.t + 1.3));
+  return Math.min(1, blend * gainAt(Math.abs(u), layout.arm) * flow);
 }
 
 export interface Colours {
-  /** the columns: the album's accent (deeper on a light theme) */
+  /** the light: the album's accent (deeper on a light theme) */
   body: string;
-  /** their hot base: its lighter tint (on a light theme, deeper still) */
+  /** its warm foot along the edge: its lighter tint (on a light theme, deeper still) */
   core: string;
 }
 
 /** CSS px to one canvas px up the glow. */
 export const Y_SCALE = 2;
-/** How high a column's hot foot reaches, CSS px: the page's text over the glow keeps its contrast above it. */
+/** How high the light's hot foot reaches, CSS px: the page's text over the glow keeps its contrast above it. */
 export const FOOT = 16;
 
-/** How strong the light is at a column's foot: on a light page a deep tone needs less to show. */
+/** How strong the light is at its foot: on a light page a deep tone needs less to show. */
 export interface Strength { body: number; core: number }
 export const STRENGTH: Record<'dark' | 'light', Strength> = {
-  dark: { body: 0.46, core: 0.85 },
-  light: { body: 0.4, core: 0.6 },
-};
-
-const loudest = (of: Float32Array, c: Column) => {
-  let m = 0;
-  for (let i = c.band; i < c.band + c.span; i++) if (of[i]! > m) m = of[i]!;
-  return m;
+  dark: { body: 0.58, core: 0.8 },
+  light: { body: 0.55, core: 0.6 },
 };
 
 /** The colour at no alpha (a gradient to plain transparent would pass through grey). */
@@ -178,57 +175,58 @@ export function clearOf(colour: string): string {
   return m ? `rgba(${m[1]},${m[2]},${m[3]},0)` : 'transparent';
 }
 
-let cached: { ctx: CanvasRenderingContext2D; colour: string; gradient: CanvasGradient } | null = null;
-/** A column's fade, 0 at its foot to -1 at its top (scaled to its height), made once per colour. */
+const withAlpha = (colour: string, a: number) => {
+  const m = /^rgba?\(([^,]+),([^,]+),([^,)]+)/.exec(colour.replace(/\s+/g, ''));
+  return m ? `rgba(${m[1]},${m[2]},${m[3]},${a})` : colour;
+};
+
+const gradients = new WeakMap<CanvasRenderingContext2D, Map<string, CanvasGradient>>();
+/** A fade from `colour` at the foot (0) to nothing at the top (-1, scaled to the light's height), made once per colour: an easing, no hard top. */
 function gradientFor(ctx: CanvasRenderingContext2D, colour: string): CanvasGradient {
-  if (cached?.ctx === ctx && cached.colour === colour) return cached.gradient;
+  let own = gradients.get(ctx);
+  if (!own) gradients.set(ctx, (own = new Map()));
+  const hit = own.get(colour);
+  if (hit) return hit;
   const gradient = ctx.createLinearGradient(0, 0, 0, -1);
   gradient.addColorStop(0, colour);
-  gradient.addColorStop(0.45, colour.startsWith('rgb(') ? colour.replace('rgb(', 'rgba(').replace(')', ', 0.42)') : colour);
+  gradient.addColorStop(0.3, withAlpha(colour, 0.62));
+  gradient.addColorStop(0.62, withAlpha(colour, 0.22));
   gradient.addColorStop(1, clearOf(colour));
-  cached = { ctx, colour, gradient };
+  // a new cover's colour every so often: keep only the last few
+  if (own.size > 8) own.clear();
+  own.set(colour, gradient);
   return gradient;
 }
 
+/** The canvas's scale across, CSS px to one canvas px: a few samples a band's spread, the browser's smoothing does the rest. */
+export const canvasScale = (layout: Layout) => Math.min(8, Math.max(2, layout.sigma / 5));
+
 /**
- * Paints the columns into a small canvas (`scale` CSS px to one canvas px across, two up):
- * the browser's smoothing as it scales the canvas up softens every column
- * into a glow, without a blur filter. A column fades out toward its top;
- * its foot burns in the core tint; its peak is a faint tick above it.
+ * Paints the light into a small canvas (`scale` CSS px to one canvas px
+ * across, Y_SCALE up): one thin slice a canvas px, each the light's height
+ * there, fading upward, with a warmer foot along the edge. The browser's
+ * smoothing as it scales the canvas up blends the slices into one wash.
  */
-export function paintColumns(ctx: CanvasRenderingContext2D, layout: Layout, s: Spectrum, colours: Colours, strength: Strength, scale: number): void {
+export function paintGlow(ctx: CanvasRenderingContext2D, layout: Layout, s: Spectrum, colours: Colours, strength: Strength, scale: number): void {
   const { width, height } = ctx.canvas;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width, height);
   const body = gradientFor(ctx, colours.body);
-  const w = Math.max(1, (layout.pitch * 0.62) / scale);
-  for (const c of layout.columns) {
-    const level = loudest(s.level, c) * c.gain;
-    const x = c.x / scale - w / 2;
-    const h = level * height;
-    if (h >= 0.5) {
-      // the column: the accent, fading upward
-      ctx.setTransform(1, 0, 0, h, 0, height);
-      ctx.globalAlpha = strength.body * (0.5 + 0.5 * c.gain);
-      ctx.fillStyle = body;
-      ctx.fillRect(x, 0, w, -1);
-      // its foot: the tint, as hot as the band is loud, only along the edge (under FOOT px), where no text sits
-      ctx.setTransform(1, 0, 0, Math.min(h * 0.34, FOOT / Y_SCALE), 0, height);
-      ctx.globalAlpha = strength.core * level;
-      ctx.fillStyle = colours.core;
-      ctx.fillRect(x + w * 0.15, 0, w * 0.7, -1);
-    }
-    const p = loudest(s.peak, c) * c.gain * height;
-    if (p - h >= 1) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalAlpha = 0.5 * strength.body * c.gain;
-      ctx.fillStyle = colours.body;
-      ctx.fillRect(x, height - p, w, 1);
-    }
+  const core = gradientFor(ctx, colours.core);
+  const foot = Math.max(1, FOOT / Y_SCALE);
+  for (let i = 0; i < width; i++) {
+    const v = heightAt(layout, s, (i + 0.5) * scale);
+    const h = v * height;
+    if (h < 0.5) continue;
+    ctx.setTransform(1, 0, 0, h, 0, height);
+    ctx.globalAlpha = strength.body * (0.55 + 0.45 * v);
+    ctx.fillStyle = body;
+    ctx.fillRect(i, 0, 1, -1);
+    ctx.setTransform(1, 0, 0, Math.min(h * 0.4, foot), 0, height);
+    ctx.globalAlpha = strength.core * v;
+    ctx.fillStyle = core;
+    ctx.fillRect(i, 0, 1, -1);
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
 }
-
-/** The canvas's scale: about four canvas px a column, so neighbours stay apart once smoothed. */
-export const canvasScale = (pitch: number) => Math.min(6, Math.max(1, pitch / 4));

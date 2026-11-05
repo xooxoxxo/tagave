@@ -8,10 +8,12 @@
  *                    ticked, this one marked "This device"), the cast or
  *                    AirPlay picker when the browser has one, and Rename.
  *                    Picking a device moves playback there.
- *   the strip        a thin line along the top of the bar: "Playing on
- *                    Safari on iPhone" while another device plays, "Tap to
- *                    play here" when playback was handed here and the
- *                    browser waits for a tap.
+ *   the strip        a thin band of the accent standing on the bar's top
+ *                    edge (over the page, so the bar keeps its height):
+ *                    "Playing on Safari on iPhone" while another device
+ *                    plays, which opens the devices menu, and "Tap to play
+ *                    here" when playback was handed here and the browser
+ *                    waits for a tap.
  *
  * The key is there only while there is somewhere else to play: another
  * device online. With none, the cast key (CastKey) stands alone as before.
@@ -47,6 +49,8 @@ export interface DevicesKeyViewProps {
   lit?: boolean;
   place?: EmbossPlace;
   className?: string;
+  /** the strip as the trigger instead of the key: the device that plays */
+  strip?: string | null;
 }
 
 /** The cast row of the menu, from the cast state: the picker, the device cast to (and Stop), or why it cannot. */
@@ -61,7 +65,7 @@ function castItems(cast: DevicesKeyViewProps['cast'], onCast: (() => void) | und
   return [{ key: 'cast', label: line ?? name, ...(problem === 'needs-https' ? { hint: 'Needs https' } : {}), ...(cast.state !== 'off' ? { checked: true } : {}), ...select, separated: true }];
 }
 
-export function DevicesKeyView({ devices, cast, onChoose, onCast, onRename, lit = false, place = 'page', className }: DevicesKeyViewProps) {
+export function DevicesKeyView({ devices, cast, onChoose, onCast, onRename, lit = false, place = 'page', className, strip }: DevicesKeyViewProps) {
   const items: MenuItem[] = [
     ...devices.map((d): MenuItem => ({
       key: d.id,
@@ -73,6 +77,13 @@ export function DevicesKeyView({ devices, cast, onChoose, onCast, onRename, lit 
     ...castItems(cast, onCast),
     ...(onRename ? [{ key: 'rename', label: 'Rename', onSelect: onRename, separated: true }] : []),
   ];
+  if (strip) {
+    return (
+      <div className={styles.stand}>
+        <Menu label={`Playing on ${strip}`} heading="Devices" icon={<span className={styles.stripText}>Playing on {strip}</span>} className={styles.stripAnchor ?? ''} triggerClassName={styles.strip ?? ''} items={items} align="centre" />
+      </div>
+    );
+  }
   const cls = embossClassName(place, [styles.key, lit ? styles.on : '', className].filter(Boolean).join(' '));
   return <Menu label="Devices" heading="Devices" icon={<DevicesIcon />} triggerClassName={cls} items={items} />;
 }
@@ -83,15 +94,21 @@ export interface DeviceStripViewProps {
   /** playback was handed here and waits for a tap */
   needsTap?: boolean;
   onTap?: () => void;
+  /** the devices menu the strip opens while another device plays */
+  menu?: Omit<DevicesKeyViewProps, 'strip' | 'lit' | 'place' | 'className'>;
 }
 
-/** The thin line on top of the bar. Nothing when this device plays on its own. */
-export function DeviceStripView({ playingOn, needsTap = false, onTap }: DeviceStripViewProps) {
+/** The strip on top of the bar. Nothing when this device plays on its own. */
+export function DeviceStripView({ playingOn, needsTap = false, onTap, menu }: DeviceStripViewProps) {
   if (needsTap) {
-    return <button type="button" className={`${styles.strip} ${styles.tap}`} onClick={onTap}>Tap to play here</button>;
+    return (
+      <div className={styles.stand}>
+        <button type="button" className={styles.strip} onClick={onTap}><span className={styles.stripText}>Tap to play here</span></button>
+      </div>
+    );
   }
   if (!playingOn) return null;
-  return <p className={styles.strip} role="status" title={`Playing on ${playingOn}`}>Playing on {playingOn}</p>;
+  return <DevicesKeyView devices={[]} onChoose={() => {}} {...menu} strip={playingOn} />;
 }
 
 /** Whether the key belongs in the bar: another device to play on, or one plays now. */
@@ -102,7 +119,7 @@ export function useDevicesShown(): boolean {
 }
 
 /** The key, connected (with the rename sheet). */
-export function DevicesKey({ place, className }: { place?: EmbossPlace; className?: string }) {
+export function DevicesKey({ place, className, strip }: { place?: EmbossPlace; className?: string; strip?: string | null }) {
   const s = useDevicesStore();
   const castState = useCastStore();
   const remoteId = usePlayerStore((p) => p.remoteDeviceId);
@@ -137,6 +154,7 @@ export function DevicesKey({ place, className }: { place?: EmbossPlace; classNam
           setRenaming(true);
         }}
         lit={lit}
+        strip={strip ?? null}
         {...(place ? { place } : {})}
         {...(className ? { className } : {})}
       />
@@ -155,5 +173,6 @@ export function DeviceStrip() {
   const remoteId = usePlayerStore((p) => p.remoteDeviceId);
   const needsTap = usePlayerStore((p) => p.needsTap);
   const remote = useDevicesStore((d) => (remoteId ? remoteDevice(d) : null));
-  return <DeviceStripView playingOn={remoteId ? remote?.name ?? null : null} needsTap={needsTap && !remoteId} onTap={play} />;
+  if (remoteId && remote?.name) return <DevicesKey strip={remote.name} />;
+  return <DeviceStripView needsTap={needsTap && !remoteId} onTap={play} />;
 }
