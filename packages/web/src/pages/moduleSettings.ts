@@ -13,12 +13,12 @@ export interface ModulePageEntry {
 
 export const MODULE_PAGES: readonly ModulePageEntry[] = [
   { slug: 'player', id: 'player', name: 'Player' },
+  { slug: 'dj', id: 'dj', name: 'DJ' },
   { slug: 'lidarr', id: 'lidarr', name: 'Lidarr' },
   { slug: 'listen-elsewhere', id: 'listen-links', name: 'Listen elsewhere' },
   { slug: 'music-connections', id: 'mc', name: 'Music Connections' },
   { slug: 'playlists', id: 'playlists', name: 'Playlists' },
   { slug: 'similar-artists', id: 'similar-artists', name: 'Similar artists' },
-  { slug: 'dj', id: 'dj', name: 'DJ' },
 ];
 
 /** The page of a module by its manifest id (a catalogue module unknown here: its id). */

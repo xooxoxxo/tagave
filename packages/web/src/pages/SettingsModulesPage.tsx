@@ -7,7 +7,7 @@
  * The player and any module the signed catalogue adds are switched by the
  * updater (Turn on / Turn off after a step-up, the run step by step like an
  * update; without the updater the install-tagave.sh command). Music
- * Connections, Listen elsewhere, Playlists, Lidarr and Similar artists are settings in
+ * Connections, Listen elsewhere, Playlists, Lidarr, Similar artists and DJ are settings in
  * tagave's database. Everyone sees the modules that have something for them
  * (the player's Listening, Listen elsewhere's platforms, their Music
  * Connections); the owner sees all of them and their switches.
@@ -30,6 +30,7 @@ import { useMcModule, useRemoveMcData, useSetMcModule } from '../hooks/useMcModu
 import { useListenLinksModule, useRemoveListenLinksData, useSetListenLinksModule } from '../hooks/useListenLinks';
 import { useLidarrSettings, useRemoveLidarrData, useSetLidarrModule } from '../hooks/useLidarr';
 import { useRemoveSimilarArtistsData, useSetSimilarArtistsModule, useSimilarArtistsModule } from '../hooks/useSimilarArtists';
+import { useDjModule, useRemoveDjData, useSetDjModule } from '../hooks/useDjModule';
 import { docsUrl } from '../utils/docs';
 import { allPlaylistsExportUrl, download, usePlaylistsModule, useRemovePlaylistsData, useSetPlaylistsModule } from '../hooks/usePlaylists';
 import { getStepUp } from '../services/stepUp';
@@ -651,6 +652,30 @@ function SimilarSwitch() {
   );
 }
 
+function DjSwitch() {
+  const mod = useDjModule();
+  const setOn = useSetDjModule();
+  const remove = useRemoveDjData();
+  if (!mod.data) return null;
+  const v = mod.data;
+  return (
+    <SettingSwitch
+      name="DJ"
+      on={v.enabled}
+      meta={`${v.analyzed} of ${plural(v.tracks, 'track', 'tracks')} analysed`}
+      pending={setOn.isPending || remove.isPending}
+      kept="track analyses"
+      setOn={(on) => setOn.mutateAsync(on)}
+      removeData={() => remove.mutateAsync()}
+    />
+  );
+}
+
+/** DJ's Simple mode, each person's own (crossfade, length, beat-aligned, gapless albums): SettingsDjPage. */
+function DjSettings() {
+  return <SettingsDjContent />;
+}
+
 /* ---------- Settings › Modules › <module> ---------- */
 
 /** A module that is off, for someone who can't turn it on: the value alone. */
@@ -710,8 +735,7 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<SimilarSwitch /></>;
     case 'dj':
-      // each person's Simple mode, while the module is on (its Off | On is the owner's, from the module's own switch)
-      return <>{heading}{on === false ? <OffValue /> : on && <SettingsDjContent />}</>;
+      return <>{heading}{owner && <DjSwitch />}{on === false ? (owner ? null : <OffValue />) : on && <DjSettings />}</>;
     default:
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<CatalogueSwitch id={entry.id} name={entry.name} /></>;

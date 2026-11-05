@@ -38,6 +38,7 @@ export * from './wantlist.js';
 export * from './albumLock.js';
 export * from './listenLinks.js';
 export * from './similarArtists.js';
+export * from './dj.js';
 export * from './playlistsModule.js';
 export * from './deletions.js';
 export * from './albumSplits.js';

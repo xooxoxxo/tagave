@@ -1,17 +1,18 @@
 /**
- * Each person's DJ settings (Settings › Modules › DJ), kept in the browser
- * that plays, one entry per person who signs in here; every access guarded,
- * so with storage blocked a choice still applies for this page view. Another
- * device that plays the queue applies its own. The engine and the settings
- * page read the same snapshot, and whether the module is on (GET /facets).
+ * Each person's DJ Simple mode (Settings › Modules › DJ) as the engine reads
+ * it. The person's own copy is on the server (user_prefs, hooks/useDj.ts);
+ * this browser keeps one entry per person who signs in here, so the engine
+ * has it before the server answers. Every access is guarded: with storage
+ * blocked a choice still applies for this page view. The device that plays
+ * applies it. Also whether the module is on (GET /facets).
  */
-import { DJ_DEFAULTS, DJ_SETTINGS_STORAGE_KEY, type DjSettings } from '@tagave/shared';
+import { DJ_DEFAULTS, DJ_SETTINGS_STORAGE_KEY, type DjSimpleSettings } from '@tagave/shared';
 import { parseDjSettings } from './djPlan';
 import { isIosHomeScreenApp } from './platform';
 
 const listeners = new Set<() => void>();
 let person = '';
-let current: DjSettings | undefined;
+let current: DjSimpleSettings | undefined;
 let moduleOn = false;
 
 function readAll(): Record<string, unknown> {
@@ -26,12 +27,12 @@ function readAll(): Record<string, unknown> {
 
 const notify = () => listeners.forEach((l) => l());
 
-export function getDjSettings(): DjSettings {
+export function getDjSettings(): DjSimpleSettings {
   current ??= parseDjSettings(readAll()[person] ?? DJ_DEFAULTS);
   return current;
 }
 
-export function setDjSettings(patch: Partial<DjSettings>): void {
+export function setDjSettings(patch: Partial<DjSimpleSettings>): void {
   const next = parseDjSettings({ ...getDjSettings(), ...patch });
   try {
     globalThis.localStorage?.setItem(DJ_SETTINGS_STORAGE_KEY, JSON.stringify({ ...readAll(), [person]: next }));

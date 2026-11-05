@@ -33,7 +33,7 @@ import { createScratchDb, migrateAll, migrateUpTo, migrationsBefore } from '../t
 const url = process.env.TEST_DATABASE_URL;
 const STEP2 = ['0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql'];
 /** Core migrations after step 2: they apply on the same upgrade. */
-const AFTER_STEP2 = ['0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql', '0078_album_splits.sql', '0079_playlist_collaborators.sql', '0080_album_moves.sql', '0081_naming_and_pool.sql', '0084_similar_artists.sql', '0085_likes.sql'];
+const AFTER_STEP2 = ['0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql', '0078_album_splits.sql', '0079_playlist_collaborators.sql', '0080_album_moves.sql', '0081_naming_and_pool.sql', '0084_similar_artists.sql', '0085_likes.sql', '0086_dj_analysis.sql', '0087_user_prefs_dj.sql'];
 const UPGRADE = [...STEP2, ...AFTER_STEP2];
 
 /** A database as 0.15 left it: the ledger in its old shape, migrated to 0059. */
@@ -140,7 +140,7 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
     const ctx = moduleContext(await moduleSwitches(sql));
     expect(['mc', 'listen-links', 'playlists'].map((id) => registry.isEnabled(id, ctx))).toEqual([true, true, false]);
     // a boot's sync changes no switch
-    expect(await syncInstalledModules(sql, ledgerEntries())).toEqual(['lidarr', 'similar-artists']); // only modules newer than 0065 get their rows (lidarr 0075 off, similar-artists 0084 on)
+    expect(await syncInstalledModules(sql, ledgerEntries())).toEqual(['dj', 'lidarr', 'similar-artists']); // only modules newer than 0065 get their rows (lidarr 0075 off, similar-artists 0084 on, dj 0086 off)
     expect(await newSwitches(sql)).toEqual(before.switches);
   });
 
@@ -382,7 +382,7 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
   it('every module purge-module knows lists a table before the tables it references (the order it empties them)', async () => {
     const refs = await sql<Array<{ t: string; ref: string }>>`
       select c.conrelid::regclass::text as t, c.confrelid::regclass::text as ref from pg_constraint c where c.contype = 'f'`;
-    expect(Object.keys(MODULE_DATA).sort()).toEqual(['lidarr', 'listen-links', 'player', 'playlists', 'similar-artists']);
+    expect(Object.keys(MODULE_DATA).sort()).toEqual(['dj', 'lidarr', 'listen-links', 'player', 'playlists', 'similar-artists']);
     for (const [id, data] of Object.entries(MODULE_DATA)) {
       const at = new Map(data.tables.map((t, i) => [t, i]));
       for (const r of refs) {
@@ -400,7 +400,7 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
     const entries = [...ledgerEntries(), { id: 'decider', kind: 'in-process' as const, version: '1.0.0', defaultEnabled: true }];
     await sql`insert into _migrations (module, name) values ('decider', '0001_decider.sql'), ('decider', '0002_more.sql')`;
     try {
-      expect(await syncInstalledModules(sql, entries)).toEqual(['decider', 'lidarr', 'similar-artists']);
+      expect(await syncInstalledModules(sql, entries)).toEqual(['decider', 'dj', 'lidarr', 'similar-artists']);
       expect((await listInstalledModules(sql)).find((m) => m.id === 'decider')).toMatchObject({ kind: 'in-process', version: '1.0.0', enabled: true, schemaVersion: '0002_more.sql', settings: {} });
       // the owner turns it off; a later boot (a newer version) keeps that
       await setModuleEnabled(sql, 'decider', false);

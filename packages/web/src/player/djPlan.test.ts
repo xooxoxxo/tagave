@@ -1,6 +1,6 @@
 /** The DJ module's Simple mode planning (djPlan.ts). */
 import { describe, expect, it } from 'vitest';
-import { DJ_DEFAULTS, type DjSettings, type DjTrackInfo } from '@tagave/shared';
+import { DJ_DEFAULTS, type DjSimpleSettings, type DjTrackInfo } from '@tagave/shared';
 import {
   beatGrid, equalPower, equalPowerFrom, expectedIncoming, isAlbumSequence, lockRate, parseDjSettings, planTransition, preloadAtSec, rampRate, snapToBeat, trackFacts,
   type DjTrackFacts,
@@ -10,7 +10,7 @@ const facts = (over: Partial<DjTrackFacts> = {}): DjTrackFacts => ({
   localTrackId: 't', durationSec: 200, bpm: null, bpmConfidence: null, firstBeatSec: null, trimStartSec: null, trimEndSec: null,
   albumKey: null, discNo: null, trackNo: null, ...over,
 });
-const settings = (over: Partial<DjSettings> = {}): DjSettings => ({ ...DJ_DEFAULTS, crossfade: 'fixed', ...over });
+const settings = (over: Partial<DjSimpleSettings> = {}): DjSimpleSettings => ({ ...DJ_DEFAULTS, crossfade: 'fixed', ...over });
 const fade = (t: ReturnType<typeof planTransition>) => {
   if (t.kind !== 'fade') throw new Error(`expected a fade, got ${t.kind} (${t.reason})`);
   return t;

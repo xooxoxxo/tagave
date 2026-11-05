@@ -59,23 +59,40 @@ describe.skipIf(!adminUrl)('user prefs: the theme follows the person (integratio
   it('is null until the person picks a theme', async () => {
     const res = await get(anna);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ theme: null });
+    expect(res.json()).toEqual({ theme: null, dj: null });
   });
 
   it('keeps the choice, with Custom, for the person only', async () => {
     const theme = { theme: 'custom', custom: { seed: '#3a7d5c', accent2: '#e0573f' } };
     const res = await put(anna, { theme });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ theme });
-    expect((await get(anna)).json()).toEqual({ theme });
-    expect((await get(ben)).json()).toEqual({ theme: null });
+    expect(res.json()).toEqual({ theme, dj: null });
+    expect((await get(anna)).json()).toEqual({ theme, dj: null });
+    expect((await get(ben)).json()).toEqual({ theme: null, dj: null });
 
     // another theme keeps Custom as it was
     const moody = { theme: 'moody', custom: theme.custom };
     expect((await put(anna, { theme: moody })).statusCode).toBe(200);
-    expect((await get(anna)).json()).toEqual({ theme: moody });
+    expect((await get(anna)).json()).toEqual({ theme: moody, dj: null });
     const rows = await sql`select user_id::text from user_prefs`;
     expect(rows.map((r) => r['user_id'])).toEqual([anna.userId]);
+  });
+
+  it('keeps the DJ Simple mode per person, beside the theme (0087)', async () => {
+    const dj = { crossfade: 'auto', lengthSec: 8, beatAligned: true, gaplessAlbums: true };
+    const before = (await get(anna)).json();
+    const res = await put(anna, { dj });
+    expect(res.statusCode).toBe(200);
+    // the theme stays as it was
+    expect(res.json()).toEqual({ theme: before.theme, dj });
+    expect((await get(anna)).json()).toEqual({ theme: before.theme, dj });
+    expect((await get(ben)).json()).toEqual({ theme: null, dj: null });
+    // and a theme change keeps it
+    expect((await put(anna, { theme: before.theme })).json()).toEqual({ theme: before.theme, dj });
+    // a bad shape, or nothing to write
+    expect((await put(anna, { dj: { ...dj, lengthSec: 30 } })).statusCode).toBe(400);
+    expect((await put(anna, { dj: { ...dj, crossfade: 'loud' } })).statusCode).toBe(400);
+    expect((await put(anna, {})).statusCode).toBe(400);
   });
 
   it('refuses a bad shape and a call from another site', async () => {
@@ -83,12 +100,12 @@ describe.skipIf(!adminUrl)('user prefs: the theme follows the person (integratio
     expect((await put(ben, { theme: { theme: 'custom', custom: { seed: 'teal' } } })).statusCode).toBe(400);
     expect((await put(ben, { theme: { theme: 'classic', custom: null }, extra: 1 })).statusCode).toBe(400);
     expect((await put(ben, { theme: { theme: 'classic', custom: null } }, 'https://evil.example')).statusCode).toBe(403);
-    expect((await get(ben)).json()).toEqual({ theme: null });
+    expect((await get(ben)).json()).toEqual({ theme: null, dj: null });
   });
 
   it('reads a stored row of another shape as no choice', async () => {
     await sql`insert into user_prefs (user_id, theme) values (${ben.userId}, '{"theme":"aurora"}'::jsonb)`;
-    expect((await get(ben)).json()).toEqual({ theme: null });
+    expect((await get(ben)).json()).toEqual({ theme: null, dj: null });
   });
 
   it('needs a session', async () => {

@@ -1961,11 +1961,37 @@ export const similarArtistChecks = pgTable('similar_artist_checks', {
   error: text(),
 });
 
+// DJ, the dj module (0086): each track's tempo, first beat, trim points and
+// waveform peaks, keyed to its audio (audio_hash) so a re-tag keeps them.
+// Its own table; no core table references it. Written by worker ›
+// jobs/djAnalyze.ts, read by api › routes/dj.ts.
+export const djTrackAnalysis = pgTable(
+  'dj_track_analysis',
+  {
+    localTrackId: uuid('local_track_id').primaryKey().references(() => localTracks.id, { onDelete: 'cascade' }),
+    audioHash: varchar('audio_hash', { length: 64 }),
+    fileSizeBytes: bigint('file_size_bytes', { mode: 'number' }),
+    fileMtime: bigint('file_mtime', { mode: 'number' }),
+    durationMs: integer('duration_ms'),
+    bpm: numeric({ precision: 7, scale: 3 }),
+    bpmConfidence: real('bpm_confidence'),
+    firstBeatMs: integer('first_beat_ms'),
+    trimStartMs: integer('trim_start_ms'),
+    trimEndMs: integer('trim_end_ms'),
+    peaks: customType<{ data: Buffer }>({ dataType: () => 'bytea' })('peaks'),
+    analyzedAt: tstz('analyzed_at').notNull().defaultNow(),
+    error: text(),
+  },
+  (table) => ({ hashIdx: index('idx_dj_track_analysis_hash').on(table.audioHash) })
+);
+
 // Each person's own preferences that follow them between devices (0059):
-// the colour theme of Settings › Appearance. Written by api › routes/userPrefs.ts.
+// the colour theme of Settings › Appearance, and the DJ module's Simple mode
+// (0087). Written by api › routes/userPrefs.ts.
 export const userPrefs = pgTable('user_prefs', {
   userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   theme: jsonb(),
+  dj: jsonb(),
   updatedAt: tstz('updated_at').notNull().defaultNow(),
 });
 

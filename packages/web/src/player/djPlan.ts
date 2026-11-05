@@ -16,7 +16,7 @@
  * Missing analysis never stops a transition: Auto falls back to Fixed 6 s,
  * Beat-aligned is left out, and an unknown length is a plain handoff.
  */
-import type { DjSettings, DjTrackInfo } from '@tagave/shared';
+import type { DjSimpleSettings, DjTrackInfo } from '@tagave/shared';
 import { DJ_DEFAULTS, DJ_LENGTH_MAX_SEC, DJ_LENGTH_MIN_SEC } from '@tagave/shared';
 
 /** What planning knows of a track: the analysis where there is one, else the queue's own facts. */
@@ -62,8 +62,8 @@ export function trackFacts(q: QueueFacts, info: DjTrackInfo | null | undefined, 
 }
 
 /** The settings as read from storage: anything unknown is the default. */
-export function parseDjSettings(raw: unknown): DjSettings {
-  const o = raw && typeof raw === 'object' ? raw as Partial<Record<keyof DjSettings, unknown>> : {};
+export function parseDjSettings(raw: unknown): DjSimpleSettings {
+  const o = raw && typeof raw === 'object' ? raw as Partial<Record<keyof DjSimpleSettings, unknown>> : {};
   const crossfade = o.crossfade === 'fixed' || o.crossfade === 'auto' || o.crossfade === 'off' ? o.crossfade : DJ_DEFAULTS.crossfade;
   const len = typeof o.lengthSec === 'number' && Number.isFinite(o.lengthSec) ? Math.round(o.lengthSec) : DJ_DEFAULTS.lengthSec;
   return {
@@ -136,7 +136,7 @@ export type DjTransition =
   };
 
 /** Where `out` fades into `inc`, or a plain handoff. */
-export function planTransition(out: DjTrackFacts, inc: DjTrackFacts, settings: DjSettings): DjTransition {
+export function planTransition(out: DjTrackFacts, inc: DjTrackFacts, settings: DjSimpleSettings): DjTransition {
   const s = parseDjSettings(settings);
   if (s.crossfade === 'off') return { kind: 'cut', reason: 'off' };
   if (s.gaplessAlbums && isAlbumSequence(out, inc)) return { kind: 'cut', reason: 'gapless' };

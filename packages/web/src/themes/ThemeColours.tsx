@@ -43,7 +43,7 @@ export function useThemeChoice(): [ThemeChoice, (next: ThemeChoice) => void] {
         .finally(() => {
           saving -= 1;
           // the last save in: the server's copy is what this browser shows
-          if (!unsaved() && lastSent) client.setQueryData<UserPrefsView>(userPrefsKey, { theme: lastSent });
+          if (!unsaved() && lastSent) { const theme = lastSent; client.setQueryData<UserPrefsView>(userPrefsKey, (prev) => ({ dj: prev?.dj ?? null, theme })); }
         });
     }, SAVE_MS);
   }, [client]);

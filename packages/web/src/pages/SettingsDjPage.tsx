@@ -1,8 +1,8 @@
 /**
  * Settings › Modules › DJ, each person's own part: Simple mode, the player
  * mixing one track into the next by itself (vault "tagave - DJ Module").
- * Kept in this browser (player/djSettings.ts); the device that plays applies
- * its own. An iOS home-screen app can't mix (a running audio graph stops the
+ * Kept with the person (user_prefs, hooks/useDj.ts), so it follows them
+ * between devices; the device that plays applies it. An iOS home-screen app can't mix (a running audio graph stops the
  * music in the background), so the page says so and nothing else.
  */
 import { DJ_LENGTH_MAX_SEC, DJ_LENGTH_MIN_SEC, type DjCrossfade } from '@tagave/shared';
