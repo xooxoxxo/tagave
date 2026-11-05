@@ -147,6 +147,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /api/v1/me/player/device': 'player.use',
   'DELETE /api/v1/me/player/device/:deviceId': 'player.use',
   'POST /api/v1/me/player/command': 'player.use',
+  // DJ (routes/dj.ts): what the player's DJ engine reads, and its asks for the next tracks' analysis
+  'GET /api/v1/me/dj/tracks': 'player.use',
+  'GET /api/v1/me/dj/peaks/:localTrackId': 'player.use',
+  'POST /api/v1/me/dj/analyze': 'player.use',
   // library.edit: Editor and up: library care, tag changes, identify and matching, scans, jobs, gaps, collection upkeep, follows.
   'POST /api/v1/albums/:albumId/as-is': 'library.edit',
   'POST /api/v1/albums/:albumId/editions': 'library.edit',
@@ -272,6 +276,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/settings/similar-artists': 'system.manage',
   'PUT /api/v1/settings/similar-artists': 'system.manage',
   'POST /api/v1/settings/similar-artists/remove-data': 'system.manage',
+  // Settings › Modules › DJ (routes/dj.ts): owner, and a fresh step-up to change it.
+  'GET /api/v1/settings/dj': 'system.manage',
+  'PUT /api/v1/settings/dj': 'system.manage',
+  'POST /api/v1/settings/dj/remove-data': 'system.manage',
   // Settings › Modules, the Playlists row (routes/playlists.ts): owner; switching and deleting need a fresh step-up.
   // Get missing albums through Lidarr (routes/lidarr.ts): Get spends disk and bandwidth, so it is the owner's; the settings too (switch, connect, disconnect, delete data need a fresh step-up).
   'GET /api/v1/libraries/:libraryId/lidarr/requests': 'system.manage',

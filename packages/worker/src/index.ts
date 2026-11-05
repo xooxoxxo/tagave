@@ -29,6 +29,7 @@ import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
 import { listenLinksResolveJob, type ListenLinksResolveJobData } from './jobs/listenLinksResolve.js';
 import { similarArtistsFetchJob, type SimilarArtistsFetchJobData } from './jobs/similarArtistsFetch.js';
+import { DJ_PRIORITY, djAnalyzeJob, type DjAnalyzeJobData } from './jobs/djAnalyze.js';
 import { lidarrGetJob, lidarrPollJob, type LidarrGetJobData, type LidarrPollJobData } from './jobs/lidarr.js';
 import { poolScanJob } from './jobs/poolScan.js';
 import type { PoolScanJobData } from '@tagave/shared';
@@ -118,6 +119,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'listenLinks.resolve': 'stately',
   // one queued per artist (singletonKey similar:<artist id>) behind the running one
   'similarArtists.fetch': 'stately',
+  // one queued per track (singletonKey dj:<track> from the sweep, dj:now:<track> from the player) and one sweep (dj:sweep)
+  'dj.analyze': 'stately',
   // one poll queued behind the running one (singletonKey lidarr.poll); one Get all missing per artist
   'lidarr.poll': 'stately',
   // one scan of the pool queued behind the running one (singletonKey pool.scan, or pool.scan:<library>)
@@ -551,6 +554,17 @@ async function main() {
     // MusicBrainz's "server busy" ceiling, so AcoustID candidates (priority 50)
     // neither starve nor pile up ahead of it
     await boss.schedule('fingerprint.sweep', '*/10 * * * *', {}, { singletonKey: 'fingerprint.sweep' });
+  }
+  // DJ analysis (the dj module), on the file worker beside the fingerprints:
+  // ffmpeg decodes each track once at nice 15, one job at a time. The
+  // hourly sweep sends the next tracks that need it as their own jobs (the
+  // player's asks run ahead of them) and chains the next sweep behind them
+  // while there is more. Off (Settings › Modules), every run skips.
+  if (wants('fingerprint.album')) {
+    await boss.work<DjAnalyzeJobData>('dj.analyze', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) await djAnalyzeJob(ctx, job.data);
+    });
+    await boss.schedule('dj.analyze', '23 * * * *', { sweep: true }, { singletonKey: 'dj:sweep', priority: DJ_PRIORITY.sweep });
   }
   if (wants('acoustid.lookup')) {
     await boss.work<AcoustidLookupJobData>('acoustid.lookup', { batchSize: 1 }, async (jobs) => {
