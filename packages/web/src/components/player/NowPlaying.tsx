@@ -171,6 +171,8 @@ export interface NowPlayingViewProps extends NowPlayingQueueProps {
   initialTab?: QueueTab;
   /** "Casting to …" while casting (player/cast.ts castLine) */
   castLine?: string | null | undefined;
+  /** the DJ key (the dj module's DJ view), before the heart; absent where the view cannot run */
+  dj?: ReactNode;
 }
 
 /** Desktop: the full view over the page, the queue beside the cover. */
@@ -185,7 +187,7 @@ export function NowPlayingView(p: NowPlayingViewProps) {
       <header className={styles.viewHead}>
         <EmbossIconButton label="Close Now playing" place="header" onClick={p.onClose}><ChevronDownIcon /></EmbossIconButton>
         {from && <span className={styles.from}><span className={styles.fromLabel}>{from.kind === 'album' ? 'Playing from album' : 'Playing from playlist'}</span><span className={styles.fromValue} dir="auto">{from.name}</span></span>}
-        <span className={styles.headEnd}>{p.like}{p.actions}</span>
+        <span className={styles.headEnd}>{p.dj}{p.like}{p.actions}</span>
       </header>
       <div className={styles.viewBody}>
         <section className={styles.viewLeft} aria-label="Playing">
@@ -237,10 +239,10 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
           <Names track={p.track} onNavigate={p.onNavigate} />
           <Seek t={p} />
           <Keys t={p} />
-          {(p.cast || p.castLine) && (
+          {(p.cast || p.castLine || p.dj) && (
             <div className={styles.devices}>
               {p.castLine ? <p className={styles.castLine} role="status">{p.castLine}</p> : <span />}
-              {p.cast}
+              <span className={styles.devicesKeys}>{p.dj}{p.cast}</span>
             </div>
           )}
           {next ? (

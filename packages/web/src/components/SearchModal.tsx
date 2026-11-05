@@ -24,6 +24,7 @@ import { enqueue, playAlbum, playTracks, type QueueSource } from '../player/engi
 import { setThemePreference } from '../theme';
 import { Button, HeartIcon, showToast } from './ui';
 import { useLikeSets } from '../hooks/useLikes';
+import { useDjViewAvailability } from '../hooks/useDj';
 import { TrackActions } from './player/TrackActions';
 import {
   EMPTY_INPUT, absorb, actDef, apiKind, dropChip, fold, scopeDef, shownKinds, suggestions,
@@ -143,7 +144,8 @@ export function SearchModal({ onClose, scope }: { onClose: () => void; scope?: S
   const { data: playlistList } = usePlaylists();
   const mayPlay = useCan('player.use');
   const playerInstalled = useCapabilities().data?.player?.installed === true;
-  const ctx: GrammarContext = useMemo(() => ({ playlists: playlistsOn, player: mayPlay && playerInstalled }), [playlistsOn, mayPlay, playerInstalled]);
+  const djHere = useDjViewAvailability() === 'ok';
+  const ctx: GrammarContext = useMemo(() => ({ playlists: playlistsOn, player: mayPlay && playerInstalled, dj: djHere && mayPlay && playerInstalled }), [playlistsOn, mayPlay, playerInstalled, djHere]);
   const [input, setInput] = useState<SearchInput>(EMPTY_INPUT);
   // a liked album, artist or song carries a small heart
   const likes = useLikeSets();
@@ -205,6 +207,11 @@ export function SearchModal({ onClose, scope }: { onClose: () => void; scope?: S
 
   const open = (row: Row) => {
     if (row.type === 'suggest') { accept(row); return; }
+    if (row.type === 'command') {
+      onClose();
+      void navigate({ to: '/dj' });
+      return;
+    }
     if (row.type === 'theme') {
       setThemePreference(row.target === 'auto' ? 'system' : row.target);
       onClose();

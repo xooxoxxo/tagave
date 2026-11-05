@@ -14,9 +14,9 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useLocation } from '@tanstack/react-router';
+import { useLocation, useNavigate } from '@tanstack/react-router';
 import type { PlayHistoryEntry } from '@tagave/shared';
-import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, VolumeIcon, QueueIcon, showToast } from './ui';
+import { CoverArt, DjIcon, EmbossIconButton, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, VolumeIcon, QueueIcon, showToast } from './ui';
 import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
 import {
@@ -30,7 +30,7 @@ import { TrackActions } from './player/TrackActions';
 import { LikeKey } from './LikeKey';
 import { BarGlow } from './BarGlow';
 import { MixChip } from './player/MixChip';
-import { useDjBridge } from '../hooks/useDj';
+import { useDjBridge, useDjViewAvailability } from '../hooks/useDj';
 import { CastKey } from './player/CastKey';
 import { DeviceStrip, DevicesKey, useDevicesShown } from './player/DevicesKey';
 import { remoteDevice, startDevices, useDevicesStore } from '../player/devices';
@@ -211,6 +211,8 @@ export function PlayerBar() {
   const [prefs] = useDisplayPrefs();
   // the DJ module's switch and the person reach the engine
   useDjBridge();
+  const djHere = useDjViewAvailability() === 'ok';
+  const navigate = useNavigate();
   const player = useCapabilities().data?.player;
   const phone = useMediaQuery(PHONE_QUERY);
   const playlistsOn = usePlaylistsOn();
@@ -345,6 +347,8 @@ export function PlayerBar() {
   );
   const barArtist = track.artist || track.albumArtist;
   const like = (place: 'page' | 'header', size: 'md' | 'sm' = 'md') => <LikeKey kind="song" id={track.localTrackId} place={place} size={size} />;
+  // the DJ view: only where it can run (the module on, this device mixes, nothing casting, no other device playing)
+  const dj = (place: 'page' | 'header') => (djHere ? <EmbossIconButton label="DJ" place={place} data-dj-key="" onClick={() => { setNowOpen(false); void navigate({ to: '/dj' }); }}><DjIcon /></EmbossIconButton> : null);
   // one glow, over the bar (from its right side) or the phone's mini bar (across it); none while a track fails
   // casting, it is off: the music is not here
   // another device plays: nothing sounds here either
@@ -392,12 +396,13 @@ export function PlayerBar() {
               like={like('header')}
               cast={cast}
               castLine={castLine}
+              dj={dj('page')}
             />
           )}
         </>
       ) : (
         <>
-          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} like={like('header')} castLine={castLine} />}
+          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} like={like('header')} castLine={castLine} dj={dj('header')} />}
           <PlayerBarView
             title={track.title}
             artist={barArtist}

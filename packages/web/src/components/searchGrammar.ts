@@ -9,6 +9,7 @@
  *   /queue  /shuffle    (Add to queue, Shuffle) on albums, songs, playlists
  *   /go albums          straight to a page: albums, artists, collection, playlists, settings
  *   /theme dark         light, dark or auto
+ *   /dj                 the DJ view (with the dj module, where it can run here)
  *
  * Typing the whole word and a space ("@artist ") turns it into its chip;
  * so does picking it from the list (Enter or Tab). Backspace in an empty
@@ -66,6 +67,8 @@ export const EMPTY_INPUT: SearchInput = { act: null, scope: null, text: '' };
 export interface GrammarContext {
   playlists: boolean;
   player: boolean;
+  /** the DJ view can run here (the dj module on, this device mixes, nothing casting) */
+  dj?: boolean;
 }
 
 const scopeOf = (word: string): ScopeDef | undefined => {
@@ -130,7 +133,8 @@ export function dropChip(input: SearchInput): SearchInput {
 export type Suggestion =
   | { type: 'suggest'; primary: string; secondary: string; insert: string }
   | { type: 'go'; primary: string; secondary: string; target: GoTarget }
-  | { type: 'theme'; primary: string; secondary: string; target: ThemeTarget };
+  | { type: 'theme'; primary: string; secondary: string; target: ThemeTarget }
+  | { type: 'command'; primary: string; secondary: string; command: 'dj' };
 
 const startsWith = (word: string, typed: string) => word.startsWith(typed.toLowerCase());
 
@@ -168,6 +172,7 @@ export function suggestions(input: SearchInput, ctx: GrammarContext): Suggestion
     if (!input.act && !input.scope) {
       if (startsWith('go', typed)) out.push({ type: 'suggest', primary: '/go', secondary: 'Go to', insert: '/go ' });
       if (startsWith('theme', typed)) out.push({ type: 'suggest', primary: '/theme', secondary: 'Theme', insert: '/theme ' });
+      if (ctx.dj && startsWith('dj', typed)) out.push({ type: 'command', primary: '/dj', secondary: 'DJ', command: 'dj' });
     }
     return out;
   }
