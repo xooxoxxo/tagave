@@ -31,7 +31,7 @@ import {
   type TagPolicies,
   can,
 } from '@tagave/shared';
-import { ensurePlanSplits, planSplitsOf, splitGate } from '../lib/planSplits.js';
+import { ensurePlanSplits, hasPendingSplits, planSplitsOf, splitGate } from '../lib/planSplits.js';
 
 /**
  * 0089: whether a plan with this policy splits its one-file albums first:
@@ -990,6 +990,9 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // A split writes the music folder and trashes the source: owner only,
       // as the album page's Split (system.manage). Only the owner's checks count.
       const owner = can((request.user as { role?: string }).role, 'system.manage');
+      if (!owner && (await hasPendingSplits(getSql(), planId))) {
+        throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
+      }
       const confirmed = z.object({ confirmSplits: z.array(z.string().uuid()).optional() }).safeParse(request.body ?? {});
       const gate = await splitGate(getSql(), libraryId, planId, owner && confirmed.success ? confirmed.data.confirmSplits ?? [] : []);
       if (gate.ok && gate.splitIds.length > 0 && !owner) {
@@ -1141,6 +1144,10 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       if (plan.status !== 'paused') {
         throw new ApiError(400, 'Bad Request', `Cannot resume plan in status '${plan.status}'`);
+      }
+      // 0089: a resumed apply runs the plan's splits too: owner only, as Apply and Split
+      if (!can((request.user as { role?: string }).role, 'system.manage') && (await hasPendingSplits(getSql(), planId))) {
+        throw new ApiError(403, 'Forbidden', 'Only the owner can resume a plan that splits an album');
       }
 
       // Enqueue the tags.apply job to resume processing

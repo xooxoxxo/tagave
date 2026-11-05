@@ -188,4 +188,17 @@ describe.skipIf(!adminUrl)('a tag plan splits a one-file album first (integratio
     expect(rev.json().revertPlanId).toBeNull();
     expect(sent).toEqual([{ name: 'tags.revert', data: { planId: plan.id, revertPlanId: expect.any(String) } }]);
   });
+
+  it('Resume of a paused plan with a pending split is the owner\'s too', async () => {
+    await sql`update album_splits set state = 'failed' where state in ('splitting', 'ready', 'analyzing')`;
+    const plan = (await create(owner, [oneFile])).json();
+    const [split] = await splitsOf(plan.id);
+    await sql`update album_splits set state = 'splitting', plan = ${sql.json(lowPlan(false))} where id = ${split!.id}`;
+    await sql`update tag_plans set status = 'paused' where id = ${plan.id}`;
+    sent.length = 0;
+    expect((await call(editor, 'POST', `/tag-plans/${plan.id}/resume`)).statusCode).toBe(403);
+    expect(sent).toEqual([]);
+    expect((await call(owner, 'POST', `/tag-plans/${plan.id}/resume`)).statusCode).toBe(202);
+    expect(sent).toContainEqual({ name: 'tags.apply', data: { planId: plan.id } });
+  });
 });

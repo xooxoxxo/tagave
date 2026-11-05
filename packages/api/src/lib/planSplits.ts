@@ -98,3 +98,10 @@ export async function splitGate(sql: Sql, libraryId: string, planId: string, con
   if (fits.some((f) => !writable.has(f.scanRootId))) return { ok: false, status: 403, detail: 'The music folder is read-only' };
   return { ok: true, splitIds: splits.map((s) => s.splitId) };
 }
+
+/** Whether any of the plan's splits is still to run (finding cuts, ready, or set going): enqueuing tags.apply would split. */
+export async function hasPendingSplits(sql: Sql, planId: string): Promise<boolean> {
+  const [r] = await sql<Array<{ n: number }>>`
+    select count(*)::int as n from album_splits where tag_plan_id = ${planId} and state in ('analyzing', 'ready', 'splitting')`;
+  return (r?.n ?? 0) > 0;
+}
