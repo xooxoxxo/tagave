@@ -2,7 +2,34 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.23.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.23.0)
+## [v0.24.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.24.0)
+
+**Minor release (0.23 → 0.24).** A DJ add-on: Simple mode mixes your queue by itself, Advanced mode gives you two decks to mix.
+
+### Before you update
+
+- **Going back to 0.23 means a restore.** This update changes the database (migrations 0086 and 0087). The updater takes a backup first and restores it on its own if the update fails; to return to 0.23 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.24.0/docs/operations.md).
+- **DJ is off until you turn it on** in Settings › Modules › DJ. Off, the player works exactly as before.
+
+### New
+
+- **DJ module.** Once on, tagave measures each song's tempo, first beat, silent start and end, and waveform in the background, one at a time, songs in a queue first. Nothing leaves your server; a re-tag doesn't measure again. ([e4f8392](https://github.com/xooxoxxo/tagave/commit/e4f8392), [e4ee5dd](https://github.com/xooxoxxo/tagave/commit/e4ee5dd), [926f2f5](https://github.com/xooxoxxo/tagave/commit/926f2f5), [cb2d001](https://github.com/xooxoxxo/tagave/commit/cb2d001))
+- **Simple mode: the queue mixes itself.** Per person in Settings › Modules › DJ: Crossfade Off / Fixed / Auto, Length, Beat-aligned and Gapless albums. Auto fades where the music ends and brings the next song in where it starts; Beat-aligned lands the fade on the beat and starts the next song at the current tempo, easing back to its own over 8 bars. Songs of one album keep playing gapless. A "Mix" chip shows in the bar during a fade. ([b4f5954](https://github.com/xooxoxxo/tagave/commit/b4f5954), [cc39766](https://github.com/xooxoxxo/tagave/commit/cc39766), [ce811b5](https://github.com/xooxoxxo/tagave/commit/ce811b5), [0c5edbf](https://github.com/xooxoxxo/tagave/commit/0c5edbf))
+- **Advanced mode: two decks.** The DJ key in Now playing (or `/dj` in ⌘K) opens two decks with a waveform, BPM, Play, Cue, Pitch and Sync, a Filter, a 3-band EQ with kills and Echo on each, and a crossfader. The next song loads into the free deck by itself, and Auto mix does the transitions for you. What you hear is your Now playing, scrobbles included; leaving the view hands the playing song back to the player. ([5d1f659](https://github.com/xooxoxxo/tagave/commit/5d1f659), [ac89017](https://github.com/xooxoxxo/tagave/commit/ac89017), [0fdb1f5](https://github.com/xooxoxxo/tagave/commit/0fdb1f5), [a5c8fee](https://github.com/xooxoxxo/tagave/commit/a5c8fee))
+
+### Known limits
+
+- **Not in the home-screen app on iPhone or iPad,** where mixing would stop music playing in the background; it says "Not on this device".
+- **Not while casting** or while another of your devices plays: the device that plays decides.
+
+### For self-hosters
+
+- **Migrations:** 0086 (DJ track analysis), 0087 (DJ settings per person).
+- **The files worker** measures songs with ffmpeg at low priority, one at a time, while the DJ module is on.
+
+**All changes:** [v0.23.0...v0.24.0](https://github.com/xooxoxxo/tagave/compare/v0.23.0...v0.24.0)
+
+## [v0.23.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.23.0) (2026-11-04)
 
 **Minor release (0.22 → 0.23).** Like songs, albums and artists, with Liked songs and Liked filters, kept in step with your player's stars.
 
