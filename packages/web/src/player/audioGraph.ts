@@ -2,9 +2,9 @@
  * The one Web Audio graph of the page, shared by the DJ module and the
  * equalizer glow (adaptive/levels.ts):
  *
- *   <audio> ─ MediaElementSource ─ gain ─┐
- *   <audio> ─ MediaElementSource ─ gain ─┴─ master ─ destination
- *                                              └──── the glow's analyser
+ *   <audio> ─ MediaElementSource ─ [deck effects] ─ gain ─┐
+ *   <audio> ─ MediaElementSource ─ [deck effects] ─ gain ─┴─ master ─ destination
+ *                                                               └──── the glow's analyser
  *
  * createMediaElementSource is once per element for the life of the page, so
  * an element routed here stays routed until a reload: DJ turned off sets the
@@ -15,11 +15,19 @@
  * gesture; the engine hears of it (onContextTrouble) and puts the gains back
  * to 1 so nothing stays half faded. Never built in an iOS home-screen app
  * (djSettings.ts › djAvailableHere; levels.ts never routes on iOS).
+ *
+ * The deck effects (Filter, EQ, Echo: deckFx.ts) go in the first time the
+ * DJ view opens (deckEffects), between the element's source and its gain,
+ * so the gain stays the deck's crossfade gain. Out of the view they are
+ * bypassed: what plays is heard as is.
  */
+import { DeckFx } from './deckFx';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 const gains = new Map<HTMLMediaElement, GainNode>();
+const sources = new Map<HTMLMediaElement, AudioNode>();
+const effects = new Map<HTMLMediaElement, DeckFx>();
 const graphWatchers = new Set<(master: GainNode) => void>();
 const troubleWatchers = new Set<(state: string) => void>();
 
@@ -85,8 +93,10 @@ export async function routeElements(els: readonly HTMLMediaElement[]): Promise<b
       if (gains.has(el)) continue;
       const g = ctx.createGain();
       g.connect(master);
-      ctx.createMediaElementSource(el).connect(g);
+      const src = ctx.createMediaElementSource(el);
+      src.connect(g);
       gains.set(el, g);
+      sources.set(el, src);
       el.addEventListener('play', wake);
     }
   } catch {
@@ -95,6 +105,34 @@ export async function routeElements(els: readonly HTMLMediaElement[]): Promise<b
   const m = master;
   graphWatchers.forEach((w) => w(m));
   return true;
+}
+
+/**
+ * The element's deck effects, put in between its source and its gain the
+ * first time they are asked for (the DJ view). Null when it is not routed.
+ */
+export function deckEffects(el: HTMLMediaElement | null | undefined): DeckFx | null {
+  if (!el) return null;
+  const have = effects.get(el);
+  if (have) return have;
+  const src = sources.get(el);
+  const g = gains.get(el);
+  if (!ctx || !src || !g) return null;
+  try {
+    const fx = new DeckFx(ctx);
+    fx.output.connect(g);
+    src.connect(fx.input);
+    src.disconnect(g);
+    effects.set(el, fx);
+    return fx;
+  } catch {
+    return null;
+  }
+}
+
+/** Every deck's effects bypassed (the DJ view closed). */
+export function bypassEffects(): void {
+  for (const fx of effects.values()) fx.bypass();
 }
 
 /** Calls `watch` with the master bus once it exists (now, if it does). */
