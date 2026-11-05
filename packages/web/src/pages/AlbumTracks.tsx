@@ -13,7 +13,9 @@
  * list renders exactly as before.
  *
  * In Maintenance the owner's rows carry a checkbox (`pick`): the songs to
- * move to another album or delete.
+ * move to another album or delete. On touch, holding a row picks it (the
+ * row's "⋯" still opens the file facts), and once a song is picked a tap
+ * picks or unpicks the others.
  */
 import { useRef, useState, type ReactNode } from 'react';
 import { Collapse, IconButton, MoreIcon, PlayIcon } from '../components/ui';
@@ -85,11 +87,16 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
   const groups = trackEntries(tracks, maintenance ? missingTracks : []);
   const multiDisc = (discCount ?? 1) > 1 || groups.length > 1;
 
-  const startPress = (e: React.PointerEvent, id: string) => {
+  const startPress = (e: React.PointerEvent, id: string, pickable: boolean) => {
     lastPointer.current = e.pointerType;
     longPressed.current = false;
     if (e.pointerType !== 'touch') return;
-    const timer = setTimeout(() => { press.current = null; longPressed.current = true; toggle(id); }, 480);
+    // Maintenance: a hold picks the song; elsewhere it opens the file facts
+    const timer = setTimeout(() => {
+      press.current = null;
+      longPressed.current = true;
+      if (pickable) pick!.onToggle(id); else toggle(id);
+    }, 480);
     press.current = { id, timer };
   };
   const endPress = () => {
@@ -131,7 +138,7 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                   <div
                     className={`${styles.row} ${fileError && maintenance ? styles.error : ''} ${open ? styles.rowOpen : ''} ${now ? styles.playing : ''}`}
                     title={file ? `${file}\n${t.file.relPath}` : t.file.relPath}
-                    onPointerDown={(ev) => startPress(ev, t.id)}
+                    onPointerDown={(ev) => startPress(ev, t.id, picking)}
                     onPointerUp={endPress}
                     onPointerLeave={endPress}
                     onPointerCancel={endPress}
@@ -161,7 +168,12 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                     )}
                     <span
                       className={styles.main}
-                      onClick={player ? () => { if (lastPointer.current === 'touch' && !longPressed.current) player.onPlay(t.id); } : undefined}
+                      onClick={player || picking ? () => {
+                        if (lastPointer.current !== 'touch' || longPressed.current) return;
+                        // picking on touch: a tap picks or unpicks
+                        if (picking && pick!.selected.size > 0) pick!.onToggle(t.id);
+                        else player?.onPlay(t.id);
+                      } : undefined}
                     >
                       <span className={styles.title}>
                         {now && <span className={styles.srOnly}>Now playing: </span>}

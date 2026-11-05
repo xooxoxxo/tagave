@@ -295,19 +295,27 @@
   align-items: center;
 }
 .row:has(.pick) {
-  grid-template-columns: 2.25rem 2.75rem minmax(0, 1fr) auto;
+  grid-template-columns: 1.75rem 2.25rem minmax(0, 1fr) auto;
 }
 .row:has(.pick):has(.rowTool) {
-  grid-template-columns: 2.25rem 2.75rem minmax(0, 1fr) auto 2.5rem;
+  grid-template-columns: 1.75rem 2.25rem minmax(0, 1fr) auto 2.5rem;
 }
 .row[data-picked] {
   background: color-mix(in srgb, var(--dew) 10%, transparent);
 }
 .pickBox {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   margin: 0;
   cursor: pointer;
+}
+/* touch: no text selection or callout under a hold that picks */
+@media (pointer: coarse) {
+  .row:has(.pick) {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 /* the ring only for the keyboard */
 .pickBox:focus {
@@ -320,9 +328,9 @@
 }
 @media (max-width: 640px) {
   .row:has(.pick) {
-    grid-template-columns: 2rem 2rem minmax(0, 1fr) auto;
+    grid-template-columns: 1.75rem 1.75rem minmax(0, 1fr) auto;
   }
   .row:has(.pick):has(.rowTool) {
-    grid-template-columns: 2rem 2rem minmax(0, 1fr) auto 2.5rem;
+    grid-template-columns: 1.75rem 1.75rem minmax(0, 1fr) auto 2.5rem;
   }
 }
