@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { compareEdition, matchPercent, statusTag, type AutoAcceptView, type ComparisonRow } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
+import { invalidateAlbumCare } from '../hooks/useGaps';
 import { Button, IconButton, Input } from '../components/ui';
 import { MatchMeter, SourceIcon, StatusTag } from './review/reviewParts';
 import { ShortcutsSheet } from './review/ReviewDialog';
@@ -153,7 +154,10 @@ export function ReviewPanel() {
 
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body?: unknown }) => api.post(path, body),
-    onSuccess: refresh,
+    onSuccess: () => {
+      void refresh();
+      void invalidateAlbumCare(queryClient);
+    },
   });
 
   const decide = useCallback(

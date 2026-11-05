@@ -7,6 +7,7 @@ import type { AlbumSplitView } from '@tagave/shared';
 import { api } from '../services/api';
 import { useCan } from './usePermissions';
 import { invalidateLibraryViews } from './useDeletions';
+import { invalidateAlbumCare } from './useGaps';
 
 export const albumSplitKey = (libraryId: string | undefined, albumId: string | undefined) => ['album-split', libraryId, albumId] as const;
 
@@ -42,12 +43,12 @@ export function useRunSplit(libraryId: string | undefined, albumId: string | und
     mutationFn: (splitId: string) => api.post<AlbumSplitView>(`${base(libraryId, albumId)}/${splitId}/run`, {}),
     onSuccess: (view) => {
       qc.setQueryData(albumSplitKey(libraryId, albumId), view);
-      void qc.invalidateQueries({ queryKey: ['gaps'] });
+      void invalidateAlbumCare(qc);
     },
   });
 }
 
 /** After a split: the album, the lists, Attention. */
 export function invalidateAfterSplit(qc: ReturnType<typeof useQueryClient>): Promise<unknown> {
-  return Promise.all([invalidateLibraryViews(qc), qc.invalidateQueries({ queryKey: ['gaps'] })]);
+  return Promise.all([invalidateLibraryViews(qc), invalidateAlbumCare(qc)]);
 }

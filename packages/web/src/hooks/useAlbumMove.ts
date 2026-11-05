@@ -7,6 +7,7 @@ import type { AlbumMoveView, MoveAlbumOption, MoveListItem, MoveTarget } from '@
 import { api } from '../services/api';
 import { useCan } from './usePermissions';
 import { invalidateLibraryViews } from './useDeletions';
+import { invalidateAlbumCare } from './useGaps';
 
 export const moveKey = (libraryId: string | undefined, moveId: string | null | undefined) => ['album-move', libraryId, moveId] as const;
 const movesKey = (libraryId: string | undefined) => ['album-moves', libraryId] as const;
@@ -89,7 +90,7 @@ export function useMoves(libraryId: string | undefined) {
 export function invalidateAfterMove(qc: ReturnType<typeof useQueryClient>, libraryId: string | undefined): Promise<unknown> {
   return Promise.all([
     invalidateLibraryViews(qc),
-    qc.invalidateQueries({ queryKey: ['gaps'] }),
+    invalidateAlbumCare(qc),
     qc.invalidateQueries({ queryKey: movesKey(libraryId) }),
   ]);
 }
