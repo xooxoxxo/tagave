@@ -273,8 +273,8 @@ describe.skipIf(!adminUrl)('lidarr: connect, Get, Retry, Cancel, the views, who 
       // the pool is on: Use the drop pool is on unless turned off
       expect((await call(owner, 'GET', '/settings/lidarr')).json()).toMatchObject({
         connection: { rootFolderPath: '/music', useDropPool: true, pathMap: null },
-        pool: { scanRootId: root!.id, path: '/music/_Inbox', lidarrPath: '/music/_Inbox' },
-        musicFolders: [{ id: root!.id, path: '/music' }],
+        pool: { scanRootId: root!.id, dirPath: '_Inbox', path: '/music/_Inbox', lidarrPath: '/music/_Inbox' },
+        musicFolders: [{ id: root!.id, path: '/music', hostPath: null }],
       });
       const save = await call(owner, 'PUT', '/settings/lidarr/connection', {
         url: far.url, apiKey: KEY, qualityProfileId: 2, metadataProfileId: 1, useDropPool: true, pathMap: { lidarrPath: '/data/music/', scanRootId: root!.id },

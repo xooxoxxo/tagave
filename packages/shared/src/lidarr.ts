@@ -83,10 +83,10 @@ export interface LidarrSettingsView {
   } | null;
   /** tagave's music folders, for the warning */
   scanRoots: string[];
-  /** the same, with their ids (the mapping's music folder) */
-  musicFolders: Array<{ id: string; path: string }>;
+  /** the same, with their ids and host paths (the mapping's music folder) */
+  musicFolders: Array<{ id: string; path: string; hostPath: string | null }>;
   /** the drop pool while it is on: its folder in tagave, and as Lidarr sees it (with the saved mapping) */
-  pool: { scanRootId: string; path: string; lidarrPath: string } | null;
+  pool: { scanRootId: string; dirPath: string; path: string; lidarrPath: string } | null;
   /** an album Lidarr imported is in none of them (or the root folder is not) */
   rootFolderOutside: boolean;
   /** requests not done yet */

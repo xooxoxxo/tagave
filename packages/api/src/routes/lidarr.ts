@@ -188,8 +188,8 @@ async function settingsView(sql: Sql): Promise<LidarrSettingsView> {
       pathMap: map,
     } : null,
     scanRoots: roots.map((r) => r.path),
-    musicFolders: roots.map((r) => ({ id: r.id, path: r.path })),
-    pool: pool ? { scanRootId: pool.root.id, path: path.posix.join(pool.root.path, pool.dirPath), lidarrPath: lidarrPathOf(pool.root, pool.dirPath, map) } : null,
+    musicFolders: roots.map((r) => ({ id: r.id, path: r.path, hostPath: r.host_path })),
+    pool: pool ? { scanRootId: pool.root.id, dirPath: pool.dirPath, path: path.posix.join(pool.root.path, pool.dirPath), lidarrPath: lidarrPathOf(pool.root, pool.dirPath, map) } : null,
     rootFolderOutside: (rootPath !== null && roots.length > 0 && !inScanRoot(rootPath, rootsList, map)) || (counts?.outside ?? 0) > 0,
     open: counts?.open ?? 0,
   };
