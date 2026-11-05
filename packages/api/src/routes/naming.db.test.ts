@@ -132,6 +132,20 @@ describe.skipIf(!adminUrl)('naming rules and the drop pool (integration)', () =>
     const v = (await call(owner, 'PUT', '/drop-pool', { enabled: true })).json();
     expect(v).toMatchObject({ enabled: true, scanRootId: rootId, dirPath: '_Inbox', path: '/mnt/music/_Inbox', counts: { inbox: 1 } });
     expect(sent).toEqual([{ name: 'pool.scan', data: { libraryId, create: true } }]);
+    // the worker has not looked yet: no line
+    expect(v.state).toBeNull();
+  });
+
+  it('shows what the file worker found, for this pool only', async () => {
+    const put = (s: unknown) => sql`update libraries set settings = settings || jsonb_build_object('dropPoolStatus', ${JSON.stringify(s)}::text::jsonb) where id = ${libraryId}`;
+    const at = new Date().toISOString();
+    for (const state of ['ready', 'unreachable', 'missing'] as const) {
+      await put({ state, scanRootId: rootId, dirPath: '_Inbox', seenReady: true, at });
+      expect((await call(owner, 'GET', '/drop-pool')).json().state).toBe(state);
+    }
+    // a status about another folder is not this pool's
+    await put({ state: 'ready', scanRootId: rootId, dirPath: 'Elsewhere', seenReady: true, at });
+    expect((await call(owner, 'GET', '/drop-pool')).json().state).toBeNull();
   });
 
   it('Organize lists the misfiled album and queues its move', async () => {

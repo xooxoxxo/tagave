@@ -62,6 +62,30 @@ export const putDropPoolSchema = z.object({
 
 export type PutDropPool = z.infer<typeof putDropPoolSchema>;
 
+/**
+ * What the file worker found when it last looked at the pool (pool.scan):
+ * ready, the music folder out of its reach, or the pool folder gone.
+ */
+export const DROP_POOL_STATES = ['ready', 'unreachable', 'missing'] as const;
+export type DropPoolState = (typeof DROP_POOL_STATES)[number];
+
+/** The one line Settings › Library › Drop pool shows for each state (ready adds the path). */
+export const DROP_POOL_STATE_LABELS: Readonly<Record<DropPoolState, string>> = {
+  ready: 'Ready',
+  unreachable: 'Can’t reach the music folder',
+  missing: 'Folder missing',
+};
+
+/** libraries.settings.dropPoolStatus: written by pool.scan, for the pool it looked at. */
+export interface DropPoolStatus {
+  state: DropPoolState;
+  scanRootId: string;
+  dirPath: string;
+  /** this pool folder was ready once: gone later means the owner moved it (not made again on its own) */
+  seenReady: boolean;
+  at: string;
+}
+
 export interface DropPoolView {
   enabled: boolean;
   scanRootId: string | null;
@@ -76,6 +100,8 @@ export interface DropPoolView {
   counts: { waiting: number; inbox: number; imported: number; skipped: number };
   /** why it cannot run now (no writable music folder) */
   problem: string | null;
+  /** what the file worker found at its last look; null before it looked at this folder */
+  state: DropPoolState | null;
 }
 
 /** Library care › Organize: one album whose paths differ from the rules. */

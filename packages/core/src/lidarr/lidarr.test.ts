@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { LidarrClient, LidarrError, albumFolderOf, getAlbumInLidarr, inScanRoot, lidarrConnectionOf, normalizeLidarrUrl, observeLidarr, LIDARR_NOT_FOUND_AFTER_MS } from './index.js';
+import { LidarrClient, LidarrError, albumFolderOf, checkLidarrRoot, getAlbumInLidarr, inScanRoot, lidarrConnectionOf, lidarrPathOf, normalizeLidarrUrl, observeLidarr, pathMapOf, LIDARR_NOT_FOUND_AFTER_MS } from './index.js';
 import { startFakeLidarr, type FakeLidarr } from './fake.js';
 import { sealSecret } from '../crypto/secretbox.js';
 
@@ -125,5 +125,65 @@ describe('states and paths', () => {
     expect(lidarrConnectionOf({ url: 'http://x', apiKey: sealSecret(KEY, secret), rootFolderPath: '/music', qualityProfileId: 1, metadataProfileId: 1 }, secret)?.server.apiKey).toBe(KEY);
     expect(lidarrConnectionOf({ url: 'http://x' }, secret)).toBeNull();
     expect(() => lidarrConnectionOf({ url: 'http://x', apiKey: sealSecret(KEY, secret), rootFolderPath: '/m', qualityProfileId: 1, metadataProfileId: 1 }, 'another-secret-xxxxxxxxxxxxxxxx')).toThrow();
+  });
+});
+
+describe('the path mapping (Lidarr sees the music folder as …)', () => {
+  const roots = [{ id: 'a', path: '/mnt/music', hostPath: '/srv/music' }, { id: 'b', path: '/mnt/other' }];
+  const map = { lidarrPath: '/data/music', scanRootId: 'a' };
+
+  it('turns Lidarr paths into music-folder paths, and back', () => {
+    expect(inScanRoot('/data/music/The Band/Second Album', roots, map)).toEqual({ scanRootId: 'a', dirPath: 'The Band/Second Album' });
+    expect(inScanRoot('/data/music', roots, map)).toEqual({ scanRootId: 'a', dirPath: '' });
+    expect(inScanRoot('/data/musical/x', roots, map)).toBeNull();
+    // without it, the own path and the host path still match (shared paths)
+    expect(inScanRoot('/srv/music/A', roots, null)).toEqual({ scanRootId: 'a', dirPath: 'A' });
+    expect(inScanRoot('/data/music/A', roots, null)).toBeNull();
+    // a mapping to a music folder that is gone is ignored
+    expect(inScanRoot('/data/music/A', roots, { lidarrPath: '/data/music', scanRootId: 'gone' })).toBeNull();
+    expect(lidarrPathOf(roots[0]!, '_Inbox', map)).toBe('/data/music/_Inbox');
+    expect(lidarrPathOf(roots[0]!, '_Inbox', null)).toBe('/srv/music/_Inbox');
+    expect(lidarrPathOf(roots[1]!, '_Inbox', map)).toBe('/mnt/other/_Inbox');
+  });
+
+  it('a saved mapping is an absolute path and a music folder', () => {
+    expect(pathMapOf({ lidarrPath: '/data/music/', scanRootId: 'a' })).toEqual(map);
+    expect(pathMapOf({ lidarrPath: 'data/music', scanRootId: 'a' })).toBeNull();
+    expect(pathMapOf({ lidarrPath: '/data/music' })).toBeNull();
+    expect(pathMapOf(null)).toBeNull();
+  });
+});
+
+describe('Lidarr\'s root folder: made, and whether Lidarr can write there', () => {
+  let lidarr: FakeLidarr;
+  let c: LidarrClient;
+  const opts = { create: true, qualityProfileId: 2, metadataProfileId: 1 };
+  beforeAll(async () => {
+    lidarr = await startFakeLidarr({
+      apiKey: KEY,
+      rootFolders: ['/data/music/old'],
+      disk: { '/data': { writable: true }, '/data/music': { writable: true }, '/data/music/_Inbox': { writable: true }, '/data/ro': { writable: false }, '/data/ro/_Inbox': { writable: false } },
+    });
+    c = new LidarrClient({ url: lidarr.url, apiKey: KEY });
+  });
+  afterAll(async () => { await lidarr.close(); });
+
+  it('adds the pool as a root folder with the chosen profiles, once', async () => {
+    expect(await checkLidarrRoot(c, '/data/music/_Inbox/', opts)).toEqual({ reach: 'writable', path: '/data/music/_Inbox', created: true });
+    const post = lidarr.calls.find((x) => x.method === 'POST' && x.url === '/api/v1/rootfolder')!;
+    expect(post.body).toMatchObject({ path: '/data/music/_Inbox', defaultQualityProfileId: 2, defaultMetadataProfileId: 1, defaultMonitorOption: 'none' });
+    expect(await checkLidarrRoot(c, '/data/music/_Inbox', opts)).toEqual({ reach: 'writable', path: '/data/music/_Inbox', created: false });
+    expect(lidarr.calls.filter((x) => x.method === 'POST' && x.url === '/api/v1/rootfolder')).toHaveLength(1);
+  });
+
+  it('a folder Lidarr cannot see, or sees and cannot write', async () => {
+    expect(await checkLidarrRoot(c, '/mnt/music/_Inbox', opts)).toMatchObject({ reach: 'unseen', created: false });
+    expect(await checkLidarrRoot(c, '/data/ro/_Inbox', opts)).toMatchObject({ reach: 'readonly', created: false });
+    // a root folder it has but no longer sees (the share unmounted)
+    for (const d of ['/data', '/data/music', '/data/music/_Inbox']) lidarr.disk!.delete(d);
+    expect(await checkLidarrRoot(c, '/data/music/_Inbox', opts)).toMatchObject({ reach: 'unseen' });
+    // without create: only looked at
+    expect(await checkLidarrRoot(c, '/data/elsewhere', { ...opts, create: false })).toMatchObject({ reach: 'unseen', created: false });
+    expect(lidarr.rootFolders).not.toContain('/data/elsewhere');
   });
 });

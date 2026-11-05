@@ -10,7 +10,8 @@
  * The switch is the module ledger's row 'lidarr' (installed_modules), off
  * until the owner turns it on. The connection is that row's settings: the
  * address, the API key sealed with APP_SECRET (sealed and opened by the
- * callers, @tagave/core › lidarr), the root folder and the two profiles.
+ * callers, @tagave/core › lidarr), the root folder and the two profiles,
+ * whether the root folder is the drop pool, and the path mapping.
  */
 import type postgres from 'postgres';
 import { moduleEnabled, moduleSettings, setModuleEnabled, setModuleSettings } from './modules.js';
@@ -45,6 +46,10 @@ export interface LidarrStored {
   version: string | null;
   qualityProfileName: string;
   metadataProfileName: string;
+  /** the drop pool is the root folder (absent: on while the pool is on) */
+  useDropPool?: boolean | null;
+  /** "Lidarr sees the music folder as" */
+  pathMap?: { lidarrPath: string; scanRootId: string } | null;
 }
 
 export async function saveLidarrSettings(sql: Q, s: LidarrStored): Promise<void> {
@@ -52,7 +57,7 @@ export async function saveLidarrSettings(sql: Q, s: LidarrStored): Promise<void>
 }
 
 export async function forgetLidarrSettings(sql: Q): Promise<void> {
-  await setModuleSettings(sql, LIDARR_MODULE_ID, { url: null, apiKey: null, rootFolderPath: null, qualityProfileId: null, metadataProfileId: null, version: null, qualityProfileName: null, metadataProfileName: null });
+  await setModuleSettings(sql, LIDARR_MODULE_ID, { url: null, apiKey: null, rootFolderPath: null, qualityProfileId: null, metadataProfileId: null, version: null, qualityProfileName: null, metadataProfileName: null, useDropPool: null, pathMap: null });
 }
 
 /** Delete the module's data: exactly its rows. Idempotent. */

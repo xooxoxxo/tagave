@@ -18,6 +18,12 @@
  *
  * The scanner never walks the pool, and the scan used no file watcher
  * (inotify does not cross the NFS share), so neither does this.
+ *
+ * It runs on the file worker (rides with tags.apply), and first checks the
+ * music folder is really there (checkMusicFolder): a process without the
+ * music mount reports "music folder unreachable" and makes nothing. What it
+ * found (ready, unreachable, folder missing) is libraries.settings
+ * .dropPoolStatus, the line on Settings › Library › Drop pool.
  */
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -29,12 +35,13 @@ import {
 import { tagSnapshotOf } from '@tagave/core/files';
 import {
   DROP_POOL_STABLE_SECONDS, matchPercent, moveConfidence,
-  type PoolCandidate, type PoolFile, type PoolPairing, type PoolScanJobData,
+  type DropPoolState, type PoolCandidate, type PoolFile, type PoolPairing, type PoolScanJobData,
 } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { exists, NDIGNORE } from '../lib/deletions.js';
 import { discDirNumber } from '../lib/helpers.js';
-import { dropPoolOf, filesUnder, isAudioName } from '../lib/naming.js';
+import { dropPoolOf, dropPoolStatusOf, filesUnder, isAudioName, saveDropPoolStatus } from '../lib/naming.js';
+import { checkMusicFolder, MUSIC_FOLDER_UNREACHABLE } from '../lib/musicFolder.js';
 import { acoustidCall, getProviders, libraryProviderSettings } from '../lib/providers.js';
 import { cached, cacheKey } from '../lib/providerCache.js';
 import { fingerprintHash, fpcalcFingerprint } from '../lib/fingerprint.js';
@@ -140,10 +147,28 @@ async function scanPool(ctx: WorkerContext, libraryId: string, data: PoolScanJob
   if (!root) return { skipped: 'no music folder' };
   if (!root.writable) return { skipped: 'read-only' };
   const poolAbs = path.join(root.path, pool.dirPath);
-  if (data.create && !(await exists(poolAbs))) {
+  const prev = await dropPoolStatusOf(ctx, libraryId, pool.scanRootId, pool.dirPath);
+  const report = async (state: DropPoolState, seenReady: boolean) => {
+    if (prev?.state === state && prev.seenReady === seenReady) return;
+    await saveDropPoolStatus(ctx, libraryId, { state, scanRootId: pool.scanRootId!, dirPath: pool.dirPath!, seenReady, at: (deps.now?.() ?? new Date()).toISOString() });
+  };
+  // nothing is made, read or forgotten unless this process sees the real music folder
+  const reach = await checkMusicFolder(ctx, pool.scanRootId, root.path);
+  if (!reach.reachable) {
+    await report('unreachable', prev?.seenReady ?? false);
+    return { skipped: MUSIC_FOLDER_UNREACHABLE };
+  }
+  // made when the owner turns the pool on, and until this folder was first seen
+  // ready (an install whose pool was made on the wrong worker's disk): once
+  // seen, a pool folder that goes is the owner's doing, and stays gone
+  if ((data.create || !prev?.seenReady) && !(await exists(poolAbs))) {
     await mkdir(poolAbs, { recursive: true });
   }
-  if (!(await exists(poolAbs))) return { skipped: 'no pool folder' };
+  if (!(await exists(poolAbs))) {
+    await report('missing', prev?.seenReady ?? false);
+    return { skipped: 'no pool folder' };
+  }
+  await report('ready', true);
   // the player server's own scan leaves the pool alone too
   if (!(await exists(path.join(poolAbs, NDIGNORE)))) await writeFile(path.join(poolAbs, NDIGNORE), '').catch(() => undefined);
 

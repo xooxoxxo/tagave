@@ -44,6 +44,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+.problem {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.mono, .mono input { font-family: var(--font-mono); font-size: 12px; }
+
 .warnTitle { display: block; font-weight: 500; }
 .roots { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
 .roots code { font-size: var(--font-size-sm); overflow-wrap: anywhere; }

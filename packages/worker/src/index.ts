@@ -385,14 +385,6 @@ async function main() {
     await boss.work<LidarrGetJobData>('lidarr.get', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
       for (const job of jobs) logger.info({ jobId: job.id, artistId: job.data.artistId, ...(await lidarrGetJob(ctx, job.data)) }, 'lidarr.get');
     });
-    // The drop pool (0081): every two minutes its folder is read, still albums
-    // identified, the confident ones imported (files.move), the rest to Inbox
-    await boss.work<PoolScanJobData>('pool.scan', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
-      const results = [];
-      for (const job of jobs) results.push(await poolScanJob(ctx, job.data ?? {}));
-      return results.length === 1 ? results[0] : results;
-    });
-    await boss.schedule('pool.scan', '*/2 * * * *', {}, { singletonKey: 'pool.scan' });
   }
   if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));
@@ -658,6 +650,16 @@ async function main() {
       }
       return results.length === 1 ? results[0] : results;
     });
+    // The drop pool (0081): every two minutes its folder is read, still albums
+    // identified, the confident ones imported (files.move), the rest to Inbox.
+    // On the file worker: it reads and makes folders in the music folder. Its
+    // MusicBrainz calls share identify's 1 req/s through provider_state.
+    await boss.work<PoolScanJobData>('pool.scan', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) results.push(await poolScanJob(ctx, job.data ?? {}));
+      return results.length === 1 ? results[0] : results;
+    });
+    await boss.schedule('pool.scan', '*/2 * * * *', {}, { singletonKey: 'pool.scan' });
   }
 
   if (wants('tags.revert')) {

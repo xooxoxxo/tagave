@@ -311,7 +311,17 @@ If you run [Lidarr](https://lidarr.audio), tagave can ask it for the albums a fo
 
 On an artist page, a missing album's **⋮ › Get** asks Lidarr for that album only; the heading's **⋮ › Get all missing** asks for each one. The card shows **Wanted**, **Downloading**, **Importing** or **Not found** (nothing found after three days: **Retry**), and the album joins your library once tagave's scan finds it. **Library care › Getting** lists what is on its way. **Cancel** unmonitors the album in Lidarr; it never deletes files there.
 
-Lidarr's root folder must be inside one of tagave's music folders, at the same path in both containers (for example both mount the music at `/music`). If it is not, the Lidarr settings say so.
+Lidarr's root folder must be inside one of tagave's music folders. The short version:
+
+1. **Mount the music share into Lidarr's container.** This is the one step tagave can't do for you. Any path works, for example `/data/music`.
+2. **If Lidarr sees the share at another path than tagave does** (tagave's file worker sees it at `/mnt/music`), enter Lidarr's path under **Lidarr sees the music folder as**. Leave it empty when both see the same path.
+3. **tagave does the rest.** With the drop pool on (**Settings › Library › Drop pool**), **Use the drop pool** is on: tagave adds the pool's folder (`_Inbox`) to Lidarr as a root folder with the profiles you chose and selects it, so every album Lidarr downloads is identified and filed by your naming rules. Without the pool, pick one of Lidarr's root folders.
+
+One line says what Lidarr can do there: **Lidarr can write here**, **Lidarr can't see this folder: mount the music share into Lidarr's container at** the path it needs, or **Lidarr can see it but can't write** (mount it read-write). Once you fix the mount, tagave adds the root folder on its own.
+
+### Drop pool
+
+**Settings › Library › Drop pool** turns a folder of a writable music folder (`_Inbox` by default) into an inbox: albums dropped there are identified, then filed by your naming rules or left in **Library care › Inbox**. The file worker watches it, so it needs the music folder mounted read-write. One line shows its state: **Ready** with the folder, **Can't reach the music folder** (the file worker doesn't see the share: check `MUSIC_DIR` and the mount), or **Folder missing** (turn the pool off and on to make it again).
 
 ### Play missing albums on your service
 

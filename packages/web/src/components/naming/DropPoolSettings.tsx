@@ -2,9 +2,11 @@
  * Settings › Library › Drop pool (owner, 0081): a folder in a writable music
  * folder where dropped albums are identified, then imported by the naming
  * rules or left in Library care › Inbox. Every change is saved at once.
+ * One line says what the file worker last found: Ready · the folder, Can't
+ * reach the music folder, or Folder missing.
  */
 import { useId, useState } from 'react';
-import { DROP_POOL_DEFAULT_DIR, type DropPoolView, type PutDropPool } from '@tagave/shared';
+import { DROP_POOL_DEFAULT_DIR, DROP_POOL_STATE_LABELS, type DropPoolView, type PutDropPool } from '@tagave/shared';
 import { SegmentedControl, Select, TextField, showToast } from '../ui';
 import { useCurrentLibrary } from '../../hooks';
 import { useDropPool, useSaveDropPool } from '../../hooks/useNaming';
@@ -21,16 +23,36 @@ export function DropPoolSettings() {
 
 function DropPoolForm({ libraryId, view }: { libraryId: string | undefined; view: DropPoolView }) {
   const save = useSaveDropPool(libraryId);
+  const onPut = (body: PutDropPool, done: () => void) => save.mutate(body, {
+    onSuccess: done,
+    onError: (err) => showToast({ message: errorText(err, 'Not saved'), tone: 'danger' }),
+  });
+  return <DropPoolSettingsView view={view} pending={save.isPending} onPut={onPut} />;
+}
+
+/** What the file worker last found, in one line: Ready · the path, or why not. */
+export function dropPoolLine(view: Pick<DropPoolView, 'enabled' | 'state' | 'path'>): string | null {
+  if (!view.enabled || !view.state) return null;
+  return view.state === 'ready' && view.path ? `${DROP_POOL_STATE_LABELS.ready} · ${view.path}` : DROP_POOL_STATE_LABELS[view.state];
+}
+
+export interface DropPoolSettingsViewProps {
+  view: DropPoolView;
+  pending?: boolean;
+  /** save; `done` clears the edits once saved */
+  onPut: (body: PutDropPool, done: () => void) => void;
+}
+
+/** The section without data fetching (Storybook renders it with fixtures). */
+export function DropPoolSettingsView({ view, pending = false, onPut }: DropPoolSettingsViewProps) {
   const headingId = useId();
   const [rootId, setRootId] = useState<string | null>(null);
   const [dir, setDir] = useState<string | null>(null);
   const currentRoot = rootId ?? view.scanRootId ?? view.roots[0]?.id ?? '';
   const currentDir = dir ?? view.dirPath ?? DROP_POOL_DEFAULT_DIR;
 
-  const put = (body: PutDropPool) => save.mutate(body, {
-    onSuccess: () => { setRootId(null); setDir(null); },
-    onError: (err) => showToast({ message: errorText(err, 'Not saved'), tone: 'danger' }),
-  });
+  const put = (body: PutDropPool) => onPut(body, () => { setRootId(null); setDir(null); });
+  const line = dropPoolLine(view);
   const onBody = (enabled: boolean, root = currentRoot, d = currentDir): PutDropPool => (enabled
     ? { enabled, ...(root ? { scanRootId: root } : {}), ...(d.trim() ? { dirPath: d.trim() } : {}) }
     : { enabled });
@@ -54,7 +76,7 @@ function DropPoolForm({ libraryId, view }: { libraryId: string | undefined; view
           <span className={styles.label}>Music folder</span>
           <Select
             value={currentRoot}
-            disabled={save.isPending}
+            disabled={pending}
             onChange={(e) => {
               setRootId(e.target.value);
               if (view.enabled) put(onBody(true, e.target.value));
@@ -75,8 +97,9 @@ function DropPoolForm({ libraryId, view }: { libraryId: string | undefined; view
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitDir(); } }}
       />
       {view.problem && <p className={styles.error} role="alert">{view.problem}</p>}
+      {line && <p className={view.state === 'ready' ? styles.state : styles.error} role="status">{line}</p>}
       <dl className={styles.values}>
-        {view.path && <><dt>Path</dt><dd className={styles.mono}>{view.path}</dd></>}
+        {view.path && !line && <><dt>Path</dt><dd className={styles.mono}>{view.path}</dd></>}
         <dt>Waiting</dt><dd>{view.counts.waiting.toLocaleString()}</dd>
         <dt>Inbox</dt><dd>{view.counts.inbox.toLocaleString()}</dd>
         <dt>Imported</dt><dd>{view.counts.imported.toLocaleString()}</dd>

@@ -293,6 +293,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /api/v1/settings/lidarr/connection': 'system.manage',
   'DELETE /api/v1/settings/lidarr/connection': 'system.manage',
   'POST /api/v1/settings/lidarr/remove-data': 'system.manage',
+  'POST /api/v1/settings/lidarr/root-folder': 'system.manage',
   'GET /api/v1/settings/playlists': 'system.manage',
   'PUT /api/v1/settings/playlists': 'system.manage',
   'GET /api/v1/settings/playlists/export': 'system.manage',

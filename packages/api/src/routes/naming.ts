@@ -21,8 +21,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { ruleDir, rulesProblems, samePath, type NamingRules } from '@tagave/core';
 import {
-  DROP_POOL_DEFAULT_DIR, TRASH_DIR, inboxActionSchema, organizeRequestSchema, putDropPoolSchema, putNamingSchema, namingRulesSchema,
-  type DropPoolView, type InboxItem, type InboxReason, type NamingView, type OrganizeAlbum, type OrganizeView,
+  DROP_POOL_DEFAULT_DIR, DROP_POOL_STATES, TRASH_DIR, inboxActionSchema, organizeRequestSchema, putDropPoolSchema, putNamingSchema, namingRulesSchema,
+  type DropPoolState, type DropPoolStatus, type DropPoolView, type InboxItem, type InboxReason, type NamingView, type OrganizeAlbum, type OrganizeView,
   type PoolCandidate, type PoolFile, type PoolPairing, type PoolState,
 } from '@tagave/shared';
 import { getSql } from '../db.js';
@@ -74,9 +74,17 @@ function poolDirProblem(dir: string): string | null {
   return null;
 }
 
+/** What pool.scan last found for this pool (dropPoolStatus), when it was about this very folder. */
+function poolStateOf(settings: Record<string, unknown>, pool: { scanRootId: string | null; dirPath: string | null }): DropPoolState | null {
+  const s = settings['dropPoolStatus'] as Partial<DropPoolStatus> | undefined;
+  if (!s || !pool.scanRootId || s.scanRootId !== pool.scanRootId || s.dirPath !== pool.dirPath) return null;
+  return DROP_POOL_STATES.includes(s.state as DropPoolState) ? (s.state as DropPoolState) : null;
+}
+
 async function dropPoolView(libraryId: string): Promise<DropPoolView> {
   const sql = getSql();
-  const pool = dropPoolSetting(await settingsOf(sql, libraryId));
+  const settings = await settingsOf(sql, libraryId);
+  const pool = dropPoolSetting(settings);
   const roots = await sql<Array<{ id: string; path: string; hostPath: string | null }>>`
     select id::text as id, path, host_path as "hostPath" from scan_roots
      where library_id = ${libraryId} and enabled and writable order by created_at, id`;
@@ -97,6 +105,7 @@ async function dropPoolView(libraryId: string): Promise<DropPoolView> {
     roots: roots.map((r) => ({ id: r.id, path: r.path })),
     counts: counts ?? { waiting: 0, inbox: 0, imported: 0, skipped: 0 },
     problem: roots.length === 0 ? 'No writable music folder' : null,
+    state: pool.enabled && root ? poolStateOf(settings, pool) : null,
   };
 }
 

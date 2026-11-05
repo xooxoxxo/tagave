@@ -11,11 +11,15 @@
  * - the scan never walks the pool;
  * - a drop that waits until still, then imports on its own (tags written,
  *   moved to its rule path, scanned), and its Undo;
- * - a drop identify is unsure of, and one already in the library: Inbox.
+ * - a drop identify is unsure of, and one already in the library: Inbox;
+ * - the music folder check: a process that sees no music folder, or a stray
+ *   copy of its path, makes and forgets nothing ("music folder unreachable");
+ *   a pool folder seen once and gone is reported missing, one never seen
+ *   (made on the wrong worker's disk) is made on the next look.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -357,5 +361,66 @@ describe.skipIf(!tools)('naming rules and the drop pool (db, real FLAC)', () => 
       await poolScanJob(ctx, { libraryId }, { ...poolDeps, now });
       expect(await item(NONE)).toMatchObject({ state: 'inbox', reason: 'unidentified' });
     }, 120_000);
+  });
+
+  describe('the music folder check', () => {
+    const status = async () => (await sql`select settings->'dropPoolStatus' as s from libraries where id = ${libraryId}`)[0].s;
+    const items = async () => Number((await sql`select count(*)::int as n from pool_items where library_id = ${libraryId}`)[0].n);
+    const setRoot = (p: string) => sql`update scan_roots set path = ${p} where id = ${rootId}`;
+
+    it('reads the real music folder: Ready', async () => {
+      await poolScanJob(ctx, { libraryId });
+      expect(await status()).toMatchObject({ state: 'ready', scanRootId: rootId, dirPath: POOL, seenReady: true });
+    });
+
+    it('a process without the music folder makes nothing and forgets nothing', async () => {
+      const before = await items();
+      expect(before).toBeGreaterThan(0);
+      // no music folder at all (a worker without the mount)
+      const gone = path.join(tmpdir(), `rr88test-nomusic-${randomUUID()}`);
+      await setRoot(gone);
+      try {
+        expect(await poolScanJob(ctx, { libraryId, create: true })).toEqual({ [libraryId]: { skipped: 'music folder unreachable' } });
+        expect(await there(gone)).toBe(false);
+        expect(await status()).toMatchObject({ state: 'unreachable', seenReady: true });
+        // a stray copy of the path, its own empty pool in it (0.26.0's identify worker)
+        const stray = await mkdtemp(path.join(tmpdir(), 'rr88test-stray-'));
+        await mkdir(path.join(stray, POOL));
+        await setRoot(stray);
+        expect(await poolScanJob(ctx, { libraryId, create: true })).toEqual({ [libraryId]: { skipped: 'music folder unreachable' } });
+        expect(await readdir(path.join(stray, POOL))).toEqual([]);
+        await rm(stray, { recursive: true, force: true });
+        expect(await items()).toBe(before);
+      } finally {
+        await setRoot(rootPath);
+      }
+      await poolScanJob(ctx, { libraryId });
+      expect((await status()).state).toBe('ready');
+    });
+
+    it('a pool folder seen once and gone is missing; one never seen is made on the next look', async () => {
+      const moved = `${POOL}.moved`;
+      await rename(abs(POOL), abs(moved));
+      try {
+        expect(await poolScanJob(ctx, { libraryId })).toEqual({ [libraryId]: { skipped: 'no pool folder' } });
+        expect(await there(abs(POOL))).toBe(false);
+        expect(await status()).toMatchObject({ state: 'missing', seenReady: true });
+        // turning the pool on again makes it
+        await poolScanJob(ctx, { libraryId, create: true });
+        expect(await there(abs(POOL))).toBe(true);
+        expect((await status()).state).toBe('ready');
+        await rm(abs(`${POOL}/.ndignore`));
+        await rmdir(abs(POOL));
+        // an install from before the check: no status, its pool made on another disk
+        await sql`update libraries set settings = settings - 'dropPoolStatus' where id = ${libraryId}`;
+        await poolScanJob(ctx, { libraryId });
+        expect(await there(abs(`${POOL}/.ndignore`))).toBe(true);
+        expect(await status()).toMatchObject({ state: 'ready', seenReady: true });
+        await rm(abs(`${POOL}/.ndignore`));
+        await rmdir(abs(POOL));
+      } finally {
+        await rename(abs(moved), abs(POOL));
+      }
+    });
   });
 });

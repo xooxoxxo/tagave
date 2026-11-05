@@ -102,6 +102,7 @@
 .to::before { content: '→ '; color: var(--ink-3); }
 
 .muted { margin: 0; color: var(--ink-3); font-size: var(--font-size-sm); }
+.state { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .error { margin: 0; color: var(--danger); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 
 .buttons { display: flex; flex-wrap: wrap; gap: var(--space-sm); }

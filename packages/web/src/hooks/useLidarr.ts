@@ -6,13 +6,15 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
-  ArtistLidarrView, LidarrConnectionRequest, LidarrGettingView, LidarrRequestView, LidarrSettingsView, LidarrStatusView, LidarrTestRequest, LidarrTestResult,
+  ArtistLidarrView, LidarrConnectionRequest, LidarrGettingView, LidarrRequestView, LidarrRootCheckView, LidarrSettingsView, LidarrStatusView,
+  LidarrTestRequest, LidarrTestResult,
 } from '@tagave/shared';
 import { api } from '../services/api';
 import { facetsKey, useModuleOn } from './useFacets';
 
 export const lidarrKey = ['lidarr'] as const;
 export const lidarrSettingsKey = ['lidarr', 'settings'] as const;
+export const lidarrRootKey = ['lidarr', 'settings', 'root-folder'] as const;
 
 const OPEN_POLL_MS = 30_000;
 const isOpen = (r: LidarrRequestView) => r.state === 'wanted' || r.state === 'downloading' || r.state === 'imported';
@@ -91,6 +93,7 @@ function useAfterSettings() {
   const client = useQueryClient();
   return (view: LidarrSettingsView) => {
     client.setQueryData(lidarrSettingsKey, view);
+    void client.invalidateQueries({ queryKey: lidarrRootKey });
     void client.invalidateQueries({ queryKey: facetsKey });
     void client.invalidateQueries({ queryKey: [...lidarrKey, 'status'] });
     void client.invalidateQueries({ queryKey: [...lidarrKey, 'artist'] });
@@ -119,4 +122,19 @@ export function useDisconnectLidarr() {
 export function useRemoveLidarrData() {
   const after = useAfterSettings();
   return useMutation({ mutationFn: () => api.post<LidarrSettingsView>('/settings/lidarr/remove-data', {}), onSuccess: after });
+}
+
+/**
+ * The root folder: made in Lidarr when it is the drop pool and Lidarr has
+ * none there, then whether Lidarr can write there. Looked at again every
+ * minute while Lidarr cannot (the owner is mounting the share).
+ */
+export function useLidarrRootCheck(enabled: boolean) {
+  return useQuery({
+    queryKey: lidarrRootKey,
+    queryFn: () => api.post<LidarrRootCheckView>('/settings/lidarr/root-folder', {}),
+    enabled,
+    retry: false,
+    refetchInterval: (q) => (q.state.data && q.state.data.reach !== 'writable' ? 60_000 : false),
+  });
 }

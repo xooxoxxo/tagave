@@ -144,4 +144,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('lidarr.poll and lidarr.get (db)
     expect(lidarr.commands.at(-1)).toEqual({ name: 'AlbumSearch', albumIds: [999] });
     expect(lidarr.calls.every((c) => c.keyOk)).toBe(true);
   });
+
+  it('Lidarr on another computer: an import under the mapped path is scanned in tagave\'s music folder', async () => {
+    const late = randomUUID();
+    const lateMbid = randomUUID();
+    await sql`insert into release_groups (id, mbid, title) values (${late}, ${lateMbid}, 'Mapped')`;
+    rg.push(late);
+    lidarr.albums.push({ id: 1001, foreignAlbumId: lateMbid, title: 'Mapped', monitored: true, artistId: lidarr.artists[0]!.id, trackCount: 1, trackFileCount: 0 });
+    await upsertLidarrRequest(sql, { libraryId, releaseGroupId: late, lidarrAlbumId: 1001, lidarrArtistId: null, requestedBy: user });
+    lidarr.importAlbum(1001, ['/data/share/Lidarr Band/Mapped (2003)/01.flac']);
+    // without the mapping Lidarr's /data/share is in no music folder
+    sent.length = 0;
+    await lidarrPollJob(ctx);
+    expect((await sql`select outside_roots from lidarr_requests where release_group_id = ${late}`)[0]).toMatchObject({ outside_roots: true });
+    expect(sent).toEqual([]);
+    await setModuleSettings(sql, 'lidarr', { pathMap: { lidarrPath: '/data/share', scanRootId: rootId } });
+    await lidarrPollJob(ctx);
+    expect((await sql`select outside_roots from lidarr_requests where release_group_id = ${late}`)[0]).toMatchObject({ outside_roots: false });
+    expect(sent).toEqual([{ name: 'scan.dir', data: { scanRootId: rootId, dirPath: 'Lidarr Band/Mapped (2003)', reason: 'lidarr' } }]);
+    await setModuleSettings(sql, 'lidarr', { pathMap: null });
+  });
 });
