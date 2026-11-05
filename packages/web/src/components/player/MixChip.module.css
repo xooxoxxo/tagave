@@ -1,0 +1,50 @@
+/* The Mix chip (prototype "DJ Directions", direction A): the player's accent on its tint. */
+.mix {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--dew-tint);
+  color: var(--dew);
+  font: 500 11px / 1 var(--font-body);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: show var(--mix-len) linear var(--mix-delay) both;
+}
+.bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 10px; }
+.bars i { display: block; width: 3px; height: 10px; border-radius: 1px; background: currentColor; transform-origin: 50% 100%; }
+.out { animation: fall var(--mix-len) linear var(--mix-delay) both; }
+.in { animation: rise var(--mix-len) linear var(--mix-delay) both; }
+.mix[data-frozen], .mix[data-frozen] i { animation-play-state: paused; }
+
+@keyframes show {
+  0% { opacity: 0; }
+  6%, 94% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* cos and sin of the fade, a quarter at a time */
+@keyframes fall {
+  0% { transform: scaleY(1); }
+  25% { transform: scaleY(0.92); }
+  50% { transform: scaleY(0.71); }
+  75% { transform: scaleY(0.38); }
+  100% { transform: scaleY(0.1); }
+}
+@keyframes rise {
+  0% { transform: scaleY(0.1); }
+  25% { transform: scaleY(0.38); }
+  50% { transform: scaleY(0.71); }
+  75% { transform: scaleY(0.92); }
+  100% { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mix { animation: none; }
+  .bars i { animation: none; transform: none; }
+}
+@media (forced-colors: active) {
+  .mix { border: 1px solid CanvasText; }
+}

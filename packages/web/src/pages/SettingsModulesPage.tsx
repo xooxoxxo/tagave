@@ -38,6 +38,7 @@ import { SettingsConnectionsContent } from './SettingsConnectionsPage';
 import { SettingsListenElsewhereContent } from './SettingsListenElsewherePage';
 import { SettingsPlaybackContent } from './SettingsPlaybackPage';
 import { SettingsListeningContent } from './SettingsListeningPage';
+import { SettingsDjContent } from './SettingsDjPage';
 import runStyles from '../components/InAppUpdate.module.css';
 import styles from './SettingsModulesPage.module.css';
 
@@ -134,7 +135,7 @@ export function moduleRows(input: {
       else if (page.id in enabled) rows.push({ slug: page.slug, name: page.name, state: enabled[page.id] ? 'On' : 'Off', on: !!enabled[page.id] });
       continue;
     }
-    const mine = page.id === 'player' ? playerInstalled === true : (page.id === 'listen-links' || page.id === 'mc') && enabled[page.id] === true;
+    const mine = page.id === 'player' ? playerInstalled === true : (page.id === 'listen-links' || page.id === 'mc' || page.id === 'dj') && enabled[page.id] === true;
     if (mine) rows.push({ slug: page.slug, name: page.name, state: 'On', on: true });
   }
   return rows;
@@ -708,6 +709,9 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
     case 'similar-artists':
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<SimilarSwitch /></>;
+    case 'dj':
+      // each person's Simple mode, while the module is on (its Off | On is the owner's, from the module's own switch)
+      return <>{heading}{on === false ? <OffValue /> : on && <SettingsDjContent />}</>;
     default:
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<CatalogueSwitch id={entry.id} name={entry.name} /></>;

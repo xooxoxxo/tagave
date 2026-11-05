@@ -280,10 +280,12 @@ export interface MiniPlayerProps {
   glow?: ReactNode;
   /** "Casting to …" while casting: it takes the artist's line */
   castLine?: string | null | undefined;
+  /** the DJ module's Mix chip during a fade (MixChip) */
+  mix?: ReactNode;
 }
 
 /** Phone: the mini bar at the foot of the screen. */
-export function MiniPlayer({ track, status, position, duration, canNext, message, onOpen, onToggle, onNext, onRetry, glow, castLine }: MiniPlayerProps) {
+export function MiniPlayer({ track, status, position, duration, canNext, message, onOpen, onToggle, onNext, onRetry, glow, castLine, mix }: MiniPlayerProps) {
   const total = duration && duration > 0 ? duration : null;
   const fill = total ? Math.min(100, Math.max(0, (position / total) * 100)) : 0;
   const busy = status === 'loading' || status === 'buffering';
@@ -299,6 +301,7 @@ export function MiniPlayer({ track, status, position, duration, canNext, message
           <span className={`${styles.miniArtist} ${failed ? styles.miniError : castLine ? styles.miniCast : ''}`} dir="auto">{failed ? message || 'This track could not be played.' : castLine || track.artist}</span>
         </span>
       </button>
+      {!failed && mix}
       {failed ? (
         <EmbossIconButton label="Retry" className={styles.miniKey} onClick={onRetry}><PlayIcon /></EmbossIconButton>
       ) : (
