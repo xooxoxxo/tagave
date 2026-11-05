@@ -19,6 +19,7 @@ import { albumKeyLock } from '@tagave/db';
 import { TRASH_DAYS, TRASH_DIR } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { refreshAlbumCounters } from '../jobs/clusterDir.js';
+import { albumsChanged } from './albumCare.js';
 
 const BATCH = 1000;
 
@@ -78,6 +79,10 @@ export async function dropDeletedFiles(ctx: Pick<WorkerContext, 'sql' | 'boss' |
   }
   await refreshAlbumCounters(ctx, left);
   for (const libraryId of libraries) await markLibraryDirty(ctx, libraryId);
+  // Library care: the albums that lost songs (or went) are rechecked
+  const byLibrary = new Map<string, string[]>();
+  for (const [id, a] of albums) byLibrary.set(a.libraryId, [...(byLibrary.get(a.libraryId) ?? []), id]);
+  for (const [libraryId, ids] of byLibrary) await albumsChanged(ctx, libraryId, ids);
   return { dropped, albumsRemoved };
 }
 
@@ -188,6 +193,7 @@ export async function restoreWaiting(ctx: WorkerContext, libraryId: string | nul
   let refused = 0;
   const gone: string[] = [];
   const libs = new Set<string>();
+  const back: string[] = [];
   for (const r of rows) {
     const src = r.trashRelPath ? await onDisk(r.root, r.trashRelPath) : null;
     if (!src) { gone.push(r.fileId); continue; }
@@ -207,10 +213,21 @@ export async function restoreWaiting(ctx: WorkerContext, libraryId: string | nul
     }
     restored++;
     libs.add(r.libraryId);
+    back.push(r.fileId);
     await ctx.sql`delete from file_deletions where file_id = ${r.fileId}`;
     await removeEmptyDirs(r.root, path.dirname(src));
   }
   for (const l of libs) await markLibraryDirty(ctx, l);
+  // Library care: a restored album has its problems again
+  if (back.length > 0) {
+    const albums = (await ctx.sql`
+      select distinct la.id::text as id, la.library_id::text as "libraryId"
+        from local_tracks lt join local_albums la on la.id = lt.local_album_id
+       where lt.audio_file_id = any(${back}::uuid[])`) as unknown as Array<{ id: string; libraryId: string }>;
+    for (const l of new Set(albums.map((a) => a.libraryId))) {
+      await albumsChanged(ctx, l, albums.filter((a) => a.libraryId === l).map((a) => a.id));
+    }
+  }
   const { dropped } = await dropDeletedFiles(ctx, gone);
   return { restored, refused, dropped };
 }

@@ -18,6 +18,7 @@ import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
 import { localTrackViews, linkAlbumTracks } from '../lib/trackLinks.js';
 import { resolvePinnedMb } from '../lib/pinnedMb.js';
 import { acceptByRules } from '../lib/autoAccept.js';
+import { albumsChanged } from '../lib/albumCare.js';
 import { isManualRequest, plainFailure, recordIdentifyOutcome, type IdentifyOutcome } from '../lib/identifyRuns.js';
 
 export interface IdentifyAlbumJobData {
@@ -296,6 +297,8 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     await ctx.db.update(localAlbums)
       .set({ state, identifyReason: reason, updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
+    // a re-identification that gave up: what the old match made it (incomplete, a duplicate) no longer holds
+    if (album.state === 'matched') await albumsChanged(ctx, album.libraryId, [album.id], { queue: false });
     await notifyQueueChanged(ctx, album.libraryId, album.id, state);
     return { outcome: state, message: GIVE_UP_MESSAGE[reason] };
   };
@@ -564,6 +567,9 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
         updatedAt: new Date(),
       })
       .where(eq(localAlbums.id, album.id));
+    // Library care: incomplete against the new release, a duplicate of another copy.
+    // Identity only: the quality flags read the files, which did not change.
+    await albumsChanged(ctx, album.libraryId, [album.id], { queue: false });
     await notifyQueueChanged(ctx, album.libraryId, album.id, 'matched');
     // ENR-1: bridge + enrich the release of record
     await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });

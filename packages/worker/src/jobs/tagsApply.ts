@@ -28,6 +28,7 @@ import { localTracks } from '@tagave/db';
 import { clusterSingletonKey, relDirname, tagsDigest } from '../lib/helpers.js';
 import { requestPlayerRescan } from '../lib/playerScan.js';
 import { queueOrganizeAfterPlan } from './organize.js';
+import { albumsChanged } from '../lib/albumCare.js';
 
 export interface TagsApplyJobData {
   planId: string;
@@ -599,9 +600,6 @@ async function relintTouchedAlbums(ctx: WorkerContext, libraryId: string, fileId
     .where(inArray(localTracks.audioFileId, fileIds));
   const albumIds = rows.map((r) => r.albumId).filter((id): id is string => !!id);
   if (albumIds.length === 0) return;
-  try {
-    await ctx.boss.send('gaps.recompute', { libraryId, albumIds }, {});
-  } catch (error) {
-    ctx.logger.warn({ libraryId, albums: albumIds.length, error: String(error) }, 'tags.apply: could not queue re-lint');
-  }
+  // identity and tags changed: the album-level gaps now, the re-lint queued
+  await albumsChanged(ctx, libraryId, albumIds);
 }

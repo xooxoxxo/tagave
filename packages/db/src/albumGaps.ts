@@ -26,6 +26,8 @@ type Sql = postgres.Sql<any> | postgres.TransactionSql<any>;
 
 /** @tagave/shared › ONE_FILE_ALBUM_GAP (this package does not depend on shared). */
 const ONE_FILE_ALBUM_GAP = 'one_file_album';
+/** Up to this many albums, the one-file rule is checked album by album. */
+const ONE_BY_ONE = 20;
 
 /**
  * The shared ON CONFLICT tail of every gap upsert (natural key 0032:
@@ -137,8 +139,10 @@ export async function recomputeAlbumGaps(sql: Sql, libraryId: string, albumIds: 
     update gaps set resolved_at = now()
     where library_id = ${libraryId} and kind = ${ONE_FILE_ALBUM_GAP} and state != 'resolved'
       and (${all} or subject_id = any(${ids}::uuid[]))`;
-  const oneFile = all
-    ? await oneFileAlbums(sql, libraryId)
+  // a handful of albums one by one; a big selection (a bulk action) in one pass
+  const wanted = new Set(ids);
+  const oneFile = all || ids.length > ONE_BY_ONE
+    ? (await oneFileAlbums(sql, libraryId)).filter((a) => all || wanted.has(a.albumId))
     : (await Promise.all(ids.map((id) => oneFileAlbums(sql, libraryId, id)))).flat();
   if (oneFile.length > 0) {
     await sql`

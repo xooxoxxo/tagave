@@ -17,6 +17,7 @@ import { AUTO_ACCEPT_REASON_PREFIX, type AutoAcceptRules } from '@tagave/shared'
 import type { WorkerContext } from './context.js';
 import { notifyQueueChanged } from '../jobs/progress.js';
 import { linkAlbumTracks } from './trackLinks.js';
+import { albumsChanged } from './albumCare.js';
 
 export interface RulesRunResult {
   /** needs_review albums the rules looked at */
@@ -62,6 +63,8 @@ export async function acceptByRules(
     result.acceptedAlbums.push({ albumId: album.albumId, releaseId: decision.candidate.releaseId, reason });
     ctx.logger.info({ libraryId, localAlbumId: album.albumId, reason }, 'auto-accept rules: accepted');
   }
+  // Library care: the accepted albums may be incomplete, or duplicates, against their new release
+  await albumsChanged(ctx, libraryId, result.acceptedAlbums.map((a) => a.albumId), { queue: false });
   return result;
 }
 
