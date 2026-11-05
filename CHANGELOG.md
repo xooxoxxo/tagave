@@ -2,7 +2,26 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.24.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.24.0)
+## [v0.25.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.25.0)
+
+**Minor release (0.24 → 0.25).** An equalizer glow that flows with the music, a clearer "Playing on" strip that opens your devices, and a new tagave.app.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+
+### New
+
+- **A new tagave.app.** The six highlights come first, then a section for each area: identify, tag, organize, collect, listen and DJ. The questions are updated for the player, file moves and Lidarr. ([e7c008b](https://github.com/xooxoxxo/tagave/commit/e7c008b))
+
+### Fixed
+
+- **The equalizer glow flows.** It is one soft wash of light that swells with the music, never separate bars. The light drifts slowly, so it keeps moving on a held note. ([41f23b9](https://github.com/xooxoxxo/tagave/commit/41f23b9))
+- **"Playing on …" sits above the player bar.** It is a thin band in the accent colour, with its text centred, and the bar keeps its height. Select it to open your devices. ([41f23b9](https://github.com/xooxoxxo/tagave/commit/41f23b9))
+
+**All changes:** [v0.24.0...v0.25.0](https://github.com/xooxoxxo/tagave/compare/v0.24.0...v0.25.0)
+
+## [v0.24.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.24.0) (2026-11-05)
 
 **Minor release (0.23 → 0.24).** A DJ add-on: Simple mode mixes your queue by itself, Advanced mode gives you two decks to mix.
 
