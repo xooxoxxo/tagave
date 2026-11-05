@@ -713,17 +713,25 @@ function djGesture() {
   if (djWanted()) void routeElements(elements);
 }
 
-/** Asks for the analysis of this track and the next two (once each; never waited for). */
+/** when each track was last asked for: one not measured yet is asked again (the first ask queued its analysis) */
+const djAskedAt = new Map<string, number>();
+const DJ_ASK_AGAIN_MS = 20_000;
+const measured = (i: DjTrackInfo | null | undefined) => !!i && (i.trimEndMs != null || i.bpm != null);
+
+/** Asks for the analysis of this track and the next two (never waited for; again later while one is not measured yet). */
 function djPrepare(index: number) {
   if (!djWanted() || djServerOff) return;
   const tracks = get().queue?.tracks ?? [];
   const ids: string[] = [];
+  const now = Date.now();
   for (let i = index, k = 0; i >= 0 && k < 3; i = nextPlayable(tracks, i), k++) {
     const t = tracks[i];
-    if (t && !djInfo.has(t.localTrackId)) ids.push(t.localTrackId);
+    if (!t || ids.includes(t.localTrackId) || measured(djInfo.get(t.localTrackId))) continue;
+    const at = djAskedAt.get(t.localTrackId);
+    if (at == null || now - at > DJ_ASK_AGAIN_MS) ids.push(t.localTrackId);
   }
   if (ids.length === 0) return;
-  for (const id of ids) djInfo.set(id, null);
+  for (const id of ids) { djAskedAt.set(id, now); if (!djInfo.has(id)) djInfo.set(id, null); }
   void api.get<Array<DjTrackInfo | null>>(`/me/dj/tracks?ids=${ids.map(encodeURIComponent).join(',')}`).then(
     (list) => { for (const info of Array.isArray(list) ? list : []) if (info?.localTrackId) djInfo.set(info.localTrackId, info); },
     (err: ApiError) => { if (err?.status === 404) djServerOff = true; },
@@ -750,6 +758,8 @@ function djNextPlan(a: HTMLAudioElement): { next: number; plan: DjTransition } |
 function djTime(a: HTMLAudioElement, position: number, duration: number | null): boolean {
   djFadeAhead = false;
   if (!djOn() || !cur || a.paused) return false;
+  // a track measured since it was first asked for (asks again at most every 20 s)
+  djPrepare(cur.index);
   const p = djNextPlan(a);
   if (!p || p.plan.kind !== 'fade') return false;
   const plan = p.plan;
