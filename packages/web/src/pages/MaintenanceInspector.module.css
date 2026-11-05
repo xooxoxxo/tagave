@@ -1,0 +1,485 @@
+/* The Maintenance inspector: quiet groups, small labels, text buttons. One
+   column at the sidebar's width (and in the phone's sheet). */
+.inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.groupTitle {
+  margin: 0;
+  font: var(--type-label);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ---- State ---- */
+.stateLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.pill,
+.pillButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 0;
+  padding: 0.15rem 0.65rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  font: 500 0.75rem / 1.6 var(--font-body);
+  white-space: nowrap;
+  background: var(--mist);
+  color: var(--ink-2);
+}
+.pill[data-state="matched"] { background: var(--surface-success); color: var(--success); }
+.pill[data-state="needs_review"] { background: var(--surface-warning); color: var(--warning); }
+.pill[data-state="unidentified"] { background: var(--surface-danger); color: var(--error); }
+.pill[data-state="as_is"],
+.pill[data-state="ignored"] { color: var(--text-tertiary); }
+.pillMuted { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); }
+
+.pillButton {
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease-out);
+}
+.pillButton svg { width: 12px; height: 12px; }
+.pillButton:hover:not(:disabled) { background: var(--mist-2); color: var(--ink); }
+.pillButton:active:not(:disabled) { transform: none; }
+
+.link {
+  color: var(--dew);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.link:hover { text-decoration: underline; }
+
+/* ---- To fix ---- */
+.meterRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.meter {
+  position: relative;
+  flex: 1 1 auto;
+  height: 6px;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--mist);
+}
+
+/* scaleX, not width: the fill glides without laying the row out again */
+.meterFill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--dew);
+  transform-origin: 0 50%;
+  transition: transform 480ms var(--ease-out), background-color var(--dur-slow) var(--ease-out);
+}
+.meterFill[data-full] { background: var(--ok); }
+
+.meterText {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+.spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--dew) 30%, transparent);
+  border-top-color: var(--dew);
+  animation: inspector-spin 0.9s linear infinite;
+}
+@keyframes inspector-spin { to { transform: rotate(360deg); } }
+.noteDismiss {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-3);
+}
+.noteDismiss svg { width: 14px; height: 14px; }
+.noteDismiss:hover:not(:disabled) { background: var(--mist); color: var(--ink); }
+.noteDismiss:active:not(:disabled) { transform: none; }
+
+.manual {
+  padding: 0.25rem 0 0.25rem;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  border-radius: var(--r-kbd);
+  transition: background-color var(--dur) var(--ease-out);
+}
+.row[data-open] {
+  background: color-mix(in srgb, var(--mist) 55%, transparent);
+}
+
+.rowHead {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 6px;
+  border-radius: var(--r-kbd);
+}
+@media (hover: hover) {
+  .row:not([data-ticked]) .rowHead:hover { background: var(--mist); }
+}
+
+.rowToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* the line's button covers the whole row; the action sits above it */
+.rowToggle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.rowToggle:hover:not(:disabled),
+.rowToggle:active:not(:disabled) { background: transparent; color: inherit; transform: none; }
+.rowToggle:disabled { cursor: default; opacity: 1; }
+.rowToggle:focus-visible { outline: none; }
+.rowToggle:focus-visible::after { outline: var(--focus-ring); outline-offset: -2px; }
+
+.rowLine {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: line-through;
+  text-decoration-color: transparent;
+  transition: color var(--dur-slow) var(--ease-out), text-decoration-color var(--dur-slow) var(--ease-out);
+}
+.row[data-open] .rowLine { white-space: normal; }
+.row[data-ticked] .rowLine {
+  color: var(--ink-3);
+  text-decoration-color: currentColor;
+}
+
+/* the status mark: a ring; ticked, it fills and draws its check */
+.mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+}
+.mark svg { display: block; overflow: visible; }
+.markRing {
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  transition: fill var(--dur-slow) var(--ease-out), stroke var(--dur-slow) var(--ease-out);
+}
+.markCheck {
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 320ms var(--ease-out) 120ms;
+}
+.mark[data-mark="attention"] { color: var(--warn); }
+.mark[data-mark="quiet"] { color: var(--ink-3); }
+.mark[data-mark="done"] { color: var(--ok); }
+.mark[data-mark="done"] .markRing { fill: currentColor; }
+.mark[data-mark="done"] .markCheck { stroke-dashoffset: 0; }
+/* running: a dew arc turning */
+.mark[data-mark="live"] { color: var(--dew); }
+.mark[data-mark="live"] .markRing {
+  stroke-dasharray: 26 14;
+  transform-origin: 50% 50%;
+  animation: inspector-spin 1.2s linear infinite;
+}
+
+.rowAction {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  transition: opacity var(--dur) var(--ease-out), visibility 0s linear 0s;
+}
+.rowAction[data-hidden] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur);
+}
+
+.textButton {
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--r-kbd);
+  background: transparent;
+  box-shadow: none;
+  color: var(--dew);
+  font: 600 0.75rem / 1.2 var(--font-body);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.textButton:hover:not(:disabled) { background: var(--dew-tint); color: var(--chip-on-ink, var(--dew-lo)); }
+.textButton:active:not(:disabled) { transform: none; }
+.textButton:disabled { opacity: 0.6; cursor: progress; }
+.textButton:focus { outline: none; }
+.textButton:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+
+/* the body: compact, under the line; wide tables lay out for its width */
+.rowBody {
+  container: inspector-body / inline-size;
+  padding: 2px 8px 12px 30px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* ---- Selection, Tools, Sections: plain lists of text buttons ---- */
+.selection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.selCount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 -6px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-kbd);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font: 400 0.8125rem / 1.3 var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+.item:hover:not(:disabled) { background: var(--mist); color: var(--ink); }
+.item:active:not(:disabled) { transform: none; }
+.item:disabled { color: var(--ink-3); cursor: default; }
+.item:focus { outline: none; }
+.item:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.item[aria-current="true"] {
+  background: var(--dew-tint);
+  color: var(--chip-on-ink, var(--dew-lo));
+  font-weight: 600;
+}
+.danger { color: var(--danger); }
+.danger:hover:not(:disabled) { color: var(--danger); }
+
+.liveDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: inspector-pulse 1.6s ease-in-out infinite;
+}
+@keyframes inspector-pulse { 50% { opacity: 0.35; } }
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- the sheet (phone and tablet) ---- */
+.inspector[data-variant="sheet"] {
+  gap: 1.25rem;
+  padding: 4px 4px 12px;
+  font-size: 0.875rem;
+}
+.inspector[data-variant="sheet"] .rowHead,
+.inspector[data-variant="sheet"] .rowToggle { min-height: 44px; }
+.inspector[data-variant="sheet"] .item { min-height: 44px; font-size: 0.875rem; }
+.inspector[data-variant="sheet"] .textButton { min-height: 36px; font-size: 0.8125rem; }
+.inspector[data-variant="sheet"] .rowBody { padding-left: 30px; }
+.inspector[data-variant="sheet"] .rowLine { white-space: normal; }
+
+/* ---- the phone's row under the album ---- */
+.summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px 0 16px;
+  border: 0;
+  border-radius: var(--r-inner);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+  font: 600 0.875rem / 1.2 var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.summary:hover:not(:disabled) { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.summary:active:not(:disabled) { transform: none; background: var(--mist); }
+.summary:focus { outline: none; }
+.summary:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.summaryLabel { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.summaryMeter { width: 100%; max-width: 140px; justify-self: end; }
+.summaryChevron { grid-column: 3; color: var(--ink-3); }
+
+/* ---- the floating bar while songs are picked (phone and tablet) ----
+   A zero-height sticky layer at the bottom of the scroll pane: the bar
+   floats over the tracks and takes no room in the page. */
+.floatLayer {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  height: 0;
+  pointer-events: none;
+}
+.float {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px 5px 16px;
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: var(--canvas);
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  transform: translate(-50%, 12px);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out);
+  white-space: nowrap;
+}
+.floatLayer[data-on] .float {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+.floatCount {
+  min-width: 1.5ch;
+  margin-right: 6px;
+  font: 600 0.875rem / 1 var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+.floatButton,
+.floatClose {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: 600 0.8125rem / 1 var(--font-body);
+  cursor: pointer;
+}
+.floatButton:hover:not(:disabled),
+.floatClose:hover:not(:disabled) { background: color-mix(in srgb, var(--canvas) 18%, transparent); color: inherit; }
+.floatButton:active:not(:disabled),
+.floatClose:active:not(:disabled) { transform: none; }
+.floatButton:focus,
+.floatClose:focus { outline: none; }
+.floatButton:focus-visible,
+.floatClose:focus-visible { outline: 2px solid var(--dew-hi); outline-offset: 1px; }
+.floatDanger { color: var(--danger-hi); }
+.floatClose { display: inline-grid; place-items: center; width: 40px; padding: 0; }
+.floatClose svg { width: 16px; height: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .meterFill,
+  .markRing,
+  .markCheck,
+  .rowLine,
+  .rowAction,
+  .row,
+  .item,
+  .float { transition: none; }
+  .spinner,
+  .liveDot,
+  .mark[data-mark="live"] .markRing { animation: none; }
+}

@@ -343,17 +343,6 @@
   min-width: 0;
 }
 
-.footBar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  min-width: 0;
-}
-
-.footBar > :first-child {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 
 .statusSlot:empty {
   display: none;
@@ -411,14 +400,6 @@
   color: var(--ink);
 }
 
-/* Maintenance: state and provider links in one quiet line */
-.statusLine {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-xs) var(--space-sm);
-}
-
 .pill,
 .pillLink {
   display: inline-flex;
@@ -435,13 +416,6 @@
   border: 1px solid transparent;
   box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
 }
-
-.state_matched { background: var(--surface-success); color: var(--success); }
-.state_needs_review { background: var(--surface-warning); color: var(--warning); }
-.state_unidentified { background: var(--surface-danger); color: var(--error); }
-.state_pending { color: var(--text-secondary); }
-.state_as_is,
-.state_ignored { color: var(--text-tertiary); }
 
 .pillMuted {
   background: transparent;
@@ -628,12 +602,6 @@
 
 /* ---- faces (the shared Tabs strip) ---- */
 
-.liveDot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--r-pill);
-  background: var(--warn);
-}
 
 /* ---- sections inside a face: flat, divided by air, never cards in cards ---- */
 
@@ -1191,17 +1159,9 @@ td.cellOff {
 }
 
 
-/* Maintenance (phone and desktop): the sections switcher takes TRACKLIST's
-   place, sticks under the header and switches what shows under it. */
+/* Maintenance (phone and desktop): a section picked in the inspector shows
+   in the tracks' place, under the album. */
 .flow[data-sections] > .foot { display: contents; }
-.flow[data-sections] > .foot > .footBar {
-  order: 1;
-  position: sticky;
-  top: 64px;
-  z-index: 4;
-  padding: 12px var(--flow-gutter) 10px;
-  background: var(--canvas);
-}
 .flow[data-sections] > .foot > .tabPanel { order: 2; padding: 1rem var(--flow-gutter) 2rem; }
 .flow[data-sections] > .tracksArea { order: 2; padding-top: 0.5rem; padding-bottom: 2rem; }
 .flow[data-sections] > .filler { order: 3; }
@@ -1214,51 +1174,74 @@ td.cellOff {
 @media (min-width: 901px) {
   .flow > .tl { display: none; }
   .flow > .tracksArea { padding-top: 1rem; padding-bottom: 2rem; }
-  .flow[data-sections] > .foot > .footBar { padding: 1rem var(--flow-gutter) .75rem; background: var(--bg-nav); }
 }
 
-/* Maintenance, the owner: the songs picked, Move to album… and Delete */
-.pickBar {
+/* ---- Maintenance: the inspector (MaintenanceInspector) ----
+   A desktop (≥ 1024px) puts it beside the album as a full-height sidebar:
+   it starts at the pane's top, beside the header and the hero, sticks and
+   scrolls on its own. Off, the layout box is not there. */
+.inspectorLayout {
+  display: contents;
+}
+.inspectorLayout[data-inspector] {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  padding: 4px 4px 8px 0;
+  align-items: flex-start;
+  flex: 1 0 auto;
+  min-width: 0;
 }
-.pickAll {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding-left: calc((2.25rem - 18px) / 2);
-  font: var(--type-label);
-  font-size: 13px;
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
+.inspectorLayout[data-inspector] > .flow {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
 }
-.pickBox {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  cursor: pointer;
+.inspectorSide {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+  box-sizing: border-box;
+  width: clamp(300px, 24vw, 320px);
+  height: var(--pane-h, 100dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px 20px 32px;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  scrollbar-width: thin;
 }
-.pickBox:focus {
-  box-shadow: none;
-  outline: none;
-}
-.pickBox:focus-visible {
-  outline: 2px solid var(--dew);
-  outline-offset: 2px;
-}
-.pickActions {
+.manualInspector {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--space-sm);
 }
-@media (max-width: 640px) {
-  .pickAll {
-    padding-left: calc((2rem - 18px) / 2);
+.manualInspector .mbidRow { flex-direction: column; align-items: stretch; }
+.manualInspector .mbidInput { flex: none; min-width: 0; width: 100%; max-width: none; }
+.manualInspector .mbidInput::placeholder { font-size: 0.8125rem; }
+
+/* a row's body in the inspector is narrow: the possible releases lay out as
+   short blocks, as on a phone */
+@container inspector-body (max-width: 640px) {
+  .candTable { min-width: 0; table-layout: auto; }
+  .candTable colgroup, .candTable thead { display: none; }
+  .candTable, .candTable tbody { display: block; }
+  .candTable tr {
+    display: grid;
+    grid-template-columns: auto auto auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: var(--space-sm);
+    row-gap: 0.25rem;
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--line);
   }
+  .candTable td { display: block; height: auto; padding: 0; border: 0; text-align: left; }
+  .candTable td.num { text-align: left; }
+  .candTable .candRelease { grid-column: 1 / -1; }
+  .candTable td[data-suffix]::after { content: attr(data-suffix); }
+  .candTable .candActions { grid-column: 1 / -1; justify-self: start; }
+  .candTable tr.candHasCompare { border-bottom: 0; }
+  .candTable tr.candCompareRow { display: block; padding: 0; }
+  .candTable tr.candCompareRow > td { display: block; }
+  .mbidRow { flex-direction: column; align-items: stretch; }
+  .mbidInput { flex: none; width: 100%; max-width: none; }
+  .trackScroller { overflow-x: auto; }
 }

@@ -126,6 +126,11 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
   }, []);
   const toTop = useCallback(() => glideTo(0), [glideTo]);
   const toTracklist = useCallback(() => { if (geo.current) glideTo(geo.current.tlTop - HEADER); }, [glideTo]);
+  /** back up to the tracklist's top only when the page is scrolled past it (a section switched lower down) */
+  const revealTracklist = useCallback(() => {
+    const sc = scroller.current;
+    if (geo.current && sc && sc.scrollTop > geo.current.tlTop - HEADER) glideTo(geo.current.tlTop - HEADER);
+  }, [glideTo]);
   /** bring an element in the page to just under the stuck header and TRACKLIST */
   const toElement = useCallback((el: HTMLElement | null) => {
     const sc = scroller.current;
@@ -134,5 +139,5 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
     glideTo(t - HEADER - (refs.tl.current?.offsetHeight ?? 0));
   }, [glideTo, refs]);
 
-  return { docked, glide, pane, toTop, toTracklist, toElement, measure };
+  return { docked, glide, pane, toTop, toTracklist, revealTracklist, toElement, measure };
 }

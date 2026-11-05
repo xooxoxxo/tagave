@@ -13,11 +13,14 @@
  * Maintenance (maintenance.ts) reveals the state, provider links, every
  * library issue, the Manage menu and per-track marks.
  *
- * Sections: Tracks, Editions, About, Activity, kept in ?tab. The switcher
- * shows only with Maintenance on: it takes TRACKLIST's place under the
- * header (phone and desktop alike); without Maintenance the page is the
- * album and its tracks. A ?tab link to another section turns Maintenance
- * on, as the old "Library health" links (?tab=care) do for the strip.
+ * Maintenance is the inspector (MaintenanceInspector, owner 2026-11-05):
+ * a full-height sidebar beside the album on a desktop (≥ 1024px), one
+ * "To fix · 3" row that opens the same groups in a sheet below that. The
+ * sections (Tracks, Editions, About, Activity, kept in ?tab) are picked
+ * there and show in the main column in place of the tracks; without
+ * Maintenance the page is the album and its tracks. A ?tab link to another
+ * section turns Maintenance on, as the old "Library health" links
+ * (?tab=care, ?issues) do, opening their row in the inspector.
  */
 import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { IdentifyRequestView } from '@tagave/shared';
@@ -45,12 +48,15 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, CloseIcon, Collapse, CoverArt, KebabIcon, LinkButton, Menu, PageShell, Tabs, embossClassName, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, CloseIcon, Collapse, CoverArt, KebabIcon, LinkButton, Menu, PageShell, embossClassName, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import { AlbumFacts, showsDiscogsData } from './AlbumFacts';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
 import { AlbumAttention } from './AlbumAttention';
+import { MaintenanceInspector, MaintenanceSummary, PickBar, type InspectorSelection, type InspectorStateModel, type InspectorTool, type MaintenanceInspectorProps } from './MaintenanceInspector';
+import { EMPTY_TICKS, inspectorRows, reconcileTicks } from '../utils/maintenanceInspector';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { CandidateTable, TrackComparison } from './AlbumMatchTable';
 import { STATE_LABEL, artPollMs, dur } from './albumFormat';
 import { AlbumFlowHeader } from './AlbumFlowHeader';
@@ -64,6 +70,7 @@ const AlbumInfoSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default
 const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
 const TagSheet = lazy(() => import('../components/TagSheet').then((m) => ({ default: m.TagSheet })));
 const MoveSheet = lazy(() => import('../components/MoveSheet').then((m) => ({ default: m.MoveSheet })));
+const MaintenanceSheet = lazy(() => import('./MaintenanceSheet').then((m) => ({ default: m.MaintenanceSheet })));
 import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
 import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
@@ -84,16 +91,14 @@ const AddToPlaylistSheet = lazy(() => import('../components/player/TrackDrawer')
 import { scanWaitLine } from '../player/logic';
 import styles from './AlbumDetailPage.module.css';
 
-const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
-  ['tracks', 'Tracks'],
-  ['editions', 'Editions'],
-  ['about', 'About'],
-  ['activity', 'Activity'],
-];
+const SECTION_LABEL: Record<AlbumTab, string> = { tracks: 'Tracks', editions: 'Editions', about: 'About', activity: 'Activity' };
+
+/** The inspector is a sidebar from this width; below it, a row and a sheet. */
+export const INSPECTOR_SIDEBAR_QUERY = '(min-width: 1024px)';
 
 const PANEL_MATCH_INPUT = 'manual-match-input';
-/** the one panel the album's tab strip controls */
-const TAB_PANEL_ID = 'album-section-panel';
+/** the section shown in place of the tracks */
+const SECTION_PANEL_ID = 'album-section-panel';
 
 const ROW_MATCH_INPUT = 'manual-match-input-row';
 
@@ -130,6 +135,18 @@ export function AlbumDetailPage() {
   // Maintenance, the owner: songs picked to move to another album or delete
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [moveOpen, setMoveOpen] = useState(false);
+  /** the songs the Move sheet moves: the picked ones, or every song from Tools › Move songs… */
+  const [moveIds, setMoveIds] = useState<string[]>([]);
+  // the inspector: a sidebar on a desktop, a row and a sheet below 1024px
+  const wide = useMediaQuery(INSPECTOR_SIDEBAR_QUERY);
+  const sidebar = maintenance && wide;
+  const [fixOpen, setFixOpen] = useState(false);
+  const fixOpener = useRef<HTMLElement | null>(null);
+  const [fixWanted, setFixWanted] = useState(false);
+  if (fixOpen && !fixWanted) setFixWanted(true);
+  /** a row a deep link opened, brought into view in the inspector */
+  const [reveal, setReveal] = useState<string | null>(null);
+  const [ticks, setTicks] = useState(EMPTY_TICKS);
   const undoMove = useUndoMove(libraryId);
   // Play and Shuffle: every role has player.use today; the strip follows the permission
   const mayPlay = useCan('player.use');
@@ -178,7 +195,9 @@ export function AlbumDetailPage() {
   const maintenanceRef = useRef(maintenance);
   maintenanceRef.current = maintenance;
   // a picked song belongs to this album and this Maintenance visit
-  useEffect(() => { setPicked(new Set()); }, [albumId, maintenance]);
+  useEffect(() => { setPicked(new Set()); setTicks(EMPTY_TICKS); setFixOpen(false); }, [albumId, maintenance]);
+  // the sheet belongs below 1024px: a window grown past it shows the sidebar instead
+  useEffect(() => { if (wide) setFixOpen(false); }, [wide]);
   const togglePick = (id: string) => setPicked((cur) => {
     const next = new Set(cur);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -196,7 +215,7 @@ export function AlbumDetailPage() {
       void invalidateAlbumCare(queryClient);
     }, delayMs);
 
-  const { data: album, isLoading, isError, error: albumError, refetch } = useQuery({
+  const { data: album, isLoading, isError, error: albumError, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['album', albumId],
     queryFn: () => api.get<AlbumDetail>(`/libraries/${libraryId}/albums/${albumId}`),
     enabled: !!libraryId && !!albumId,
@@ -320,7 +339,9 @@ export function AlbumDetailPage() {
   const openSection = (next: AlbumTab) => {
     if (next !== 'tracks' && !maintenance) setMaintenance(true);
     setTab(next);
-    requestAnimationFrame(() => (next === 'tracks' ? flow.toTracklist() : flow.toElement(footRef.current)));
+    setFixOpen(false);
+    // the section takes the tracks' place: back up to it when the page is scrolled past
+    requestAnimationFrame(() => flow.revealTracklist());
   };
   // a link to another section (?tab=about…) opens it, in Maintenance
   useEffect(() => {
@@ -330,7 +351,7 @@ export function AlbumDetailPage() {
   useEffect(() => {
     if (!album || sectionShown.current) return;
     sectionShown.current = true;
-    if (search.tab && search.tab !== 'tracks') requestAnimationFrame(() => flow.toElement(footRef.current));
+    if (search.tab && search.tab !== 'tracks') requestAnimationFrame(() => flow.revealTracklist());
   }, [album]); // eslint-disable-line react-hooks/exhaustive-deps
   // a Play that found nothing to play may have asked the server to scan: look again
   const playFailedHere = usePlayerStore((s) => s.status === 'error' && s.queue?.context?.kind === 'album' && s.queue.context.id === albumId);
@@ -378,9 +399,19 @@ export function AlbumDetailPage() {
   useEffect(() => {
     if (!pendingIssues || !album) return;
     const target = issuesTargetRow(allItems, pendingIssues);
-    if (target) setOpenRows((cur) => new Set(cur).add(target.id));
+    if (target) {
+      setOpenRows((cur) => new Set(cur).add(target.id));
+      setReveal(target.id);
+      // below 1024px the inspector is a sheet: the link opens it at that row
+      if (!globalThis.matchMedia?.(INSPECTOR_SIDEBAR_QUERY).matches) setFixOpen(true);
+    }
     setPendingIssues(undefined);
   }, [pendingIssues, album, allItems]);
+
+  // a row that leaves the list (fixed, dismissed) ticks off, and goes on the next read
+  useEffect(() => {
+    setTicks((t) => reconcileTicks(t, maintenance && canCare ? allItems : [], dataUpdatedAt));
+  }, [allItems, dataUpdatedAt, maintenance, canCare]);
 
   /** the API's problem+json `detail` is the message the owner should read */
   const errorDetail = (m: { error: unknown }): string | null =>
@@ -535,12 +566,21 @@ export function AlbumDetailPage() {
       return;
     }
     setManualOpen(true);
-    requestAnimationFrame(() => document.getElementById(PANEL_MATCH_INPUT)?.focus({ preventScroll: true }));
+    // below 1024px the panel is in the inspector's sheet
+    if (!sidebar) setFixOpen(true);
+    const focus = (tries: number) => {
+      const el = document.getElementById(PANEL_MATCH_INPUT);
+      if (el) el.focus({ preventScroll: !sidebar });
+      else if (tries > 0) setTimeout(() => focus(tries - 1), 60);
+    };
+    requestAnimationFrame(() => focus(8));
   };
 
   // Tag: the sheet with the defaults; focus goes back to what opened it (the Tag key, or ⋮ from the drawer)
   const openTag = () => {
-    if (!drawer || sheet !== 'actions') opener.current = document.activeElement as HTMLElement | null;
+    if (fixOpen) opener.current = fixOpener.current;
+    else if (!drawer || sheet !== 'actions') opener.current = document.activeElement as HTMLElement | null;
+    setFixOpen(false);
     setSheet('tag');
   };
   const onAction = (item: AttentionItem) => {
@@ -559,7 +599,7 @@ export function AlbumDetailPage() {
         break;
       }
       case 'editions': openSection('editions'); break;
-      case 'split-image': setSplitOpen(true); break;
+      case 'split-image': setFixOpen(false); setSplitOpen(true); break;
       case 'art': fetchArt.mutate(); break;
       case 'tags': openTag(); break;
       case 'split': if (item.id) setOpenRows((cur) => new Set(cur).add(item.id)); break;
@@ -986,7 +1026,7 @@ export function AlbumDetailPage() {
   };
   const onMoved = (view: AlbumMoveView) => {
     const n = view.moved ?? 0;
-    const whole = allPicked;
+    const whole = visibleTracks.length > 0 && visibleTracks.every((t) => moveIds.includes(t.id));
     setPicked(new Set());
     const again = () => void invalidateAfterMove(queryClient, libraryId);
     again();
@@ -1015,27 +1055,93 @@ export function AlbumDetailPage() {
     });
     if (whole && view.targetAlbumId) void navigate({ to: '/albums/$albumId', params: { albumId: view.targetAlbumId } });
   };
-  const pickBar = maintenance && canSplit && visibleTracks.length > 0 && (
-    <div className={styles.pickBar} data-pick-bar="">
-      <label className={styles.pickAll}>
-        <input
-          type="checkbox"
-          className={styles.pickBox}
-          checked={allPicked}
-          ref={(el) => { if (el) el.indeterminate = pickedIds.length > 0 && !allPicked; }}
-          onChange={() => setPicked(allPicked ? new Set() : new Set(visibleTracks.map((t) => t.id)))}
-        />
-        <span>{pickedIds.length > 0 ? `${pickedIds.length} selected` : 'Select all'}</span>
-      </label>
-      <div className={styles.pickActions}>
-        <Button variant="secondary" size="sm" disabled={pickedIds.length === 0} onClick={() => setMoveOpen(true)}>Move to album…</Button>
-        {del && <Button variant="quiet-danger" size="sm" disabled={pickedIds.length === 0} onClick={deletePicked}>{del.label}</Button>}
+  const moveSongs = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setMoveIds(ids);
+    setFixOpen(false);
+    setMoveOpen(true);
+  };
+  // the songs picked: the inspector's Selection group, and the phone's floating bar
+  const selection: InspectorSelection | null = maintenance && canSplit && visibleTracks.length > 0 ? {
+    count: pickedIds.length,
+    all: allPicked,
+    onAll: () => setPicked(new Set(visibleTracks.map((t) => t.id))),
+    onMove: () => moveSongs(pickedIds),
+    deleteLabel: del?.label ?? null,
+    onDelete: () => { setFixOpen(false); deletePicked(); },
+    onClear: () => setPicked(new Set()),
+  } : null;
+
+  // ---- the inspector (Maintenance): the same groups in the sidebar and the phone's sheet ----
+  const inspectorState: InspectorStateModel = {
+    state: album.state,
+    label: STATE_LABEL[album.state] ?? album.state,
+    onClearAnyEdition: album.match?.releaseGroupOnly ? () => clearAnyEdition.mutate(albumId) : null,
+    discogsOnly: album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid,
+    links: [
+      ...(album.release?.mbid ? [{ label: 'MusicBrainz', href: `https://musicbrainz.org/release/${album.release.mbid}` }] : []),
+      ...(album.release?.discogsReleaseId ? [{ label: 'Discogs', href: `https://www.discogs.com/release/${album.release.discogsReleaseId}` }] : []),
+      ...(album.release?.discogsMasterId ? [{ label: 'Master', href: `https://www.discogs.com/master/${album.release.discogsMasterId}` }] : []),
+    ],
+  };
+  // Tools: the album's everyday fixes (the ⋮ keeps every tool too)
+  const inspectorTools: InspectorTool[] = [
+    ...(canCare && libraryId ? [{ key: 'tag', label: 'Tag…', onSelect: openTag }] : []),
+    ...(canSplit && visibleTracks.length > 0 ? [{ key: 'move', label: 'Move songs…', onSelect: () => moveSongs(pickedIds.length > 0 ? pickedIds : visibleTracks.map((t) => t.id)) }] : []),
+    { key: 'manual', label: 'Match to a release', disabled: requestLive, onSelect: openManual },
+    ...(folder.canRescan ? [{ key: 'rescan', label: 'Rescan folder', disabled: folder.busy, onSelect: () => void folder.rescan() }] : []),
+    ...(folder.canSplit ? [{ key: 'split', label: 'Split by format', disabled: folder.busy, onSelect: () => { setFixOpen(false); void folder.split('lossless'); } }] : []),
+    ...(folder.canMergeBack ? [{ key: 'merge-back', label: 'Merge back', disabled: folder.busy, onSelect: () => { setFixOpen(false); void folder.mergeBack(); } }] : []),
+  ];
+  const fix = inspectorRows(items, ticks);
+  // an action that opens another sheet or a section closes the phone's sheet first
+  const inspectorAction = (item: AttentionItem) => {
+    const d = item.action?.do;
+    if (d === 'tags' || d === 'split-image' || d === 'editions') setFixOpen(false);
+    onAction(item);
+  };
+  const inspectorProps: Omit<MaintenanceInspectorProps, 'variant'> = {
+    state: inspectorState,
+    rows: fix.rows,
+    meter: fix.meter,
+    openRows,
+    onToggle: toggleRow,
+    onAction: inspectorAction,
+    body: rowBody,
+    busy,
+    note: statusNote ? { ...statusNote, onDismiss: dismissNote } : null,
+    manual: manualOpen && !matchRowOpen ? (
+      <div className={styles.manualInspector}>
+        <div className={styles.manualHead}>
+          <span className={styles.manualTitle}>Match to a release</span>
+          <Button variant="quiet" size="sm" onClick={() => setManualOpen(false)}>Close</Button>
+        </div>
+        {manualMatch(PANEL_MATCH_INPUT)}
       </div>
+    ) : null,
+    selection,
+    tools: inspectorTools,
+    sections: { value: tab, onChange: (next) => openSection(next), live: requestLive },
+    reveal,
+  };
+  const statusSlot = (
+    <div className={styles.statusSlot} role="status" aria-live="polite">
+      {statusNote && (
+        <p className={styles.statusNote}>
+          {statusNote.live && <span className={styles.statusSpinner} aria-hidden="true" />}
+          <span>{statusNote.text}</span>
+          {!statusNote.live && (
+            <button type="button" className={styles.statusDismiss} onClick={dismissNote} aria-label="Dismiss"><CloseIcon /></button>
+          )}
+        </p>
+      )}
     </div>
   );
 
   return (
     <PageShell bare>
+      {/* with the sidebar, the album and the inspector side by side; otherwise this box is not there (display: contents) */}
+      <InspectorLayout on={sidebar}>
       <div ref={(el) => { flowRefs.root.current = el; }} className={styles.flow} data-album-flow="" data-album-tab={tab} data-sections={sections ? '' : undefined}>
         <AlbumFlowHeader
           docked={flow.docked}
@@ -1108,68 +1214,50 @@ export function AlbumDetailPage() {
             <AlbumActionRow context={actionContext} play={playState} like={likesOn ? <LikeKey kind="album" id={albumId} /> : null} />
           </div>
 
-          {/* Upkeep: only what needs a decision, everything in Maintenance */}
-          <div className={styles.upkeep} hidden={!(maintenance || statusNote || (manualOpen && !matchRowOpen) || items.length > 0)}>
-            {maintenance && (
-              <div className={styles.statusLine}>
-                <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>{STATE_LABEL[album.state] ?? album.state}</span>
-                {album.match?.releaseGroupOnly && (
-                  <Button variant="quiet" size="sm" title="Matched to the release group, not one edition — click to pin one again" onClick={() => clearAnyEdition.mutate(albumId)}>Any edition ✕</Button>
-                )}
-                {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && <span className={`${styles.pill} ${styles.pillMuted}`}>Discogs only</span>}
-                {album.release?.mbid && <a className={styles.pillLink} href={`https://musicbrainz.org/release/${album.release.mbid}`} target="_blank" rel="noreferrer">MusicBrainz ↗</a>}
-                {album.release?.discogsReleaseId && <a className={styles.pillLink} href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`} target="_blank" rel="noreferrer">Discogs ↗</a>}
-                {album.release?.discogsMasterId && <a className={styles.pillLink} href={`https://www.discogs.com/master/${album.release.discogsMasterId}`} target="_blank" rel="noreferrer">Master ↗</a>}
-              </div>
-            )}
-            {/* a passing status: quiet, inline, gone when the thing it is about is done */}
-            <div className={styles.statusSlot} role="status" aria-live="polite">
-              {statusNote && (
-                <p className={styles.statusNote}>
-                  {statusNote.live && <span className={styles.statusSpinner} aria-hidden="true" />}
-                  <span>{statusNote.text}</span>
-                  {!statusNote.live && (
-                    <button type="button" className={styles.statusDismiss} onClick={dismissNote} aria-label="Dismiss"><CloseIcon /></button>
-                  )}
-                </p>
-              )}
-            </div>
-            <Collapse open={manualOpen && !matchRowOpen}>
-              <div className={styles.manualPanel}>
-                <div className={styles.manualHead}>
-                  <span className={styles.manualTitle}>Match to a release</span>
-                  <Button variant="quiet" size="sm" onClick={() => setManualOpen(false)}>Close</Button>
+          {/* Upkeep: only what needs a decision. In Maintenance the inspector holds it all:
+              the sidebar on a desktop, one "To fix · 3" row here below 1024px */}
+          <div className={styles.upkeep} hidden={maintenance ? sidebar : !(statusNote || (manualOpen && !matchRowOpen) || items.length > 0)}>
+            {maintenance ? (<>
+              <MaintenanceSummary meter={fix.meter} open={fixOpen} onOpen={(b) => { fixOpener.current = b; setFixOpen(true); }} />
+              {statusSlot}
+            </>) : (<>
+              {/* a passing status: quiet, inline, gone when the thing it is about is done */}
+              {statusSlot}
+              <Collapse open={manualOpen && !matchRowOpen}>
+                <div className={styles.manualPanel}>
+                  <div className={styles.manualHead}>
+                    <span className={styles.manualTitle}>Match to a release</span>
+                    <Button variant="quiet" size="sm" onClick={() => setManualOpen(false)}>Close</Button>
+                  </div>
+                  {manualMatch(PANEL_MATCH_INPUT)}
                 </div>
-                {manualMatch(PANEL_MATCH_INPUT)}
-              </div>
-            </Collapse>
-            <AlbumAttention
-              label={maintenance ? 'Library issues for this album' : 'Needs your decision'}
-              items={items}
-              open={openRows}
-              onToggle={toggleRow}
-              onAction={onAction}
-              body={rowBody}
-              busy={busy}
-            />
+              </Collapse>
+              <AlbumAttention
+                label="Needs your decision"
+                items={items}
+                open={openRows}
+                onToggle={toggleRow}
+                onAction={onAction}
+                body={rowBody}
+                busy={busy}
+              />
+            </>)}
           </div>
         </section>
 
         {/* one TRACKLIST label: follows the album directly (owner, 2026-10-19), sticks under the header
-            (with Maintenance on, the sections switcher takes its place) */}
-        {!sections && <button ref={(el) => { flowRefs.tl.current = el; }} type="button" className={styles.tl} onClick={() => { if (!tracksPanel) setTab('tracks'); flow.toTracklist(); }} aria-label="Go to the tracklist">
+            (with a section open in Maintenance, it goes back to the tracks) */}
+        <button ref={(el) => { flowRefs.tl.current = el; }} type="button" className={styles.tl} onClick={() => { if (!tracksPanel) setTab('tracks'); flow.toTracklist(); }} aria-label="Go to the tracklist">
           <span className={styles.tlLabel}>Tracklist</span>
           <svg className={styles.caret} viewBox="0 0 346 16" preserveAspectRatio="none" aria-hidden="true">
             <path ref={(el) => { flowRefs.caret.current = el; }} d={caretPath(0)} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
           </svg>
-        </button>}
+        </button>
 
         <div
           ref={(el) => { flowRefs.tracks.current = el; }}
           className={styles.tracksArea}
-          {...(sections && tracksPanel ? { id: TAB_PANEL_ID, role: 'tabpanel', 'aria-labelledby': tabIdFor(TAB_PANEL_ID, 'tracks') } : {})}
         >
-          {pickBar}
           <AlbumTracks
             tracks={visibleTracks}
             missingTracks={album.missingTracks}
@@ -1195,23 +1283,10 @@ export function AlbumDetailPage() {
           <AlbumFiller title={title ?? 'Untitled'} />
         )}
 
-        {/* the album's other sections (Maintenance): the switcher sticks under the header in TRACKLIST's place */}
+        {/* the album's other sections (Maintenance): picked in the inspector, shown here in the tracks' place */}
         <div ref={footRef} className={styles.foot}>
-          {sections && <div ref={(el) => { flowRefs.tl.current = el; }} className={styles.footBar}>
-            <Tabs
-              label="Album sections"
-              panelId={TAB_PANEL_ID}
-              value={tab}
-              onChange={(next) => (next === 'tracks' ? openSection('tracks') : setTab(next as AlbumTab))}
-              items={TABS.map(([key, label]) => ({
-                value: key,
-                label: key === 'activity' && requestLive ? <>{label}<span className={styles.liveDot} aria-label=" (a request is running)" /></> : label,
-              }))}
-            />
-          </div>}
-
           {sections && !tracksPanel && (
-          <div id={TAB_PANEL_ID} role="tabpanel" aria-labelledby={tabIdFor(TAB_PANEL_ID, tab)} className={styles.tabPanel}>
+          <div id={SECTION_PANEL_ID} role="region" aria-label={SECTION_LABEL[tab]} className={styles.tabPanel}>
           {tab === 'editions' && (<>
             {showCandidates && (
               <section className={styles.plainSection}>
@@ -1355,6 +1430,8 @@ export function AlbumDetailPage() {
           )}
 
         </div>
+        {/* the songs picked, below 1024px: "2 · Move… · Delete · ✕" floats over the tracks */}
+        {selection && !sidebar && <PickBar selection={selection} />}
         {editingTags && libraryId && (
           <BulkTagEditor
             libraryId={libraryId}
@@ -1385,7 +1462,7 @@ export function AlbumDetailPage() {
               onOpenChange={setMoveOpen}
               libraryId={libraryId}
               albumId={albumId}
-              trackIds={pickedIds}
+              trackIds={moveIds}
               artist={artistLine}
               side={drawer ? 'bottom' : 'right'}
               onMoved={onMoved}
@@ -1438,7 +1515,40 @@ export function AlbumDetailPage() {
             />
           </Suspense>
         )}
+        {/* Maintenance below 1024px: the inspector's groups in a sheet, from the "To fix" row */}
+        {maintenance && !sidebar && fixWanted && (
+          <Suspense fallback={null}>
+            <MaintenanceSheet {...inspectorProps} open={fixOpen} onOpenChange={setFixOpen} returnFocus={fixOpener} />
+          </Suspense>
+        )}
       </div>
+      {sidebar && (
+        <aside className={styles.inspectorSide} aria-label="Maintenance">
+          <MaintenanceInspector variant="side" {...inspectorProps} />
+        </aside>
+      )}
+      </InspectorLayout>
     </PageShell>
   );
+}
+
+/**
+ * The album and the inspector side by side (Maintenance on a desktop). The
+ * sidebar sticks to the pane and scrolls on its own; --pane-h is the scroll
+ * pane's visible height. Off, the box lays out nothing (display: contents).
+ */
+function InspectorLayout({ on, children }: { on: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = ref.current;
+    const pane = box?.closest<HTMLElement>('main') ?? document.getElementById('main-content');
+    if (!on || !box || !pane) return;
+    const update = () => box.style.setProperty('--pane-h', `${pane.clientHeight}px`);
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(update);
+    ro.observe(pane);
+    return () => ro.disconnect();
+  }, [on]);
+  return <div ref={ref} className={styles.inspectorLayout} data-inspector={on ? '' : undefined}>{children}</div>;
 }
