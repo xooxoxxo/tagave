@@ -9,7 +9,7 @@
  * The drawers themselves (AlbumSheets.tsx) load when one first opens.
  */
 import { useSyncExternalStore, type ReactNode } from 'react';
-import { AddQueueIcon, CoverArt, DiscIcon, PlayNextIcon, PlaylistIcon, EmbossIconButton, InfoIcon, KebabIcon, ListenIcon, Menu, PersonIcon, ShuffleIcon, TrashIcon, WrenchIcon, embossClassName, type EmbossPlace } from '../components/ui';
+import { AddQueueIcon, CoverArt, DiscIcon, PlayNextIcon, PlaylistIcon, EmbossIconButton, InfoIcon, KebabIcon, ListenIcon, Menu, PersonIcon, ShuffleIcon, TrashIcon, TagIcon, WrenchIcon, embossClassName, type EmbossPlace } from '../components/ui';
 import { albumMenuItems, listenKindLabel, type AlbumMenuAction, type AlbumMenuIcon, type AlbumMenuModel } from './albumActions';
 import styles from './AlbumMenu.module.css';
 
@@ -37,6 +37,7 @@ const ICONS: Record<AlbumMenuIcon, () => ReactNode> = {
   queue: AddQueueIcon,
   playlist: PlaylistIcon,
   trash: TrashIcon,
+  tag: TagIcon,
 };
 const Icon = ({ name }: { name: AlbumMenuIcon }) => { const C = ICONS[name]; return <>{C()}</>; };
 
