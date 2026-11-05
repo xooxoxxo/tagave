@@ -17,6 +17,7 @@ import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { albumQueryParts, bustFilterCountsCache } from './albums.js';
 import { markFilterCountsDirty } from '../lib/filterCounts.js';
+import { albumsChanged } from '../lib/albumCare.js';
 
 const CHUNK = 500;
 const QUEUES: Partial<Record<BulkAlbumAction, string>> = { identify: 'identify.album', fetch_art: 'art.fetch' };
@@ -128,6 +129,8 @@ export async function createBulkRoutes(fastify: FastifyInstance) {
         result.updated += updated.length;
       }
     }
+    // Library care: ignored, kept as-is or back again changes what is incomplete or a duplicate
+    if (action === 'ignore' || action === 'as_is' || action === 'unignore') await albumsChanged(libraryId, ids, request.log);
     // The grid refetches facet counts right after a bulk action; the 15 s
     // facet cache would otherwise hand back the pre-action counts, and the
     // facet summary (XO-363) must be marked stale until the worker rebuilds it.
