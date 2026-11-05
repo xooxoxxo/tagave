@@ -987,9 +987,18 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       // 0089: the plan's splits run first; every cut found, every Low cut
       // checked by the owner (body.confirmSplits), the folder writable
+      // A split writes the music folder and trashes the source: owner only,
+      // as the album page's Split (system.manage). Only the owner's checks count.
+      const owner = can((request.user as { role?: string }).role, 'system.manage');
       const confirmed = z.object({ confirmSplits: z.array(z.string().uuid()).optional() }).safeParse(request.body ?? {});
-      const gate = await splitGate(getSql(), libraryId, planId, confirmed.success ? confirmed.data.confirmSplits ?? [] : []);
-      if (!gate.ok) throw new ApiError(gate.status, gate.status === 403 ? 'Forbidden' : 'Conflict', gate.detail);
+      const gate = await splitGate(getSql(), libraryId, planId, owner && confirmed.success ? confirmed.data.confirmSplits ?? [] : []);
+      if (gate.ok && gate.splitIds.length > 0 && !owner) {
+        throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
+      }
+      if (!gate.ok) {
+        if (!owner) throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
+        throw new ApiError(gate.status, gate.status === 403 ? 'Forbidden' : 'Conflict', gate.detail);
+      }
 
       // Get all items in the plan to check scan root writability
       const items = await db
@@ -1255,6 +1264,10 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // 0089: a plan that split an album wrote its tracks through the split
       const splitsDone = (await planSplitsOf(getSql(), planId)).filter((x) => x.state === 'done').length;
       const wroteItems = !!appliedCount && Number(appliedCount.n) > 0;
+      // undoing a split restores the source and trashes the tracks: owner only, as Split
+      if (splitsDone > 0 && !can((request.user as { role?: string }).role, 'system.manage')) {
+        throw new ApiError(403, 'Forbidden', 'Only the owner can revert a plan that split an album');
+      }
       if (!wroteItems && splitsDone === 0) {
         throw new ApiError(400, 'Bad Request', 'This plan wrote no files, so there is nothing to revert');
       }

@@ -155,6 +155,11 @@ describe.skipIf(!adminUrl)('a tag plan splits a one-file album first (integratio
     expect(unchecked.json().detail).toBe('Check the Low cuts first.');
     expect((await call(owner, 'GET', `/tag-plans/${plan.id}`)).json().splits[0]).toMatchObject({ state: 'ready', low: 1, tracks: 2 });
 
+    // an editor may apply plans, but not one that splits: a split is the owner's (as Split)
+    const byEditor = await call(editor, 'POST', `/tag-plans/${plan.id}/apply`, { confirmSplits: [split!.id] });
+    expect(byEditor.statusCode).toBe(403);
+    expect((await splitsOf(plan.id))[0]!.state).toBe('ready');
+
     sent.length = 0;
     const ok = await call(owner, 'POST', `/tag-plans/${plan.id}/apply`, { confirmSplits: [split!.id] });
     expect(ok.statusCode).toBe(202);
@@ -168,11 +173,16 @@ describe.skipIf(!adminUrl)('a tag plan splits a one-file album first (integratio
     const [split] = await splitsOf(plan.id);
     await sql`update album_splits set state = 'ready', plan = ${sql.json(lowPlan(false))} where id = ${split!.id}`;
     await sql`update tag_plans set status = 'previewed' where id = ${plan.id}`;
+    expect((await call(editor, 'POST', `/tag-plans/${plan.id}/apply`)).statusCode).toBe(403);
+    expect((await splitsOf(plan.id))[0]!.state).toBe('ready');
     expect((await call(owner, 'POST', `/tag-plans/${plan.id}/apply`)).statusCode).toBe(202);
     // done, the plan that only split can be reverted: undoing the split is the revert
     await sql`update album_splits set state = 'done', outputs = ${['A/x/01 - One.flac', 'A/x/02 - Two.flac']} where id = ${split!.id}`;
     await sql`update tag_plans set status = 'applied' where id = ${plan.id}`;
+    // undoing the split is the owner's too
     sent.length = 0;
+    expect((await call(editor, 'POST', `/tag-plans/${plan.id}/revert`)).statusCode).toBe(403);
+    expect(sent).toEqual([]);
     const rev = await call(owner, 'POST', `/tag-plans/${plan.id}/revert`);
     expect(rev.statusCode).toBe(202);
     expect(rev.json().revertPlanId).toBeNull();
