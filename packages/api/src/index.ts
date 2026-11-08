@@ -14,6 +14,7 @@ import { startPlayerScanWorker } from './lib/player.js';
 import { startPlayerPeopleWorker } from './lib/playerSync.js';
 import { getSql } from './db.js';
 import { BackupService, startBackupScheduler } from './lib/backupService.js';
+import { startMaintenanceQueue } from './lib/maintenance.js';
 import { getBoss, setBossLogger } from './boss.js';
 import { initAuth } from './middleware/auth.js';
 import { registerApiRoutes } from './app.js';
@@ -218,6 +219,7 @@ const start = async () => {
     const host = process.env.HOST || '0.0.0.0';
 
     await app.listen({ port, host });
+    startMaintenanceQueue(app.log);
     // Release feed: checked in the background at most every 12 hours.
     startUpdateChecks(app.log);
     logger.info(`Server running at http://${host}:${port}`);

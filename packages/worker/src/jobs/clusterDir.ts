@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import { readFile, access } from 'node:fs/promises';
-import { and, eq, inArray, like, or } from 'drizzle-orm';
+import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
 import { albumsChanged } from '../lib/albumCare.js';
 import { scopeHoldState } from '../lib/clusterHold.js';
@@ -183,6 +183,8 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       or(eq(files.status, 'present'), eq(files.status, 'error')),
       // only files music groups (its manifest's handlers): a book in an album folder is not a track
       inArray(files.handler, [...MUSIC_HANDLERS]),
+      sql`not exists (select 1 from file_deletions fd where fd.file_id = ${files.id}
+        and (fd.state = 'holding' or fd.trash_rel_path like '.tagave-trash/upgrade-%'))`,
       pathFilter,
     ));
 

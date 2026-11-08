@@ -7,7 +7,7 @@ import { SharedStream } from './sharedStream';
 
 export { RENEW_MS, LEASE_MS, RETRY_MIN_MS, RETRY_MAX_MS } from './sharedStream';
 
-export const JOB_EVENT_TYPES = ['queue.changed', 'job.progress', 'job.completed', 'job.failed'] as const;
+export const JOB_EVENT_TYPES = ['queue.changed', 'job.progress', 'job.completed', 'job.failed', 'maintenance.changed'] as const;
 export type JobEventType = (typeof JOB_EVENT_TYPES)[number];
 export type JobEventListener = (type: JobEventType, data: string) => void;
 

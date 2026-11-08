@@ -6,7 +6,7 @@
  */
 import path from 'node:path';
 import { openSecret } from '../crypto/secretbox.js';
-import { LIDARR_ERRORS, LidarrClient, LidarrError, type LidarrAlbum, type LidarrQueueItem, type LidarrRootFolder, type LidarrServer } from './client.js';
+import { LIDARR_ERRORS, LidarrClient, LidarrError, type LidarrAlbum, type LidarrArtist, type LidarrQueueItem, type LidarrRootFolder, type LidarrServer } from './client.js';
 
 export * from './client.js';
 
@@ -104,6 +104,14 @@ export async function getAlbumInLidarr(client: LidarrClient, conn: LidarrConnect
     return { albumId: found.id, artistId: found.artistId ?? null, existed: true };
   }
   const known = await client.artistByMbid(want.artistMbid);
+  const added = await addAlbumInLidarr(client, conn, want, known);
+  if (!added.monitored) await client.setMonitored([added.id], true);
+  await client.searchAlbums([added.id]);
+  return { albumId: added.id, artistId: added.artistId ?? known?.id ?? null, existed: false };
+}
+
+/** Add to Lidarr without scheduling a search, so callers can verify the resulting location. */
+export function addAlbumInLidarr(client: LidarrClient, conn: LidarrConnection, want: LidarrWant, known: LidarrArtist | null): Promise<LidarrAlbum> {
   const artist = {
     foreignArtistId: want.artistMbid,
     artistName: known?.artistName ?? want.artistName,
@@ -114,7 +122,7 @@ export async function getAlbumInLidarr(client: LidarrClient, conn: LidarrConnect
     monitorNewItems: 'none',
     addOptions: { monitor: 'none', albumsToMonitor: [want.releaseGroupMbid], monitored: true, searchForMissingAlbums: false },
   };
-  const added = await client.addAlbum({
+  return client.addAlbum({
     foreignAlbumId: want.releaseGroupMbid,
     monitored: true,
     anyReleaseOk: true,
@@ -122,9 +130,6 @@ export async function getAlbumInLidarr(client: LidarrClient, conn: LidarrConnect
     // the search is asked for below, once, whatever Lidarr does on add
     addOptions: { addType: 'manual', searchForNewAlbum: false },
   });
-  if (!added.monitored) await client.setMonitored([added.id], true);
-  await client.searchAlbums([added.id]);
-  return { albumId: added.id, artistId: added.artistId ?? known?.id ?? null, existed: false };
 }
 
 /** A request's state, one word each on the card. */

@@ -6,6 +6,14 @@
  * source into the music folder's trash (Restore puts it back).
  */
 
+import type { MaintenanceTaskView } from './maintenance.js';
+
+interface SplitRecovery {
+  task?: MaintenanceTaskView | undefined;
+  waitingForWorker?: boolean | undefined;
+  retryAnalysis?: boolean | undefined;
+}
+
 /** The gap kind gaps.recompute writes for such an album (Library care › Attention). */
 export const ONE_FILE_ALBUM_GAP = 'one_file_album';
 
@@ -75,7 +83,7 @@ export interface AlbumSplitView {
     error: string | null;
     createdAt: string;
     finishedAt: string | null;
-  } | null;
+  } & SplitRecovery | null;
   /** the album is one file that fits the rule */
   eligible: boolean;
   /** the music folder can be written (the setting and the worker's check) */
@@ -90,7 +98,7 @@ export interface AlbumSplitView {
  * A tag plan's split of one album (0089 album_splits.tag_plan_id): the plan
  * splits the album first, then tags the new tracks. On GET /tag-plans/:id.
  */
-export interface PlanSplit {
+export interface PlanSplit extends SplitRecovery {
   splitId: string;
   albumId: string | null;
   state: AlbumSplitState;
@@ -114,6 +122,7 @@ export function lowCuts(plan: SplitPlan | null | undefined): number {
 export interface FilesSplitJobData {
   splitId: string;
   action: 'analyze' | 'split';
+  maintenance?: { taskId: string; attemptId: string };
 }
 
 /** "One file holds the whole album. Tagging splits it into 11 tracks first." */

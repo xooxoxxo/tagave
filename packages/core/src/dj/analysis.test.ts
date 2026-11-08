@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { DJ_PEAK_BINS, DjAnalyzer, analyzePcm, peaksToUnit } from './analysis.js';
 import { gridError, synthTrack, type SynthSpec } from './testSignals.js';
@@ -68,6 +70,21 @@ describe('dj analysis: a drummer, and a noisy mix', () => {
 });
 
 describe('dj analysis: near the tempo octave', () => {
+  it('returns control to the event loop for a sparse clip with no reliable tempo', async () => {
+    const module = new URL('./analysis.ts', import.meta.url).href;
+    const script = [
+      'import { analyzePcm } from ' + JSON.stringify(module) + ';',
+      'const pcm = new Float32Array(8 * 11025);',
+      'for (let start = 0; start < pcm.length; start += 14380) {',
+      '  for (let i = 0; i < 7; i++) pcm[start + i] = Math.sin(i * 0.23) * (1 - i / 7);',
+      '}',
+      'const analysis = analyzePcm(pcm);',
+      'setImmediate(() => console.log(JSON.stringify({ bpm: analysis.bpm, durationMs: analysis.durationMs })));',
+    ].join('\n');
+    const { stdout } = await promisify(execFile)(process.execPath, ['--eval', script], { timeout: 3_000 });
+    expect(JSON.parse(stdout)).toEqual({ bpm: null, durationMs: 8000 });
+  });
+
   it('85 BPM with loud eighth hats reads 85, not 170', () => {
     const { row } = run('85 loud hats', { ...BASE, bpm: 85, hats: 0.5 });
     expect(row.bpmErr).toBeLessThan(0.05);

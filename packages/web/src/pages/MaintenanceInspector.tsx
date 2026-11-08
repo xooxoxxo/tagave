@@ -69,11 +69,12 @@ export interface MaintenanceInspectorProps {
   body: (item: AttentionItem) => ReactNode;
   busy?: ((item: AttentionItem) => boolean) | undefined;
   /** a passing status (cover art lookup, identify running…) */
-  note?: { text: string; live: boolean; onDismiss: () => void } | null | undefined;
+  note?: { text: string; live: boolean; onDismiss: () => void; action?: ReactNode } | null | undefined;
   /** the manual "Match to a release" panel, when it is open */
   manual?: ReactNode;
   selection?: InspectorSelection | null | undefined;
   tools: InspectorTool[];
+  upgrade?: ReactNode;
   sections: InspectorSections;
   /** a row a deep link opened: brought into view */
   reveal?: string | null | undefined;
@@ -151,6 +152,7 @@ export function MaintenanceInspector(p: MaintenanceInspectorProps) {
           <p className={styles.note} role="status">
             {p.note.live && <span className={styles.spinner} aria-hidden="true" />}
             <span>{p.note.text}</span>
+            {p.note.action}
             {!p.note.live && <button type="button" className={styles.noteDismiss} onClick={p.note.onDismiss} aria-label="Dismiss"><CloseIcon /></button>}
           </p>
         )}
@@ -225,6 +227,8 @@ export function MaintenanceInspector(p: MaintenanceInspectorProps) {
           </div>
         </div>
       ))}
+
+      {p.upgrade && group('flac-upgrade', 'Upgrade to FLAC', p.upgrade)}
 
       {p.tools.length > 0 && group('tools', 'Tools', (
         <div className={styles.list}>

@@ -15,7 +15,7 @@ import type { AuthHandle } from '@tagave/auth';
 const sent: Array<{ name: string; data: unknown }> = [];
 vi.mock('../boss.js', () => ({
   getBoss: async () => ({
-    send: async (name: string, data: unknown) => { sent.push({ name, data }); return 'job'; },
+    send: async (name: string, data: unknown, options?: { id?: string }) => { sent.push({ name, data }); return options?.id ?? 'job'; },
     createQueue: async () => undefined,
   }),
 }));
@@ -175,8 +175,21 @@ describe.skipIf(!adminUrl)('deleting songs and albums (integration)', () => {
     await sql`update file_deletions set state = 'trashed', trash_rel_path = '.tagave-trash/2026-11-02/x.flac', trashed_at = now() where file_id = ${files['so2']!}`;
     expect((await call(owner, 'POST', `/libraries/${libraryId}/deletions/restore`, { fileIds: [files['so2']!] })).json()).toEqual({ restoring: 1 });
     expect(sent.filter((s) => s.name === 'files.trash').at(-1)).toEqual({ name: 'files.trash', data: { libraryId, action: 'restore' } });
-    expect((await call(owner, 'POST', `/libraries/${libraryId}/deletions/empty-trash`)).json()).toEqual({ queued: true });
-    expect(sent.filter((s) => s.name === 'files.trash').at(-1)).toEqual({ name: 'files.trash', data: { libraryId, action: 'empty' } });
+    const url = `/libraries/${libraryId}/deletions/empty-trash`;
+    const fileIds = [files['so2']!];
+    expect((await call(owner, 'POST', url)).statusCode).toBe(400);
+    expect((await call(owner, 'POST', url, { fileIds })).statusCode).toBe(409);
+    await sql`update file_deletions set state = 'trashed' where file_id = ${fileIds[0]!}`;
+    const started = await call(owner, 'POST', url, { fileIds });
+    expect(started.statusCode, started.body).toBe(202);
+    expect((await call(owner, 'POST', url, { fileIds })).statusCode).toBe(409);
+    expect((await call(owner, 'POST', `/libraries/${libraryId}/deletions/restore`, { fileIds })).json()).toEqual({ restoring: 0 });
+    expect((await call(owner, 'GET', `/libraries/${libraryId}/deletions`)).json().emptyTask).toMatchObject({
+      fileIds, task: { state: 'waiting' },
+    });
+    const cancelled = await call(owner, 'POST', `/libraries/${libraryId}/maintenance-tasks/${started.json().id}/cancel`, {});
+    expect(cancelled.json().state).toBe('cancelled');
+    expect((await call(owner, 'POST', `/libraries/${libraryId}/deletions/restore`, { fileIds })).json()).toEqual({ restoring: 1 });
   });
 
   it('bad bodies are refused', async () => {

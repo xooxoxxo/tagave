@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { clockOf, sampleMs, shiftLabel, type CutConfidence, type SplitPlan } from '@tagave/shared';
 import { Sheet } from './ui/Sheet';
 import { Button } from './ui';
+import { MaintenanceTaskStatus } from './MaintenanceTaskStatus';
 import { invalidateAfterSplit, useAlbumSplit, useAnalyzeSplit, useRunSplit } from '../hooks/useAlbumSplit';
 import { usePlaybackAvailable } from '../hooks/usePlayer';
 import { streamUrl } from '../player/logic';
@@ -102,6 +103,8 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
   const busy = state === 'analyzing' || state === 'splitting' || analyze.isPending;
   const status = (() => {
     if (view.isLoading) return null;
+    if (split?.task) return null;
+    if (split?.waitingForWorker) return 'Waiting for the file worker';
     if (analyze.isPending || state === 'analyzing') return 'Finding cut points';
     if (state === 'splitting') return 'Splitting';
     if (state === 'done') return `Split · ${split?.outputs?.length ?? 0} files`;
@@ -129,6 +132,7 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
           )}
         </header>
 
+        {split?.task && libraryId && <MaintenanceTaskStatus task={split.task} libraryId={libraryId} />}
         {status && <p className={failed ? styles.statusFailed : styles.status} role="status">{status}</p>}
 
         {plan && state !== 'done' && (
@@ -174,7 +178,7 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
 
         <footer className={styles.foot}>
           {ready && data && !data.writable && <span className={styles.note}>Music folder is read-only</span>}
-          {failed && data?.eligible && (
+          {failed && data?.eligible && !split?.task && (
             <Button variant="secondary" onClick={() => analyze.mutate()} loading={analyze.isPending}>Find cut points</Button>
           )}
           {confirm && ready && split && (
@@ -192,6 +196,7 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
           )}
           {state === 'done' && <Button variant="secondary" onClick={() => onOpenChange(false)}>Close</Button>}
         </footer>
+        {analyze.error && <p className={styles.statusFailed} role="alert">Couldn’t queue cut point analysis.</p>}
         {run.error && <p className={styles.statusFailed} role="alert">{(run.error as { detail?: string }).detail ?? 'Not split'}</p>}
       </div>
     </Sheet>

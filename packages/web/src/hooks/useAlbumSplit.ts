@@ -21,7 +21,9 @@ export function useAlbumSplit(libraryId: string | undefined, albumId: string | u
     queryFn: () => api.get<AlbumSplitView>(base(libraryId, albumId)),
     enabled: enabled && owner && !!libraryId && !!albumId,
     refetchInterval: (query) => {
-      const s = query.state.data?.split?.state;
+      const split = query.state.data?.split;
+      if (split?.waitingForWorker || (split?.task && !split.task.workerAvailable)) return 10_000;
+      const s = split?.state;
       return s === 'analyzing' || s === 'splitting' ? 2000 : false;
     },
   });
@@ -32,7 +34,10 @@ export function useAnalyzeSplit(libraryId: string | undefined, albumId: string |
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.post<AlbumSplitView>(base(libraryId, albumId), {}),
-    onSuccess: (view) => qc.setQueryData(albumSplitKey(libraryId, albumId), view),
+    onSuccess: (view) => {
+      qc.setQueryData(albumSplitKey(libraryId, albumId), view);
+      void qc.invalidateQueries({ queryKey: ['tag-plan', libraryId] });
+    },
   });
 }
 

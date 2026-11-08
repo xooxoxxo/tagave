@@ -8,6 +8,7 @@
  *          Restore puts them back, Empty trash (or 30 days) deletes them.
  */
 import { z } from 'zod';
+import type { MaintenanceTaskView } from './maintenance.js';
 
 export const DELETE_MODES = ['mark', 'trash'] as const;
 export const deleteModeSchema = z.enum(DELETE_MODES);
@@ -29,6 +30,10 @@ export type CreateDeletionsRequest = z.infer<typeof createDeletionsSchema>;
 /** Unmark, Restore: the files of the rows to act on. */
 export const deletionFilesSchema = z.object({
   fileIds: z.array(z.string().uuid()).min(1).max(5000),
+}).strict();
+
+export const emptyTrashSchema = z.object({
+  fileIds: z.array(z.string().uuid()).min(1).max(100_000),
 }).strict();
 
 export const deleteModeUpdateSchema = z.object({ mode: deleteModeSchema }).strict();
@@ -63,6 +68,8 @@ export interface DeletingView {
   /** Deletes exactly the marked files on the computer that holds the music; null when nothing is marked */
   command: string | null;
   trashDays: number;
+  emptyFileIds?: string[];
+  emptyTask?: { task: MaintenanceTaskView; fileIds: string[] };
 }
 
 export interface CreateDeletionsResult {

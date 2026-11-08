@@ -12,7 +12,7 @@ import type { TagPolicies } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { exists, markLibraryDirty, onDisk, restoreWaiting, trashDay, trashOne } from '../lib/deletions.js';
 import { relDirname } from '../lib/helpers.js';
-import { runSplit, type SplitDeps, type SplitRow } from './filesSplit.js';
+import { finishSplit, runSplit, type SplitDeps, type SplitRow } from './filesSplit.js';
 
 export interface PlanSplitOutcome {
   done: number;
@@ -26,9 +26,9 @@ export interface PlanSplitOutcome {
 /** The plan's splits waiting to run ('splitting'), in the order they were asked for. */
 async function splittingRows(ctx: WorkerContext, planId: string): Promise<SplitRow[]> {
   return (await ctx.sql`
-    select id::text as id, library_id::text as "libraryId", local_album_id::text as "localAlbumId", state, plan,
+    select id::text as id, library_id::text as "libraryId", local_album_id::text as "localAlbumId", state, plan, write_checkpoint as "writeCheckpoint",
            created_by::text as "createdBy"
-      from album_splits where tag_plan_id = ${planId} and state = 'splitting'
+      from album_splits where tag_plan_id = ${planId} and (state = 'splitting' or (state = 'done' and write_checkpoint is not null))
      order by created_at`) as unknown as SplitRow[];
 }
 
@@ -45,15 +45,21 @@ export async function runPlanSplits(
 ): Promise<PlanSplitOutcome> {
   const out: PlanSplitOutcome = { done: 0, failed: 0, tracks: 0, error: null };
   for (const row of await splittingRows(ctx, planId)) {
-    const r = await runSplit(ctx, row, { ...deps, policy });
-    if (r['state'] === 'done') {
-      out.done++;
-      out.tracks += Number(r['tracks'] ?? 0);
-    } else {
-      out.failed++;
-      out.error = typeof r['error'] === 'string' ? r['error'] : 'The split stopped';
+    if (row.state === 'done' && row.writeCheckpoint) {
+      await finishSplit(ctx, row, row.writeCheckpoint);
+      continue;
     }
+    const r = await runSplit(ctx, row, { ...deps, policy });
+    if (r.state === 'interrupted') throw new Error(String(r.error));
+    if (r.state === 'failed') out.error = String(r.error);
   }
+  const [counts] = await ctx.sql<{ done: number; failed: number; tracks: number }[]>`
+    select count(*) filter (where state = 'done')::int as done,
+           count(*) filter (where state = 'failed')::int as failed,
+           coalesce(sum(cardinality(outputs)) filter (where state = 'done'), 0)::int as tracks
+    from album_splits where tag_plan_id = ${planId}
+  `;
+  if (counts) Object.assign(out, counts);
   if (out.done + out.failed > 0) ctx.logger.info({ planId, ...out }, 'tags.apply: the plan\'s splits ran');
   return out;
 }

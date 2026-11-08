@@ -13,3 +13,5 @@
 @media (pointer: coarse) {
   .more { width: 44px; height: 44px; min-height: 44px; }
 }
+
+.get { align-self: flex-start; margin-block: 4px 2px; max-width: 100%; white-space: normal; }

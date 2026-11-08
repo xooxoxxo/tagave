@@ -12,6 +12,9 @@ import type postgres from 'postgres';
 import {
   TRASH_DAYS, type CreateDeletionsResult, type DeleteMode, type DeletingView, type DeletionGroup,
 } from '@tagave/shared';
+import { latestMaintenanceTask, saveMaintenanceTask } from '@tagave/db';
+import { ApiError } from '../middleware/errorHandler.js';
+import { liveMaintenanceQueues, maintenanceView } from './maintenance.js';
 import { getBoss } from '../boss.js';
 
 type Sql = postgres.Sql;
@@ -37,7 +40,7 @@ export async function librarySettings(sql: Sql, libraryId: string): Promise<Reco
 }
 
 /** Ask the file worker to do what is waiting (moves, restores, emptying). Best effort: its daily run catches up. */
-export async function sendTrashJob(libraryId: string, action: 'move' | 'restore' | 'empty'): Promise<void> {
+export async function sendTrashJob(libraryId: string, action: 'move' | 'restore'): Promise<void> {
   const boss = await getBoss();
   await boss.createQueue('files.trash');
   await boss.send('files.trash', { libraryId, action }, { singletonKey: `files.trash:${libraryId}:${action}` });
@@ -82,7 +85,7 @@ export async function unmarkFiles(sql: Sql, libraryId: string, fileIds: string[]
 export async function restoreFiles(sql: Sql, libraryId: string, fileIds: string[]): Promise<number> {
   const out = await sql`
     update file_deletions set state = 'restoring', error = null
-     where library_id = ${libraryId} and kind = 'trash' and state = 'trashed' and file_id = any(${fileIds}::uuid[])
+     where library_id = ${libraryId} and kind = 'trash' and state = 'trashed' and purge_task_id is null and file_id = any(${fileIds}::uuid[])
     returning file_id`;
   if (out.length > 0) await sendTrashJob(libraryId, 'restore');
   return out.length;
@@ -147,6 +150,32 @@ export function groupDeletions(rows: readonly DeletionRow[]): DeletionGroup[] {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.title.localeCompare(b.title));
 }
 
+/** Reserve the confirmed selection in the same transaction as its task. */
+export async function requestEmptyTrash(sql: Sql, libraryId: string, fileIds: string[]) {
+  const selection = [...new Set(fileIds)].sort();
+  return sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtextextended(${`tagave:empty-trash:${libraryId}`}, 0))`;
+    const existing = await latestMaintenanceTask(tx, libraryId, 'empty-trash', 'trash');
+    if (existing && !['done', 'cancelled'].includes(existing.state)) {
+      throw new ApiError(409, 'Conflict', 'An Empty Trash task is already open.');
+    }
+    const task = await saveMaintenanceTask(tx, {
+      libraryId, kind: 'empty-trash', scope: 'trash', queue: 'files.trash',
+      stage: 'Empty Trash queued', input: { libraryId, action: 'empty', fileIds: selection },
+    });
+    const locked = await tx`
+      select file_id from file_deletions where library_id = ${libraryId}
+        and file_id = any(${selection}::uuid[]) and kind = 'trash' and state = 'trashed'
+        and trash_rel_path is not null and purge_task_id is null order by file_id for update
+    `;
+    if (locked.length !== selection.length) {
+      throw new ApiError(409, 'Conflict', 'Trash changed. Review the remaining files and confirm again.');
+    }
+    await tx`update file_deletions set purge_task_id = ${task.id} where file_id = any(${selection}::uuid[])`;
+    return task;
+  });
+}
+
 /** Library care › Deleting. */
 export async function deletingView(sql: Sql, libraryId: string, settings: Record<string, unknown>): Promise<DeletingView> {
   const rows = await sql<DeletionRow[]>`
@@ -161,15 +190,27 @@ export async function deletingView(sql: Sql, libraryId: string, settings: Record
         select t.local_album_id, t.title_guess, t.artist_guess from local_tracks t
          where t.audio_file_id = fd.file_id order by t.cue_start_ms nulls first limit 1) lt on true
       left join local_albums la on la.id = lt.local_album_id
-     where fd.library_id = ${libraryId}
+     where fd.library_id = ${libraryId} and fd.state not in ('purged', 'holding')
      order by fd.created_at desc`;
+  const task = await latestMaintenanceTask(sql, libraryId, 'empty-trash', 'trash');
+  const active = task && !['done', 'cancelled'].includes(task.state);
+  const selected = new Set(active ? task.input.fileIds as string[] : []);
   const marked = rows.filter((r) => r.kind === 'mark');
   return {
     mode: deleteModeOf(settings),
     trashAvailable: (await trashRootIds(sql, libraryId)).size > 0,
     marked: groupDeletions(marked),
-    trash: groupDeletions(rows.filter((r) => r.kind === 'trash')),
+    trash: [
+      ...groupDeletions(rows.filter((r) => r.kind === 'trash' && selected.has(r.fileId)))
+        .map((group) => ({ ...group, key: `purge:${group.key}` })),
+      ...groupDeletions(rows.filter((r) => r.kind === 'trash' && !selected.has(r.fileId))),
+    ],
+    emptyFileIds: rows.filter((row) => row.kind === 'trash' && row.state === 'trashed' && !selected.has(row.fileId)).map((row) => row.fileId),
     command: deleteCommand(marked.map((r) => ({ root: r.root, relPath: r.relPath }))),
     trashDays: TRASH_DAYS,
+    ...(task ? { emptyTask: {
+      task: maintenanceView(task, await liveMaintenanceQueues()),
+      fileIds: active ? task.input.fileIds as string[] : [],
+    } } : {}),
   };
 }

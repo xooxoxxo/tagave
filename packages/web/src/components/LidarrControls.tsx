@@ -1,13 +1,13 @@
 /**
  * Get missing albums through Lidarr on the artist page (the lidarr module):
  * a missing album's state as a chip on its cover (Wanted, Downloading 40%,
- * Importing, Not found) and its ⋮ with Get, Retry and Cancel; the Missing
+ * Importing, Not found), a Get from Lidarr button, and Retry and Cancel; the Missing
  * heading's ⋮ with Get all missing. Get, Retry and Cancel are the owner's;
  * everyone who sees the artist sees the states.
  */
 import { createContext, useContext } from 'react';
 import { LIDARR_STATE_LABELS, type ArtistLidarrView, type LidarrRequestView } from '@tagave/shared';
-import { CoverChip, KebabIcon, Menu, embossClassName, showToast, type MenuItem } from './ui';
+import { Button, CoverChip, KebabIcon, Menu, embossClassName, showToast, type MenuItem } from './ui';
 import { useLidarrCancel, useLidarrGet, useLidarrGetAll, useLidarrRetry } from '../hooks/useLidarr';
 import styles from './LidarrControls.module.css';
 
@@ -40,7 +40,7 @@ const problem = (err: unknown, fallback: string) => {
 
 /** The items a missing album's ⋮ offers: Get, or Retry / Cancel for a request. */
 export function missingAlbumItems(r: LidarrRequestView | undefined, gettable: boolean, act: { get: () => void; retry: (id: string) => void; cancel: (id: string) => void }): MenuItem[] {
-  if (!r) return gettable ? [{ key: 'get', label: 'Get', onSelect: act.get }] : [];
+  if (!r) return gettable ? [{ key: 'get', label: 'Get from Lidarr', onSelect: act.get }] : [];
   if (r.state === 'done') return [];
   return [
     ...(r.state === 'not_found' ? [{ key: 'retry', label: 'Retry', onSelect: () => act.retry(r.id) }] : []),
@@ -48,12 +48,12 @@ export function missingAlbumItems(r: LidarrRequestView | undefined, gettable: bo
   ];
 }
 
-export function MissingAlbumMenu({ releaseGroupId, title }: { releaseGroupId: string | null; title: string }) {
+export function MissingAlbumMenu({ releaseGroupId, title, placement = 'menu' }: { releaseGroupId: string | null; title: string; placement?: 'menu' | 'card' }) {
   const ctx = useContext(MissingLidarr);
-  return ctx?.view.canGet && releaseGroupId ? <AlbumMenuOf ctx={ctx} releaseGroupId={releaseGroupId} title={title} /> : null;
+  return ctx?.view.canGet && releaseGroupId ? <AlbumMenuOf ctx={ctx} releaseGroupId={releaseGroupId} title={title} placement={placement} /> : null;
 }
 
-function AlbumMenuOf({ ctx, releaseGroupId, title }: { ctx: MissingLidarrValue; releaseGroupId: string; title: string }) {
+function AlbumMenuOf({ ctx, releaseGroupId, title, placement }: { ctx: MissingLidarrValue; releaseGroupId: string; title: string; placement: 'menu' | 'card' }) {
   const get = useLidarrGet(ctx.libraryId);
   const retry = useLidarrRetry(ctx.libraryId);
   const cancel = useLidarrCancel(ctx.libraryId);
@@ -63,7 +63,12 @@ function AlbumMenuOf({ ctx, releaseGroupId, title }: { ctx: MissingLidarrValue; 
     retry: (id) => retry.mutate(id, { onError: (e) => showToast({ message: problem(e, 'Not sent to Lidarr'), tone: 'danger' }) }),
     cancel: (id) => cancel.mutate(id, { onError: (e) => showToast({ message: problem(e, 'Not cancelled'), tone: 'danger' }) }),
   });
-  if (items.length === 0) return null;
+  const getItem = items.find((item) => item.key === 'get');
+  if (placement === 'card') {
+    return getItem ? <Button variant="secondary" size="sm" className={styles.get}
+      onClick={getItem.onSelect} loading={get.isPending} aria-label={`Get ${title} from Lidarr`}>{getItem.label}</Button> : null;
+  }
+  if (items.length === 0 || getItem) return null;
   return <Menu label={`More for ${title}`} items={items} className={styles.anchor ?? ''} triggerClassName={embossClassName('page', styles.more)} icon={<KebabIcon />} />;
 }
 

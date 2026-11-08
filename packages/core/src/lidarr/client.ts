@@ -118,7 +118,14 @@ export const lidarrQueueItemSchema = z.object({
   trackedDownloadState: text(40).nullish(),
 });
 export const lidarrQueuePageSchema = z.object({ totalRecords: z.number().int().nonnegative(), records: z.array(lidarrQueueItemSchema).max(1000) });
-export const lidarrTrackFileSchema = z.object({ id, path: text(4096), albumId: id.optional() });
+export const lidarrTrackFileSchema = z.object({
+  id, path: text(4096), albumId: id.optional(), dateAdded: z.string().max(64).nullish(), size: z.number().nullish(),
+});
+const profileQuality = z.object({ name: text(200) });
+const profileQualityItem = z.object({ allowed: z.boolean(), quality: profileQuality.nullish() });
+const upgradeProfile = lidarrProfileSchema.extend({
+  items: z.array(profileQualityItem.extend({ items: z.array(profileQualityItem).nullish() })).default([]),
+});
 export const lidarrCommandSchema = z.object({ id, name: text(100).nullish() });
 
 export type LidarrRootFolder = z.infer<typeof lidarrRootFolderSchema>;
@@ -234,6 +241,7 @@ export class LidarrClient {
     return out.directories.map((d) => ({ name: d.name ?? null, path: d.path }));
   }
 
+  qualityProfile(profileId: number) { return this.call('GET', `/qualityprofile/${profileId}`, upgradeProfile); }
   qualityProfiles() { return this.call('GET', '/qualityprofile', z.array(lidarrProfileSchema).max(500)); }
   metadataProfiles() { return this.call('GET', '/metadataprofile', z.array(lidarrProfileSchema).max(500)); }
 
@@ -262,7 +270,11 @@ export class LidarrClient {
   }
 
   async searchAlbums(albumIds: readonly number[]): Promise<void> {
-    await this.call('POST', '/command', lidarrCommandSchema, { name: 'AlbumSearch', albumIds });
+    await this.requestAlbumSearch(albumIds);
+  }
+
+  requestAlbumSearch(albumIds: readonly number[]) {
+    return this.call('POST', '/command', lidarrCommandSchema, { name: 'AlbumSearch', albumIds });
   }
 
   queue(pageSize = 200) {

@@ -4,6 +4,7 @@ import { listMigrationChain, makeDb } from '@tagave/db';
 import { readBuildInfo, WORKER_QUEUES } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
+import { runMaintenance } from './lib/maintenance.js';
 import type { WorkerContext } from './lib/context.js';
 import { isManualRequest, plainFailure, recordIdentifyOutcome } from './lib/identifyRuns.js';
 import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
@@ -46,6 +47,7 @@ import { artistsRefreshSweepJob, type ArtistsRefreshSweepJobData } from './jobs/
 import { tagsPreviewJob } from './jobs/tagsPreview.js';
 import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
 import { filesTrashJob, type FilesTrashJobData } from './lib/deletions.js';
+import { filesUpgradeJob, type FilesUpgradeJobData } from './jobs/filesUpgrade.js';
 import { filesSplitJob } from './jobs/filesSplit.js';
 import type { FilesSplitJobData } from '@tagave/shared';
 import { filesMoveJob } from './jobs/filesMove.js';
@@ -105,6 +107,7 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'files.trash': 'stately',
   // one queued per split and action (singletonKey files.split:<id>:<action>)
   'files.split': 'stately',
+  'files.upgrade': 'stately',
   // one queued per move and step (singletonKey files.move:<id>:<action>)
   'files.move': 'stately',
   'tags.revert': 'stately',
@@ -227,7 +230,7 @@ async function main() {
     await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) {
         logger.info({ jobId: job.id, data: job.data }, 'scan.root start');
-        await scanRootJob(ctx, job.data);
+        await tracked('scan.root', job.id, job.data.scanRootId, () => scanRootJob(ctx, job.data));
       }
     });
 
@@ -443,7 +446,15 @@ async function main() {
 
   if (wants('art.fetch')) {
     await boss.work<ArtFetchJobData>('art.fetch', { batchSize: 4 }, async (jobs) => {
-      await Promise.all(jobs.map((job) => artFetchJob(ctx, job.data)));
+      await Promise.all(jobs.map(async ({ data }) => {
+        if (!data.maintenance) return artFetchJob(ctx, data);
+        await runMaintenance(ctx, data.maintenance, async (task) => {
+          await task.update({ stage: 'Looking for cover art' });
+          const result = await artFetchJob(ctx, data, task.current);
+          if (result === 'failed') return { state: 'failed', stage: 'Cover art lookup failed', error: 'A cover source could not be read.' };
+          return { state: 'done', stage: result === 'found' ? 'Cover art found' : 'No cover art found' };
+        });
+      }));
     });
     // Cover thumbnails are not in backups (0046): rebuild missing ones from
     // the originals on this worker's cache volume. Swept at start (after a
@@ -554,7 +565,9 @@ async function main() {
   // while there is more. Off (Settings › Modules), every run skips.
   if (wants('fingerprint.album')) {
     await boss.work<DjAnalyzeJobData>('dj.analyze', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
-      for (const job of jobs) await djAnalyzeJob(ctx, job.data);
+      for (const job of jobs) {
+        await tracked('dj.analyze', job.id, job.data?.localTrackId ?? 'sweep', () => djAnalyzeJob(ctx, job.data));
+      }
     });
     await boss.schedule('dj.analyze', '23 * * * *', { sweep: true }, { singletonKey: 'dj:sweep', priority: DJ_PRIORITY.sweep });
   }
@@ -640,6 +653,9 @@ async function main() {
         results.push(await filesSplitJob(ctx, job.data));
       }
       return results.length === 1 ? results[0] : results;
+    });
+    await boss.work<FilesUpgradeJobData>('files.upgrade', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await filesUpgradeJob(ctx, job.data);
     });
     // Move to album (0080): the release search, the plan, the move and its undo
     await boss.work<FilesMoveJobData>('files.move', { batchSize: 1 }, async (jobs) => {

@@ -43,6 +43,7 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
       const migrations = level('migrations');
       const cacheDir = level('cacheDir');
       const workerHeartbeat = level('workerHeartbeat');
+      const workerRoles = checkMap.get('workerHeartbeat')?.workerRoles;
       // a full disk is a warn or a fail of its own; it never makes the probe 503
       const disk = level('disk');
       const down = database === 'error' || migrations === 'error';
@@ -54,6 +55,7 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
         migrations,
         cacheDir,
         workerHeartbeat,
+        ...(workerRoles ? { workerRoles } : {}),
         disk,
         // Public: the disk check says ok / filling up / almost full only.
         // Its paths and sizes are for the owner (GET /storage, /system/checks).

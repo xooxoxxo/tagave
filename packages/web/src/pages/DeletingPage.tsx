@@ -12,6 +12,7 @@ import type { DeletionGroup } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useDeletingView, useEmptyTrash, useRestore, useUnmark } from '../hooks/useDeletions';
 import { Button, EmptyState, confirmDialog, showToast } from '../components/ui';
+import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
 import styles from './DeletingPage.module.css';
 
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -24,9 +25,9 @@ export function groupWhat(g: DeletionGroup): string {
 
 const STATE: Partial<Record<DeletionGroup['state'], string>> = { moving: 'Moving…', restoring: 'Restoring…' };
 
-function Row({ g, action }: { g: DeletionGroup; action: React.ReactNode }) {
+function Row({ g, action, selected = false }: { g: DeletionGroup; action: React.ReactNode; selected?: boolean }) {
   return (
-    <li className={styles.row}>
+    <li className={styles.row} data-purge-selected={selected || undefined}>
       <div className={styles.body}>
         <p className={styles.title}>
           {g.trackTitle && <span>{g.trackTitle} · </span>}
@@ -36,6 +37,7 @@ function Row({ g, action }: { g: DeletionGroup; action: React.ReactNode }) {
           {g.artist && <span>{g.artist}</span>}
           <span>{groupWhat(g)}</span>
           <span>{shortDate(g.createdAt)}</span>
+          {selected && <span className={styles.live}>Selected for Empty Trash</span>}
           {STATE[g.state] && <span className={styles.live}>{STATE[g.state]}</span>}
           {g.error && <span className={styles.error}>{g.error}</span>}
         </p>
@@ -65,11 +67,21 @@ export function DeletingPanel() {
   if (isError || !data) {
     return <p role="alert" className={styles.error}>Couldn’t load. <Button variant="quiet" size="sm" onClick={() => void refetch()}>Try again</Button></p>;
   }
-  if (data.marked.length === 0 && data.trash.length === 0) {
+  const task = data.emptyTask?.task;
+  if (data.marked.length === 0 && data.trash.length === 0 && !task) {
     return <EmptyState title="Nothing deleted" action={<Link to="/settings/$section" params={{ section: 'deleting' }} className={styles.link}>{data.mode === 'trash' ? 'Deleting: Trash' : 'Deleting: Mark'}</Link>} />;
   }
+  const taskOpen = !!task && task.state !== 'done' && task.state !== 'cancelled';
+  const selection = data.emptyFileIds ?? [];
+  const selected = new Set(data.emptyTask?.fileIds);
   const emptyTrash = async () => {
-    if (await confirmDialog({ title: 'Empty trash?', message: `${data.trash.reduce((n, g) => n + g.fileIds.length, 0)} files`, confirmLabel: 'Empty trash', tone: 'danger' })) empty.mutate();
+    const fileIds = [...selection];
+    if (!fileIds.length || taskOpen) return;
+    const confirmed = await confirmDialog({
+      title: 'Empty Trash?', message: `Permanently delete ${fileIds.length} ${fileIds.length === 1 ? 'file' : 'files'} from Trash?`,
+      confirmLabel: 'Empty Trash', tone: 'danger',
+    });
+    if (confirmed) empty.mutate(fileIds, { onError: () => void refetch() });
   };
   return (
     <div className={styles.container}>
@@ -91,19 +103,22 @@ export function DeletingPanel() {
           </ul>
         </section>
       )}
-      {data.trash.length > 0 && (
+      {(data.trash.length > 0 || task) && (
         <section aria-labelledby="deleting-trash">
           <div className={styles.head}>
             <h2 id="deleting-trash" className={styles.heading}>Trash <span className={styles.count}>{data.trash.reduce((n, g) => n + g.fileIds.length, 0)}</span></h2>
             <span className={styles.muted}>{data.trashDays} days</span>
-            <Button variant="quiet-danger" size="sm" loading={empty.isPending} onClick={() => void emptyTrash()} className={styles.headAction}>Empty trash</Button>
+            <Button variant="quiet-danger" size="sm" loading={empty.isPending} disabled={taskOpen || !selection.length} onClick={() => void emptyTrash()} className={styles.headAction}>Empty Trash</Button>
           </div>
+          {task && libraryId && <MaintenanceTaskStatus task={task} libraryId={libraryId} />}
+          {empty.isError && <p role="alert" className={styles.error}>{(empty.error as { detail?: string }).detail ?? 'Couldn’t start Empty Trash.'}</p>}
           <ul className={styles.list}>
-            {data.trash.map((g) => (
-              <Row key={g.key} g={g} action={(
-                <Button variant="quiet" size="sm" disabled={g.state !== 'trashed' || restore.isPending} onClick={() => restore.mutate(g.fileIds)}>Restore</Button>
-              )} />
-            ))}
+            {data.trash.map((g) => {
+              const reserved = g.fileIds.some((id) => selected.has(id));
+              return <Row key={g.key} g={g} selected={reserved} action={(
+                <Button variant="quiet" size="sm" disabled={reserved || g.state !== 'trashed' || restore.isPending} onClick={() => restore.mutate(g.fileIds)}>Restore</Button>
+              )} />;
+            })}
           </ul>
         </section>
       )}

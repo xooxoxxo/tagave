@@ -48,6 +48,9 @@ export class MutagenTagWriter implements TagWriter {
   constructor() {
     // Start the subprocess immediately in constructor
     this.initPromise = this.initSubprocess();
+    // The sidecar can fail while the caller is preparing the first file.
+    // Keep that failure for write() without leaving an unhandled rejection.
+    void this.initPromise.catch(() => undefined);
   }
 
   /**

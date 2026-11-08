@@ -127,3 +127,5 @@
   .wrapRow { flex-wrap: wrap; row-gap: var(--space-xs); }
   .wrapRow .actions { flex-basis: 100%; }
 }
+
+.row[data-purge-selected="true"] .body { opacity: 0.72; }

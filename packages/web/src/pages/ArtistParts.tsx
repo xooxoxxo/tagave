@@ -58,10 +58,11 @@ export function AlbumCard({ album, onReopen, reopening }: {
       <Link to="/albums/$albumId" params={{ albumId: album.localAlbumId }} className={styles.cardLink}>{cover}{text}</Link>
     </li>;
   }
-  // a missing album: Listen elsewhere and, for the owner, its ⋮ (Get through Lidarr)
+  // A missing album can be requested directly. Its menu manages an existing request.
   const more = album.ownership === 'missing' ? <MissingAlbumMenu releaseGroupId={album.releaseGroupId} title={album.title} /> : null;
   return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}
     {more ? <div className={styles.cardHead}><div className={styles.cardText}>{text}</div>{more}</div> : text}
+    {album.ownership === 'missing' && <MissingAlbumMenu releaseGroupId={album.releaseGroupId} title={album.title} placement="card" />}
     {split.primary ? <div className={styles.cardListenRow}>
       <PlayOnControl link={split.primary} />
       {split.others.length > 0 && <ListenControl links={split.others} beside />}

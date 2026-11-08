@@ -16,7 +16,7 @@ import type { AuthHandle } from '@tagave/auth';
 const sent: Array<{ name: string; data: unknown }> = [];
 vi.mock('../boss.js', () => ({
   getBoss: async () => ({
-    send: async (name: string, data: unknown) => { sent.push({ name, data }); return `job-${sent.length}`; },
+    send: async (name: string, data: unknown, options?: { id?: string }) => { sent.push({ name, data }); return options?.id ?? `job-${sent.length}`; },
     createQueue: async () => undefined,
   }),
 }));
@@ -111,7 +111,7 @@ describe.skipIf(!adminUrl)('a tag plan splits a one-file album first (integratio
     const plan = r.json();
     const rows = await splitsOf(plan.id);
     expect(rows).toEqual([{ id: expect.any(String), state: 'analyzing', albumId: oneFile }]);
-    expect(sent).toContainEqual({ name: 'files.split', data: { splitId: rows[0]!.id, action: 'analyze' } });
+    expect(sent).toContainEqual({ name: 'files.split', data: { splitId: rows[0]!.id, action: 'analyze', maintenance: { taskId: expect.any(String), attemptId: expect.any(String) } } });
     expect(plan.splits).toEqual([expect.objectContaining({ splitId: rows[0]!.id, albumId: oneFile, state: 'analyzing', tracks: 2, low: 0, plan: null })]);
     // the source file is the one the split reads
     expect((await sql`select file_id::text as id from album_splits where id = ${rows[0]!.id}`)[0]!.id).toBe(oneFileId);
@@ -164,7 +164,7 @@ describe.skipIf(!adminUrl)('a tag plan splits a one-file album first (integratio
     const ok = await call(owner, 'POST', `/tag-plans/${plan.id}/apply`, { confirmSplits: [split!.id] });
     expect(ok.statusCode).toBe(202);
     expect((await splitsOf(plan.id))[0]!.state).toBe('splitting');
-    expect(sent).toEqual([{ name: 'tags.apply', data: { planId: plan.id } }]);
+    expect(sent).toEqual([{ name: 'tags.apply', data: { planId: plan.id, maintenance: { taskId: expect.any(String), attemptId: expect.any(String) } } }]);
   });
 
   it('a High-cut split needs no check', async () => {
@@ -199,6 +199,6 @@ describe.skipIf(!adminUrl)('a tag plan splits a one-file album first (integratio
     expect((await call(editor, 'POST', `/tag-plans/${plan.id}/resume`)).statusCode).toBe(403);
     expect(sent).toEqual([]);
     expect((await call(owner, 'POST', `/tag-plans/${plan.id}/resume`)).statusCode).toBe(202);
-    expect(sent).toContainEqual({ name: 'tags.apply', data: { planId: plan.id } });
+    expect(sent).toContainEqual({ name: 'tags.apply', data: { planId: plan.id, maintenance: { taskId: expect.any(String), attemptId: expect.any(String) } } });
   });
 });

@@ -240,6 +240,19 @@ export function useJobEvents(libraryId: string | undefined) {
 
     const unsubscribe = subscribeJobEvents(libraryId, (type, data) => {
       try {
+        if (type === 'maintenance.changed') {
+          const event = JSON.parse(data) as { libraryId: string; subjectId: string | null; kind: string };
+          if (event.libraryId !== libraryId) return;
+          void queryClient.invalidateQueries({ queryKey: ['maintenance-tasks', libraryId] });
+          if (event.subjectId) void queryClient.invalidateQueries({ queryKey: ['album', event.subjectId] });
+          if (event.kind === 'split') {
+            void queryClient.invalidateQueries({ queryKey: ['album-split', libraryId] });
+            void queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId] });
+          }
+          if (event.kind === 'empty-trash') void queryClient.invalidateQueries({ queryKey: ['deletions'] });
+          if (event.kind === 'flac-upgrade') void queryClient.invalidateQueries({ queryKey: ['flac-upgrade', libraryId] });
+          return;
+        }
         const event = JSON.parse(data) as QueueChangedEvent | JobProgressEvent;
         if (event.libraryId !== libraryId) return;
         // the album page shows its pending request; refresh just that album
