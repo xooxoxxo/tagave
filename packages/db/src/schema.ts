@@ -234,6 +234,32 @@ export const jobRuns = pgTable(
   })
 );
 
+export const maintenanceTasks = pgTable('maintenance_tasks', {
+  id: uuid().primaryKey().defaultRandom(),
+  libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+  kind: text().notNull().$type<'cover' | 'split' | 'empty-trash' | 'flac-upgrade'>(),
+  scopeKey: text('scope_key').notNull(),
+  subjectId: uuid('subject_id'),
+  queue: text().notNull(),
+  input: jsonb().notNull().$type<Record<string, unknown>>(),
+  state: text().notNull().$type<'waiting' | 'running' | 'interrupted' | 'review' | 'done' | 'failed' | 'cancelled'>(),
+  stage: text().notNull(),
+  progress: jsonb().$type<{ done: number; total: number }>(),
+  error: text(),
+  checkpoint: jsonb().$type<Record<string, unknown>>(),
+  attemptId: uuid('attempt_id').notNull().defaultRandom(),
+  attempt: integer().notNull().default(1),
+  history: jsonb().notNull().default([]),
+  dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+  cancelRequested: boolean('cancel_requested').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('maintenance_tasks_open_scope').on(t.libraryId, t.kind, t.scopeKey).where(sql`state not in ('done', 'cancelled')`),
+  index('maintenance_tasks_activity').on(t.libraryId, t.updatedAt.desc()),
+  index('maintenance_tasks_outbox').on(t.updatedAt).where(sql`state in ('waiting', 'running')`),
+]);
+
 // Observed layer (per library)
 
 export const scanRoots = pgTable(
@@ -2083,9 +2109,11 @@ export const fileDeletions = pgTable(
     /** mark | trash */
     kind: text().notNull(),
     /** marked (mark) · moving | trashed | restoring (trash) */
+    purgeTaskId: uuid('purge_task_id').references(() => maintenanceTasks.id, { onDelete: 'set null' }),
     state: text().notNull(),
     relPath: text('rel_path').notNull(),
     trashRelPath: text('trash_rel_path'),
+    trashMount: text('trash_mount'),
     error: text(),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: tstz('created_at').notNull().defaultNow(),
@@ -2094,7 +2122,7 @@ export const fileDeletions = pgTable(
   (table) => ({
     libraryIdx: index('idx_file_deletions_library').on(table.libraryId, table.kind),
     kindCheck: check('file_deletions_kind_check', sql`kind in ('mark', 'trash')`),
-    stateCheck: check('file_deletions_state_check', sql`state in ('marked', 'moving', 'trashed', 'restoring')`),
+    stateCheck: check('file_deletions_state_check', sql`state in ('marked', 'moving', 'trashed', 'restoring', 'purged', 'holding')`),
     kindStateCheck: check('file_deletions_kind_state', sql`(kind = 'mark') = (state = 'marked')`),
   })
 );
@@ -2144,6 +2172,7 @@ export const albumSplits = pgTable(
     state: text().notNull(),
     /** SplitPlan (@tagave/shared) */
     plan: jsonb(),
+    writeCheckpoint: jsonb('write_checkpoint'),
     /** relative paths of the files the split wrote */
     outputs: text().array(),
     error: text(),

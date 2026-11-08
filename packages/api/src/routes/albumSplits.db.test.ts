@@ -9,12 +9,14 @@ import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
+import { setLidarrEnabled, setModuleSettings, syncInstalledModules } from '@tagave/db';
+import { ledgerEntries } from '@tagave/core/facets';
 import type { AuthHandle } from '@tagave/auth';
 
 const sent: Array<{ name: string; data: unknown }> = [];
 vi.mock('../boss.js', () => ({
   getBoss: async () => ({
-    send: async (name: string, data: unknown) => { sent.push({ name, data }); return 'job'; },
+    send: async (name: string, data: unknown, options?: { id?: string }) => { sent.push({ name, data }); return options?.id ?? 'job'; },
     createQueue: async () => undefined,
   }),
 }));
@@ -28,7 +30,7 @@ type TestUser = Awaited<ReturnType<typeof createTestUser>>;
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 
-describe.skipIf(!adminUrl)('splitting a whole album in one file (integration)', () => {
+describe.skipIf(!adminUrl)('album split and FLAC upgrade requests (integration)', () => {
   let db: { url: string; name: string };
   let sql: postgres.Sql;
   let handle: AuthHandle;
@@ -105,12 +107,28 @@ describe.skipIf(!adminUrl)('splitting a whole album in one file (integration)', 
     expect((await call(owner, 'POST', base(twoFiles))).statusCode).toBe(409);
   });
 
+  it('finds a legacy analysis with no queue job and retries the same split', async () => {
+    const [legacy] = await sql<{ id: string }[]>`
+      insert into album_splits (library_id, local_album_id, file_id, release_id, state)
+      select la.library_id, la.id, lt.audio_file_id, la.release_id, 'analyzing'
+      from local_albums la join local_tracks lt on lt.local_album_id = la.id where la.id = ${albumId}
+      returning id
+    `;
+    expect((await call(owner, 'GET', base())).json().split).toMatchObject({
+      id: legacy!.id, state: 'failed', retryAnalysis: true,
+    });
+    const recovered = await call(owner, 'POST', base());
+    expect(recovered.json().split).toMatchObject({
+      id: legacy!.id, state: 'analyzing', task: { state: 'waiting', workerAvailable: false },
+    });
+  });
+
   it('asks the file worker for the cut points; a second ask keeps the one being found', async () => {
     const r = await call(owner, 'POST', base());
     expect(r.statusCode).toBe(202);
     const split = r.json().split;
     expect(split).toMatchObject({ state: 'analyzing', plan: null });
-    expect(sent.at(-1)).toEqual({ name: 'files.split', data: { splitId: split.id, action: 'analyze' } });
+    expect(sent.at(-1)).toEqual({ name: 'files.split', data: { splitId: split.id, action: 'analyze', maintenance: { taskId: expect.any(String), attemptId: expect.any(String) } } });
     const again = await call(owner, 'POST', base());
     expect(again.json().split.id).toBe(split.id);
     expect(sent.filter((s) => s.name === 'files.split')).toHaveLength(1);
@@ -129,8 +147,37 @@ describe.skipIf(!adminUrl)('splitting a whole album in one file (integration)', 
     const ok = await call(owner, 'POST', `${base()}/${split.id}/run`);
     expect(ok.statusCode).toBe(202);
     expect(ok.json().split.state).toBe('splitting');
-    expect(sent.at(-1)).toEqual({ name: 'files.split', data: { splitId: split.id, action: 'split' } });
+    expect(sent.at(-1)).toEqual({ name: 'files.split', data: { splitId: split.id, action: 'split', maintenance: { taskId: expect.any(String), attemptId: expect.any(String) } } });
     // not twice
     expect((await call(owner, 'POST', `${base()}/${split.id}/run`)).statusCode).toBe(409);
+  });
+
+  it('queues one upgrade for an eligible owner and shows it after reload', async () => {
+    const path = `/libraries/${libraryId}/albums/${twoFiles}/flac-upgrade`;
+    expect((await call(editor, 'GET', path)).statusCode).toBe(403);
+    expect((await call(editor, 'POST', path)).statusCode).toBe(403);
+    expect((await call(owner, 'GET', path)).json()).toEqual({ eligible: false, task: null });
+    await syncInstalledModules(sql, ledgerEntries());
+    await setLidarrEnabled(sql, true);
+    await setModuleSettings(sql, 'lidarr', { url: 'http://fixture.test', apiKey: 'fixture', useDropPool: true });
+    await sql`update libraries set settings = settings || ${JSON.stringify({ dropPool: { enabled: true, scanRootId: rootId, dirPath: 'Pool' } })}::text::jsonb where id = ${libraryId}`;
+    const [artist] = await sql<{ id: string }[]>`insert into artists (mbid, name) values (${randomUUID()}, 'Fixture') returning id`;
+    await sql`insert into release_group_artists (release_group_id, artist_id, position)
+      select release_group_id, ${artist!.id}, 1 from local_albums where id = ${twoFiles}`;
+    expect((await call(owner, 'POST', path)).statusCode).toBe(409);
+    await sql`update files set container = 'MPEG' where id in (select audio_file_id from local_tracks where local_album_id = ${twoFiles})`;
+    await sql`with numbered as (
+      select lt.id, row_number() over (order by f.rel_path)::int as position
+      from local_tracks lt join files f on f.id = lt.audio_file_id where lt.local_album_id = ${twoFiles}
+    )
+    update local_tracks lt set track_no = numbered.position from numbered where lt.id = numbered.id`;
+    expect((await call(owner, 'GET', path)).json()).toEqual({ eligible: true, task: null });
+    const [one, two] = await Promise.all([call(owner, 'POST', path), call(owner, 'POST', path)]);
+    expect(one.statusCode, one.body).toBe(202);
+    expect(two.json().id).toBe(one.json().id);
+    expect((await call(owner, 'GET', path)).json()).toMatchObject({
+      eligible: false, task: { id: one.json().id, kind: 'flac-upgrade', state: 'waiting' },
+    });
+    expect(sent.filter((job) => job.name === 'files.upgrade')).toHaveLength(1);
   });
 });

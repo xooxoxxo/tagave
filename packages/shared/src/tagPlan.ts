@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { maintenanceTaskSchema } from './maintenance.js';
 import { canonicalFieldSchema } from './tags.js';
 
 /**
@@ -188,6 +189,7 @@ export const tagPlanSchema = z.object({
   archivedAt: z.string().datetime().optional().describe('ISO 8601 timestamp when the owner archived this finished plan; archived plans leave the default list'),
   formats: z.array(z.string()).optional().describe('Distinct lower-case file extensions of the files in the plan (detail only, once previewed): the ID3 version matters only when one is an ID3 format'),
   progress: z.record(z.string(), z.number()).optional().describe('Item counts by status (applied, failed, …); on the detail, and on list rows whose apply finished with failures'),
+  applyTask: maintenanceTaskSchema.optional(),
   splits: z.array(z.object({
     splitId: z.string().uuid(),
     albumId: z.string().uuid().nullable(),
@@ -198,6 +200,9 @@ export const tagPlanSchema = z.object({
     plan: z.any().nullable(),
     outputs: z.array(z.string()).nullable(),
     error: z.string().nullable(),
+    task: maintenanceTaskSchema.optional(),
+    retryAnalysis: z.boolean().optional(),
+    waitingForWorker: z.boolean().optional(),
   }).strict()).optional().describe('0089: the albums this plan splits first (detail only): PlanSplit'),
 }).strict().describe('A tag correction plan');
 

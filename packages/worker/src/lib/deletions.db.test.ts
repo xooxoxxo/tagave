@@ -6,12 +6,12 @@
  * file the owner deleted is dropped at once (no hold), with its album.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, lstat, rename, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
-import { makeDb } from '@tagave/db';
+import { cancelMaintenanceTask, makeDb, saveMaintenanceTask } from '@tagave/db';
 import type { WorkerContext } from './context.js';
 import { walkTree } from './walk.js';
 import { finishWalk } from './scanFinish.js';
@@ -144,6 +144,51 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('deletions on the file worker (d
     expect(await row(a.files['02 New.flac']!)).toMatchObject({ state: 'trashed' });
     // the album keeps its other track and its counters follow
     expect((await sql`select track_count from local_albums where id = ${a.albumId}`)[0].track_count).toBe(1);
+  });
+
+  it('keeps the confirmed purge across a missing mount and an interrupted unlink', async () => {
+    const a = await album('Artist/Purge', ['01 Confirmed.flac', '02 Confirmed.flac', '03 Later.flac']);
+    const ids = Object.values(a.files);
+    await deleteFiles('trash', ids);
+    await moveWaiting(ctx, libraryId);
+    const id = ids[0]!;
+    const task = await saveMaintenanceTask(ctx.sql, {
+      libraryId, kind: 'empty-trash', scope: 'trash', queue: 'files.trash',
+      input: { fileIds: ids.slice(0, 2) }, stage: 'Empty Trash queued',
+    });
+    await sql`update file_deletions set purge_task_id = ${task.id}, trashed_at = now() - interval '31 days' where file_id = any(${ids.slice(0, 2)}::uuid[])`;
+    expect(await filesTrashJob(ctx, { action: 'empty', libraryId })).toHaveProperty('skipped');
+    expect((await filesTrashJob(ctx, { action: 'sweep', libraryId })).expired).toEqual({ deleted: 0, failed: 0 });
+
+    const run = (attemptId: string) => filesTrashJob(ctx, { action: 'empty', libraryId, maintenance: { taskId: task.id, attemptId } });
+    const offline = rootPath + '-offline';
+    await rename(rootPath, offline);
+    try {
+      await run(task.attempt_id);
+      expect((await sql`select state from maintenance_tasks where id = ${task.id}`)[0].state).toBe('failed');
+      expect(await row(id)).toMatchObject({ state: 'trashed' });
+    } finally {
+      await rename(offline, rootPath);
+    }
+
+    const file = path.join(rootPath, (await row(id)).trash_rel_path);
+    const info = await lstat(file);
+    const { mountIdentity } = await import('./fileRecovery.js');
+    const checkpoint = { index: 0, inFlight: {
+      id, file, mount: await mountIdentity(rootPath),
+      fingerprint: JSON.stringify([info.dev, info.ino, info.size, info.mtimeMs]),
+    } };
+    await sql`update maintenance_tasks set checkpoint = ${JSON.stringify(checkpoint)}::text::jsonb where id = ${task.id}`;
+    await rm(file);
+    const stopped = await cancelMaintenanceTask(ctx.sql, libraryId, task.id);
+    expect(stopped?.state).toBe('waiting');
+    await run(stopped!.attempt_id);
+    expect(await row(id)).toBeUndefined();
+    expect(await row(ids[1]!)).toMatchObject({ state: 'trashed', purge_task_id: null });
+    expect(await row(ids[2]!)).toMatchObject({ state: 'trashed' });
+    expect((await sql`select state, progress from maintenance_tasks where id = ${task.id}`)[0]).toMatchObject({
+      state: 'cancelled', progress: { done: 1, total: 2 },
+    });
   });
 
   it('a folder it cannot write marks the file instead, with the reason', async () => {

@@ -6,6 +6,8 @@
  */
 import { clockOf, sampleMs, splitDoneLine, type PlanSplit } from '@tagave/shared';
 import { Badge, Button } from '../components/ui';
+import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
+import { useAnalyzeSplit } from '../hooks/useAlbumSplit';
 import styles from './PlanSplits.module.css';
 
 const CONFIDENCE = { high: 'High', medium: 'Medium', low: 'Low' } as const;
@@ -22,16 +24,28 @@ export function splitStateLine(s: Pick<PlanSplit, 'state' | 'tracks' | 'low' | '
   }
 }
 
-export function PlanSplits({ splits, onCheck }: { splits: PlanSplit[]; onCheck: ((s: PlanSplit) => void) | null }) {
+function RetryAnalysis({ libraryId, albumId }: { libraryId: string; albumId: string }) {
+  const analyze = useAnalyzeSplit(libraryId, albumId);
+  return (
+    <div>
+      <Button variant="secondary" size="sm" loading={analyze.isPending} onClick={() => analyze.mutate()}>Retry analysis</Button>
+      {analyze.isError && <p role="alert">Couldn’t queue cut point analysis.</p>}
+    </div>
+  );
+}
+
+export function PlanSplits({ libraryId, splits, onCheck }: { libraryId?: string | undefined; splits: PlanSplit[]; onCheck: ((s: PlanSplit) => void) | null }) {
   if (splits.length === 0) return null;
   return (
     <section className={styles.splits} aria-label="Split first">
       {splits.map((s) => (
         <div key={s.splitId} className={styles.split} data-state={s.state}>
           <div className={styles.head}>
-            <p className={s.state === 'failed' || (s.state === 'ready' && s.low > 0) ? styles.lineWarn : styles.line} role="status">{splitStateLine(s)}</p>
+            {!s.task && <p className={s.state === 'failed' || (s.state === 'ready' && s.low > 0) ? styles.lineWarn : styles.line} role="status">{s.waitingForWorker ? 'Waiting for the file worker' : splitStateLine(s)}</p>}
             {onCheck && s.state === 'ready' && s.plan && <Button variant="secondary" size="sm" onClick={() => onCheck(s)}>Check cuts</Button>}
           </div>
+          {s.task && libraryId && <MaintenanceTaskStatus task={s.task} libraryId={libraryId} />}
+          {s.retryAnalysis && libraryId && s.albumId && onCheck && <RetryAnalysis libraryId={libraryId} albumId={s.albumId} />}
           {s.plan && (s.state === 'ready' || s.state === 'splitting' || s.state === 'done') && (
             <ol className={styles.files} aria-label="New files">
               {s.plan.tracks.map((t) => (

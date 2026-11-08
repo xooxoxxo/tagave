@@ -4,9 +4,10 @@ import {
   albumMatches, files, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
   releaseGroupArtists, fieldLocks, auditLog, albumLiveSql, albumDeletedSql, fileDeletedSql, trackLiveSql,
+  saveMaintenanceTask, restartMaintenanceTask,
 } from '@tagave/db';
 import { normalizeGenreMap, effectiveGenres, physicalFormatLabel } from '@tagave/core';
-import { getDb } from '../db.js';
+import { getDb, getSql } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob, identifyRequestView, identifyRequestStates, recordCancelled } from '../lib/identifyRequests.js';
 import { parseMatchInput, pinnedJobData } from '../lib/matchInput.js';
@@ -18,6 +19,7 @@ import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
 import { scanRoots as scanRootRows, files as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
+import { dispatchMaintenance } from '../lib/maintenance.js';
 import { albumsChanged } from '../lib/albumCare.js';
 import { containsPattern, textMatches } from '../lib/textMatch.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -931,7 +933,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         // Compilations: an album built by "Treat as one album" can be split
         // back; albums that look like more pieces of this one are offered.
         findMergeCandidates(db, { libraryId: album.libraryId, albumId: album.id, limit: 200 }),
-        artFetchState(album.id),
+        artFetchState(album.id, album.libraryId),
         albumFolders(db, album.id, album.dirPaths ?? [], lib[0]?.settings),
       ]);
 
@@ -1095,15 +1097,18 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
       const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
-      const db = getDb();
-      const lib = await db
-        .select()
-        .from(libraries)
-        .where(eq(libraries.id, libraryId));
-      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-      const boss = await getBoss();
-      const jobId = await boss.send('art.fetch', { localAlbumId: albumId }, { singletonKey: `art:${albumId}` });
-      reply.status(202).send({ ok: true, jobId: jobId ?? null, artFetch: await artFetchState(albumId) });
+      const [album] = await getDb().select({ id: localAlbums.id }).from(localAlbums)
+        .where(and(eq(localAlbums.id, albumId), eq(localAlbums.libraryId, libraryId))).limit(1);
+      if (!album) throw new ApiError(404, 'Not Found', 'Album not found');
+      const task = await saveMaintenanceTask(getSql(), {
+        libraryId, kind: 'cover', scope: albumId, subjectId: albumId, queue: 'art.fetch',
+        input: { localAlbumId: albumId }, stage: 'Waiting to look for cover art',
+      });
+      const queued = task.state === 'failed' || task.state === 'interrupted'
+        ? await restartMaintenanceTask(getSql(), libraryId, task.id, task.attempt)
+        : task;
+      await dispatchMaintenance(task.id, request.log);
+      reply.status(202).send({ ok: true, jobId: queued?.attempt_id ?? null, artFetch: await artFetchState(albumId, libraryId) });
     }
   );
 

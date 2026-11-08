@@ -9,10 +9,11 @@
  *   POST /libraries/:libraryId/albums/:albumId/split/:splitId/run split as planned (the folder must be writable: 409)
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { oneFileAlbums, writableRootIds } from '@tagave/db';
-import type { AlbumSplitState, AlbumSplitView, FilesSplitJobData, SplitPlan } from '@tagave/shared';
+import { oneFileAlbums, saveMaintenanceTask, writableRootIds } from '@tagave/db';
+import type { AlbumSplitState, AlbumSplitView, SplitPlan } from '@tagave/shared';
 import { getSql } from '../db.js';
-import { getBoss } from '../boss.js';
+import { analysisStatus, requestSplitAnalysis } from '../lib/planSplits.js';
+import { dispatchMaintenance } from '../lib/maintenance.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 const OWNER = { config: { permission: 'system.manage' as const } };
@@ -23,12 +24,6 @@ interface Row {
 }
 
 const iso = (d: Date | string): string => new Date(d).toISOString();
-
-async function sendSplitJob(data: FilesSplitJobData): Promise<void> {
-  const boss = await getBoss();
-  await boss.createQueue('files.split');
-  await boss.send('files.split', data, { singletonKey: `files.split:${data.splitId}:${data.action}` });
-}
 
 async function latest(libraryId: string, albumId: string): Promise<Row | null> {
   const [r] = await getSql()<Row[]>`
@@ -42,9 +37,10 @@ export async function splitView(libraryId: string, albumId: string): Promise<Alb
   const sql = getSql();
   const [fit] = await oneFileAlbums(sql, libraryId, albumId);
   const row = await latest(libraryId, albumId);
+  const status = row ? await analysisStatus(sql, libraryId, row) : null;
   return {
     split: row ? {
-      id: row.id, state: row.state, plan: row.plan, outputs: row.outputs, error: row.error,
+      ...status!, id: row.id, plan: row.plan, outputs: row.outputs,
       createdAt: iso(row.createdAt), finishedAt: row.finishedAt ? iso(row.finishedAt) : null,
     } : null,
     eligible: !!fit,
@@ -68,16 +64,7 @@ export async function createAlbumSplitRoutes(fastify: FastifyInstance) {
     const sql = getSql();
     const [fit] = await oneFileAlbums(sql, libraryId, albumId);
     if (!fit) throw new ApiError(409, 'Conflict', 'This album is not one file that fits its release');
-    const current = await latest(libraryId, albumId);
-    if (current && (current.state === 'analyzing' || current.state === 'splitting')) {
-      reply.status(202);
-      return splitView(libraryId, albumId);
-    }
-    const [row] = await sql<Array<{ id: string }>>`
-      insert into album_splits (library_id, local_album_id, file_id, release_id, state, created_by)
-      values (${libraryId}, ${albumId}, ${fit.fileId}, ${fit.releaseId}, 'analyzing', ${request.user!.id})
-      returning id::text as id`;
-    await sendSplitJob({ splitId: row!.id, action: 'analyze' });
+    await requestSplitAnalysis(sql, { libraryId, fit, userId: request.user!.id }, request.log);
     reply.status(202);
     return splitView(libraryId, albumId);
   });
@@ -89,12 +76,18 @@ export async function createAlbumSplitRoutes(fastify: FastifyInstance) {
     const [fit] = await oneFileAlbums(sql, libraryId, albumId);
     if (!fit) throw new ApiError(409, 'Conflict', 'This album is not one file that fits its release');
     if (!(await writableRootIds(sql, libraryId)).has(fit.scanRootId)) throw new ApiError(409, 'Conflict', 'The music folder is read-only');
-    const updated = await sql`
-      update album_splits set state = 'splitting', created_by = ${request.user!.id}, updated_at = now()
-       where id = ${splitId!} and library_id = ${libraryId} and local_album_id = ${albumId} and state = 'ready'
-      returning id`;
-    if (updated.length === 0) throw new ApiError(409, 'Conflict', 'This plan cannot be split now');
-    await sendSplitJob({ splitId: splitId!, action: 'split' });
+    const task = await sql.begin(async (tx) => {
+      const updated = await tx`
+        update album_splits set state = 'splitting', created_by = ${request.user!.id}, updated_at = now()
+         where id = ${splitId!} and library_id = ${libraryId} and local_album_id = ${albumId} and state = 'ready'
+        returning id`;
+      if (updated.length === 0) throw new ApiError(409, 'Conflict', 'This plan cannot be split now');
+      return saveMaintenanceTask(tx, {
+        libraryId, kind: 'split', scope: `${splitId}:split`, subjectId: albumId,
+        queue: 'files.split', input: { splitId: splitId!, action: 'split' }, stage: 'Split queued',
+      });
+    });
+    await dispatchMaintenance(task.id, request.log);
     reply.status(202);
     return splitView(libraryId, albumId);
   });

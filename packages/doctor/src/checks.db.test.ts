@@ -73,7 +73,7 @@ describe('workerCoverageCheck', () => {
   });
   it('names the work nobody takes when the files worker is missing', () => {
     const check = workerCoverageCheck(1, [['identify.album', 'identify.acoustid', 'identify.sweep', 'acoustid.lookup', 'artists.resolve', 'artists.enrich']]);
-    expect(check.status).toBe('warn');
+    expect(check).toMatchObject({ status: 'warn', workerRoles: { files: 'unavailable', identify: 'available' } });
     expect(check.detail).toContain('reading music folders');
     expect(check.detail).toMatch(/^1 worker running, but none handles reading music folders, /);
     expect(check.detail).not.toMatch(/expected|\./);

@@ -33,14 +33,18 @@ import { runPlanSplits, type PlanSplitOutcome } from './planSplits.js';
 import type { SplitDeps } from './filesSplit.js';
 import { FlacTools } from '../lib/flacTools.js';
 import type { TagPolicies } from '@tagave/shared';
+import type { MaintenanceWork } from '@tagave/db';
+import { runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
 
 export interface TagsApplyJobData {
   planId: string;
+  maintenance?: MaintenanceWork;
 }
 
 /** What the apply needs from outside; tests pass the split's tools and tag writer. */
 export interface TagsApplyDeps {
   split?: Omit<SplitDeps, 'policy'>;
+  claim?: MaintenanceRun;
 }
 
 /**
@@ -86,6 +90,23 @@ export function fieldsToWriteFrom(diffs: TagDiffEntry[]): Record<string, string 
  * pause on hash mismatch, continue on other errors.
  */
 export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsApplyDeps = {}) {
+  if (data.maintenance && !deps.claim) {
+    await runMaintenance(ctx, data.maintenance, async (claim) => {
+      const [before] = await ctx.sql<{ status: string }[]>`select status from tag_plans where id = ${data.planId}`;
+      if (before?.status === 'applied') return { state: 'done', stage: 'Tag Plan applied' };
+      if (!before || !['previewed', 'paused', 'applying'].includes(before.status)) {
+        return { state: 'cancelled', stage: 'Tag Plan closed' };
+      }
+      await claim.update({ stage: 'Applying Tag Plan', checkpoint: { planId: data.planId } });
+      await tagsApplyJob(ctx, data, { ...deps, claim });
+      const [plan] = await ctx.sql<{ status: string; error: string | null }[]>`
+        select status, stats->>'lastError' as error from tag_plans where id = ${data.planId}
+      `;
+      if (plan?.status === 'paused') return { state: 'interrupted', stage: 'Tag Plan paused', error: plan.error };
+      return { state: 'done', stage: plan?.status === 'partially_failed' ? 'Tag Plan finished with errors' : 'Tag Plan applied' };
+    });
+    return;
+  }
   try {
     await applyPlan(ctx, data, deps);
   } catch (error) {
@@ -95,6 +116,7 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, d
     // 'paused' with the message so the page shows it and Resume retries.
     const message = errorMessage(error);
     ctx.logger.error({ planId: data.planId, error: message }, 'tags.apply failed; plan paused');
+    await deps.claim?.current();
     await parkPlan(ctx, data.planId, message);
     throw error;
   }
@@ -132,20 +154,26 @@ async function parkPlan(ctx: WorkerContext, planId: string, message: string) {
  */
 async function splitsFirst(ctx: WorkerContext, planId: string, policy: TagPolicies, libraryId: string, deps: TagsApplyDeps): Promise<PlanSplitOutcome> {
   const none: PlanSplitOutcome = { done: 0, failed: 0, tracks: 0, error: null };
-  const [waiting] = (await ctx.sql`select count(*)::int as n from album_splits where tag_plan_id = ${planId} and state = 'splitting'`) as unknown as Array<{ n: number }>;
+  const [waiting] = (await ctx.sql`select count(*)::int as n from album_splits where tag_plan_id = ${planId} and (state = 'splitting' or (state = 'done' and write_checkpoint is not null))`) as unknown as Array<{ n: number }>;
   if (!waiting || waiting.n === 0) return none;
   const [lib] = (await ctx.sql`select settings from libraries where id = ${libraryId}`) as unknown as Array<{ settings: { tagWritesEnabled?: boolean } | null }>;
   if (lib?.settings?.tagWritesEnabled !== true) {
     // nothing ran: the splits wait for the next Apply
-    await ctx.sql`update album_splits set state = 'ready', updated_at = now() where tag_plan_id = ${planId} and state = 'splitting'`;
+    if (!deps.claim) await ctx.sql`update album_splits set state = 'ready', updated_at = now() where tag_plan_id = ${planId} and state = 'splitting' and write_checkpoint is null`;
     throw new Error('Tag writes are off for this library');
   }
   // the page shows the plan at work while the tracks are written
   await ctx.sql`update tag_plans set status = 'applying' where id = ${planId} and status in ('previewed', 'paused')`;
-  if (deps.split) return runPlanSplits(ctx, planId, policy, deps.split);
+  const check = {
+    beforeWrite: deps.claim?.current ?? deps.split?.beforeWrite ?? (async () => undefined),
+    checkpoint: deps.claim
+      ? (stage: string) => deps.claim!.update({ stage })
+      : deps.split?.checkpoint ?? (async () => undefined),
+  };
+  if (deps.split) return runPlanSplits(ctx, planId, policy, { ...deps.split, ...check });
   const tags = new MutagenTagWriter();
   try {
-    return await runPlanSplits(ctx, planId, policy, { tools: new FlacTools(), tags });
+    return await runPlanSplits(ctx, planId, policy, { tools: new FlacTools(), tags, ...check });
   } finally {
     await tags.close();
   }
@@ -276,6 +304,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
   let hashMismatchEncountered = false;
 
   for (let i = 0; i < itemsToProcess.length; i += concurrency) {
+    await deps.claim?.current();
     const batch = itemsToProcess.slice(i, i + concurrency);
     const results = await Promise.allSettled(
       batch.map(async (item) => {

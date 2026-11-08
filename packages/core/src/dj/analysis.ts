@@ -282,11 +282,17 @@ function estimateTempo(energy: Float32Array, fps: number, trimStartMs: number, t
   // first go to the slowest level in range that is as periodic, then halve
   // while the half-beats are (nearly) as strong as the beats: a pulse, not
   // a hi-hat between kicks.
-  while (period * 2 <= lagMax + 0.5 && r(period * 2) >= 0.85 * r(period)) period = refinePeak(ac, Math.round(period * 2), 1);
+  while (period * 2 <= lagMax + 0.5 && r(period * 2) >= 0.85 * r(period)) {
+    const slower = refinePeak(ac, Math.round(period * 2), 1);
+    if (!(slower > period)) break;
+    period = slower;
+  }
   while (period / 2 >= lagMin - 0.5) {
     const fit = gridFit(onset, period);
     if (fit.mid < HALF_BEAT_RATIO * fit.on) break;
-    period = refinePeak(ac, Math.round(period / 2), 1);
+    const faster = refinePeak(ac, Math.round(period / 2), 1);
+    if (!(faster > 0 && faster < period)) break;
+    period = faster;
   }
 
   if (!(r(period) > 0)) return null;
@@ -403,6 +409,9 @@ function refinePeak(a: Float64Array, i: number, search: number): number {
   const y0 = a[p - 1]!;
   const y1 = a[p]!;
   const y2 = a[p + 1]!;
+  // At the edge of the search, p can sit on a slope. Extrapolating from
+  // a slope can return a negative period, so refine actual peaks only.
+  if (y1 < y0 || y1 < y2) return p;
   const den = y0 - 2 * y1 + y2;
   return den < 0 ? p + (0.5 * (y0 - y2)) / den : p;
 }

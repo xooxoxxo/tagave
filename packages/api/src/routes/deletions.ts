@@ -12,15 +12,16 @@
  *   POST /libraries/:libraryId/deletions/empty-trash
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { createDeletionsSchema, deleteModeUpdateSchema, deletionFilesSchema } from '@tagave/shared';
+import { createDeletionsSchema, deleteModeUpdateSchema, deletionFilesSchema, emptyTrashSchema } from '@tagave/shared';
 import type { z } from 'zod';
 import { getDb, getSql } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { markFilterCountsDirty } from '../lib/filterCounts.js';
 import { bustFilterCountsCache } from './albums.js';
+import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
 import { albumsChanged } from '../lib/albumCare.js';
 import {
-  createDeletions, deleteModeOf, deletingView, librarySettings, restoreFiles, sendTrashJob, trashRootIds, unmarkFiles,
+  createDeletions, deleteModeOf, deletingView, librarySettings, restoreFiles, requestEmptyTrash, trashRootIds, unmarkFiles,
 } from '../lib/deletions.js';
 
 const OWNER = { config: { permission: 'system.manage' as const } };
@@ -116,10 +117,12 @@ export async function createDeletionRoutes(fastify: FastifyInstance) {
     return { restoring: await restoreFiles(getSql(), libraryId, fileIds) };
   });
 
-  fastify.post('/libraries/:libraryId/deletions/empty-trash', OWNER, async (request) => {
+  fastify.post('/libraries/:libraryId/deletions/empty-trash', { ...OWNER, bodyLimit: 4_000_050 }, async (request, reply) => {
     const libraryId = libraryOf(request);
     await settingsOf(libraryId);
-    await sendTrashJob(libraryId, 'empty');
-    return { queued: true };
+    const { fileIds } = parse(emptyTrashSchema, request.body);
+    const task = await requestEmptyTrash(getSql(), libraryId, fileIds);
+    await dispatchMaintenance(task.id, request.log);
+    return reply.status(202).send(maintenanceView(task, await liveMaintenanceQueues()));
   });
 }

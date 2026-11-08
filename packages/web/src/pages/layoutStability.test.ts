@@ -122,7 +122,14 @@ describe('page shells', () => {
     expect(account).not.toMatch(/border/);
     // it spans exactly the sidebar's padding, nothing more
     expect(account).toMatch(/margin-inline: calc\(-1 \* var\(--nav-pad-x\)\)/);
-    expect(account).toMatch(/margin-top: auto/);
+    // The desktop links fill the space above the account and scroll on
+    // their own, so the account stays at the bottom on short windows too.
+    const desktop = layout.slice(layout.indexOf('@media (min-width: 901px)'));
+    expect(rule(desktop, '.navSheet')).toMatch(/flex: 1 1 auto/);
+    expect(rule(desktop, '.navSheet')).toMatch(/min-height: 0/);
+    expect(rule(desktop, '.navLinks')).toMatch(/flex: 1 1 auto/);
+    expect(rule(desktop, '.navLinks')).toMatch(/overflow-y: auto/);
+    expect(rule(desktop, '.nav')).not.toMatch(/overflow-y: auto/);
     expect(source('../components/Layout.tsx')).toMatch(/<AccountCompartment/);
   });
 

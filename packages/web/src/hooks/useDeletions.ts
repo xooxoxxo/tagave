@@ -32,7 +32,10 @@ export function useDeletingView(libraryId: string | undefined) {
     // a move or restore is the worker's: look again while one is on its way
     refetchInterval: (query) => {
       const d = query.state.data;
-      return d && d.trash.some((g) => g.state === 'moving' || g.state === 'restoring') ? 2000 : false;
+      const task = d?.emptyTask?.task;
+      if (task?.state === 'waiting' || task?.state === 'running') return task.workerAvailable ? 2000 : 5000;
+      if (d?.trash.some((g) => g.state === 'moving' || g.state === 'restoring')) return 2000;
+      return d?.trash.length || task?.workerAvailable === false ? 10_000 : false;
     },
   });
 }
@@ -69,7 +72,7 @@ export function useRestore(libraryId: string | undefined) {
 }
 
 export function useEmptyTrash(libraryId: string | undefined) {
-  return useDeletionMutation(() => api.post(`/libraries/${libraryId}/deletions/empty-trash`));
+  return useDeletionMutation((fileIds: string[]) => api.post(`/libraries/${libraryId}/deletions/empty-trash`, { fileIds }));
 }
 
 export function useSetDeleteMode(libraryId: string | undefined) {

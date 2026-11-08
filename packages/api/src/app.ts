@@ -10,6 +10,7 @@ import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
 import { createUserPrefsRoutes } from './routes/userPrefs.js';
 import { createDeletionRoutes } from './routes/deletions.js';
+import { createFlacUpgradeRoutes } from './routes/flacUpgrade.js';
 import { createAlbumSplitRoutes } from './routes/albumSplits.js';
 import { createAlbumMoveRoutes } from './routes/albumMoves.js';
 import { createNamingRoutes } from './routes/naming.js';
@@ -26,6 +27,7 @@ import { createMusicFolderInternalRoutes, createMusicFolderRoutes } from './rout
 import { createAlbumRoutes } from './routes/albums.js';
 import { createFieldLocksRoutes } from './routes/fieldLocks.js';
 import { createJobRoutes } from './routes/jobs.js';
+import { createMaintenanceRoutes } from './routes/maintenance.js';
 import { createQueueRoutes } from './routes/queue.js';
 import { createReviewMatchesRoutes } from './routes/reviewMatches.js';
 import { createGapRoutes } from './routes/gaps.js';
@@ -143,6 +145,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // Job routes
     instance.register(createJobRoutes, { prefix: '/api/v1' });
+    instance.register(createMaintenanceRoutes, { prefix: '/api/v1' });
 
     // Review queue routes
     instance.register(createQueueRoutes, { prefix: '/api/v1' });
@@ -216,6 +219,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     // Deleting songs and albums: Mark or Trash, Library care › Deleting (owner)
     instance.register(createDeletionRoutes, { prefix: '/api/v1' });
     // Whole album in one file: the cut points and the split (owner)
+    instance.register(createFlacUpgradeRoutes, { prefix: '/api/v1' });
     instance.register(createAlbumSplitRoutes, { prefix: '/api/v1' });
     instance.register(createAlbumMoveRoutes, { prefix: '/api/v1' });
     instance.register(createNamingRoutes, { prefix: '/api/v1' });

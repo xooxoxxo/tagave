@@ -6,7 +6,7 @@
  * carry the plan's values (fill blanks only keeps the source's album name);
  * Revert puts the source back and the tracks into the trash.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -149,6 +149,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || !hasFfmpeg || !hasMutagen)('a 
   it('Apply splits first, then the new tracks carry the plan\'s values', async () => {
     // what POST /apply does once the cuts are found
     await sql`update album_splits set state = 'splitting' where id = ${splitId}`;
+    await expect(tagsApplyJob(ctx, { planId }, {
+      split: {
+        ...deps(),
+        checkpoint: async (stage) => {
+          if (stage === 'Recording the split') throw new Error('Interrupted after moving the source');
+        },
+      },
+    })).rejects.toThrow('Interrupted after moving the source');
+    expect((await sql`select state from album_splits where id = ${splitId}`)[0].state).toBe('splitting');
+    expect((await sql`select status from tag_plans where id = ${planId}`)[0].status).toBe('paused');
+    expect((await sql`select count(*)::int as n from file_deletions where file_id = ${fileId}`)[0].n).toBe(0);
     await tagsApplyJob(ctx, { planId }, { split: deps() });
     const [plan] = await sql`select status, stats from tag_plans where id = ${planId}`;
     expect(plan.status).toBe('applied');
@@ -178,7 +189,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || !hasFfmpeg || !hasMutagen)('a 
 
   it('Revert puts the source back and the new tracks into the trash', async () => {
     sent.length = 0;
-    await tagsRevertJob(ctx, { planId });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-05T10:00:00Z'));
+    try {
+      await tagsRevertJob(ctx, { planId });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(await readdir(abs(dir))).toEqual(['whole.flac']);
     const back = await parseFile(abs(rel));
     expect(back.common.title).toBe('Whole album');

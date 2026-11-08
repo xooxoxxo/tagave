@@ -46,3 +46,5 @@ export * from './albumGaps.js';
 export * from './modules.js';
 export * from './lidarr.js';
 export * from './musicFolder.js';
+export * from './maintenance.js';
+export * from './flacUpgrade.js';

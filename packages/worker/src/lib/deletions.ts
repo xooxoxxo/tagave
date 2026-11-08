@@ -15,10 +15,12 @@
  */
 import { lstat, mkdir, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { albumKeyLock } from '@tagave/db';
+import { albumKeyLock, updateMaintenanceTask, type MaintenanceWork } from '@tagave/db';
 import { TRASH_DAYS, TRASH_DIR } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { refreshAlbumCounters } from '../jobs/clusterDir.js';
+import { fileStat, insideRoot, mountIdentity } from './fileRecovery.js';
+import { runMaintenance, type MaintenanceRun } from './maintenance.js';
 import { albumsChanged } from './albumCare.js';
 
 const BATCH = 1000;
@@ -116,8 +118,14 @@ export async function onDisk(root: string, relPath: string): Promise<string | nu
 export async function ensureTrashDir(root: string): Promise<string> {
   const dir = path.join(root, TRASH_DIR);
   await mkdir(dir, { recursive: true });
+  if (!(await fileStat(dir))?.isDirectory()) throw new Error('The Trash folder is not a directory');
   const ignore = path.join(dir, NDIGNORE);
-  if (!(await exists(ignore))) await writeFile(ignore, '');
+  if (!(await fileStat(ignore))) {
+    await writeFile(ignore, '', { flag: 'wx' }).catch((err: NodeJS.ErrnoException) => {
+      if (err.code !== 'EEXIST') throw err;
+    });
+  }
+  if (!(await fileStat(ignore))?.isFile()) throw new Error('The Trash marker is not a regular file');
   return dir;
 }
 
@@ -127,19 +135,22 @@ type Outcome = 'trashed' | 'marked' | 'gone';
  * Moves one file into its root's trash. 'marked' when it cannot (another
  * filesystem, no write access): the row becomes a mark with the reason.
  */
-export async function trashOne(root: string, relPath: string, day: string): Promise<{ outcome: Outcome; trashRelPath?: string; error?: string }> {
+export async function trashOne(root: string, relPath: string, day: string): Promise<{ outcome: Outcome; trashRelPath?: string; trashMount?: string; error?: string }> {
   const src = await onDisk(root, relPath);
   if (!src) return { outcome: 'gone' };
   try {
+    const trashMount = await mountIdentity(root);
     const trashDir = await ensureTrashDir(root);
     if ((await stat(src)).dev !== (await stat(trashDir)).dev) return { outcome: 'marked', error: 'On another disk than its music folder' };
     let rel = trashRelPath(relPath, day);
     // the same path trashed twice in a day: the later one gets a numbered day folder
     for (let n = 2; await exists(path.join(root, rel)); n++) rel = trashRelPath(relPath, `${day}-${n}`);
     const dest = path.join(root, rel);
+    await insideRoot(root, src);
+    await insideRoot(trashDir, dest);
     await mkdir(path.dirname(dest), { recursive: true });
     await rename(src, dest);
-    return { outcome: 'trashed', trashRelPath: rel };
+    return { outcome: 'trashed', trashRelPath: rel, trashMount };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return { outcome: 'gone' };
@@ -147,15 +158,16 @@ export async function trashOne(root: string, relPath: string, day: string): Prom
   }
 }
 
-interface Row { fileId: string; libraryId: string; root: string; relPath: string; trashRelPath: string | null }
+interface Row { fileId: string; libraryId: string; root: string; relPath: string; trashRelPath: string | null; trashMount: string | null }
 
 async function rowsIn(ctx: Pick<WorkerContext, 'sql'>, libraryId: string | null, state: string, olderThanDays?: number): Promise<Row[]> {
   return (await ctx.sql`
     select fd.file_id::text as "fileId", fd.library_id::text as "libraryId", sr.path as root,
-           fd.rel_path as "relPath", fd.trash_rel_path as "trashRelPath"
+           fd.rel_path as "relPath", fd.trash_rel_path as "trashRelPath", fd.trash_mount as "trashMount"
       from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
      where fd.kind = 'trash' and fd.state = ${state}
        and (${libraryId}::uuid is null or fd.library_id = ${libraryId}::uuid)
+       and fd.purge_task_id is null
        and (${olderThanDays ?? null}::int is null or fd.trashed_at < now() - make_interval(days => ${olderThanDays ?? 0}))
      order by fd.created_at`) as unknown as Row[];
 }
@@ -171,7 +183,7 @@ export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, 
     const out = await trashOne(r.root, r.relPath, day);
     if (out.outcome === 'trashed') {
       trashed++;
-      await ctx.sql`update file_deletions set state = 'trashed', trash_rel_path = ${out.trashRelPath!}, trashed_at = now(), error = null
+      await ctx.sql`update file_deletions set state = 'trashed', trash_rel_path = ${out.trashRelPath!}, trash_mount = ${out.trashMount ?? null}, trashed_at = now(), error = null
                      where file_id = ${r.fileId} and state = 'moving'`;
     } else if (out.outcome === 'marked') {
       marked++;
@@ -245,26 +257,147 @@ async function removeEmptyDirs(root: string, dir: string): Promise<void> {
   }
 }
 
-/** Deletes what is in the trash for real: everything (Empty trash) or what is older than `olderThanDays`. */
+async function checkedTrash(root: string): Promise<{ mount: string; dir: string }> {
+  const mount = await mountIdentity(root).catch(() => {
+    throw new Error('The music folder is unavailable. Check the mount.');
+  });
+  const dir = path.join(root, TRASH_DIR);
+  if (!(await fileStat(dir))?.isDirectory() || !(await fileStat(path.join(dir, NDIGNORE)))?.isFile()) {
+    throw new Error('The music folder’s Trash is unavailable. Check the mount.');
+  }
+  if ((await stat(root)).dev !== (await stat(dir)).dev) throw new Error('Trash is on a different mount.');
+  return { mount, dir };
+}
+
+async function checkedTrashFile(dir: string, rel: string | null): Promise<string> {
+  if (!rel?.startsWith(TRASH_DIR + '/') || rel.split('/').some((segment) => !segment || segment === '..' || segment === '.')) {
+    throw new Error('The file has no valid Trash path.');
+  }
+  const root = path.dirname(dir);
+  for (const name of new Set([rel, rel.normalize('NFD'), rel.normalize('NFC')])) {
+    const file = path.join(root, name);
+    const info = await fileStat(file);
+    if (!info) continue;
+    await insideRoot(dir, file);
+    if (!info.isFile() || info.dev !== (await stat(dir)).dev) throw new Error('The Trash file changed or is on another mount.');
+    return file;
+  }
+  throw new Error('The selected file is missing from Trash.');
+}
+
+async function cleanPurged(ctx: WorkerContext, libraryId: string | null): Promise<number> {
+  const rows = await ctx.sql<{ id: string }[]>`
+    select file_id as id from file_deletions where state = 'purged'
+      and (${libraryId}::uuid is null or library_id = ${libraryId}::uuid)`;
+  return (await dropDeletedFiles(ctx, rows.map((row) => row.id))).dropped;
+}
+
+/** Scheduled cleanup locks an eligible row against Restore and a manual purge. */
 export async function emptyTrash(ctx: WorkerContext, libraryId: string | null, olderThanDays?: number): Promise<{ deleted: number; failed: number }> {
   const rows = await rowsIn(ctx, libraryId, 'trashed', olderThanDays);
-  const done: string[] = [];
   let failed = 0;
   for (const r of rows) {
-    const p = r.trashRelPath ? await onDisk(r.root, r.trashRelPath) : null;
     try {
-      if (p) {
-        await unlink(p);
-        await removeEmptyDirs(r.root, path.dirname(p));
-      }
-      done.push(r.fileId);
+      await ctx.sql.begin(async (tx) => {
+        const [locked] = await tx`select fd.file_id from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
+          where fd.file_id = ${r.fileId} and fd.state = 'trashed' and fd.purge_task_id is null
+            and fd.trash_rel_path = ${r.trashRelPath} and sr.path = ${r.root} for update of fd skip locked`;
+        if (!locked) return;
+        const { dir, mount } = await checkedTrash(r.root);
+        if (r.trashMount && r.trashMount !== mount) throw new Error('The Trash mount changed.');
+        const file = await checkedTrashFile(dir, r.trashRelPath);
+        await unlink(file);
+        await tx`update file_deletions set state = 'purged' where file_id = ${r.fileId}`;
+        await removeEmptyDirs(r.root, path.dirname(file));
+      });
     } catch (err) {
       failed++;
-      await ctx.sql`update file_deletions set error = ${(err as Error).message} where file_id = ${r.fileId}`;
+      await ctx.sql`update file_deletions set error = ${(err as Error).message}
+        where file_id = ${r.fileId} and state = 'trashed' and purge_task_id is null`;
     }
   }
-  const { dropped } = await dropDeletedFiles(ctx, done);
-  return { deleted: dropped, failed };
+  return { deleted: await cleanPurged(ctx, libraryId), failed };
+}
+
+interface PurgeFlight {
+  id: string;
+  mount: string;
+  file: string;
+  fingerprint: string;
+}
+type PurgeCheckpoint = { index: number; inFlight?: PurgeFlight };
+type PurgeRow = { root: string; trash: string | null; trashMount: string | null };
+
+async function fingerprint(file: string): Promise<string | null> {
+  const info = await fileStat(file);
+  if (!info) return null;
+  if (!info.isFile()) throw new Error('The Trash path is no longer a regular file.');
+  return JSON.stringify([info.dev, info.ino, info.size, info.mtimeMs]);
+}
+
+async function purgeSelected(ctx: WorkerContext, work: MaintenanceWork, claim: MaintenanceRun) {
+  const { row } = claim;
+  const selection = row.input.fileIds as string[] | undefined;
+  if (!selection?.length) throw new Error('No confirmed Trash selection.');
+  const checkpoint = row.checkpoint as PurgeCheckpoint | null;
+  const total = selection.length;
+  let index = checkpoint?.index ?? 0;
+  await claim.update({ stage: 'Emptying Trash', progress: { done: index, total } });
+  while (index < total) {
+    const id = selection[index]!;
+    let flight = checkpoint?.inFlight?.id === id ? checkpoint.inFlight : undefined;
+    if ((await claim.current()).cancel_requested && !flight) break;
+    if (!flight) {
+      const [selected] = await ctx.sql<PurgeRow[]>`
+        select sr.path as root, fd.trash_rel_path as trash, fd.trash_mount as "trashMount" from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
+        where fd.file_id = ${id} and fd.purge_task_id = ${row.id} and fd.state = 'trashed' and sr.writable`;
+      if (!selected) throw new Error('A selected Trash entry or its writable music folder changed.');
+      const { mount, dir } = await checkedTrash(selected.root);
+      if (selected.trashMount && selected.trashMount !== mount) throw new Error('The Trash mount changed.');
+      const file = await checkedTrashFile(dir, selected.trash);
+      const expected = await fingerprint(file);
+      if (!expected) throw new Error('The selected file disappeared before deletion.');
+      flight = { id, mount, file, fingerprint: expected };
+      await claim.update({ checkpoint: { index, inFlight: { ...flight } } });
+    }
+
+    const pending = flight;
+    const removed = await ctx.sql.begin(async (tx) => {
+      const [selected] = await tx<PurgeRow[]>`
+        select sr.path as root, fd.trash_rel_path as trash, fd.trash_mount as "trashMount" from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
+        where fd.file_id = ${id} and fd.purge_task_id = ${row.id} and fd.state = 'trashed' and sr.writable for update of fd`;
+      if (!selected) throw new Error('A reserved Trash entry changed.');
+      const { mount, dir } = await checkedTrash(selected.root);
+      if (mount !== pending.mount) throw new Error('The music mount changed during Empty Trash.');
+      const actual = await fingerprint(pending.file);
+      if (actual !== null) {
+        if (actual !== pending.fingerprint || await checkedTrashFile(dir, selected.trash) !== pending.file) {
+          throw new Error('The selected Trash file was replaced.');
+        }
+        if ((await claim.current()).cancel_requested) return false;
+        await unlink(pending.file);
+      }
+      await tx`update file_deletions set state = 'purged' where file_id = ${id}`;
+      if (!await updateMaintenanceTask(tx, work, { checkpoint: { index: index + 1 }, progress: { done: index + 1, total } })) {
+        throw new Error('Empty Trash lost its worker claim');
+      }
+      await removeEmptyDirs(selected.root, path.dirname(pending.file));
+      return true;
+    });
+    if (!removed) break;
+    index++;
+
+    if (index % 100 === 0) await cleanPurged(ctx, row.library_id);
+  }
+  await cleanPurged(ctx, row.library_id);
+  const cancelled = (await claim.current()).cancel_requested;
+  await ctx.sql`update file_deletions set purge_task_id = null where purge_task_id = ${row.id}`;
+  return {
+    state: cancelled ? 'cancelled' as const : 'done' as const,
+    stage: cancelled ? 'Empty Trash cancelled' : 'Trash selection deleted',
+    progress: { done: index, total },
+    checkpoint: null,
+  };
 }
 
 export interface FilesTrashJobData {
@@ -272,6 +405,7 @@ export interface FilesTrashJobData {
   libraryId?: string;
   /** move: what waits to go in · restore: what waits to come back · empty: Empty trash · sweep: the daily run */
   action?: 'move' | 'restore' | 'empty' | 'sweep';
+  maintenance?: MaintenanceWork;
 }
 
 /** files.trash: the moves into and out of the trash, Empty trash, and the daily 30-day clean-up. */
@@ -280,7 +414,15 @@ export async function filesTrashJob(ctx: WorkerContext, data: FilesTrashJobData)
   switch (data.action) {
     case 'move': return moveWaiting(ctx, lib);
     case 'restore': return restoreWaiting(ctx, lib);
-    case 'empty': return emptyTrash(ctx, lib);
+    case 'empty': {
+      if (!data.maintenance) {
+        ctx.logger.warn({ libraryId: lib }, 'Ignored legacy Empty Trash job without a confirmed selection');
+        return { skipped: 'No confirmed Trash selection' };
+      }
+      const work = data.maintenance;
+      await runMaintenance(ctx, work, (claim) => purgeSelected(ctx, work, claim));
+      return {};
+    }
     default: {
       // the daily run also picks up a move or restore whose job was lost
       const moved = await moveWaiting(ctx, lib);

@@ -14,6 +14,9 @@ import {
   images,
   releaseGroupArtists,
   canonicalTracks,
+  latestMaintenanceTask,
+  restartMaintenanceTask,
+  saveMaintenanceTask,
 } from '@tagave/db';
 import {
   type CreateTagPlan,
@@ -31,6 +34,7 @@ import {
   type TagPolicies,
   can,
 } from '@tagave/shared';
+import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
 import { ensurePlanSplits, hasPendingSplits, planSplitsOf, splitGate } from '../lib/planSplits.js';
 
 /**
@@ -528,7 +532,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // 0089: an album that is one file holding the whole album is split
       // first; its cut points are found now, before the preview leaves it out
       if (scope.type === 'albumIds' && splitsFirst(body.policy, (request.user as { role?: string }).role)) {
-        await ensurePlanSplits(getSql(), { libraryId, planId, albumIds: scope.albumIds, userId: request.user.id });
+        await ensurePlanSplits(getSql(), { libraryId, planId, albumIds: scope.albumIds, userId: request.user.id }, request.log);
       }
 
       const plans = await db
@@ -650,6 +654,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       };
       const splits = await planSplitsOf(getSql(), planId);
       if (splits.length > 0) formatted.splits = splits;
+
+      if (can(request.user.role, 'system.manage')) {
+        const task = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
+        if (task && task.state !== 'done') formatted.applyTask = maintenanceView(task, await liveMaintenanceQueues());
+      }
 
       reply.send(formatted);
     }
@@ -990,6 +999,10 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // A split writes the music folder and trashes the source: owner only,
       // as the album page's Split (system.manage). Only the owner's checks count.
       const owner = can((request.user as { role?: string }).role, 'system.manage');
+      const applying = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
+      if (applying && !['done', 'cancelled'].includes(applying.state)) {
+        throw new ApiError(409, 'Conflict', 'The Tag Plan already has an active task.');
+      }
       if (!owner && (await hasPendingSplits(getSql(), planId))) {
         throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
       }
@@ -1033,8 +1046,17 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       }
 
       if (gate.splitIds.length > 0) {
-        await getSql()`update album_splits set state = 'splitting', updated_at = now()
-                        where id = any(${gate.splitIds}::uuid[]) and tag_plan_id = ${planId} and state = 'ready'`;
+        const task = await getSql().begin(async (tx) => {
+          const splitRows = await tx`update album_splits set state = 'splitting', updated_at = now()
+            where id = any(${gate.splitIds}::uuid[]) and tag_plan_id = ${planId} and state = 'ready' returning id`;
+          if (splitRows.length !== gate.splitIds.length) throw new ApiError(409, 'Conflict', 'A split changed. Reload this plan.');
+          return saveMaintenanceTask(tx, {
+            libraryId, kind: 'split', scope: `plan:${planId}:apply`, subjectId: planId,
+            queue: 'tags.apply', input: { planId }, stage: 'Tag Plan queued',
+          });
+        });
+        await dispatchMaintenance(task.id, request.log);
+        return reply.status(202).send({ jobId: task.attempt_id, singletonKey: `tags.apply:${planId}`, message: 'Apply job enqueued' });
       }
 
       // Enqueue the tags.apply job with singletonKey
@@ -1094,6 +1116,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         throw new ApiError(400, 'Bad Request', `Cannot pause plan in status '${plan.status}'`);
       }
 
+      const splitTask = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
+      if (splitTask && !['done', 'cancelled'].includes(splitTask.state)) {
+        throw new ApiError(409, 'Conflict', 'Finish the split task before changing this plan.');
+      }
+
       // Update plan status to paused
       await db
         .update(tagPlans)
@@ -1148,6 +1175,22 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // 0089: a resumed apply runs the plan's splits too: owner only, as Apply and Split
       if (!can((request.user as { role?: string }).role, 'system.manage') && (await hasPendingSplits(getSql(), planId))) {
         throw new ApiError(403, 'Forbidden', 'Only the owner can resume a plan that splits an album');
+      }
+
+      if (can(request.user.role, 'system.manage')) {
+        const sql = getSql();
+        const previous = await latestMaintenanceTask(sql, libraryId, 'split', `plan:${planId}:apply`);
+        if (previous || await hasPendingSplits(sql, planId)) {
+          const task = previous
+            ? await restartMaintenanceTask(sql, libraryId, previous.id, previous.attempt)
+            : await saveMaintenanceTask(sql, {
+              libraryId, kind: 'split', scope: `plan:${planId}:apply`, subjectId: planId,
+              queue: 'tags.apply', input: { planId }, stage: 'Tag Plan queued',
+            });
+          if (!task) throw new ApiError(409, 'Conflict', 'The Tag Plan task is already active.');
+          await dispatchMaintenance(task.id, request.log);
+          return reply.status(202).send({ jobId: task.attempt_id, singletonKey: `tags.apply:${planId}`, message: 'Apply job re-enqueued' });
+        }
       }
 
       // Enqueue the tags.apply job to resume processing
@@ -1205,6 +1248,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       if (!['applying', 'paused'].includes(plan.status as string)) {
         throw new ApiError(400, 'Bad Request', `Cannot cancel plan in status '${plan.status}'`);
+      }
+
+      const splitTask = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
+      if (splitTask && !['done', 'cancelled'].includes(splitTask.state)) {
+        throw new ApiError(409, 'Conflict', 'Finish the split task before changing this plan.');
       }
 
       // Update plan status to cancelled
@@ -1439,7 +1487,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         const [now] = await db.select({ policy: tagPlans.policy, scope: tagPlans.scope }).from(tagPlans).where(eq(tagPlans.id, planId));
         const policy = now?.policy as TagPolicies | undefined;
         if (policy && splitsFirst(policy, (request.user as { role?: string } | undefined)?.role)) {
-          await ensurePlanSplits(getSql(), { libraryId, planId, albumIds: (now!.scope as { albumIds?: string[] }).albumIds ?? [], userId: request.user!.id });
+          await ensurePlanSplits(getSql(), { libraryId, planId, albumIds: (now!.scope as { albumIds?: string[] }).albumIds ?? [], userId: request.user!.id }, request.log);
         }
         // Same singleton key as the preview route. The queue is 'stately': a
         // preview already waiting absorbs this one (it reads the new scope

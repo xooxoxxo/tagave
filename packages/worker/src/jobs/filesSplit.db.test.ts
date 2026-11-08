@@ -276,6 +276,27 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('files.split on the file worker 
     expect(f.calls.filter((c) => c.includes('-o'))).toEqual([]);
   });
 
+  it('resumes the same verified tracks if interrupted before publication', async () => {
+    const id = await planned();
+    const interrupted = await filesSplitJob(ctx, { splitId: id, action: 'split' }, {
+      ...deps(),
+      checkpoint: async (stage) => {
+        if (stage === 'Publishing verified tracks') throw new Error('Interrupted before publication');
+      },
+    });
+    expect(interrupted.state).toBe('interrupted');
+    expect(await there(abs(rel))).toBe(true);
+    expect(await there(abs('Strapping Young Lad/2003/01 - Dirt Pride.flac'))).toBe(false);
+    expect((await splitRow(id)).write_checkpoint.digests).toHaveLength(3);
+    await filesSplitJob(ctx, { splitId: id, action: 'split' }, deps());
+    expect(f.calls.filter((call) => call.includes('-o'))).toHaveLength(3);
+    await sql`update file_deletions set state = 'restoring' where file_id = ${fileId}`;
+    await restoreWaiting(ctx, libraryId);
+    const finished = await splitRow(id);
+    await Promise.all(finished.outputs.map((output: string) => rm(abs(output))));
+    await sql`delete from audit_log where library_id = ${libraryId} and action = 'album.split'`;
+  });
+
   it('splits: the tracks, tagged from the release; the source into the trash; a scan; an audit entry', async () => {
     const id = await planned();
     const out = await filesSplitJob(ctx, { splitId: id, action: 'split' }, deps());

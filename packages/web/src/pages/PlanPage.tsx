@@ -13,6 +13,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { splitDoneLine, type PlanSplit, type TagDiffEntry, type TagPlanItem } from '@tagave/shared';
 import { PageShell, Button, Badge, Banner, SegmentedControl, UndoIcon, confirmDialog, showToast, type ConfirmOptions } from '../components/ui';
 import { PlanSplits } from './PlanSplits';
+import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
 import { useAlbumDrawer } from './AlbumMenu';
 
 const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
@@ -270,7 +271,10 @@ export function PlanPage() {
   const job = status === 'draft' ? planQ.data?.previewJob : undefined;
   const jobActive = job?.state === 'queued' || job?.state === 'running';
   const polling = shouldPollPlan({ previewRequested, jobActive, awaiting, status });
-  const liveQ = useTagPlan(libraryId, planId, { refetchInterval: polling ? 2000 : false });
+  const splitsWaiting = planQ.data?.splits?.some((split) => split.state === 'analyzing' || split.task?.workerAvailable === false);
+  const applyTask = planQ.data?.applyTask;
+  const applyWaiting = applyTask && (applyTask.state === 'waiting' || applyTask.state === 'running' || !applyTask.workerAvailable);
+  const liveQ = useTagPlan(libraryId, planId, { refetchInterval: polling ? 2000 : splitsWaiting || applyWaiting ? 5000 : false });
   const p = liveQ.data ?? planQ.data;
 
   useEffect(() => {
@@ -494,8 +498,10 @@ export function PlanPage() {
     }
     void qc.invalidateQueries({ queryKey: ['identify-status', libraryId] });
   };
-  const canApply = p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots && !pendingSplits.some((x) => x.state === 'analyzing');
+  const analysisStopped = splits.some((x) => x.state === 'failed' && !x.plan);
+  const canApply = !applyTask && !analysisStopped && p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots && !pendingSplits.some((x) => x.state === 'analyzing');
   const applyTitle = !previewed ? 'Preview has not finished yet'
+    : analysisStopped ? 'Retry the stopped cut point analysis'
     : nothingToDo ? 'Nothing to change'
       : pendingSplits.some((x) => x.state === 'analyzing') ? 'Finding cut points'
       : tagWritesDisabled ? 'Tag writes are off in Settings › Tag preferences'
@@ -627,13 +633,13 @@ export function PlanPage() {
               {applyM.isPending || awaiting !== null ? 'Starting…' : 'Apply now'}
             </Button>
           )}
-          {p.status === 'applying' && (
+          {p.status === 'applying' && !applyTask && (
             <>
               <Button variant="secondary" onClick={run(pauseM)} disabled={pauseM.isPending}>Pause</Button>
               <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
-          {p.status === 'paused' && (
+          {p.status === 'paused' && !applyTask && (
             <>
               <Button variant="primary" onClick={run(resumeM)} disabled={resumeM.isPending || awaiting !== null}>{awaiting !== null ? 'Resuming…' : 'Resume'}</Button>
               <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
@@ -805,7 +811,8 @@ export function PlanPage() {
           <Banner tone="info">Every file in scope already carries {isManual ? 'the values you set' : 'the canonical values under this policy'}. Nothing to apply.</Banner>
         ) : null}
 
-        <PlanSplits splits={splits} onCheck={p.status === 'previewed' ? (x) => setChecking(x) : null} />
+        {applyTask && libraryId && <MaintenanceTaskStatus task={applyTask} libraryId={libraryId} />}
+        <PlanSplits libraryId={libraryId} splits={splits} onCheck={p.status === 'previewed' ? (x) => setChecking(x) : null} />
         {checking?.albumId && libraryId && (
           <Suspense fallback={null}>
             <SplitSheet

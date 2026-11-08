@@ -26,6 +26,8 @@ import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState, type 
 import type { IdentifyRequestView } from '@tagave/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { useFlacUpgrade } from '../hooks/useFlacUpgrade';
+import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
 import { useCan, useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned, type PreviousPhysicalLink } from '../hooks';
 import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
 import { invalidateAlbumCare } from '../hooks/useGaps';
@@ -40,6 +42,7 @@ import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import { useEditionSwitch } from '../hooks/useEditionSwitch';
 import { IdentifyRequestPanel, requestSummary } from '../components/IdentifyRequestPanel';
 import { useMaintenance } from '../maintenance';
+import { useMaintenanceAction } from '../hooks/useMaintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { PageBackActionContext } from '../components/ui/PageShell';
 import { isNotFound, NotFoundPage } from '../components/NotFound';
@@ -131,6 +134,7 @@ export function AlbumDetailPage() {
   // a listener's album page is the music: no Manage menu, decisions or Maintenance key
   const canCare = useCan('library.edit');
   const canSplit = useCan('system.manage');
+  const upgrade = useFlacUpgrade(libraryId, albumId, canSplit);
   const [splitOpen, setSplitOpen] = useState(false);
   // Maintenance, the owner: songs picked to move to another album or delete
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -232,6 +236,7 @@ export function AlbumDetailPage() {
       // background sweep's job, which can sit in the queue for a long time.
       const art = (q.state.data as AlbumDetail | undefined)?.artFetch?.state;
       if (art === 'queued' || art === 'running') return artPollMs(artAskedRef.current, maintenanceRef.current);
+      if (art === 'unavailable' || q.state.data?.artFetch?.task?.workerAvailable === false && (art === 'failed' || art === 'interrupted')) return 5000;
       // a physical copy on its way to Discogs: "adding to Discogs…" clears itself
       return (q.state.data as AlbumDetail | undefined)?.discogsCollectionItems?.some((i) => i.pushState === 'pending') ? 5000 : false;
     },
@@ -255,6 +260,7 @@ export function AlbumDetailPage() {
     mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/fetch-art`),
     onSuccess: () => { setArtAsked(true); refresh(0); },
   });
+  const coverAction = useMaintenanceAction(libraryId);
   const keepAsIs = useMutation({
     mutationFn: () => api.post(`/albums/${albumId}/as-is`),
     onSuccess: () => refresh(),
@@ -856,6 +862,17 @@ export function AlbumDetailPage() {
 
   // ---- the Maintenance tools (in ⋮ while Maintenance is on) ----
 
+  const upgradeTask = upgrade.view.data?.task;
+  const startUpgrade = async () => {
+    if (!await confirmDialog({
+      title: 'Upgrade this album to FLAC?',
+      message: 'Tagave will use Lidarr to download this edition, verify and tag the FLAC files, then replace the album. The original will go to Trash.',
+      confirmLabel: 'Upgrade to FLAC',
+    })) return;
+    upgrade.request.mutate(undefined, {
+      onError: (err) => showToast({ message: (err as { detail?: string }).detail ?? 'Couldn’t queue the upgrade.', tone: 'danger' }),
+    });
+  };
   const tool = (a: Omit<AlbumMenuAction, 'icon'>): AlbumMenuAction => ({ ...a, icon: 'tool' });
   const tools: AlbumMenuAction[] = [
     tool({ key: 'reidentify', label: reidentify.isPending ? 'Queuing…' : 'Re-identify', hint: requestLive ? 'A request is already queued' : 'Look this album up again', disabled: requestLive || reidentify.isPending, onSelect: () => reidentify.mutate() }),
@@ -879,12 +896,19 @@ export function AlbumDetailPage() {
   // live while the job is queued or running, then gone when the art lands,
   // or a plain "none found" when the lookup came back empty.
   const artState = album.artFetch?.state;
+  const coverTask = album.artFetch?.task;
   const artLive = artState === 'queued' || artState === 'running';
-  const artNote: { text: string; live: boolean } | null =
-    artLive && (artAsked || maintenance) ? { text: artState === 'running' ? 'Looking for cover art…' : 'Cover art lookup queued…', live: true }
-      : artAsked && !album.coverUrl && artState === 'done' ? { text: 'No cover art found: none in the files or the folder, and none on Cover Art Archive or Discogs.', live: false }
-        : artAsked && artState === 'failed' ? { text: 'The cover art lookup failed. Try again from the ⋮ menu.', live: false }
-          : null;
+  const retryCover = coverTask?.actions.includes('retry') ? (
+    <Button variant="quiet" size="sm" disabled={coverAction.isPending} onClick={() => coverAction.mutate({ id: coverTask.id, action: 'retry' })}>Retry</Button>
+  ) : null;
+  const artNote: { text: string; live: boolean; action?: ReactNode } | null =
+    (artAsked || maintenance) && artState === 'unavailable' ? { text: 'Cover art is waiting for the file worker.', live: false }
+      : artLive && (artAsked || maintenance) ? { text: artState === 'running' ? 'Looking for cover art…' : 'Cover art lookup queued…', live: true }
+        : (artAsked || (maintenance && !!coverTask)) && !album.coverUrl && artState === 'done'
+          ? { text: 'No cover art found.', live: false }
+          : (artAsked || maintenance) && (artState === 'failed' || artState === 'interrupted')
+            ? { text: coverAction.isError ? 'Couldn’t retry the cover art lookup.' : artState === 'interrupted' ? 'The cover art lookup stopped.' : 'The cover art lookup failed.', live: false, action: retryCover }
+            : null;
   const plainNote = note ?? folder.note ?? (fingerprint.isError ? errorDetail(fingerprint) : null)
     ?? (reidentify.isError ? errorDetail(reidentify) : null) ?? (fetchArt.isError ? errorDetail(fetchArt) : null);
   const statusNote: { text: string; live: boolean } | null = artNote ?? (plainNote ? { text: plainNote, live: false } : null);
@@ -963,6 +987,9 @@ export function AlbumDetailPage() {
     // from the drawer, focus goes back to the ⋮ that opened it; the dropdown has just put it back on its own ⋮
     onInfo: () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; openInfo('about'); },
     tools,
+    upgrade: upgrade.view.data?.eligible
+      ? tool({ key: 'flac-upgrade', label: 'Upgrade to FLAC', disabled: upgrade.request.isPending, onSelect: () => void startUpgrade() })
+      : null,
     onToggleMaintenance: () => setMaintenance(!maintenance),
     listen: listenLinks.data?.available ? listenLinks.data.links : [],
     queue: playState && !playState.disabled ? {
@@ -1086,6 +1113,7 @@ export function AlbumDetailPage() {
   };
   // Tools: the album's everyday fixes (the ⋮ keeps every tool too)
   const inspectorTools: InspectorTool[] = [
+    ...(upgrade.view.data?.eligible ? [{ key: 'flac-upgrade', label: 'Upgrade to FLAC', disabled: upgrade.request.isPending, onSelect: () => void startUpgrade() }] : []),
     ...(canCare && libraryId ? [{ key: 'tag', label: 'Tag…', onSelect: openTag }] : []),
     ...(canSplit && visibleTracks.length > 0 ? [{ key: 'move', label: 'Move songs…', onSelect: () => moveSongs(pickedIds.length > 0 ? pickedIds : visibleTracks.map((t) => t.id)) }] : []),
     { key: 'manual', label: 'Match to a release', disabled: requestLive, onSelect: openManual },
@@ -1121,11 +1149,13 @@ export function AlbumDetailPage() {
     ) : null,
     selection,
     tools: inspectorTools,
+    upgrade: upgradeTask && libraryId ? <MaintenanceTaskStatus task={upgradeTask} libraryId={libraryId} /> : null,
     sections: { value: tab, onChange: (next) => openSection(next), live: requestLive },
     reveal,
   };
   const statusSlot = (
     <div className={styles.statusSlot} role="status" aria-live="polite">
+      {!maintenance && upgradeTask && libraryId && <MaintenanceTaskStatus task={upgradeTask} libraryId={libraryId} />}
       {statusNote && (
         <p className={styles.statusNote}>
           {statusNote.live && <span className={styles.statusSpinner} aria-hidden="true" />}
@@ -1216,7 +1246,7 @@ export function AlbumDetailPage() {
 
           {/* Upkeep: only what needs a decision. In Maintenance the inspector holds it all:
               the sidebar on a desktop, one "To fix · 3" row here below 1024px */}
-          <div className={styles.upkeep} hidden={maintenance ? sidebar : !(statusNote || (manualOpen && !matchRowOpen) || items.length > 0)}>
+          <div className={styles.upkeep} hidden={maintenance ? sidebar : !(statusNote || upgradeTask || (manualOpen && !matchRowOpen) || items.length > 0)}>
             {maintenance ? (<>
               <MaintenanceSummary meter={fix.meter} open={fixOpen} onOpen={(b) => { fixOpener.current = b; setFixOpen(true); }} />
               {statusSlot}

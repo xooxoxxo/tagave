@@ -32,7 +32,7 @@ const TABLE_CATEGORY: Record<string, StorageCategoryKey> = {
   user_reviews: 'care', user_review_revisions: 'care', listens: 'care', clippings: 'care',
   collection_items: 'care', collection_sources: 'care', wantlist_items: 'care', player_links: 'care',
   player_track_map: 'library', player_scan_requests: 'library', player_events: 'care',
-  job_runs: 'jobs', worker_heartbeats: 'jobs',
+  job_runs: 'jobs', worker_heartbeats: 'jobs', maintenance_tasks: 'jobs',
 };
 
 /** The group a table belongs to; pg-boss's own schema is the job queue. */
