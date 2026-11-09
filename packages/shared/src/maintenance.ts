@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const MAINTENANCE_KINDS = ['cover', 'split', 'empty-trash', 'flac-upgrade'] as const;
+export const MAINTENANCE_KINDS = ['cover', 'embed-cover', 'split', 'empty-trash', 'flac-upgrade'] as const;
 export type MaintenanceKind = typeof MAINTENANCE_KINDS[number];
 export const maintenanceTaskSchema = z.object({
   id: z.string().uuid(),
@@ -23,6 +23,7 @@ export type MaintenanceProgress = NonNullable<MaintenanceTaskView['progress']>;
 
 export const MAINTENANCE_LABELS: Record<MaintenanceKind, string> = {
   cover: 'Cover art lookup',
+  'embed-cover': 'Embed cover art',
   split: 'Split album',
   'empty-trash': 'Empty Trash',
   'flac-upgrade': 'Upgrade to FLAC',

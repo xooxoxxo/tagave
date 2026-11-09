@@ -286,7 +286,7 @@ Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --
 
 | Kind | Taken | Deleted |
 |---|---|---|
-| Nightly | every night at 03:00 in the container's `TZ` (change it on the Backups page) | by retention: the newest of each of the last 7 days and the newest of each of the last 4 weeks are kept |
+| Scheduled | Nightly at 03:00, Daily at a chosen hour, Weekly on a chosen day and hour, or Off. Times use the container's `TZ`. | by retention: the newest of each of the last 7 days with backups and the newest of each of the last 4 weeks with backups are kept |
 | Manual | "Back up now", or `tagave-doctor backup` | only when you delete it, or after the next manual backup when you set "keep the newest N" on the Backups page |
 | Before update | by the app, before it applies database updates; by the in-app updater (`tagave-doctor backup --kind before-update`) only when the app takes none (see [In-app updates](#in-app-updates)) | after a successful update, keeping the newest 3 (1–50 on the Backups page). An install that kept the earlier default of 5 keeps 5 until you pick a number |
 | Before restore | by `tagave-doctor restore --in-place` | only when you delete it |

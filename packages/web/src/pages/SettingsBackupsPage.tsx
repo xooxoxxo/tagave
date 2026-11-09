@@ -7,7 +7,7 @@
  * on top, the folder and how to restore at the foot.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { BackupEntryView, BackupKindSummaryView, BackupKindView, BackupSettingsView, BackupsStatus } from '@tagave/shared';
+import { backupFrequency, backupFrequencySchema, NIGHTLY_BACKUP_HOUR, type BackupEntryView, type BackupKindSummaryView, type BackupKindView, type BackupSettingsView, type BackupsStatus } from '@tagave/shared';
 import { Badge, Banner, Button, Menu, Select, Surface, confirmDialog, showToast } from '../components/ui';
 import { backupDownloadUrl, useBackUpNow, useBackups, useDeleteBackup, useSaveBackupSettings } from '../hooks/useBackups';
 import { formatBytes } from '../utils/format';
@@ -17,7 +17,7 @@ import { copyText } from './AlbumFolders';
 import styles from './SettingsBackupsPage.module.css';
 
 const KIND_LABEL: Record<BackupKindView, string> = {
-  nightly: 'Nightly',
+  nightly: 'Scheduled backups',
   'pre-migration': 'Before update',
   manual: 'Manual',
   'pre-restore': 'Before restore',
@@ -26,6 +26,7 @@ const KIND_LABEL: Record<BackupKindView, string> = {
 const when = (iso: string) => shortDate(iso);
 const hourLabel = (h: number) => `${String(h).padStart(2, '0')}:00`;
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** The choices of a count select: a short ladder, plus the saved value when it is not on it. */
 function ladder(values: number[], current: number | null): number[] {
@@ -135,7 +136,7 @@ function Group({ kind, summary, backups, status, save, restoreCommand, onDelete,
 }
 
 const GROUP_OF: Record<keyof BackupSettingsView, BackupKindView> = {
-  enabled: 'nightly', hour: 'nightly', keepDaily: 'nightly', keepWeekly: 'nightly', keepPreUpdate: 'pre-migration', keepManual: 'manual',
+  enabled: 'nightly', frequency: 'nightly', weekday: 'nightly', hour: 'nightly', keepDaily: 'nightly', keepWeekly: 'nightly', keepPreUpdate: 'pre-migration', keepManual: 'manual',
 };
 
 export function SettingsBackupsPage() {
@@ -156,6 +157,8 @@ function Backups({ data }: { data: BackupsStatus }) {
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const settings = pending ?? data.settings;
+  const frequency = settings.enabled ? backupFrequency(settings) : 'off';
+  const weekday = settings.weekday ?? 1;
   const kind = (k: BackupKindView) => data.kinds.find((s) => s.kind === k);
   const lastNight = data.lastNightly;
   const lastManualFailed = data.lastRun && !data.lastRun.ok && data.lastRun.kind === 'manual' ? data.lastRun : null;
@@ -197,7 +200,7 @@ function Backups({ data }: { data: BackupsStatus }) {
   return (
     <div className={styles.page}>
       {lastNight && !lastNight.ok && (
-        <Banner tone="danger">Nightly backup {when(lastNight.startedAt)} failed: {lastNight.error}</Banner>
+        <Banner tone="danger">Scheduled backup {when(lastNight.startedAt)} failed: {lastNight.error}</Banner>
       )}
       {lastManualFailed && (
         <Banner tone="danger">Backup {when(lastManualFailed.startedAt)} failed: {lastManualFailed.error}</Banner>
@@ -211,41 +214,71 @@ function Backups({ data }: { data: BackupsStatus }) {
       {backUp.error && <Banner tone="danger">Could not start the backup.</Banner>}
 
       <div className={styles.top}>
-        <span className={styles.muted}>
-          {data.backups.length === 0 ? 'No backups yet' : `${data.backups.length} · ${formatBytes(data.totalBytes)}`}
-        </span>
+        <div>
+          <p className={styles.muted}>Backs up Tagave’s database. Music files are stored separately.</p>
+          <span className={styles.muted}>
+            {data.backups.length === 0 ? 'No backups yet' : `${data.backups.length} · ${formatBytes(data.totalBytes)}`}
+          </span>
+        </div>
         <Button size="sm" onClick={() => backUp.mutate()} loading={data.running || backUp.isPending} disabled={data.running}>
           {data.running ? 'Backing up…' : 'Back up now'}
         </Button>
       </div>
 
       <Group kind="nightly" summary={kind('nightly')} status={status('nightly')} save={detail('nightly')} {...common}>
-        <Row label="Time" title={data.timeZone}>
+        <Row label="Schedule">
           <Select
             dense
             className={styles.control}
-            value={settings.enabled ? String(settings.hour) : 'off'}
-            onChange={(e) => change(e.target.value === 'off' ? { enabled: false } : { enabled: true, hour: parseInt(e.target.value, 10) })}
+            disabled={save.isPending}
+            value={frequency}
+            onChange={(e) => change(e.target.value === 'off'
+              ? { enabled: false }
+              : { enabled: true, frequency: backupFrequencySchema.parse(e.target.value) })}
           >
             <option value="off">Off</option>
-            {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+            <option value="nightly">Nightly</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
           </Select>
         </Row>
-        <Row label="Daily">
-          <Select dense className={styles.control} value={settings.keepDaily} onChange={(e) => change({ keepDaily: parseInt(e.target.value, 10) })}>
-            {ladder([1, 2, 3, 5, 7, 10, 14, 30, 60, 90], settings.keepDaily).map((n) => <option key={n} value={n}>{plural(n, 'day')}</option>)}
-          </Select>
-        </Row>
-        <Row label="Weekly">
-          <Select dense className={styles.control} value={settings.keepWeekly} onChange={(e) => change({ keepWeekly: parseInt(e.target.value, 10) })}>
-            {ladder([0, 1, 2, 4, 8, 12, 26, 52], settings.keepWeekly).map((n) => <option key={n} value={n}>{n === 0 ? 'None' : plural(n, 'week')}</option>)}
-          </Select>
-        </Row>
+        {frequency === 'weekly' && (
+          <Row label="Day of the week">
+            <Select dense className={styles.control} value={weekday} disabled={save.isPending} onChange={(e) => change({ weekday: Number(e.target.value) })}>
+              {DAYS.map((day, n) => <option key={day} value={n}>{day}</option>)}
+            </Select>
+          </Row>
+        )}
+        {(frequency === 'daily' || frequency === 'weekly') && (
+          <Row label="Time">
+            <Select dense className={styles.control} value={settings.hour} disabled={save.isPending} onChange={(e) => change({ hour: Number(e.target.value) })}>
+              {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+            </Select>
+          </Row>
+        )}
+        <p className={styles.scheduleNote}>
+          {frequency === 'off' ? 'Automatic backups are off.'
+            : frequency === 'nightly' ? `Every night at ${hourLabel(NIGHTLY_BACKUP_HOUR)} (${data.timeZone}).`
+              : `${frequency === 'daily' ? 'Every day' : `Every ${DAYS[weekday]}`} at ${hourLabel(settings.hour)} (${data.timeZone}).`}
+        </p>
+        <div className={styles.retention}>
+          <p className={styles.scheduleNote}>Retention applies to existing backups after the next scheduled run.</p>
+          <Row label="Keep recent days">
+            <Select dense className={styles.control} value={settings.keepDaily} disabled={save.isPending} onChange={(e) => change({ keepDaily: parseInt(e.target.value, 10) })}>
+              {ladder([1, 2, 3, 5, 7, 10, 14, 30, 60, 90], settings.keepDaily).map((n) => <option key={n} value={n}>{plural(n, 'day')}</option>)}
+            </Select>
+          </Row>
+          <Row label="Keep weekly copies">
+            <Select dense className={styles.control} value={settings.keepWeekly} disabled={save.isPending} onChange={(e) => change({ keepWeekly: parseInt(e.target.value, 10) })}>
+              {ladder([0, 1, 2, 4, 8, 12, 26, 52], settings.keepWeekly).map((n) => <option key={n} value={n}>{n === 0 ? 'None' : plural(n, 'week')}</option>)}
+            </Select>
+          </Row>
+        </div>
       </Group>
 
       <Group kind="pre-migration" summary={kind('pre-migration')} status={status('pre-migration')} save={detail('pre-migration')} {...common}>
         <Row label="Keep">
-          <Select dense className={styles.control} value={settings.keepPreUpdate} onChange={(e) => change({ keepPreUpdate: parseInt(e.target.value, 10) })}>
+          <Select dense className={styles.control} value={settings.keepPreUpdate} disabled={save.isPending} onChange={(e) => change({ keepPreUpdate: parseInt(e.target.value, 10) })}>
             {ladder([1, 2, 3, 5, 10, 20, 50], settings.keepPreUpdate).map((n) => <option key={n} value={n}>{n}</option>)}
           </Select>
         </Row>
@@ -257,6 +290,7 @@ function Backups({ data }: { data: BackupsStatus }) {
             dense
             className={styles.control}
             value={settings.keepManual === null ? 'all' : String(settings.keepManual)}
+            disabled={save.isPending}
             onChange={(e) => change({ keepManual: e.target.value === 'all' ? null : parseInt(e.target.value, 10) })}
           >
             <option value="all">All</option>

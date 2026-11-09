@@ -251,6 +251,7 @@ export function useJobEvents(libraryId: string | undefined) {
           }
           if (event.kind === 'empty-trash') void queryClient.invalidateQueries({ queryKey: ['deletions'] });
           if (event.kind === 'flac-upgrade') void queryClient.invalidateQueries({ queryKey: ['flac-upgrade', libraryId] });
+          if (event.kind === 'embed-cover') void queryClient.invalidateQueries({ queryKey: ['embed-cover', libraryId] });
           return;
         }
         const event = JSON.parse(data) as QueueChangedEvent | JobProgressEvent;

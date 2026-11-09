@@ -1,7 +1,7 @@
 /**
  * Settings › Backups: list the dumps in the backups folder (with one block
  * per kind: count, size, newest, and what its next run deletes), take one
- * now, download or delete one, and change the nightly schedule and the
+ * now, download or delete one, and change the automatic schedule and the
  * retention of each kind.
  * Owner only: a dump holds the whole catalog.
  */
@@ -51,7 +51,7 @@ export function restoreCommand(env: NodeJS.ProcessEnv = process.env): string {
 
 export interface BackupRoutesOptions {
   service: BackupService;
-  /** Called after the settings change so the nightly schedule follows. */
+  /** Reapply the schedule after the settings change. */
   onSettingsChanged?: () => Promise<void>;
 }
 
@@ -98,6 +98,7 @@ export async function buildBackupsStatus(service: BackupService): Promise<Backup
 
 export async function createBackupRoutes(fastify: FastifyInstance, opts: BackupRoutesOptions) {
   const { service } = opts;
+  let saving: Promise<unknown> = Promise.resolve();
 
   fastify.get('/backups', async (request) => {
     requireOwner(request);
@@ -144,23 +145,27 @@ export async function createBackupRoutes(fastify: FastifyInstance, opts: BackupR
     if (!parsed.success) {
       throw new ApiError(400, 'Bad Request', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
     }
-    // Saving only writes the numbers: nothing is deleted until the next run of
-    // each kind, and GET /backups says what that run will delete (D5).
-    const current = await service.settings();
-    const { keepPreUpdate, keepManual, ...rest } = parsed.data;
-    await writeBackupSettings(service.dir, {
-      ...rest,
-      keepPreUpdate: keepPreUpdate ?? current.keepPreUpdate,
-      keepManual: keepManual === undefined ? current.keepManual : keepManual,
-    });
-    if (opts.onSettingsChanged) {
-      try {
-        await opts.onSettingsChanged();
-      } catch (err) {
-        request.log.error({ err }, 'could not apply the backup schedule');
-        throw new ApiError(500, 'Schedule not applied', 'The settings were saved, but the nightly schedule could not be updated. Restart the app to apply them.');
+    // Serialize settings writes with schedule updates so a second tab cannot
+    // install a schedule out of order. Retention is applied at the next run.
+    const saved = saving.then(async () => {
+      const current = await service.settings();
+      const { keepPreUpdate, keepManual, ...rest } = parsed.data;
+      await writeBackupSettings(service.dir, {
+        ...rest,
+        keepPreUpdate: keepPreUpdate ?? current.keepPreUpdate,
+        keepManual: keepManual === undefined ? current.keepManual : keepManual,
+      });
+      if (opts.onSettingsChanged) {
+        try {
+          await opts.onSettingsChanged();
+        } catch (err) {
+          request.log.error({ err }, 'could not apply the backup schedule');
+          throw new ApiError(500, 'Schedule not applied', 'The settings were saved, but the backup schedule could not be updated. Restart the app to apply them.');
+        }
       }
-    }
-    return buildBackupsStatus(service);
+      return buildBackupsStatus(service);
+    });
+    saving = saved.catch(() => undefined);
+    return saved;
   });
 }

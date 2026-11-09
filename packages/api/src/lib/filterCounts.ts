@@ -92,7 +92,7 @@ export function summaryConds(libraryId: string, rawQuery: Record<string, unknown
   const states = arr(q['state'] ?? q['filter']).filter((s) => s !== 'all');
   if (states.length) out.push(sql`af.state in ${inList(states)}`);
   const genres = arr(q['genre']);
-  if (genres.length) out.push(sql`af.genres && ${textArray(genres)}`);
+  if (genres.length) out.push(sql`exists (select 1 from unnest(af.genres) genre where lower(genre) = any(${textArray(genres.map((genre) => genre.toLowerCase()))}))`);
   const decades = arr(q['decade']).map((d) => parseInt(d, 10)).filter(Number.isFinite);
   if (decades.length) out.push(sql`af.decade in ${inList(decades)}`);
   const formats = arr(q['format']);
@@ -137,7 +137,10 @@ export async function summaryFilterCounts(db: Db, libraryId: string, userId: str
     rows(sql`select af.format as k, count(*)::int as n from album_filter_counts af where ${where('format')} group by 1 order by n desc`),
     rows(sql`select f, count(*)::int as n from album_filter_counts af, unnest(af.containers) f where ${where('format')} group by f order by n desc limit 12`),
     rows(sql`select af.decade, count(*)::int as n from album_filter_counts af where ${where('decade')} and af.decade between 1900 and 2100 group by 1 order by 1`),
-    rows(sql`select t as tag, count(*)::int as n from album_filter_counts af, unnest(af.genres) t where ${where('genre')} group by t order by n desc, t limit 60`),
+    rows(sql`select lower(t) as tag, coalesce(min(t) filter (where t <> lower(t) and t <> upper(t)), min(t)) as label,
+                    count(distinct af.album_id)::int as n
+               from album_filter_counts af, unnest(af.genres) t
+              where ${where('genre')} group by lower(t) order by n desc, lower(t) limit 60`),
     rows(sql`select l as name, count(*)::int as n from album_filter_counts af, unnest(af.labels) l where ${where('label')} group by l order by n desc, l limit 60`),
     rows(sql`select k as kind, count(*)::int as n from album_filter_counts af, unnest(af.gap_kinds) k where ${where('gap')} group by k order by n desc`),
     rows(sql`select count(*)::int as n from album_filter_counts af where ${where('gap')} and cardinality(af.gap_kinds) = 0`),
@@ -150,7 +153,7 @@ export async function summaryFilterCounts(db: Db, libraryId: string, userId: str
     formats: facet(formats, 'k'),
     containers: facet(containers, 'f'),
     decades: facet(decades, 'decade', (d) => `${d}s`),
-    genres: facet(genres, 'tag'),
+    genres: genres.map((row) => ({ value: String(row['tag']), label: String(row['label']), count: Number(row['n']) })),
     labels: facet(labels, 'name'),
     review: [
       { value: 'reviewed', count: n('reviewed') }, { value: 'unreviewed', count: total - n('reviewed') },

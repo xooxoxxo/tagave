@@ -38,6 +38,7 @@ interface PageShellProps {
   /** A control right after the heading, centred on it (Tag changes' plus button). */
   titleAction?: ReactNode;
   actions?: ReactNode;
+  alignActionsWithTitle?: boolean;
   tabs?: TabItem[];
   activeTab?: string;
   onTabChange?: (value: string) => void;
@@ -74,6 +75,7 @@ export function PageShell({
   aside,
   titleAction,
   actions,
+  alignActionsWithTitle = false,
   tabs,
   activeTab = '',
   onTabChange,
@@ -97,7 +99,8 @@ export function PageShell({
   const titleOnly = !back && !hero && !band && !subtitle && !aside && !titleAction && !actions;
   return (
     <div ref={shellRef} className={fill ? styles.pageShellFill : styles.pageShell} data-page-shell="" data-virtual-page={fill ? '' : undefined}>
-      <header ref={headerRef} className={sticky ? styles.headerSticky : styles.header} data-title-only={titleOnly ? '' : undefined}>
+      <header ref={headerRef} className={sticky ? styles.headerSticky : styles.header} data-title-only={titleOnly ? '' : undefined}
+        data-align-title-actions={alignActionsWithTitle && actions ? '' : undefined}>
         {band && <div className={styles.band} aria-hidden="true">{band}</div>}
         {hero ?? (<>
           <div className={styles.titleBlock}>

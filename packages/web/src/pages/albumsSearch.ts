@@ -39,7 +39,7 @@ export function parseAlbumsSearch(raw: Record<string, unknown>): AlbumsSearch {
     if (values.length === 0) continue;
     out[k] = k === 'decade'
       ? values.map(Number).filter((n) => Number.isInteger(n) && n >= 1900 && n <= 2100)
-      : values;
+      : k === 'genre' ? values.filter((genre, i) => values.findIndex((v) => v.toLowerCase() === genre.toLowerCase()) === i) : values;
     if ((out[k] as unknown[]).length === 0) delete out[k];
   }
   const sort = raw['sort'];
@@ -70,12 +70,14 @@ export function toggleMulti<K extends MultiFilterKey>(
   value: string | number,
 ): AlbumsSearch[K] | undefined {
   const current = (search[key] ?? []) as Array<string | number>;
-  const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+  const matches = (v: string | number) => key === 'genre' ? String(v).toLowerCase() === String(value).toLowerCase() : v === value;
+  const next = current.some(matches) ? current.filter((v) => !matches(v)) : [...current, value];
   return (next.length ? next : undefined) as AlbumsSearch[K] | undefined;
 }
 
 export function isMultiActive(search: AlbumsSearch, key: MultiFilterKey, value: string | number): boolean {
-  return ((search[key] ?? []) as Array<string | number>).includes(value);
+  return ((search[key] ?? []) as Array<string | number>).some((v) =>
+    key === 'genre' ? String(v).toLowerCase() === String(value).toLowerCase() : v === value);
 }
 
 /** Query string for the API: repeated parameters for multi-value filters. */

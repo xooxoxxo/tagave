@@ -37,8 +37,11 @@ export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false);
   // Phone only: the links and the account live behind one menu button.
   const [menuOpen, setMenuOpen] = useState(false);
+  const [desktopNavOpen, setDesktopNavOpen] = useState(false);
   const searchButton = useRef<HTMLButtonElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const sidebarButton = useRef<HTMLButtonElement>(null);
+  const sidebarDock = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const router = useRouter();
@@ -75,7 +78,10 @@ export function Layout() {
   useScrollPlace(mainEl, 'main', useEntry(router.history, pathname), { resetOnEnter: true });
   // a new history entry forgets the places it overwrites
   useEffect(() => trackPlaces(router.history), [router]);
-  useEffect(() => { setMenuOpen(false); }, [pathname]);
+  useEffect(() => {
+    setMenuOpen(false);
+    setDesktopNavOpen(false);
+  }, [pathname]);
   // the phone's menu opens under the bar, to the foot: it needs the bar's height
   useLayoutEffect(() => {
     const nav = navRef.current;
@@ -87,6 +93,23 @@ export function Layout() {
     ro.observe(nav);
     return () => ro.disconnect();
   }, [menuOpen]);
+  useEffect(() => {
+    if (!desktopNavOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !sidebarDock.current?.contains(event.target)) setDesktopNavOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      setDesktopNavOpen(false);
+      if (navRef.current?.contains(document.activeElement)) sidebarButton.current?.focus();
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    window.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      window.removeEventListener('keydown', escape);
+    };
+  }, [desktopNavOpen]);
   // the audio lives outside React: signed out (or the session ended), it stops
   useEffect(() => { if (!user) stopPlayback(); }, [user]);
   useEffect(() => {
@@ -116,7 +139,11 @@ export function Layout() {
 
   if (!user) return <Outlet />;
   const linkClass = (active: boolean) => active ? styles.navLinkActive : styles.navLink;
-  const closeSearch = () => { setSearchOpen(false); searchButton.current?.focus(); };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    const opener = sidebarButton.current?.offsetWidth && !desktopNavOpen ? sidebarButton.current : searchButton.current;
+    opener?.focus();
+  };
   // a list page (Albums, Artists): the search narrows its list first
   const listScope = pageSearchScope(pathname);
   const searchScope: SearchScope | null = listScope && {
@@ -168,7 +195,21 @@ export function Layout() {
   return (
     <div className={styles.container}>
       <a href="#main-content" className={styles.skipLink}>Skip to content</a>
-      <aside ref={navRef} className={`${styles.nav} ${menuOpen ? styles.navOpen : ''} ${back || upButton ? styles.navDetail : ''}`}>
+      <div ref={sidebarDock} className={styles.sidebarDock} data-revealed={desktopNavOpen || undefined}
+        onPointerLeave={(e) => { if (e.pointerType === 'mouse') setDesktopNavOpen(false); }}
+        onBlur={(e) => {
+          if (e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget) && !searchOpen) setDesktopNavOpen(false);
+        }}>
+      <div className={styles.sidebarEdge} aria-hidden="true"
+        onPointerEnter={(e) => { if (e.pointerType === 'mouse') setDesktopNavOpen(true); }} />
+      <button type="button" className={styles.sidebarKey} ref={sidebarButton} aria-expanded={desktopNavOpen}
+        aria-controls="site-sidebar" aria-label={desktopNavOpen ? 'Close sidebar' : 'Open sidebar'}
+        onClick={() => setDesktopNavOpen((open) => !open)}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+          <rect x="3" y="5" width="18" height="14" rx="2" /><path d="M9 5v14" />
+        </svg>
+      </button>
+      <aside id="site-sidebar" ref={navRef} className={`${styles.nav} ${menuOpen ? styles.navOpen : ''} ${back || upButton ? styles.navDetail : ''}`}>
         {back && (
           <div className={styles.phoneBar}>
             {backButton}
@@ -237,6 +278,7 @@ export function Layout() {
         </div>
         </div>
       </aside>
+      </div>
       <div className={styles.contentArea}>
         {/* The footer scrolls with the page instead of holding a strip of
             every screen; on a phone that strip cost a fifth of the height. */}

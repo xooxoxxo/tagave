@@ -23,7 +23,7 @@ export function useMaintenanceAction(libraryId: string | undefined) {
       api.post<MaintenanceTaskView>(`/libraries/${libraryId}/maintenance-tasks/${id}/${action}`, {}),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: key(libraryId) });
-      for (const k of ['album', 'album-split', 'tag-plan', 'deletions', 'flac-upgrade']) void qc.invalidateQueries({ queryKey: [k] });
+      for (const k of ['album', 'album-split', 'tag-plan', 'deletions', 'flac-upgrade', 'embed-cover']) void qc.invalidateQueries({ queryKey: [k] });
     },
   });
 }

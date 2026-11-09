@@ -6,6 +6,7 @@
  * source into the music folder's trash (Restore puts it back).
  */
 
+import { z } from 'zod';
 import type { MaintenanceTaskView } from './maintenance.js';
 
 interface SplitRecovery {
@@ -67,6 +68,28 @@ export interface SplitPlan {
   bitsPerSample: number;
   totalSamples: number;
   tracks: SplitTrackPlan[];
+}
+
+export const splitCutsSchema = z.array(z.object({
+  track: z.number().int().min(2),
+  sample: z.number().int().positive().safe(),
+}).strict()).max(1000);
+export type SplitCuts = z.infer<typeof splitCutsSchema>;
+
+/** Apply draft boundaries, keeping adjacent tracks contiguous and the source fully covered. */
+export function withSplitCuts(plan: SplitPlan, cuts: SplitCuts): SplitPlan | null {
+  if (cuts.length === 0) return plan;
+  if (!Array.isArray(plan.tracks)) return null;
+  const samples = new Map(cuts.map(({ track, sample }) => [track, sample]));
+  if (samples.size !== cuts.length || cuts.some(({ track }) => track > plan.tracks.length)) return null;
+  const tracks = plan.tracks.map((track, i) => {
+    const startSample = samples.get(track.n) ?? track.startSample;
+    const endSample = samples.get(plan.tracks[i + 1]?.n ?? 0) ?? track.endSample;
+    const shiftMs = track.shiftMs === null ? null : track.shiftMs + sampleMs(startSample - track.startSample, plan.sampleRate);
+    return { ...track, startSample, endSample, shiftMs };
+  });
+  if (tracks.some((t) => t.startSample >= t.endSample || t.startSample < 0 || t.endSample > plan.totalSamples)) return null;
+  return { ...plan, tracks };
 }
 
 /** undone (0089): a tag plan's revert put the source back and took the tracks away */

@@ -13,6 +13,7 @@
 import { useEffect, useRef } from 'react';
 import { drawFiller, fillerDpr, FILLER_MIN_HEIGHT } from './albumFlow';
 import type { FillerJob } from './fillerWorker';
+import { AlbumWaves } from './AlbumWaves';
 import styles from './AlbumDetailPage.module.css';
 
 /** The worker painting each canvas: a canvas can be handed over only once, so it stays with it. */
@@ -82,7 +83,13 @@ export function attachFiller(cv: HTMLCanvasElement, title: string, painted: { cu
 }
 
 /** Its height is the room the pane has left under the tracks (CSS: .flow and .filler), never more. */
-export function AlbumFiller({ title }: { title: string }) {
+export function AlbumFiller({ title, waves, coverUrl, playing }: {
+  title: string; waves?: boolean; coverUrl?: string | null | undefined; playing?: boolean;
+}) {
+  return waves ? <AlbumWaves coverUrl={coverUrl} playing={playing === true} /> : <StillFiller title={title} />;
+}
+
+function StillFiller({ title }: { title: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   /** what is on the canvas now: size, density, ink and title */
   const painted = useRef('');

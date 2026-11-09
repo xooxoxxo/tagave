@@ -86,8 +86,9 @@
 
 .onDisk {
   display: inline-flex;
-  align-self: center;
-  color: var(--ink-2);
+  align-items: center;
+  gap: 4px;
+  color: var(--dew);
 }
 
 .onDisk svg {

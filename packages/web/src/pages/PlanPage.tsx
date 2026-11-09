@@ -10,13 +10,14 @@ import { FIELD_LABELS } from '../utils/tagFieldLabels';
 import { Fragment, Suspense, lazy, useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { splitDoneLine, type PlanSplit, type TagDiffEntry, type TagPlanItem } from '@tagave/shared';
+import { splitDoneLine, type PlanSplit, type SplitCuts, type TagDiffEntry, type TagPlanItem } from '@tagave/shared';
 import { PageShell, Button, Badge, Banner, SegmentedControl, UndoIcon, confirmDialog, showToast, type ConfirmOptions } from '../components/ui';
 import { PlanSplits } from './PlanSplits';
 import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
 import { useAlbumDrawer } from './AlbumMenu';
 
 const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
+const PlanGlyph = lazy(() => import('../components/update/UpdateGlyph').then((m) => ({ default: m.UpdateGlyph })));
 import { usePlanOrganize } from '../hooks/useNaming';
 import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { useCurrentLibrary } from '../hooks';
@@ -236,6 +237,7 @@ export function PlanPage() {
   const [editingValues, setEditingValues] = useState(false);
   // 0089: the splits whose Low cuts the owner checked, and the one being checked
   const [confirmedSplits, setConfirmedSplits] = useState<string[]>([]);
+  const [splitCuts, setSplitCuts] = useState<Record<string, SplitCuts>>({});
   const [checking, setChecking] = useState<PlanSplit | null>(null);
   const drawer = useAlbumDrawer();
   const [identifyNote, setIdentifyNote] = useState<string | null>(null);
@@ -520,7 +522,7 @@ export function PlanPage() {
   };
 
   // Apply: the splits' Low cuts are checked first (the split sheet), then split, then tag
-  const apply = async (confirmed: string[]) => {
+  const apply = async (confirmed: string[], cuts = splitCuts) => {
     const unchecked = pendingSplits.find((x) => x.state === 'ready' && x.low > 0 && !confirmed.includes(x.splitId));
     if (unchecked) { setChecking(unchecked); return; }
     const tracks = pendingSplits.reduce((n, x) => n + x.tracks, 0);
@@ -531,7 +533,8 @@ export function PlanPage() {
     if (!ok) return;
     setError(null);
     try {
-      await applyM.mutateAsync(confirmed.length > 0 ? { confirmSplits: confirmed } : undefined);
+      const reviewed = Object.fromEntries(pendingSplits.flatMap(({ splitId }) => cuts[splitId]?.length ? [[splitId, cuts[splitId]]] : []));
+      await applyM.mutateAsync(confirmed.length > 0 ? { confirmSplits: confirmed, splitCuts: reviewed } : undefined);
       setAwaiting(p?.status ?? null);
     } catch (e) {
       setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
@@ -572,7 +575,12 @@ export function PlanPage() {
   const toggle = (id: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => { setAllOpen((v) => !v); setExpanded(new Set()); };
 
-  if (!libraryId || planQ.isLoading) return <PageShell back title="Loading" barTitle={null}>Loading plan…</PageShell>;
+  if (!libraryId || planQ.isLoading) return <PageShell back title="Tag changes" barTitle={null}>
+    <div className={styles.loader} role="status">
+      <Suspense fallback={null}><PlanGlyph className={styles.loaderGlyph} seed="load-plan" progress={0.35} /></Suspense>
+      <span>Loading plan…</span>
+    </div>
+  </PageShell>;
   if (planQ.isError && isNotFound(planQ.error)) return <NotFoundPage title="Plan not found" to="/plans" label="Back to Tag changes" />;
   if (planQ.isError || !p) {
     return (
@@ -603,6 +611,7 @@ export function PlanPage() {
   return (
     <PageShell
       back
+      alignActionsWithTitle
       barTitle={p.name || 'Untitled plan'}
       title={<span className={`${styles.title} ${(p.name || '').length > 32 ? styles.titleLong : ''}`}>
         {/* The name is clamped to two lines (full name on hover) with the
@@ -763,7 +772,9 @@ export function PlanPage() {
                 {jobLink('View job')}
               </>
             ) : previewBusy ? (
-              <>
+              <div className={styles.previewLoader}>
+                <Suspense fallback={null}><PlanGlyph className={styles.previewGlyph} seed="preview-cuts" progress={0.6} /></Suspense>
+                <div role="status">
                 <strong>Computing the preview…</strong>{' '}
                 {current?.state === 'running' ? (
                   <>
@@ -774,7 +785,8 @@ export function PlanPage() {
                   <>Waiting for the worker. </>
                 ) : null}
                 {jobLink('View job')}
-              </>
+                </div>
+              </div>
             ) : (
               <>
                 <strong>No preview yet</strong>
@@ -823,12 +835,16 @@ export function PlanPage() {
               title={p.name || 'Split'}
               side={drawer ? 'bottom' : 'right'}
               confirm={{
+                splitId: checking.splitId,
+                cuts: splitCuts[checking.splitId] ?? [],
                 label: 'Split and tag',
-                onConfirm: (splitId) => {
+                onConfirm: (splitId, cuts) => {
                   const next = [...new Set([...confirmedSplits, splitId])];
+                  const edits = { ...splitCuts, [splitId]: cuts };
                   setConfirmedSplits(next);
+                  setSplitCuts(edits);
                   setChecking(null);
-                  void apply(next);
+                  void apply(next, edits);
                 },
               }}
             />
@@ -883,7 +899,10 @@ export function PlanPage() {
 
         {progress && BUSY.has(p.status) && progress.total > 0 && (
           <div className={styles.progress}>
-            <div className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
+            <Suspense fallback={null}>
+              <PlanGlyph className={styles.previewGlyph} seed="write-tags" progress={pct / 100} moving={p.status === 'applying'} />
+            </Suspense>
+            <div className={styles.bar} role="progressbar" aria-label="Tag Plan file progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
               <div className={styles.fill} style={{ ['--scale' as string]: `${pct / 100}` }} />
             </div>
             <span>{done.toLocaleString()} / {progress.total.toLocaleString()} files{p.status === 'paused' ? ' · paused' : ''}</span>

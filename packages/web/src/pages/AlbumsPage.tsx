@@ -355,7 +355,9 @@ export function AlbumsPage() {
       if (Array.isArray(v)) {
         return v.map((item) => ({
           key: `${k}:${item}`,
-          text: chipText(k, item as string | number),
+          text: chipText(k, k === 'genre'
+            ? facets?.genres.find((g) => g.value === String(item).toLowerCase())?.label ?? String(item)
+            : item as string | number),
           clear: () => setSearch({ [k]: toggleMulti(search, k as MultiFilterKey, item as string | number) } as SearchPatch),
         }));
       }
@@ -537,8 +539,9 @@ export function AlbumsPage() {
                             ? <span className={styles.incomplete}>{album.trackCount}/{album.canonicalTrackCount}</span>
                             : album.trackCount}
                         </span>
-                        <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}>
-                          {formatLabel(album)}
+                        <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}
+                          title={album.isLossless ? `Lossless${album.formats.length === 1 ? ` · ${album.formats[0]!.toUpperCase()}` : ''}` : formatLabel(album)}>
+                          {album.isLossless ? (album.formats.length === 1 ? album.formats[0]!.toUpperCase() : 'LL') : formatLabel(album)}
                         </span>
                         <span className={styles.listState}>{maintenance || album.state === 'needs_review' ? STATE_LABEL[album.state] ?? album.state : ''}</span>
                         <span className={styles.listBadges}>

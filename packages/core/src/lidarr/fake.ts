@@ -126,6 +126,11 @@ export async function startFakeLidarr(opts: { apiKey: string; version?: string; 
       return send(res, 200, { parent: dir, directories: kids.map((d) => ({ type: 'folder', name: d.split('/').pop(), path: `${d}/` })), files: [] });
     }
     if (req.method === 'GET' && p === '/api/v1/qualityprofile') return send(res, 200, [{ id: 1, name: 'Any' }, { id: 2, name: 'Lossless' }]);
+    if (req.method === 'GET' && /^\/api\/v1\/qualityprofile\/[12]$/.test(p)) {
+      const id = Number(p.at(-1));
+      return send(res, 200, { id, name: id === 1 ? 'Any' : 'Lossless', items: (id === 1 ? ['FLAC', 'MP3'] : ['FLAC'])
+        .map((name) => ({ allowed: true, quality: { name } })) });
+    }
     if (req.method === 'GET' && p === '/api/v1/metadataprofile') return send(res, 200, [{ id: 1, name: 'Standard' }, { id: 2, name: 'None' }]);
     if (req.method === 'GET' && p === '/api/v1/artist') {
       const mb = q.get('mbId');

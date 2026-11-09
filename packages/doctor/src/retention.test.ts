@@ -16,6 +16,7 @@ import {
   kindDeletes,
   listBackups,
   nextNightlyRun,
+  nextScheduledRun,
   parseBackupArgs,
   parseCliBackupKind,
   pruneKind,
@@ -317,4 +318,9 @@ describe('nextNightlyRun', () => {
     // Amsterdam is UTC+2 in October
     expect(nextNightlyRun(3, 'Europe/Amsterdam', new Date('2026-10-16T10:00:00Z')).toISOString()).toBe('2026-10-17T01:00:00.000Z');
   });
+});
+
+it('predicts a weekly run at the scheduled local hour, even in a half-hour zone', () => {
+  expect(nextScheduledRun(20, 'Asia/Kolkata', new Date('2026-10-16T14:31:00Z'), 5).toISOString())
+    .toBe('2026-10-23T14:30:00.000Z');
 });

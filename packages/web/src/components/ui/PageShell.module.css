@@ -28,6 +28,19 @@
 }
 .pageShellFill .header { padding-bottom: var(--space-md); }
 
+@media (min-width: 1000px) {
+  .header[data-align-title-actions] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    row-gap: var(--space-sm);
+  }
+  .header[data-align-title-actions] .titleBlock { display: contents; }
+  .header[data-align-title-actions] .titleRow { grid-area: 1 / 1; margin-bottom: 0; }
+  .header[data-align-title-actions] .actions { grid-area: 1 / 2; }
+  .header[data-align-title-actions] .subtitle { grid-area: 2 / 1 / 3 / -1; }
+}
+
 /* A header that stays at the top of the pane (Settings): the page scrolls
    under the same frosted glass the detail pages' app bar uses. No rule at
    its edge, at rest or scrolled: the glass alone sets it apart (owner,

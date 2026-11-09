@@ -48,6 +48,7 @@ import { tagsPreviewJob } from './jobs/tagsPreview.js';
 import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
 import { filesTrashJob, type FilesTrashJobData } from './lib/deletions.js';
 import { filesUpgradeJob, type FilesUpgradeJobData } from './jobs/filesUpgrade.js';
+import { embedCoverJob, type EmbedCoverJobData } from './jobs/embedCover.js';
 import { filesSplitJob } from './jobs/filesSplit.js';
 import type { FilesSplitJobData } from '@tagave/shared';
 import { filesMoveJob } from './jobs/filesMove.js';
@@ -656,6 +657,9 @@ async function main() {
     });
     await boss.work<FilesUpgradeJobData>('files.upgrade', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) await filesUpgradeJob(ctx, job.data);
+    });
+    await boss.work<EmbedCoverJobData>('files.embedCover', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await embedCoverJob(ctx, job.data);
     });
     // Move to album (0080): the release search, the plan, the move and its undo
     await boss.work<FilesMoveJobData>('files.move', { batchSize: 1 }, async (jobs) => {

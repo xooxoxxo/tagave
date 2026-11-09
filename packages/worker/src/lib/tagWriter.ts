@@ -260,6 +260,11 @@ export class MutagenTagWriter implements TagWriter {
     }
   }
 
+  async embedCover(filePath: string, jpeg: Buffer): Promise<void> {
+    const response = await this.sendCommand(JSON.stringify({ op: 'embed-cover', path: filePath, jpeg: jpeg.toString('base64') }));
+    if (!response.success) throw new Error(response.error ?? 'Could not write cover art');
+  }
+
   /**
    * Check if a container format is supported for writing
    */

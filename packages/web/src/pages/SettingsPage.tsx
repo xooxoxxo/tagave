@@ -3,9 +3,10 @@ import { Link, useLocation } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { useUpdateAvailable } from '../hooks/useUpdates';
 import { UpdateDot } from '../components/UpdateDot';
-import { PageShell, SegmentedControl, ThemeSwitch } from '../components/ui';
+import { Button, PageShell, SegmentedControl, Select, ThemeSwitch } from '../components/ui';
 import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
+import { ALBUM_WIDGETS, DEFAULT_ALBUM_WIDGETS, type WidgetPlacement } from './albumWidgets';
 import { usePhoneSubpage } from '../components/appBarTitle';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
 import { NamingSettings } from '../components/naming/NamingSettings';
@@ -189,7 +190,26 @@ function DisplaySettings() {
     <SegmentedControl label="Wordmark" value={prefs.showWordmark ? 'shown' : 'hidden'} onChange={(v) => setPrefs({ showWordmark: v === 'shown' })} options={[{ value: 'shown', label: 'Shown' }, { value: 'hidden', label: 'Hidden' }]} />
     <h2 className={styles.modeSetting}>Short albums</h2>
     
-    <SegmentedControl label="Short album artwork" value={prefs.shortAlbumArt ? 'on' : 'off'} onChange={(v) => setPrefs({ shortAlbumArt: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
+    <SegmentedControl label="Short album artwork" value={prefs.shortAlbumArt ? prefs.shortAlbumWaves ? 'waves' : 'still' : 'off'}
+      onChange={(v) => setPrefs({ shortAlbumArt: v !== 'off', shortAlbumWaves: v === 'waves' })}
+      options={[{ value: 'still', label: 'Still' }, { value: 'waves', label: 'Waves' }, { value: 'off', label: 'Off' }]} />
+    <section id="album-widgets" aria-labelledby="album-widgets-title" className={styles.widgetSettings}>
+      <h2 id="album-widgets-title" className={styles.modeSetting}>Album widgets</h2>
+      <p>Choose what sits above and below the album name. Changes apply to album pages on this device.</p>
+      <div className={styles.widgetChoices}>
+        {ALBUM_WIDGETS.map(({ id, label }) => <label key={id}>
+          <span>{label}</span>
+          <Select dense value={prefs.albumWidgets[id]} onChange={(event) => setPrefs({
+            albumWidgets: { ...prefs.albumWidgets, [id]: event.target.value as WidgetPlacement },
+          })}>
+            <option value="above">Above the title</option>
+            <option value="below">Below the artist</option>
+            <option value="hidden">Hidden</option>
+          </Select>
+        </label>)}
+      </div>
+      <Button variant="quiet" size="sm" onClick={() => setPrefs({ albumWidgets: DEFAULT_ALBUM_WIDGETS })}>Restore default widgets</Button>
+    </section>
     <h2 className={styles.modeSetting}>Artist page</h2>
     
     <SegmentedControl label="Artist page" value={prefs.artistLayout} onChange={(v) => setPrefs({ artistLayout: v })} options={[{ value: 'name', label: 'Name first' }, { value: 'albums', label: 'Like albums' }]} />

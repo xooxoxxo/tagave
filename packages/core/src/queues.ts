@@ -12,7 +12,7 @@ export const WORKER_QUEUES = [
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
-  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'similarArtists.fetch', 'files.trash', 'files.split', 'files.upgrade', 'files.move', 'lidarr.poll', 'lidarr.get', 'pool.scan',
+  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'similarArtists.fetch', 'files.trash', 'files.split', 'files.upgrade', 'files.move', 'files.embedCover', 'lidarr.poll', 'lidarr.get', 'pool.scan',
   'dj.analyze',
 ] as const;
 
@@ -58,6 +58,7 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   // Whole album in one file: one FLAC per track, the source into the trash; with the tag writer too
   'files.split': 'tags.apply',
   'files.upgrade': 'tags.apply',
+  'files.embedCover': 'tags.apply',
   // Move to album: tags written and files moved into another album's folder; with the tag writer too
   'files.move': 'tags.apply',
   // DJ analysis: ffmpeg decodes each file once; on the file worker, with the fingerprints (the other decode of every file)
@@ -76,7 +77,7 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
 export const MUSIC_FOLDER_QUEUES: readonly string[] = [
   'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir',
   'art.fetch', 'fingerprint.album', 'fingerprint.sweep', 'dj.analyze',
-  'tags.preview', 'tags.apply', 'tags.revert', 'files.trash', 'files.split', 'files.upgrade', 'files.move', 'pool.scan',
+  'tags.preview', 'tags.apply', 'tags.revert', 'files.trash', 'files.split', 'files.upgrade', 'files.move', 'files.embedCover', 'pool.scan',
 ];
 
 /** The queue whose worker works this one: itself, or the queue it rides with. */

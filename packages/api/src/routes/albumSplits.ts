@@ -10,7 +10,8 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { oneFileAlbums, saveMaintenanceTask, writableRootIds } from '@tagave/db';
-import type { AlbumSplitState, AlbumSplitView, SplitPlan } from '@tagave/shared';
+import { splitCutsSchema, withSplitCuts, type AlbumSplitState, type AlbumSplitView, type SplitPlan } from '@tagave/shared';
+import { z } from 'zod';
 import { getSql } from '../db.js';
 import { analysisStatus, requestSplitAnalysis } from '../lib/planSplits.js';
 import { dispatchMaintenance } from '../lib/maintenance.js';
@@ -76,12 +77,21 @@ export async function createAlbumSplitRoutes(fastify: FastifyInstance) {
     const [fit] = await oneFileAlbums(sql, libraryId, albumId);
     if (!fit) throw new ApiError(409, 'Conflict', 'This album is not one file that fits its release');
     if (!(await writableRootIds(sql, libraryId)).has(fit.scanRootId)) throw new ApiError(409, 'Conflict', 'The music folder is read-only');
+    const body = z.object({ cuts: splitCutsSchema.optional() }).safeParse(request.body ?? {});
+    if (!body.success) throw new ApiError(400, 'Bad Request', 'Invalid cut positions');
     const task = await sql.begin(async (tx) => {
-      const updated = await tx`
-        update album_splits set state = 'splitting', created_by = ${request.user!.id}, updated_at = now()
-         where id = ${splitId!} and library_id = ${libraryId} and local_album_id = ${albumId} and state = 'ready'
-        returning id`;
-      if (updated.length === 0) throw new ApiError(409, 'Conflict', 'This plan cannot be split now');
+      const [row] = await tx<{ plan: SplitPlan | null }[]>`
+        select plan from album_splits
+         where id = ${splitId!} and library_id = ${libraryId} and local_album_id = ${albumId}
+           and file_id = ${fit.fileId} and release_id = ${fit.releaseId} and state = 'ready'
+           and id = (select id from album_splits where library_id = ${libraryId} and local_album_id = ${albumId}
+                      order by created_at desc limit 1)
+         for update`;
+      if (!row?.plan) throw new ApiError(409, 'Conflict', 'This plan cannot be split now');
+      const plan = withSplitCuts(row.plan, body.data.cuts ?? []);
+      if (!plan) throw new ApiError(400, 'Bad Request', 'Cuts must stay between the preceding and following track starts');
+      await tx`update album_splits set state = 'splitting', plan = ${JSON.stringify(plan)}::text::jsonb,
+                 created_by = ${request.user!.id}, updated_at = now() where id = ${splitId!}`;
       return saveMaintenanceTask(tx, {
         libraryId, kind: 'split', scope: `${splitId}:split`, subjectId: albumId,
         queue: 'files.split', input: { splitId: splitId!, action: 'split' }, stage: 'Split queued',

@@ -68,7 +68,12 @@ export interface FlowState {
  */
 export function flowState(y: number, geo: FlowGeometry, header = HEADER): FlowState {
   const coverOpacity = 1 - clamp01(y / Math.max(1, geo.coverBottom - header));
-  const t = clamp01(y / Math.max(1, geo.namesTop - header));
+  // Keep the full title during the first part of the scroll, then ease it
+  // into the dock so its scale has no jump at either end.
+  const travel = Math.max(1, geo.namesTop - header);
+  const hold = Math.min(64, travel * 0.28);
+  const progress = clamp01((y - hold) / (travel - hold));
+  const t = progress * progress * (3 - 2 * progress);
   const bRest = geo.titleSize || B_REST;
   const aRest = geo.artistSize || A_REST;
   const albumScale = lerp(1, B_HDR / bRest, t);

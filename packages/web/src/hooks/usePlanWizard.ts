@@ -9,6 +9,7 @@ import type {
   TagPlanItem,
   CreateTagPlan,
   TagPlanResults,
+  SplitCuts,
 } from '@tagave/shared';
 import { api } from '../services/api';
 
@@ -204,7 +205,7 @@ export function useApplyTagPlan(libraryId: string | undefined, planId: string | 
   const queryClient = useQueryClient();
   return useMutation({
     // 0089: the splits whose Low cuts the owner checked
-    mutationFn: (body?: { confirmSplits?: string[] }) => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/apply`, body ?? {}),
+    mutationFn: (body?: { confirmSplits?: string[]; splitCuts?: Record<string, SplitCuts> }) => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/apply`, body ?? {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
       queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });

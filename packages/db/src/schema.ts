@@ -237,7 +237,7 @@ export const jobRuns = pgTable(
 export const maintenanceTasks = pgTable('maintenance_tasks', {
   id: uuid().primaryKey().defaultRandom(),
   libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
-  kind: text().notNull().$type<'cover' | 'split' | 'empty-trash' | 'flac-upgrade'>(),
+  kind: text().notNull().$type<'cover' | 'embed-cover' | 'split' | 'empty-trash' | 'flac-upgrade'>(),
   scopeKey: text('scope_key').notNull(),
   subjectId: uuid('subject_id'),
   queue: text().notNull(),
