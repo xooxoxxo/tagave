@@ -263,3 +263,125 @@ export async function cancelMaintenanceTask(sql: Sql, libraryId: string, id: str
     return row ?? null;
   });
 }
+
+const WORKER_STOPPED = 'The worker stopped before this task finished.';
+/** A job claimed this long ago whose claim nobody holds was left by a worker that stopped. */
+const ABANDONED_AFTER = '15 minutes';
+
+/** Tasks that only read (cut points, a cover lookup) run again on their own; the others wait for the owner's Continue. */
+function rerunsOnItsOwn(row: Pick<MaintenanceRow, 'kind' | 'scope_key'>): boolean {
+  return row.kind === 'cover' || (row.kind === 'split' && row.scope_key.endsWith(':analyze'));
+}
+
+/** Whether some session (a live worker's claim) holds the task's advisory lock. */
+async function claimHeld(sql: Sql, row: Pick<MaintenanceRow, 'library_id' | 'kind' | 'scope_key'>): Promise<boolean> {
+  // pg_locks shows a bigint advisory key as its high (classid) and low (objid) 32 bits, objsubid 1
+  const [lock] = await sql<{ held: boolean }[]>`
+    select exists (
+      select 1 from pg_locks
+      where locktype = 'advisory' and granted and objsubid = 1
+        and database = (select oid from pg_database where datname = current_database())
+        and ((classid::bigint << 32) | objid::bigint) = hashtextextended(${maintenanceLockKey(row)}, 0)
+    ) as held`;
+  return lock?.held === true;
+}
+
+export interface MaintenanceRecoveryOptions {
+  /** Whether this worker works the queue (the file worker: files.split, art.fetch …). */
+  serves(queue: string): boolean;
+  send: MaintenanceSender;
+  /** Cancels a job a stopped worker left 'active', so it holds no slot until pg-boss expires it. */
+  cancel?(queue: string, id: string): Promise<unknown>;
+}
+
+export interface MaintenanceRecovery {
+  /** read-only tasks a stopped worker left running, queued again */
+  requeued: string[];
+  /** tasks that write files, left for the owner's Continue */
+  interrupted: string[];
+  /** 0.27 split rows still finding their cut points with no job left, given an analysis task */
+  legacy: string[];
+}
+
+/**
+ * At worker start, before any handler claims work: a task a stopped worker
+ * left behind (its job still 'active', its claim's lock held by nobody) is
+ * queued again when it only reads, or interrupted for the owner when it
+ * writes. pg-boss alone would keep such a job 'active' until it expires,
+ * three hours for files.split. A 0.27 split row still finding its cut points
+ * whose job is gone (or abandoned) gets the analysis task 0.28 would have
+ * made. Each runs once: what it fixes is no longer left behind.
+ */
+export async function recoverMaintenanceTasks(sql: Sql, options: MaintenanceRecoveryOptions): Promise<MaintenanceRecovery> {
+  const out: MaintenanceRecovery = { requeued: [], interrupted: [], legacy: [] };
+  const [schema] = await sql<{ exists: boolean }[]>`select to_regclass('pgboss.job') is not null as exists`;
+  if (!schema?.exists) return out;
+
+  const left = await sql<MaintenanceRow[]>`
+    select t.* from maintenance_tasks t
+    where t.state = 'running'
+       or (t.state = 'waiting' and t.dispatched_at is not null and exists (
+             select 1 from pgboss.job j where j.name = t.queue and j.id = t.attempt_id
+               and j.state = 'active' and j.started_on < now() - ${ABANDONED_AFTER}::interval))
+    order by t.updated_at`;
+  for (const row of left) {
+    if (!options.serves(row.queue) || await claimHeld(sql, row)) continue;
+    const rerun = rerunsOnItsOwn(row);
+    const [next] = await sql<MaintenanceRow[]>`
+      update maintenance_tasks
+      set history = history || jsonb_build_array(jsonb_build_object(
+            'id', attempt_id, 'state', 'interrupted', 'error', ${WORKER_STOPPED}::text, 'at', now())),
+          state = ${rerun ? 'waiting' : 'interrupted'},
+          stage = case when ${rerun} then 'Queued again after the worker stopped' else stage end,
+          error = case when ${rerun} then null else ${WORKER_STOPPED} end,
+          attempt = case when ${rerun} then attempt + 1 else attempt end,
+          attempt_id = case when ${rerun} then gen_random_uuid() else attempt_id end,
+          dispatched_at = case when ${rerun} then null else dispatched_at end,
+          dispatch_after = case when ${rerun} then now() else dispatch_after end,
+          updated_at = now()
+      where id = ${row.id} and attempt_id = ${row.attempt_id} and state = ${row.state}
+      returning *`;
+    if (!next) continue;
+    await options.cancel?.(row.queue, row.attempt_id).catch(() => undefined);
+    if (rerun) {
+      out.requeued.push(row.id);
+      // the app's outbox sends it if this does not
+      await dispatchMaintenanceTask(sql, options.send, row.id).catch(() => undefined);
+    } else {
+      out.interrupted.push(row.id);
+    }
+  }
+
+  if (!options.serves('files.split')) return out;
+  const legacy = await sql<{ id: string; library_id: string; local_album_id: string }[]>`
+    select s.id::text as id, s.library_id::text as library_id, s.local_album_id::text as local_album_id
+    from album_splits s
+    where s.state = 'analyzing' and s.plan is null and s.local_album_id is not null
+      and not exists (select 1 from maintenance_tasks t where t.library_id = s.library_id and t.kind = 'split'
+                        and t.scope_key = s.id::text || ':analyze')
+      and not exists (select 1 from pgboss.job j where j.name = 'files.split' and j.data->>'splitId' = s.id::text
+                        and j.data->>'action' = 'analyze' and not (j.data ? 'maintenance')
+                        and (j.state in ('created', 'retry') or (j.state = 'active' and j.started_on >= now() - ${ABANDONED_AFTER}::interval)))
+    order by s.created_at`;
+  for (const split of legacy) {
+    const taskId = await sql.begin(async (tx) => {
+      // the lock the app's Split takes (planSplits › requestSplitAnalysis): one task for the row either way
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`tagave:split:${split.library_id}:${split.local_album_id}`}, 0))`;
+      const [still] = await tx`select 1 from album_splits where id = ${split.id} and state = 'analyzing' and plan is null`;
+      if (!still) return null;
+      const abandoned = await tx<{ id: string }[]>`
+        select id from pgboss.job where name = 'files.split' and data->>'splitId' = ${split.id}
+          and data->>'action' = 'analyze' and not (data ? 'maintenance') and state = 'active'`;
+      const task = await saveMaintenanceTask(tx, {
+        libraryId: split.library_id, kind: 'split', scope: `${split.id}:analyze`, subjectId: split.local_album_id,
+        queue: 'files.split', input: { splitId: split.id, action: 'analyze' }, stage: 'Cut point analysis queued',
+      });
+      return { task: task.id, abandoned: abandoned.map((j) => j.id) };
+    });
+    if (!taskId) continue;
+    for (const id of taskId.abandoned) await options.cancel?.('files.split', id).catch(() => undefined);
+    out.legacy.push(split.id);
+    await dispatchMaintenanceTask(sql, options.send, taskId.task).catch(() => undefined);
+  }
+  return out;
+}

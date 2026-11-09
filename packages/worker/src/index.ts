@@ -1,7 +1,7 @@
 import { PgBoss } from 'pg-boss';
 import pino from 'pino';
-import { listMigrationChain, makeDb } from '@tagave/db';
-import { readBuildInfo, WORKER_QUEUES } from '@tagave/core';
+import { listMigrationChain, maintenanceSender, makeDb, recoverMaintenanceTasks } from '@tagave/db';
+import { readBuildInfo, WORKER_QUEUES, workedWith } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
 import { prepareWorkerQueues } from './lib/queueSetup.js';
@@ -110,6 +110,23 @@ async function main() {
   const queueList = tagaveEnv('QUEUES');
   const only = queueList ? new Set(queueList.split(',').map((q) => q.trim())) : null;
   const wants = (q: string) => !only || only.has(q);
+
+  // Before any handler claims work: tasks a stopped worker left behind (an
+  // update, a restart) on the queues this worker serves. pg-boss would hold
+  // their jobs 'active' for hours; cut points and cover lookups run again,
+  // a split or Tag Plan waits for the owner's Continue.
+  try {
+    const recovered = await recoverMaintenanceTasks(client, {
+      serves: (queue) => wants(workedWith(queue)),
+      send: maintenanceSender(boss),
+      cancel: (queue, id) => boss.cancel(queue, id),
+    });
+    if (recovered.requeued.length + recovered.interrupted.length + recovered.legacy.length > 0) {
+      logger.info(recovered, 'maintenance tasks a stopped worker left behind recovered');
+    }
+  } catch (err) {
+    logger.warn({ err }, 'could not recover maintenance tasks at start');
+  }
 
   if (wants('scan.root')) {
     await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {

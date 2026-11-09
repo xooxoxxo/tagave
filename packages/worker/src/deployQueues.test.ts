@@ -218,4 +218,11 @@ describe('maintenance tasks', () => {
       expect(sent[0]!['singletonKey']).not.toBe(sent[1]!['singletonKey']);
     }
   });
+
+  it('the file worker recovers what a stopped worker left behind before it registers a handler', () => {
+    const src = readFileSync(path.join(here, 'index.ts'), 'utf8');
+    const recover = src.indexOf('recoverMaintenanceTasks(');
+    expect(recover).toBeGreaterThan(0);
+    expect(recover).toBeLessThan(src.search(/boss\.work(<[^(]*>)?\(/));
+  });
 });
