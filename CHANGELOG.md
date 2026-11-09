@@ -2,7 +2,26 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.28.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.28.0)
+## [v0.29.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.29.0)
+
+**Minor release (0.28 → 0.29).** Set a backup cadence, listen from an exact split point, and make the album view your own.
+
+### New
+
+- **Backup schedules.** Choose Nightly, Daily, Weekly, or Off. Open the schedule from Storage. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Split review.** Hear the source from a proposed cut, adjust it, and check progress after closing the drawer. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Embedded artwork.** Use a local cover image from Maintenance when tag writes are enabled. Tagave checks the audio before replacing the file. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Album widgets and waves.** Choose where details appear and enable cover-coloured waves below short albums. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+
+### Fixed
+
+- **Album browsing.** Keep the artist link when opening a tag-matched album from that artist, group genre filters across letter case, and show ownership and formats more clearly. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Playback and FLAC upgrades.** Show a request reference for playback failures and explain which Lidarr profile blocks an upgrade before it starts. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Navigation and Tag Plans.** Reveal the desktop sidebar at the left edge. See which Tag Plan step is running and how many files it has processed. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+
+[Compare v0.28.0 and v0.29.0](https://github.com/xooxoxxo/tagave/compare/v0.28.0...v0.29.0)
+
+## [v0.28.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.28.0) (2026-11-08)
 
 **Minor release (0.27 → 0.28).** File maintenance can recover after a worker interruption, and owned albums can upgrade to FLAC through Lidarr.
 
