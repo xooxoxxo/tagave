@@ -214,12 +214,9 @@ function Backups({ data }: { data: BackupsStatus }) {
       {backUp.error && <Banner tone="danger">Could not start the backup.</Banner>}
 
       <div className={styles.top}>
-        <div>
-          <p className={styles.muted}>Backs up Tagave’s database. Music files are stored separately.</p>
-          <span className={styles.muted}>
-            {data.backups.length === 0 ? 'No backups yet' : `${data.backups.length} · ${formatBytes(data.totalBytes)}`}
-          </span>
-        </div>
+        <span className={styles.muted}>
+          {data.backups.length === 0 ? 'No backups yet' : `${data.backups.length} · ${formatBytes(data.totalBytes)}`}
+        </span>
         <Button size="sm" onClick={() => backUp.mutate()} loading={data.running || backUp.isPending} disabled={data.running}>
           {data.running ? 'Backing up…' : 'Back up now'}
         </Button>
@@ -249,20 +246,19 @@ function Backups({ data }: { data: BackupsStatus }) {
             </Select>
           </Row>
         )}
+        {frequency === 'nightly' && (
+          <Row label="Time" title={data.timeZone}>
+            <span className={`${styles.control} ${styles.muted}`}>{hourLabel(NIGHTLY_BACKUP_HOUR)}</span>
+          </Row>
+        )}
         {(frequency === 'daily' || frequency === 'weekly') && (
-          <Row label="Time">
+          <Row label="Time" title={data.timeZone}>
             <Select dense className={styles.control} value={settings.hour} disabled={save.isPending} onChange={(e) => change({ hour: Number(e.target.value) })}>
               {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
             </Select>
           </Row>
         )}
-        <p className={styles.scheduleNote}>
-          {frequency === 'off' ? 'Automatic backups are off.'
-            : frequency === 'nightly' ? `Every night at ${hourLabel(NIGHTLY_BACKUP_HOUR)} (${data.timeZone}).`
-              : `${frequency === 'daily' ? 'Every day' : `Every ${DAYS[weekday]}`} at ${hourLabel(settings.hour)} (${data.timeZone}).`}
-        </p>
         <div className={styles.retention}>
-          <p className={styles.scheduleNote}>Retention applies to existing backups after the next scheduled run.</p>
           <Row label="Keep recent days">
             <Select dense className={styles.control} value={settings.keepDaily} disabled={save.isPending} onChange={(e) => change({ keepDaily: parseInt(e.target.value, 10) })}>
               {ladder([1, 2, 3, 5, 7, 10, 14, 30, 60, 90], settings.keepDaily).map((n) => <option key={n} value={n}>{plural(n, 'day')}</option>)}

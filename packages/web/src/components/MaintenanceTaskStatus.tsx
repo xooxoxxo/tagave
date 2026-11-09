@@ -15,7 +15,7 @@ export function MaintenanceTaskStatus({ libraryId, task, showStage = true }: {
   const act = async (action: MaintenanceTaskView['actions'][number]) => {
     if (action === 'restore-original' && !await confirmDialog({
       title: 'Restore the original album?',
-      message: 'Tagave will put back the original files and remove the FLAC copies published by this upgrade.',
+      message: 'tagave will put back the original files and remove the FLAC copies published by this upgrade.',
       confirmLabel: 'Restore original',
     })) return;
     change.mutate({ id: task.id, action });

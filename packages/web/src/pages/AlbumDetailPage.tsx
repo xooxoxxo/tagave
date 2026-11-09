@@ -886,7 +886,7 @@ export function AlbumDetailPage() {
   const startUpgrade = async () => {
     if (!await confirmDialog({
       title: 'Upgrade this album to FLAC?',
-      message: 'Tagave will use Lidarr to download this edition, verify and tag the FLAC files, then replace the album. The original will go to Trash.',
+      message: 'tagave will use Lidarr to download this edition, verify and tag the FLAC files, then replace the album. The original will go to Trash.',
       confirmLabel: 'Upgrade to FLAC',
     })) return;
     upgrade.request.mutate(undefined, {

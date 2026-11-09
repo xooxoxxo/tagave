@@ -202,7 +202,7 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
             {ready && reviewing && (
               <section className={styles.receipt} aria-labelledby="split-review-heading">
                 <h3 id="split-review-heading" ref={reviewHeading} tabIndex={-1}>Split into {plan.tracks.length} FLAC files?</h3>
-                <p>Tagave writes a file for each track at the reviewed cuts, then moves the original to Trash.</p>
+                <p>tagave writes a file for each track at the reviewed cuts, then moves the original to Trash.</p>
               </section>
             )}
             {ready && !reviewing && (

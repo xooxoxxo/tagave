@@ -80,7 +80,9 @@ describe('SettingsBackupsPage', () => {
     const html = render(status({ settings: { ...status().settings, frequency: 'weekly', weekday: 5, hour: 20 } }));
     expect(html).toContain('<option value="weekly" selected="">Weekly</option>');
     expect(html).toContain('<option value="5" selected="">Friday</option>');
-    expect(html).toContain('Every Friday at 20:00');
+    expect(html).toContain('<option value="20" selected="">20:00</option>');
+    // labels and values: no sentence restates the choice
+    expect(html).not.toMatch(/Every Friday|Retention applies|Music files are stored/);
   });
 
   it('keeps a saved number that is not on the ladder', () => {
