@@ -122,15 +122,51 @@ describe('page shells', () => {
     expect(account).not.toMatch(/border/);
     // it spans exactly the sidebar's padding, nothing more
     expect(account).toMatch(/margin-inline: calc\(-1 \* var\(--nav-pad-x\)\)/);
-    // The desktop links fill the space above the account and scroll on
-    // their own, so the account stays at the bottom on short windows too.
-    const desktop = layout.slice(layout.indexOf('@media (min-width: 901px)'));
-    expect(rule(desktop, '.navSheet')).toMatch(/flex: 1 1 auto/);
-    expect(rule(desktop, '.navSheet')).toMatch(/min-height: 0/);
-    expect(rule(desktop, '.navLinks')).toMatch(/flex: 1 1 auto/);
-    expect(rule(desktop, '.navLinks')).toMatch(/overflow-y: auto/);
-    expect(rule(desktop, '.nav')).not.toMatch(/overflow-y: auto/);
+    expect(account).toMatch(/margin-top: auto/);
     expect(source('../components/Layout.tsx')).toMatch(/<AccountCompartment/);
+  });
+
+  it('the desktop sidebar is always there; auto-hide is parked behind a preference that is off and not in Settings', () => {
+    const layout = read('../components/Layout.module.css');
+    const tsx = source('../components/Layout.tsx');
+    // no edge tab: the only way in to a hidden sidebar is the edge zone or focus
+    expect(tsx).not.toMatch(/sidebarKey|Open sidebar/);
+    expect(tsx).toMatch(/sidebarAutoHide \? \(/);
+    expect(source('./SettingsPage.tsx')).not.toMatch(/sidebarAutoHide/);
+    // the sidebar scrolls as one column, the account row sticks to its foot
+    expect(rule(layout, '.nav')).toMatch(/overflow-y: auto/);
+    expect(rule(layout, '.account')).toMatch(/position: sticky/);
+  });
+
+  it('on a phone an album or artist page hides the sidebar wherever it sits in the shell', () => {
+    const layout = read('../components/Layout.module.css');
+    expect(layout).toMatch(/\.container:has\(\[data-album-flow\]\) \.nav \{ display: none; \}/);
+    expect(layout).toMatch(/\.container:has\(\[data-artist-flow\]\) \.nav \{ display: none; \}/);
+    expect(layout).not.toMatch(/> \.nav/);
+  });
+
+  it('the album header is plain text: a kicker over the title, a facts line under the artist, no boxed tiles', () => {
+    const tsx = source('./AlbumDetailPage.tsx');
+    const css = read('./AlbumDetailPage.module.css');
+    expect(tsx).toMatch(/data-album-kicker=""/);
+    expect(tsx).toMatch(/data-album-facts=""/);
+    expect(tsx).not.toMatch(/styles\.widgets?\b/);
+    expect(css).not.toMatch(/\.widgets?\b/);
+    for (const sel of ['.kicker', '.factsLine']) {
+      expect(rule(css, sel)).not.toMatch(/border|background|box-shadow/);
+    }
+  });
+
+  it('the inspector column sticks at the window height and never swallows the wheel', () => {
+    const side = rule(read('./AlbumDetailPage.module.css'), '.inspectorSide');
+    expect(side).toMatch(/position: sticky/);
+    expect(side).toMatch(/height: var\(--pane-h, 100dvh\)/);
+    expect(side).toMatch(/overflow-y: auto/);
+    expect(side).not.toMatch(/overscroll-behavior/);
+    // a long line wraps; its mark and action stay on the first line
+    const inspector = read('./MaintenanceInspector.module.css');
+    expect(rule(inspector, '.rowHead')).toMatch(/align-items: start/);
+    expect(rule(inspector, '.rowToggle')).toMatch(/align-items: flex-start/);
   });
 
   it('the player bar draws no rule on top (one strip with the account row)', () => {

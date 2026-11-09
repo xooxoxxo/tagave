@@ -56,7 +56,6 @@
 /* Appearance › Maintenance */
 .modeSetting { margin-top: var(--space-xl); }
 .widgetSettings { display: grid; justify-items: start; gap: var(--space-sm); }
-.widgetSettings p { margin: 0; color: var(--ink-2); }
 .widgetChoices { width: min(100%, 32rem); border-block: 1px solid var(--line); }
 .widgetChoices label {
   display: flex;

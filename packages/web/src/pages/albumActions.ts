@@ -177,7 +177,7 @@ export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
     ...(i.canCare && i.tag ? [{ key: 'tag', label: 'Tag…', icon: 'tag' as const, onSelect: i.tag }] : []),
     ...(i.canCare && i.upgrade ? [i.upgrade] : []),
     ...(i.artwork ? [i.artwork] : []),
-    ...(i.customize ? [{ key: 'customize', label: 'Customize album widgets', icon: 'tool' as const, onSelect: i.customize }] : []),
+    ...(i.customize ? [{ key: 'customize', label: 'Customize album header', icon: 'tool' as const, onSelect: i.customize }] : []),
     { key: 'info', label: 'Album info', hint: 'Details and reviews', icon: 'info', onSelect: i.onInfo },
     ...(one ? [] : i.artists.map(artist)),
   ];

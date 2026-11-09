@@ -183,7 +183,7 @@ export function CollectionPage() {
   const copyCount = Math.max(0, counts.total - counts.removed);
   const subtitle = source ? (
     <span className={styles.meta}>
-      {copyCount} {copyCount === 1 ? 'copy' : 'copies'} on your shelf
+      {copyCount} {copyCount === 1 ? 'copy' : 'copies'}
       {source.lastSyncAt && <> · Synced {shortDate(source.lastSyncAt)}</>}
     </span>
   ) : undefined;

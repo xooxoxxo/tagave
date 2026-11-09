@@ -164,11 +164,12 @@
   background: color-mix(in srgb, var(--mist) 55%, transparent);
 }
 
+/* the mark and the action sit on the line's first line, however many it takes */
 .rowHead {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 8px;
   min-height: 36px;
   padding: 0 6px;
@@ -180,7 +181,7 @@
 
 .rowToggle {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   min-width: 0;
   min-height: 36px;
@@ -209,6 +210,7 @@
 
 .rowLine {
   min-width: 0;
+  overflow-wrap: break-word;
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -218,6 +220,7 @@
   transition: color var(--dur-slow) var(--ease-out), text-decoration-color var(--dur-slow) var(--ease-out);
 }
 .row[data-open] .rowLine { -webkit-line-clamp: unset; }
+.linePart { white-space: nowrap; }
 .row[data-ticked] .rowLine {
   color: var(--ink-3);
   text-decoration-color: currentColor;
@@ -230,6 +233,8 @@
   flex: none;
   width: 16px;
   height: 16px;
+  /* centred on the first line (1.45 × 13px) */
+  margin-top: 1.5px;
   color: var(--ink-3);
 }
 .mark svg { display: block; overflow: visible; }
@@ -267,6 +272,8 @@
   z-index: 1;
   display: flex;
   justify-content: flex-end;
+  /* the 28px button centred on the first line */
+  padding-top: 2.5px;
   transition: opacity var(--dur) var(--ease-out), visibility 0s linear 0s;
 }
 .rowAction[data-hidden] {
@@ -378,6 +385,10 @@
 }
 .inspector[data-variant="sheet"] .rowHead,
 .inspector[data-variant="sheet"] .rowToggle { min-height: 44px; }
+/* one line centred in the 44px row (1.45 × 14px); the 36px button on it */
+.inspector[data-variant="sheet"] .rowToggle { padding-block: 11.85px; }
+.inspector[data-variant="sheet"] .mark { margin-top: 2.15px; }
+.inspector[data-variant="sheet"] .rowAction { padding-top: 4px; }
 .inspector[data-variant="sheet"] .item { min-height: 44px; font-size: 0.875rem; }
 .inspector[data-variant="sheet"] .textButton { min-height: 36px; font-size: 0.8125rem; }
 .inspector[data-variant="sheet"] .rowBody { padding-left: 30px; }

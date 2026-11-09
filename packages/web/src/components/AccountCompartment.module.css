@@ -157,12 +157,6 @@
   overflow: hidden;
 }
 
-@media (min-width: 901px) {
-  .root, .compartment { min-height: 0; }
-  .row { flex: none; }
-  .root[data-open] .clip { overflow-y: auto; }
-}
-
 .panel {
   display: flex;
   flex-direction: column;

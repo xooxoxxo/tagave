@@ -17,7 +17,7 @@
  * (MaintenanceSheet). On a phone the page shows MaintenanceSummary, one row
  * that opens the sheet, and PickBar floats while songs are picked.
  */
-import { useEffect, useId, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, type ReactNode } from 'react';
 import { Collapse, CloseIcon } from '../components/ui';
 import type { AlbumTab, AttentionItem } from '../utils/albumAttention';
 import { meterFill, meterLabel, summaryLabel, type FixMeter, type InspectorRow } from '../utils/maintenanceInspector';
@@ -111,6 +111,16 @@ function Mark({ row }: { row: InspectorRow }) {
   );
 }
 
+/**
+ * "Whole album in one file · 1 file · 11 tracks · 1:18:32": a long line
+ * breaks between its values, never inside a short one.
+ */
+function LineParts({ line }: { line: string }) {
+  return <>{line.split(' · ').map((part, i) => (
+    <Fragment key={i}>{i > 0 && ' · '}<span className={part.length <= 16 ? styles.linePart : undefined}>{part}</span></Fragment>
+  ))}</>;
+}
+
 export function MaintenanceInspector(p: MaintenanceInspectorProps) {
   const labelId = useId();
   useEffect(() => {
@@ -184,7 +194,7 @@ export function MaintenanceInspector(p: MaintenanceInspectorProps) {
                       <Mark row={row} />
                       <span className={styles.rowLine}>
                         {ticked && <span className={styles.srOnly}>Done: </span>}
-                        {item.line}
+                        <LineParts line={item.line} />
                       </span>
                     </button>
                     <span className={styles.rowAction} data-hidden={!showAction || undefined}>

@@ -17,7 +17,7 @@ const disk = (usedPct: number, status: DiskSpaceView['status']): DiskSpaceView =
 
 function Both({ data }: { data: DiskSpaceView }) {
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-    <DiskSpaceNoticeView disk={data} action={<a href="#storage">Open Settings › Storage</a>} />
+    <DiskSpaceNoticeView disk={data} action={<a href="#storage">Storage</a>} />
     <div style={{ padding: '0 16px' }}><DiskSpace disk={data} /></div>
   </div>;
 }

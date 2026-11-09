@@ -37,18 +37,17 @@ export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false);
   // Phone only: the links and the account live behind one menu button.
   const [menuOpen, setMenuOpen] = useState(false);
-  const [desktopNavOpen, setDesktopNavOpen] = useState(false);
+  // Parked (display pref, off by default): the desktop sidebar slides in from the left edge.
+  const [sidebarShown, setSidebarShown] = useState(false);
   const searchButton = useRef<HTMLButtonElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
-  const sidebarButton = useRef<HTMLButtonElement>(null);
-  const sidebarDock = useRef<HTMLDivElement>(null);
   const main = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const router = useRouter();
   const navigate = useNavigate();
   const [maintenance, setMaintenance] = useMaintenance();
   // Settings › Appearance: search beside the logo or below it, wordmark on or off
-  const [{ searchPlacement, showWordmark }] = useDisplayPrefs();
+  const [{ searchPlacement, showWordmark, sidebarAutoHide }] = useDisplayPrefs();
   const barTitle = useAppBarTitle();
   // A page inside a page (a Settings section on a phone): back to its list.
   const subpage = useSubpage();
@@ -78,10 +77,13 @@ export function Layout() {
   useScrollPlace(mainEl, 'main', useEntry(router.history, pathname), { resetOnEnter: true });
   // a new history entry forgets the places it overwrites
   useEffect(() => trackPlaces(router.history), [router]);
+  useEffect(() => { setMenuOpen(false); setSidebarShown(false); }, [pathname]);
   useEffect(() => {
-    setMenuOpen(false);
-    setDesktopNavOpen(false);
-  }, [pathname]);
+    if (!sidebarShown) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) setSidebarShown(false); };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [sidebarShown]);
   // the phone's menu opens under the bar, to the foot: it needs the bar's height
   useLayoutEffect(() => {
     const nav = navRef.current;
@@ -93,23 +95,6 @@ export function Layout() {
     ro.observe(nav);
     return () => ro.disconnect();
   }, [menuOpen]);
-  useEffect(() => {
-    if (!desktopNavOpen) return;
-    const closeOutside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !sidebarDock.current?.contains(event.target)) setDesktopNavOpen(false);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      setDesktopNavOpen(false);
-      if (navRef.current?.contains(document.activeElement)) sidebarButton.current?.focus();
-    };
-    document.addEventListener('pointerdown', closeOutside);
-    window.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside);
-      window.removeEventListener('keydown', escape);
-    };
-  }, [desktopNavOpen]);
   // the audio lives outside React: signed out (or the session ended), it stops
   useEffect(() => { if (!user) stopPlayback(); }, [user]);
   useEffect(() => {
@@ -139,11 +124,7 @@ export function Layout() {
 
   if (!user) return <Outlet />;
   const linkClass = (active: boolean) => active ? styles.navLinkActive : styles.navLink;
-  const closeSearch = () => {
-    setSearchOpen(false);
-    const opener = sidebarButton.current?.offsetWidth && !desktopNavOpen ? sidebarButton.current : searchButton.current;
-    opener?.focus();
-  };
+  const closeSearch = () => { setSearchOpen(false); searchButton.current?.focus(); };
   // a list page (Albums, Artists): the search narrows its list first
   const listScope = pageSearchScope(pathname);
   const searchScope: SearchScope | null = listScope && {
@@ -192,93 +173,89 @@ export function Layout() {
     </IconButton>
   );
 
+  const nav = (
+    <aside ref={navRef} className={`${styles.nav} ${menuOpen ? styles.navOpen : ''} ${back || upButton ? styles.navDetail : ''}`}>
+      {back && (
+        <div className={styles.phoneBar}>
+          {backButton}
+          <span className={`${styles.barTitle} ${barTitle.shown ? styles.barTitleShown : ''}`} aria-hidden={!barTitle.shown}>{shownTitle}</span>
+        </div>
+      )}
+      {upButton && (
+        <div className={styles.phoneBar}>
+          {upButton}
+          <span className={`${styles.barTitle} ${styles.barTitleShown}`} aria-hidden="true">{subpage.title}</span>
+        </div>
+      )}
+      <div className={searchPlacement === 'beside' ? styles.brandRowBeside : styles.brandRow}>
+      <Link to="/" className={styles.brand} aria-label="tagave">
+        <BrandMark className={styles.brandMark} />
+        {showWordmark && <span className={styles.wordmark}>tagave</span>}
+      </Link>
+      {/* the page's own heading names it for a screen reader */}
+      {title && <span className={styles.pageTitle} aria-hidden="true">{title}</span>}
+      <div className={styles.tools}>
+      <button ref={searchButton} className={styles.searchButton} onClick={() => setSearchOpen(true)} aria-haspopup="dialog" aria-label="Search your library">
+        <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        <span className={styles.searchLabel}>Search</span> <kbd>⌘ K</kbd>
+      </button>
+      </div>
+      </div>
+      {onAlbumPage ? null : <MaintenancePill className={styles.modePill} />}
+      <button
+        ref={menuButton}
+        type="button"
+        className={styles.menuButton}
+        aria-expanded={menuOpen}
+        aria-controls="main-navigation"
+        aria-label={menuOpen ? 'Close menu' : updateAvailable ? 'Open menu (a new version is available)' : 'Open menu'}
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+          {menuOpen ? <path d="M6 6l12 12M18 6 6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+        </svg>
+        {updateAvailable && !menuOpen && <span className={styles.menuDot} aria-hidden="true" />}
+      </button>
+      <div id="main-navigation" className={styles.navSheet}>
+      <nav className={styles.navLinks} aria-label="Main navigation">
+        <Link to="/" className={linkClass(pathname === '/')}>{pageTitles['/']}</Link>
+        <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>{pageTitles['/albums']}</Link>
+        <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>{pageTitles['/artists']}</Link>
+        <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>{pageTitles['/collection']}</Link>
+        {playlistsOn && <Link to="/playlists" className={`${linkClass(pathname.startsWith('/playlists'))} ${styles.wideOnly}`}>{pageTitles['/playlists']}</Link>}
+        {likesOn && <Link to="/liked" className={linkClass(pathname.startsWith('/liked'))}>{pageTitles['/liked']}</Link>}
+      </nav>
+      {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
+      <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />
+      {/* the signed-in person: a band on the bottom edge that opens a compartment above it */}
+      <div className={styles.account} data-account-row="">
+        {logout.isError && <p role="alert" className={styles.accountError}>Could not sign out. Please try again.</p>}
+        <AccountCompartment
+          name={user.displayName}
+          email={user.email}
+          signingOut={logout.isPending}
+          closeKey={pathname}
+          onAccount={() => void navigate({ to: '/settings/$section', params: { section: 'account' } })}
+          onListening={() => void navigate({ to: '/settings/modules/$module', params: { module: 'player' } })}
+          links={careLinks}
+          onSignOut={() => { stopPlayback(); logout.mutate(); }}
+        />
+      </div>
+      </div>
+    </aside>
+  );
   return (
     <div className={styles.container}>
       <a href="#main-content" className={styles.skipLink}>Skip to content</a>
-      <div ref={sidebarDock} className={styles.sidebarDock} data-revealed={desktopNavOpen || undefined}
-        onPointerLeave={(e) => { if (e.pointerType === 'mouse') setDesktopNavOpen(false); }}
-        onBlur={(e) => {
-          if (e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget) && !searchOpen) setDesktopNavOpen(false);
-        }}>
-      <div className={styles.sidebarEdge} aria-hidden="true"
-        onPointerEnter={(e) => { if (e.pointerType === 'mouse') setDesktopNavOpen(true); }} />
-      <button type="button" className={styles.sidebarKey} ref={sidebarButton} aria-expanded={desktopNavOpen}
-        aria-controls="site-sidebar" aria-label={desktopNavOpen ? 'Close sidebar' : 'Open sidebar'}
-        onClick={() => setDesktopNavOpen((open) => !open)}>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-          <rect x="3" y="5" width="18" height="14" rx="2" /><path d="M9 5v14" />
-        </svg>
-      </button>
-      <aside id="site-sidebar" ref={navRef} className={`${styles.nav} ${menuOpen ? styles.navOpen : ''} ${back || upButton ? styles.navDetail : ''}`}>
-        {back && (
-          <div className={styles.phoneBar}>
-            {backButton}
-            <span className={`${styles.barTitle} ${barTitle.shown ? styles.barTitleShown : ''}`} aria-hidden={!barTitle.shown}>{shownTitle}</span>
-          </div>
-        )}
-        {upButton && (
-          <div className={styles.phoneBar}>
-            {upButton}
-            <span className={`${styles.barTitle} ${styles.barTitleShown}`} aria-hidden="true">{subpage.title}</span>
-          </div>
-        )}
-        <div className={searchPlacement === 'beside' ? styles.brandRowBeside : styles.brandRow}>
-        <Link to="/" className={styles.brand} aria-label="tagave">
-          <BrandMark className={styles.brandMark} />
-          {showWordmark && <span className={styles.wordmark}>tagave</span>}
-        </Link>
-        {/* the page's own heading names it for a screen reader */}
-        {title && <span className={styles.pageTitle} aria-hidden="true">{title}</span>}
-        <div className={styles.tools}>
-        <button ref={searchButton} className={styles.searchButton} onClick={() => setSearchOpen(true)} aria-haspopup="dialog" aria-label="Search your library">
-          <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-          <span className={styles.searchLabel}>Search</span> <kbd>⌘ K</kbd>
-        </button>
+      {sidebarAutoHide ? (
+        <div className={styles.sidebarDock} data-shown={sidebarShown || undefined}
+          onPointerLeave={(e) => { if (e.pointerType === 'mouse') setSidebarShown(false); }}
+          onFocus={() => setSidebarShown(true)}
+          onBlur={(e) => { if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) && !searchOpen) setSidebarShown(false); }}>
+          <div className={styles.sidebarEdge} aria-hidden="true" onPointerEnter={(e) => { if (e.pointerType === 'mouse') setSidebarShown(true); }} />
+          {nav}
         </div>
-        </div>
-        {onAlbumPage ? null : <MaintenancePill className={styles.modePill} />}
-        <button
-          ref={menuButton}
-          type="button"
-          className={styles.menuButton}
-          aria-expanded={menuOpen}
-          aria-controls="main-navigation"
-          aria-label={menuOpen ? 'Close menu' : updateAvailable ? 'Open menu (a new version is available)' : 'Open menu'}
-          onClick={() => setMenuOpen((open) => !open)}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-            {menuOpen ? <path d="M6 6l12 12M18 6 6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
-          </svg>
-          {updateAvailable && !menuOpen && <span className={styles.menuDot} aria-hidden="true" />}
-        </button>
-        <div id="main-navigation" className={styles.navSheet}>
-        <nav className={styles.navLinks} aria-label="Main navigation">
-          <Link to="/" className={linkClass(pathname === '/')}>{pageTitles['/']}</Link>
-          <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>{pageTitles['/albums']}</Link>
-          <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>{pageTitles['/artists']}</Link>
-          <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>{pageTitles['/collection']}</Link>
-          {playlistsOn && <Link to="/playlists" className={`${linkClass(pathname.startsWith('/playlists'))} ${styles.wideOnly}`}>{pageTitles['/playlists']}</Link>}
-          {likesOn && <Link to="/liked" className={linkClass(pathname.startsWith('/liked'))}>{pageTitles['/liked']}</Link>}
-        </nav>
-        {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
-        <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />
-        {/* the signed-in person: a band on the bottom edge that opens a compartment above it */}
-        <div className={styles.account} data-account-row="">
-          {logout.isError && <p role="alert" className={styles.accountError}>Could not sign out. Please try again.</p>}
-          <AccountCompartment
-            name={user.displayName}
-            email={user.email}
-            signingOut={logout.isPending}
-            closeKey={pathname}
-            onAccount={() => void navigate({ to: '/settings/$section', params: { section: 'account' } })}
-            onListening={() => void navigate({ to: '/settings/modules/$module', params: { module: 'player' } })}
-            links={careLinks}
-            onSignOut={() => { stopPlayback(); logout.mutate(); }}
-          />
-        </div>
-        </div>
-      </aside>
-      </div>
+      ) : nav}
       <div className={styles.contentArea}>
         {/* The footer scrolls with the page instead of holding a strip of
             every screen; on a phone that strip cost a fifth of the height. */}
