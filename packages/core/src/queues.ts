@@ -80,6 +80,14 @@ export const MUSIC_FOLDER_QUEUES: readonly string[] = [
   'tags.preview', 'tags.apply', 'tags.revert', 'files.trash', 'files.split', 'files.upgrade', 'files.move', 'files.embedCover', 'pool.scan',
 ];
 
+/**
+ * Queues the app dispatches maintenance tasks to (0090 maintenance_tasks):
+ * the owner's cover lookups, cover embeds, splits and split-first Tag Plans,
+ * Empty Trash and FLAC upgrades. Each attempt is its own pg-boss job; the
+ * task's scope, not a queue policy, keeps two attempts from running at once.
+ */
+export const MAINTENANCE_QUEUES = ['art.fetch', 'files.embedCover', 'files.split', 'files.trash', 'files.upgrade', 'tags.apply'] as const;
+
 /** The queue whose worker works this one: itself, or the queue it rides with. */
 export function workedWith(queue: string): string {
   return QUEUES_RIDING_WITH[queue] ?? queue;

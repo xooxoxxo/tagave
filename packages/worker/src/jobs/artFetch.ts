@@ -8,6 +8,7 @@ import {
 import { storeThumb, toThumb } from '../lib/coverThumbs.js';
 import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
+import { runMaintenance } from '../lib/maintenance.js';
 import { relDirname } from '../lib/helpers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
 import { libraryProviderSettings, getProviders, discogsCall } from '../lib/providers.js';
@@ -60,6 +61,23 @@ async function openVariant(p: string): Promise<string | null> {
     } catch { /* next */ }
   }
   return null;
+}
+
+/**
+ * art.fetch as the worker runs it: a lookup the owner asked for from the
+ * album page (a maintenance task) under its claim, any other straight away.
+ */
+export async function artFetchTask(ctx: WorkerContext, data: ArtFetchJobData): Promise<void> {
+  if (!data.maintenance) {
+    await artFetchJob(ctx, data);
+    return;
+  }
+  await runMaintenance(ctx, data.maintenance, async (task) => {
+    await task.update({ stage: 'Looking for cover art' });
+    const result = await artFetchJob(ctx, data, task.current);
+    if (result === 'failed') return { state: 'failed', stage: 'Cover art lookup failed', error: 'A cover source could not be read.' };
+    return { state: 'done', stage: result === 'found' ? 'Cover art found' : 'No cover art found' };
+  });
 }
 
 /**

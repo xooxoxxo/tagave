@@ -1,19 +1,11 @@
-import { dispatchMaintenanceTask, reconcileMaintenanceTasks, undispatchedMaintenanceTasks, type MaintenanceRow, type MaintenanceSender } from '@tagave/db';
+import { dispatchMaintenanceTask, maintenanceSender, reconcileMaintenanceTasks, undispatchedMaintenanceTasks, type MaintenanceRow } from '@tagave/db';
 import { workerServesQueue } from '@tagave/core';
 import type { MaintenanceTaskView } from '@tagave/shared';
 import type { FastifyBaseLogger } from 'fastify';
-import type { PgBoss } from 'pg-boss';
 import { getBoss } from '../boss.js';
 import { getSql } from '../db.js';
 
-export function maintenanceSender(boss: Pick<PgBoss, 'send'>): MaintenanceSender {
-  return (tx, queue, id, data) => boss.send(queue, data, {
-    id,
-    retryLimit: 0,
-    ...(queue === 'art.fetch' && 'localAlbumId' in data ? { singletonKey: `art:${String(data.localAlbumId)}` } : {}),
-    db: { executeSql: async (query, values) => ({ rows: await tx.unsafe(query, values as never[] | undefined) }) },
-  });
-}
+export { maintenanceSender };
 
 export async function dispatchMaintenance(id: string, logger: FastifyBaseLogger): Promise<void> {
   try {

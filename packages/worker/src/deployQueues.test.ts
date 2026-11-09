@@ -1,8 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { GATED_QUEUES, MUSIC_FOLDER_QUEUES, QUEUES_RIDING_WITH, WORKER_QUEUES, unservedWork, workedWith } from '@tagave/core';
+import { GATED_QUEUES, MAINTENANCE_QUEUES, MUSIC_FOLDER_QUEUES, QUEUES_RIDING_WITH, WORKER_QUEUES, unservedWork, workedWith } from '@tagave/core';
+import { maintenanceSender } from '@tagave/db';
+import { QUEUE_POLICIES } from './lib/queueSetup.js';
 
 // Every compose file that splits the worker into TAGAVE_QUEUES roles must, taken
 // together, give each queue the worker can run to some worker. A queue left
@@ -159,5 +161,68 @@ describe('queues that touch the music folder', () => {
 
   it('pool.scan rides with the tag writer, on the file worker', () => {
     expect(QUEUES_RIDING_WITH['pool.scan']).toBe('tags.apply');
+  });
+});
+
+/** The queue of every maintenance task the app saves (saveMaintenanceTask({ …, queue: '…' })). */
+function appMaintenanceQueues(): string[] {
+  const api = path.join(repo, 'packages/api/src');
+  const out = new Set<string>();
+  for (const dir of ['routes', 'lib']) {
+    for (const name of readdirSync(path.join(api, dir)).filter((f) => f.endsWith('.ts') && !f.includes('.test.'))) {
+      const text = readFileSync(path.join(api, dir, name), 'utf8');
+      for (const m of text.matchAll(/saveMaintenanceTask\([^)]*?queue: '([^']+)'/gs)) out.add(m[1]!);
+    }
+  }
+  return [...out].sort();
+}
+
+// 0.29.0: the owner's split analyses and cover lookups waited for ever. Every
+// maintenance job on a 'stately' queue was sent with no singletonKey, so all
+// of them shared one slot: a second album's cut points could not be queued,
+// and a job a stopped worker left active held every split back for hours.
+describe('maintenance tasks', () => {
+  it('MAINTENANCE_QUEUES names every queue the app dispatches a task to', () => {
+    const used = appMaintenanceQueues();
+    expect(used.length).toBeGreaterThan(4);
+    expect(used.filter((q) => !(MAINTENANCE_QUEUES as readonly string[]).includes(q))).toEqual([]);
+  });
+
+  it('each is worked on the file worker, which handles the task under its claim', () => {
+    const src = readFileSync(path.join(here, 'index.ts'), 'utf8');
+    const fromFile = new Map<string, string>();
+    for (const m of src.matchAll(/import\s*\{([^}]+)\}\s*from\s*'\.\/((?:jobs|lib)\/[\w]+)\.js'/g)) {
+      for (const name of m[1]!.split(',').map((x) => x.replace(/^\s*type\s+/, '').trim()).filter(Boolean)) fromFile.set(name, m[2]!);
+    }
+    for (const queue of MAINTENANCE_QUEUES) {
+      expect(MUSIC_FOLDER_QUEUES, queue).toContain(queue);
+      const at = src.search(new RegExp(`boss\\.work(<[^(]*>)?\\('${queue.replace('.', '\\.')}'`));
+      expect(at, queue).toBeGreaterThan(0);
+      const body = src.slice(at, src.indexOf('});', at));
+      const files = [...fromFile].filter(([fn]) => new RegExp(`\\b${fn}\\(`).test(body)).map(([, file]) => file);
+      const claims = files.some((file) => /runMaintenance\(|withMaintenanceClaim\(/.test(readFileSync(path.join(here, `${file}.ts`), 'utf8')));
+      expect(claims, `${queue} handler (${files.join(', ')}) runs a maintenance task under its claim`).toBe(true);
+    }
+  });
+
+  it.each(MAINTENANCE_QUEUES)('a job on %s carries its attempt\'s own id and singletonKey, whatever the queue policy', async (queue) => {
+    const sent: Array<Record<string, unknown>> = [];
+    const send = maintenanceSender({ send: async (_name, _data, options) => { sent.push(options); return String(options['id']); } });
+    const tx = {} as never;
+    await send(tx, queue, '00000000-0000-4000-8000-000000000001', { localAlbumId: 'a', splitId: 's' });
+    await send(tx, queue, '00000000-0000-4000-8000-000000000002', { localAlbumId: 'a', splitId: 's' });
+    expect(sent.map((o) => o['id'])).toEqual(['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']);
+    // under 'stately' (or any singleton policy) two jobs with one key cannot both wait
+    if (QUEUE_POLICIES[queue]) {
+      expect(sent[0]!['singletonKey']).toBeTruthy();
+      expect(sent[0]!['singletonKey']).not.toBe(sent[1]!['singletonKey']);
+    }
+  });
+
+  it('the file worker recovers what a stopped worker left behind before it registers a handler', () => {
+    const src = readFileSync(path.join(here, 'index.ts'), 'utf8');
+    const recover = src.indexOf('recoverMaintenanceTasks(');
+    expect(recover).toBeGreaterThan(0);
+    expect(recover).toBeLessThan(src.search(/boss\.work(<[^(]*>)?\(/));
   });
 });

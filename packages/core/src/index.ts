@@ -204,7 +204,7 @@ export { physicalFormatLabel, discogsArtistName, matchTitle, scoreSuggestion, ra
 export type { PhysicalRecordInfo, LibraryAlbumCandidate, RankedSuggestion } from './collection/index.js';
 
 // Worker queues and the work each serves
-export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, MUSIC_FOLDER_QUEUES, unservedWork, workedWith, workerServesQueue } from './queues.js';
+export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, MUSIC_FOLDER_QUEUES, MAINTENANCE_QUEUES, unservedWork, workedWith, workerServesQueue } from './queues.js';
 
 // Artists list ordering (api live list, worker artist_list rebuild)
 export {
