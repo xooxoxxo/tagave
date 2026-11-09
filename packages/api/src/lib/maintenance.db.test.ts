@@ -57,6 +57,17 @@ describe.skipIf(!adminUrl)('maintenance task delivery', () => {
     }]);
   });
 
+  it('queues two tasks at once on a stately queue (files.split, tags.apply, art.fetch run stately)', async () => {
+    const stately = 'test.maintenance.stately';
+    await boss.createQueue(stately, { policy: 'stately' });
+    const one = await saveMaintenanceTask(sql, { ...request(), queue: stately });
+    const two = await saveMaintenanceTask(sql, { ...request(), queue: stately });
+    await dispatchMaintenanceTask(sql, maintenanceSender(boss), one.id);
+    await dispatchMaintenanceTask(sql, maintenanceSender(boss), two.id);
+    expect(await undispatchedMaintenanceTasks(sql)).not.toContain(two.id);
+    expect((await sql`select id from pgboss.job where name = ${stately}`).map((r) => r.id).sort()).toEqual([one.attempt_id, two.attempt_id].sort());
+  });
+
   it('keeps the intent in the outbox if dispatch fails', async () => {
     const row = await saveMaintenanceTask(sql, request());
     await expect(dispatchMaintenanceTask(sql, async () => { throw new Error('offline'); }, row.id)).rejects.toThrow('offline');

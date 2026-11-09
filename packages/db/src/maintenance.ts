@@ -62,19 +62,25 @@ export interface MaintenanceJobQueue {
   send(name: string, data: object, options: Record<string, unknown>): Promise<string | null>;
 }
 
-/** The pg-boss options of one attempt's job. */
-export function maintenanceJobOptions(queue: string, attemptId: string, data: object): Record<string, unknown> {
-  return {
-    id: attemptId,
-    retryLimit: 0,
-    ...(queue === 'art.fetch' && 'localAlbumId' in data ? { singletonKey: `art:${String((data as { localAlbumId: unknown }).localAlbumId)}` } : {}),
-  };
+/**
+ * The pg-boss options of one attempt's job: its id and its singletonKey are
+ * the attempt's own. Most maintenance queues are 'stately' (files.split,
+ * tags.apply, art.fetch, files.trash, files.upgrade), which keeps one queued
+ * and one active job per singletonKey. Sent without a key (0.28.0, 0.29.0),
+ * every task on a queue shared the empty key: a second album's cut points
+ * could not be queued while the first waited, and a job a stopped worker left
+ * 'active' held every other split back until pg-boss expired it, hours later.
+ * The task's scope (maintenance_tasks_open_scope) and the claim's advisory
+ * lock are what keep two attempts of one task apart.
+ */
+export function maintenanceJobOptions(attemptId: string): { id: string; singletonKey: string; retryLimit: 0 } {
+  return { id: attemptId, singletonKey: `maintenance:${attemptId}`, retryLimit: 0 };
 }
 
 /** Sends an attempt's job inside the dispatch transaction: the job exists exactly when the dispatch commits. */
 export function maintenanceSender(boss: MaintenanceJobQueue): MaintenanceSender {
   return (tx, queue, id, data) => boss.send(queue, data, {
-    ...maintenanceJobOptions(queue, id, data),
+    ...maintenanceJobOptions(id),
     db: { executeSql: async (query: string, values?: unknown[]) => ({ rows: await tx.unsafe(query, values as never[] | undefined) }) },
   });
 }
@@ -148,6 +154,11 @@ export async function listMaintenanceTasks(sql: Sql, libraryId: string): Promise
   `;
 }
 
+/** The session advisory lock a claim holds for as long as its process runs the task. */
+export function maintenanceLockKey(task: Pick<MaintenanceRow, 'library_id' | 'kind' | 'scope_key'>): string {
+  return `tagave:maintenance:${JSON.stringify([task.library_id, task.kind, task.scope_key])}`;
+}
+
 /** A session lock prevents a retry from touching files while an old process still owns them. */
 export async function withMaintenanceClaim<T>(sql: Sql, work: MaintenanceWork, run: (row: MaintenanceRow) => Promise<T>): Promise<T | undefined> {
   const [task] = await sql<Pick<MaintenanceRow, 'library_id' | 'kind' | 'scope_key'>[]>`
@@ -155,7 +166,7 @@ export async function withMaintenanceClaim<T>(sql: Sql, work: MaintenanceWork, r
     where id = ${work.taskId} and attempt_id = ${work.attemptId} and state = 'waiting'
   `;
   if (!task) return undefined;
-  const key = `tagave:maintenance:${JSON.stringify([task.library_id, task.kind, task.scope_key])}`;
+  const key = maintenanceLockKey(task);
   const connection = await sql.reserve();
   let locked = false;
   try {
