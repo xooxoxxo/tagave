@@ -310,7 +310,9 @@ export interface MaintenanceRecovery {
  * writes. pg-boss alone would keep such a job 'active' until it expires,
  * three hours for files.split. A 0.27 split row still finding its cut points
  * whose job is gone (or abandoned) gets the analysis task 0.28 would have
- * made. Each runs once: what it fixes is no longer left behind.
+ * made. Each runs once: what it fixes is no longer left behind. An Empty
+ * Trash being cancelled is left to reconcileMaintenanceTasks, which settles
+ * a cancel once its job ends.
  */
 export async function recoverMaintenanceTasks(sql: Sql, options: MaintenanceRecoveryOptions): Promise<MaintenanceRecovery> {
   const out: MaintenanceRecovery = { requeued: [], interrupted: [], legacy: [] };
@@ -319,10 +321,10 @@ export async function recoverMaintenanceTasks(sql: Sql, options: MaintenanceReco
 
   const left = await sql<MaintenanceRow[]>`
     select t.* from maintenance_tasks t
-    where t.state = 'running'
+    where not t.cancel_requested and (t.state = 'running'
        or (t.state = 'waiting' and t.dispatched_at is not null and exists (
              select 1 from pgboss.job j where j.name = t.queue and j.id = t.attempt_id
-               and j.state = 'active' and j.started_on < now() - ${ABANDONED_AFTER}::interval))
+               and j.state = 'active' and j.started_on < now() - ${ABANDONED_AFTER}::interval)))
     order by t.updated_at`;
   for (const row of left) {
     if (!options.serves(row.queue) || await claimHeld(sql, row)) continue;
