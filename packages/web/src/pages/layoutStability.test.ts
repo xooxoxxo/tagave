@@ -157,6 +157,18 @@ describe('page shells', () => {
     }
   });
 
+  it('the inspector column sticks at the window height and never swallows the wheel', () => {
+    const side = rule(read('./AlbumDetailPage.module.css'), '.inspectorSide');
+    expect(side).toMatch(/position: sticky/);
+    expect(side).toMatch(/height: var\(--pane-h, 100dvh\)/);
+    expect(side).toMatch(/overflow-y: auto/);
+    expect(side).not.toMatch(/overscroll-behavior/);
+    // a long line wraps; its mark and action stay on the first line
+    const inspector = read('./MaintenanceInspector.module.css');
+    expect(rule(inspector, '.rowHead')).toMatch(/align-items: start/);
+    expect(rule(inspector, '.rowToggle')).toMatch(/align-items: flex-start/);
+  });
+
   it('the player bar draws no rule on top (one strip with the account row)', () => {
     const bar = rule(read('../components/PlayerBar.module.css'), '.bar');
     // forced colours keep a system rule (no glass there); every theme draws none

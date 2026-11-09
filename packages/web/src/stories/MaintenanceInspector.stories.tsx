@@ -4,6 +4,7 @@ import { MaintenanceInspector, MaintenanceSummary, PickBar, type InspectorSelect
 import { MaintenanceSheet } from '../pages/MaintenanceSheet';
 import { attentionItems, type AlbumTab, type AttentionAlbum, type AttentionItem } from '../utils/albumAttention';
 import { EMPTY_TICKS, inspectorRows, reconcileTicks, type TickState } from '../utils/maintenanceInspector';
+import album from '../pages/AlbumDetailPage.module.css';
 
 const noop = () => undefined;
 
@@ -19,6 +20,23 @@ const FUNERAL: AttentionAlbum = {
     { id: 'g-missing', kind: 'incomplete_album', state: 'open', details: { have: 8, want: 10 } },
     { id: 'g-ids', kind: 'quality', state: 'open', flag: 'missingMbIds', details: { flags: { missingMbIds: { missing: [9] } } } },
     { id: 'g-art', kind: 'quality', state: 'open', flag: 'noEmbeddedArt', details: { flags: { noEmbeddedArt: true } } },
+  ],
+};
+
+/** Six issues, the first one long: a whole album in one file, split by the owner. */
+const SIX: AttentionAlbum = {
+  state: 'matched',
+  candidates: [],
+  hasRelease: true,
+  missingTracks: [],
+  duplicates: [{}],
+  tracks: [],
+  merged: true,
+  gaps: [
+    { id: 'g-one', kind: 'one_file_album', state: 'open', details: { fileId: 'f', fileMs: 4_712_000, releaseMs: 4_712_000, tracks: 11 } },
+    { id: 'g-ids', kind: 'quality', state: 'open', flag: 'missingMbIds', details: { flags: { missingMbIds: { missing: [3, 9] } } } },
+    { id: 'g-art', kind: 'quality', state: 'open', flag: 'noEmbeddedArt', details: { flags: { noEmbeddedArt: true } } },
+    { id: 'g-task', kind: 'incomplete_album', state: 'todo', details: {} },
   ],
 };
 
@@ -71,10 +89,11 @@ interface Frame {
   section?: AlbumTab;
   live?: boolean;
   note?: string;
+  canSplit?: boolean;
 }
 
 function useInspector(f: Frame): Omit<MaintenanceInspectorProps, 'variant'> {
-  const all = attentionItems(f.album, { now: Date.parse('2026-11-05T12:00:00Z') });
+  const all = attentionItems(f.album, { now: Date.parse('2026-11-05T12:00:00Z'), canSplit: !!f.canSplit });
   const [section, setSection] = useState<AlbumTab>(f.section ?? 'tracks');
   const [openRows, setOpenRows] = useState<ReadonlySet<string>>(new Set(f.open ?? []));
   const [state] = useState<{ items: AttentionItem[]; ticks: TickState }>(() => {
@@ -107,6 +126,28 @@ function Side(f: Frame) {
     <aside aria-label="Maintenance" style={{ width: 320, boxSizing: 'border-box', padding: '22px 20px 32px', background: 'var(--surface)', borderLeft: '1px solid var(--line)' }}>
       <MaintenanceInspector variant="side" {...p} />
     </aside>
+  );
+}
+
+/**
+ * The album page's own frame: a scroll pane the window's height, the album
+ * column beside the inspector in the page's sticky sidebar (AlbumDetailPage's
+ * classes), and a footer under both.
+ */
+function InPage(f: Frame) {
+  const p = useInspector(f);
+  return (
+    <main style={{ height: '100dvh', overflowY: 'auto', background: 'var(--canvas)' }} ref={(el) => { el?.style.setProperty('--pane-h', `${el.clientHeight}px`); }}>
+      <div className={album.inspectorLayout} data-inspector="">
+        <div className={album.flow} style={{ padding: '32px 40px' }}>
+          {Array.from({ length: 14 }, (_, i) => <p key={i} style={{ margin: '0 0 28px', color: 'var(--ink-2)' }}>{i + 1} · Track {i + 1}</p>)}
+        </div>
+        <aside className={album.inspectorSide} aria-label="Maintenance">
+          <MaintenanceInspector variant="side" {...p} />
+        </aside>
+      </div>
+      <footer style={{ padding: '24px 40px', color: 'var(--ink-3)' }}>tagave</footer>
+    </main>
   );
 }
 
@@ -150,5 +191,7 @@ export const Compilation: Story = { name: 'Unidentified compilation', render: ()
 export const Picked: Story = { name: 'Songs picked', render: () => <Side album={FUNERAL} picked={2} /> };
 export const Expanded: Story = { name: 'An issue open', render: () => <Side album={FUNERAL} open={['gap:g-missing']} /> };
 export const Section: Story = { name: 'A section open', render: () => <Side album={FUNERAL} section="editions" live note="Looking for cover art…" /> };
+export const SixIssues: Story = { name: 'Six issues, in the page', parameters: { layout: 'fullscreen' }, render: () => <InPage album={SIX} canSplit /> };
+export const SixIssuesOpen: Story = { name: 'Six issues, one open, in the page', parameters: { layout: 'fullscreen' }, render: () => <InPage album={SIX} canSplit open={['gap:g-one']} /> };
 export const Row: Story = { name: 'Phone row', tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => <PhoneRow album={FUNERAL} picked={2} /> };
 export const Sheet: Story = { name: 'Phone sheet', tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => <PhoneSheet album={FUNERAL} /> };

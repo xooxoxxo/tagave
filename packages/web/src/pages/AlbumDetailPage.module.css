@@ -1184,8 +1184,10 @@ td.cellOff {
 
 /* ---- Maintenance: the inspector (MaintenanceInspector) ----
    A desktop (≥ 1024px) puts it beside the album as a full-height sidebar:
-   it starts at the pane's top, beside the header and the hero, sticks and
-   scrolls on its own. Off, the layout box is not there. */
+   it starts at the pane's top, beside the header and the hero, and sticks.
+   It scrolls on its own only while its content is taller than the window;
+   otherwise (and at its ends) the wheel moves the page, so it never
+   swallows a scroll. Off, the layout box is not there. */
 .inspectorLayout {
   display: contents;
 }
@@ -1219,7 +1221,6 @@ td.cellOff {
   width: clamp(300px, 24vw, 320px);
   height: var(--pane-h, 100dvh);
   overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 22px 20px 32px;
   border-left: 1px solid var(--line);
   background: var(--surface);
