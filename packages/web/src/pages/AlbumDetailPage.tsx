@@ -326,7 +326,6 @@ export function AlbumDetailPage() {
     hero: { current: null as HTMLElement | null },
     cover: { current: null as HTMLElement | null },
     names: { current: null as HTMLElement | null },
-    topWidgets: { current: null as HTMLElement | null },
     nameA: { current: null as HTMLElement | null },
     nameB: { current: null as HTMLElement | null },
     tl: { current: null as HTMLElement | null },
@@ -1062,24 +1061,34 @@ export function AlbumDetailPage() {
   // Settings › Appearance can turn the short-album artwork off
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';
-  const widgetValues: Record<AlbumWidgetId, ReactNode> = {
-    genre: genreLabels[0],
-    year: releaseYear(album.release?.date, album.year),
-    tracks: [trackCountText, (album.discCount ?? 1) > 1 ? `${album.discCount} discs` : null].filter(Boolean).join(' · '),
-    duration: totalLength(album.totalDurationMs),
-    format: shortFormat(album.tracks, album.formats),
-    ownership: showOwnChip ? <Link to="/collection">
-      {physicalFormats || 'Physical'}{physicalPending ? ' · syncing' : ''}
-    </Link> : null,
+  // The header's plain lines: "Rock · 2014" over the title, "5 tracks · 48 min ·
+  // FLAC 16-bit/44.1 kHz" under the artist. Settings › Appearance can move a
+  // value to the other line or hide it; each value is one unbreakable piece.
+  const trackCount = album.trackCount == null ? null : album.isCueImage
+    ? `${album.trackCount} audio ${album.trackCount === 1 ? 'file' : 'files'}`
+    : `${album.trackCount} ${album.trackCount === 1 ? 'track' : 'tracks'}`;
+  const headerValues: Record<Exclude<AlbumWidgetId, 'ownership'>, (string | null | undefined)[]> = {
+    genre: [genreLabels[0]],
+    year: [releaseYear(album.release?.date, album.year)],
+    tracks: [trackCount, (album.discCount ?? 1) > 1 ? `${album.discCount} discs` : null],
+    duration: [totalLength(album.totalDurationMs)],
+    format: [shortFormat(album.tracks, album.formats)],
   };
-  const widgets = (placement: 'above' | 'below') => {
-    const shown = ALBUM_WIDGETS.filter(({ id }) => albumWidgets[id] === placement && widgetValues[id]);
-    if (shown.length === 0) return null;
-    return <dl className={styles.widgets} data-placement={placement}
-      ref={placement === 'above' ? (el) => { flowRefs.topWidgets.current = el; } : undefined}>
-      {shown.map(({ id, label }) => <div key={id} className={styles.widget}><dt>{label}</dt><dd>{widgetValues[id]}</dd></div>)}
-    </dl>;
-  };
+  const headerLine = (placement: 'above' | 'below') => ALBUM_WIDGETS
+    .flatMap(({ id }) => (id !== 'ownership' && albumWidgets[id] === placement ? headerValues[id] : []))
+    .filter((v): v is string => !!v);
+  const kickerParts = headerLine('above');
+  const factParts = headerLine('below');
+  const ownChip = showOwnChip && albumWidgets.ownership !== 'hidden' ? (
+    <Link to="/collection" title="In your physical collection" className={styles.ownChip}>
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10" cy="10" r="7" /><circle cx="10" cy="10" r="2" /></svg>
+      {`Your ${physicalFormats || 'copy'}`}{physicalPending ? ' (adding to Discogs…)' : ''}
+    </Link>
+  ) : null;
+  const dotted = (parts: ReactNode[]) => parts.flatMap((part, i) => [
+    ...(i > 0 ? [<span key={`dot${i}`} className={styles.dot} aria-hidden="true"> · </span>] : []),
+    <span key={`part${i}`} className={styles.part}>{part}</span>,
+  ]);
 
   // ---- Maintenance, the owner: the songs picked, Move to album… and Delete ----
   const visibleTracks = album.tracks.filter((t) => !hiddenDel.track(t.id));
@@ -1242,7 +1251,12 @@ export function AlbumDetailPage() {
           </div>
           <div className={styles.headInfo}>
             {/* "Rock · 2012" */}
-            {widgets('above')}
+            {(kickerParts.length > 0 || (ownChip && albumWidgets.ownership === 'above')) && (
+              <p className={styles.kicker} data-album-kicker="">
+                {dotted(kickerParts)}
+                {albumWidgets.ownership === 'above' && ownChip}
+              </p>
+            )}
             {/* the title over the artist; they move only with the page and shrink into the header title */}
             <div ref={(el) => { flowRefs.names.current = el; }} className={styles.names}>
               <h1 ref={(el) => { flowRefs.nameB.current = el; }} className={styles.nameB} dir="auto">{title}</h1>
@@ -1259,7 +1273,13 @@ export function AlbumDetailPage() {
                     : artistLine}
               </span>
             </div>
-            {widgets('below')}
+            {/* what it is: tracks · length · format, and your copy (everything else is in Album info) */}
+            {(factParts.length > 0 || (ownChip && albumWidgets.ownership === 'below')) && (
+              <p className={styles.factsLine} data-album-facts="">
+                {dotted(factParts)}
+                {albumWidgets.ownership === 'below' && ownChip}
+              </p>
+            )}
             {/* the album's text, two lines; More opens the album info */}
             {excerpt && (
               <div className={styles.excerpt} data-album-excerpt="">

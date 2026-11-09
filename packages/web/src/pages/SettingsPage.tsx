@@ -194,8 +194,7 @@ function DisplaySettings() {
       onChange={(v) => setPrefs({ shortAlbumArt: v !== 'off', shortAlbumWaves: v === 'waves' })}
       options={[{ value: 'still', label: 'Still' }, { value: 'waves', label: 'Waves' }, { value: 'off', label: 'Off' }]} />
     <section id="album-widgets" aria-labelledby="album-widgets-title" className={styles.widgetSettings}>
-      <h2 id="album-widgets-title" className={styles.modeSetting}>Album widgets</h2>
-      <p>Choose what sits above and below the album name. Changes apply to album pages on this device.</p>
+      <h2 id="album-widgets-title" className={styles.modeSetting}>Album header</h2>
       <div className={styles.widgetChoices}>
         {ALBUM_WIDGETS.map(({ id, label }) => <label key={id}>
           <span>{label}</span>
@@ -208,7 +207,7 @@ function DisplaySettings() {
           </Select>
         </label>)}
       </div>
-      <Button variant="quiet" size="sm" onClick={() => setPrefs({ albumWidgets: DEFAULT_ALBUM_WIDGETS })}>Restore default widgets</Button>
+      <Button variant="quiet" size="sm" onClick={() => setPrefs({ albumWidgets: DEFAULT_ALBUM_WIDGETS })}>Restore defaults</Button>
     </section>
     <h2 className={styles.modeSetting}>Artist page</h2>
     

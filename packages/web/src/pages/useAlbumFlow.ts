@@ -13,7 +13,6 @@ export interface AlbumFlowRefs {
   hero: RefObject<HTMLElement | null>;
   cover: RefObject<HTMLElement | null>;
   names: RefObject<HTMLElement | null>;
-  topWidgets: RefObject<HTMLElement | null>;
   nameA: RefObject<HTMLElement | null>;
   nameB: RefObject<HTMLElement | null>;
   tl: RefObject<HTMLElement | null>;
@@ -40,10 +39,6 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
     if (!g || !sc) return;
     const s = flowState(sc.scrollTop, g, HEADER);
     if (refs.cover.current) refs.cover.current.style.opacity = String(s.coverOpacity);
-    if (refs.topWidgets.current) {
-      refs.topWidgets.current.style.opacity = String(1 - s.nameProgress);
-      refs.topWidgets.current.style.visibility = s.docked ? 'hidden' : 'visible';
-    }
     // the title (nameB) on top, the artist (nameA) under it, both shrinking from their top centre
     if (refs.nameB.current) refs.nameB.current.style.transform = `scale(${s.albumScale})`;
     if (refs.nameA.current) refs.nameA.current.style.transform = `translateY(${s.artistShift}px) scale(${s.artistScale})`;

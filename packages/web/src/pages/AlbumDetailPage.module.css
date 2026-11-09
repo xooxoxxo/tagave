@@ -109,6 +109,13 @@
   min-width: 0;
 }
 
+/* "Rock · 2012": a small line above the title */
+.kicker {
+  margin: 0 0 6px;
+  font: 500 13px / 1.35 var(--font-body);
+  color: var(--ink-3);
+}
+
 /* the album title over the artist: they move only with the page and shrink
    from their top edge (useAlbumFlow writes the transforms) into the header's
    title. On a phone they are centred and shrink from their top centre. */
@@ -152,38 +159,52 @@
   text-underline-offset: 3px;
 }
 
-.widgets {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-xs) var(--space-sm);
-  width: min(100%, 34rem);
-  margin: var(--space-md) 0 0;
+/* what it is: "22 tracks · 1 hr 58 min · MP3 320 kbps", and your copy.
+   A line breaks only between values, never inside one. */
+.factsLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  margin: 10px 0 0;
+  font: 400 14px / 1.45 var(--font-body);
+  color: var(--ink-2);
 }
 
-.widgets[data-placement='above'] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: min(100%, 20rem);
-  margin: 0 0 var(--space-sm);
+.part {
+  white-space: nowrap;
 }
 
-.widget {
-  min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 2px;
-  padding: var(--space-xs) var(--space-sm);
-  background: color-mix(in srgb, var(--surface) 75%, transparent);
-  border: 1px solid var(--line);
-  border-radius: var(--r-inner);
+.dot {
+  color: var(--ink-3);
+  white-space: pre;
 }
 
-.widget dt { color: var(--ink-2); font-size: var(--font-size-xs); }
-.widget dd {
-  margin: 0;
+/* your copy: a quiet outlined chip at the end of the facts line */
+.ownChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--ink-2);
+  font: 500 12px / 1.2 var(--font-body);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.ownChip svg {
+  width: 13px;
+  height: 13px;
+}
+.ownChip:hover {
   color: var(--ink);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+}
+.ownChip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* the album's text: two lines, then More */
@@ -225,7 +246,7 @@
 }
 
 @media (forced-colors: active) {
-  .widget { border: 1px solid CanvasText; }
+  .ownChip { border: 1px solid CanvasText; }
   .albumWaves { visibility: hidden; }
 }
 
@@ -1010,8 +1031,9 @@ td.cellOff {
   .headInfo {
     align-items: stretch;
   }
-  .widgets, .widgets[data-placement='above'] { margin-inline: auto; }
-  .widgets[data-placement='above'] { margin-top: var(--space-md); }
+  .kicker {
+    margin: 18px 0 6px;
+  }
   .nameA,
   .nameB {
     transform-origin: 50% 0;
@@ -1023,6 +1045,11 @@ td.cellOff {
   .nameA {
     margin-top: 4px;
     font-size: 16px;
+  }
+  .factsLine {
+    justify-content: center;
+    margin-top: 8px;
+    font-size: 13px;
   }
   .excerpt {
     max-width: none;

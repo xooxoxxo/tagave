@@ -145,6 +145,18 @@ describe('page shells', () => {
     expect(layout).not.toMatch(/> \.nav/);
   });
 
+  it('the album header is plain text: a kicker over the title, a facts line under the artist, no boxed tiles', () => {
+    const tsx = source('./AlbumDetailPage.tsx');
+    const css = read('./AlbumDetailPage.module.css');
+    expect(tsx).toMatch(/data-album-kicker=""/);
+    expect(tsx).toMatch(/data-album-facts=""/);
+    expect(tsx).not.toMatch(/styles\.widgets?\b/);
+    expect(css).not.toMatch(/\.widgets?\b/);
+    for (const sel of ['.kicker', '.factsLine']) {
+      expect(rule(css, sel)).not.toMatch(/border|background|box-shadow/);
+    }
+  });
+
   it('the player bar draws no rule on top (one strip with the account row)', () => {
     const bar = rule(read('../components/PlayerBar.module.css'), '.bar');
     // forced colours keep a system rule (no glass there); every theme draws none
