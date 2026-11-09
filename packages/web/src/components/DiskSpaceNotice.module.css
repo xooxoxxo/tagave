@@ -1,4 +1,7 @@
-/* The disk-space notice: a Banner in the page's content column, above the page. */
+/* The shell's owner notices (disk space, music folder): one line in a Banner
+   that hugs its text, in the page's content column, above the page. */
 .region {
+  display: flex;
   padding: var(--space-md) var(--shell-gutter) 0;
 }
+.region > * { max-width: 100%; }

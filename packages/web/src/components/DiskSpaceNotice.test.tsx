@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { DiskSpaceView } from '@tagave/shared';
-import { DiskSpaceNoticeView, diskFromChecks, diskNoticeText, diskStatusFromHealth, pathsLabel, showDiskNotice } from './DiskSpaceNotice';
+import { DiskSpaceNoticeView, diskFromChecks, diskNoticeLine, diskNoticeText, diskStatusFromHealth, pathsLabel, showDiskNotice } from './DiskSpaceNotice';
 
 const GB = 1024 ** 3;
 const diskOf = (usedPct: number, status: DiskSpaceView['status']): DiskSpaceView => ({
@@ -60,6 +60,21 @@ describe('diskNoticeText', () => {
   });
 });
 
+describe('diskNoticeLine', () => {
+  it('is one line of labels and values: how full, how much is free', () => {
+    expect(diskNoticeLine(diskOf(88.4, 'warn'))).toEqual({ tone: 'warning', text: 'Disk 88% full · 11.6 GB free' });
+    expect(diskNoticeLine(diskOf(97, 'fail'))).toEqual({ tone: 'danger', text: 'Disk 97% full · 3.0 GB free' });
+    expect(diskNoticeLine(diskOf(40, 'pass'))).toBeNull();
+  });
+
+  it('without numbers it still says how the disk is', () => {
+    expect(diskNoticeLine({ ...diskOf(0, 'warn'), filesystems: [] })?.text).toBe('Disk space unread');
+    expect(diskNoticeLine(null, 'warn')).toEqual({ tone: 'warning', text: 'Disk filling up' });
+    expect(diskNoticeLine(null, 'error')).toEqual({ tone: 'danger', text: 'Disk almost full' });
+    expect(diskNoticeLine(null, 'ok')).toBeNull();
+  });
+});
+
 describe('pathsLabel', () => {
   it('joins labels in a sentence', () => {
     expect(pathsLabel(['Backups'])).toBe('Backups');
@@ -94,11 +109,12 @@ describe('reading the disk', () => {
 });
 
 describe('DiskSpaceNoticeView', () => {
-  it('is a Banner in the warning or danger tone with the link it is given', () => {
-    const warn = renderToStaticMarkup(<DiskSpaceNoticeView disk={diskOf(88, 'warn')} action={<a href="/settings/storage">Open Settings › Storage</a>} />);
+  it('is a one-line Banner in the warning or danger tone with the link it is given', () => {
+    const warn = renderToStaticMarkup(<DiskSpaceNoticeView disk={diskOf(88, 'warn')} action={<a href="/settings/storage">Storage</a>} />);
     expect(warn).toContain('role="status"');
     expect(warn).toMatch(/tone-warning/);
-    expect(warn).toContain('The disk is filling up.');
+    expect(warn.replace(/<!-- -->/g, '')).toContain('Disk 88% full · 12.0 GB free · <a href="/settings/storage">Storage</a>');
+    expect(warn).not.toMatch(/filling up|Free space before/);
     expect(warn).toContain('href="/settings/storage"');
     expect(renderToStaticMarkup(<DiskSpaceNoticeView disk={diskOf(97, 'fail')} action={null} />)).toMatch(/tone-danger/);
     expect(renderToStaticMarkup(<DiskSpaceNoticeView disk={diskOf(40, 'pass')} action={null} />)).toBe('');
