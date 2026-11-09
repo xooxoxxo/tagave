@@ -57,6 +57,28 @@ export async function saveMaintenanceTask(sql: Sql | Tx, request: MaintenanceReq
 
 export type MaintenanceSender = (tx: Tx, queue: string, id: string, data: object) => Promise<string | null>;
 
+/** The part of pg-boss a sender needs: send() with its options, a transaction's executeSql among them. */
+export interface MaintenanceJobQueue {
+  send(name: string, data: object, options: Record<string, unknown>): Promise<string | null>;
+}
+
+/** The pg-boss options of one attempt's job. */
+export function maintenanceJobOptions(queue: string, attemptId: string, data: object): Record<string, unknown> {
+  return {
+    id: attemptId,
+    retryLimit: 0,
+    ...(queue === 'art.fetch' && 'localAlbumId' in data ? { singletonKey: `art:${String((data as { localAlbumId: unknown }).localAlbumId)}` } : {}),
+  };
+}
+
+/** Sends an attempt's job inside the dispatch transaction: the job exists exactly when the dispatch commits. */
+export function maintenanceSender(boss: MaintenanceJobQueue): MaintenanceSender {
+  return (tx, queue, id, data) => boss.send(queue, data, {
+    ...maintenanceJobOptions(queue, id, data),
+    db: { executeSql: async (query: string, values?: unknown[]) => ({ rows: await tx.unsafe(query, values as never[] | undefined) }) },
+  });
+}
+
 /** Queue insertion and dispatch acknowledgement commit together. */
 export async function dispatchMaintenanceTask(sql: Sql, send: MaintenanceSender, id: string): Promise<void> {
   await sql.begin(async (tx) => {
