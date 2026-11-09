@@ -7,6 +7,7 @@ import type { AlbumSummary } from '@tagave/shared';
 import { api } from '../services/api';
 import { LibraryState, LocalAlbum, ScanRootWithStatus, PaginatedResponse } from '../types/index';
 import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings, CreateScanRootRequest } from '@tagave/shared';
+import { dropPoolKey } from './useNaming';
 
 const LIBRARY_QUERY_KEY = ['library'];
 const LIBRARIES_QUERY_KEY = ['libraries'];
@@ -118,6 +119,7 @@ export function useCreateScanRoot(libraryId: string | undefined) {
       api.post<ScanRoot>(`/libraries/${libraryId}/scan-roots`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
+      void queryClient.invalidateQueries({ queryKey: dropPoolKey(libraryId) });
     },
   });
 }
@@ -131,6 +133,7 @@ export function useUpdateScanRoot(libraryId: string | undefined) {
       api.patch<ScanRoot>(`/libraries/${libraryId}/scan-roots/${rootId}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
+      void queryClient.invalidateQueries({ queryKey: dropPoolKey(libraryId) });
     },
   });
 }
@@ -141,6 +144,7 @@ export function useDeleteScanRoot(libraryId: string | undefined) {
     mutationFn: (rootId: string) => api.delete(`/libraries/${libraryId}/scan-roots/${rootId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
+      void queryClient.invalidateQueries({ queryKey: dropPoolKey(libraryId) });
     },
   });
 }
