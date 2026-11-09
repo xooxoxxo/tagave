@@ -81,6 +81,15 @@
 
 .rowLabel { min-width: 0; }
 
+.scheduleNote {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+}
+
+.retention { border-top: 1px solid var(--line); }
+
 /* one width for every control on the page */
 .control { width: 9.5rem; flex: none; }
 

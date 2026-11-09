@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import {
-  addAlbumInLidarr, checkLidarrRoot, inScanRoot, LidarrClient, lidarrConnectionOf, lidarrPathOf, observeLidarr,
+  addAlbumInLidarr, checkLidarrRoot, flacProfileIssue, inScanRoot, LidarrClient, lidarrConnectionOf, lidarrPathOf, observeLidarr,
   type LidarrAlbum, type LidarrArtist, type ScanRootPath,
 } from '@tagave/core/lidarr';
 import { flacUpgradeSource, lidarrEnabled, lidarrStoredSettings, type FlacUpgradeSource, type MaintenanceWork } from '@tagave/db';
@@ -80,15 +80,6 @@ async function requireStagedPath(file: string, pool: PoolRoot): Promise<void> {
   if (resolved !== base && !descendant(base, resolved)) throw new Error('Lidarr’s path leaves the Tagave drop pool.');
 }
 
-async function requireFlacProfile(client: LidarrClient, id: number): Promise<void> {
-  const profile = await client.qualityProfile(id);
-  const qualities = profile.items.filter((item) => item.allowed)
-    .flatMap((item) => item.items?.length ? item.items.map((child) => child.quality?.name ?? '') : [item.quality?.name ?? '']);
-  if (qualities.length === 0 || qualities.some((quality) => !/^flac\b/i.test(quality))) {
-    throw new Error('Select a Lidarr quality profile that allows only FLAC for this artist.');
-  }
-}
-
 async function requireStagedArtist(artist: LidarrArtist | null, album: LidarrAlbum | null, source: FlacUpgradeSource, pool: PoolRoot, map: Parameters<typeof inScanRoot>[2]): Promise<LidarrArtist> {
   if (!artist?.path || artist.foreignArtistId !== source.artistMbid || (album && album.artistId !== artist.id)) {
     throw new Error('Lidarr could not confirm the matched album’s artist and folder.');
@@ -123,7 +114,8 @@ async function acquire(ctx: WorkerContext, data: FilesUpgradeJobData, claim: Mai
     const root = await checkLidarrRoot(client, target, { ...conn, create: false });
     if (root.reach !== 'writable') return review('Lidarr cannot write to the Tagave drop pool.');
     if (album || artist) artist = await requireStagedArtist(artist, album, source, pool, map);
-    await requireFlacProfile(client, artist?.qualityProfileId ?? conn.qualityProfileId);
+    const profileIssue = await flacProfileIssue(client, artist?.qualityProfileId ?? conn.qualityProfileId);
+    if (profileIssue) return review(profileIssue);
     const originals: UpgradeOriginal[] = [];
     for (const file of source.files) {
       const actual = await onDisk(source.root, file.rel);

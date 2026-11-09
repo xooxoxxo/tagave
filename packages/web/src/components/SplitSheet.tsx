@@ -1,24 +1,15 @@
-/**
- * Whole album in one file (0078): the cut points the file worker found, one
- * row per track (n · title · start → end · length, the cut's shift from the
- * release's lengths and how sure it is), Play around cut, and Split. Opening
- * it finds the cut points when there is no plan yet. Owner only.
- *
- * Import this file directly or lazily: it pulls in the drawer (Sheet).
- */
+/** Review and audition the cut points of a whole-album FLAC before writing tracks. */
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { clockOf, sampleMs, shiftLabel, type CutConfidence, type SplitPlan } from '@tagave/shared';
+import { clockOf, sampleMs, withSplitCuts, type SplitCuts, type SplitPlan } from '@tagave/shared';
 import { Sheet } from './ui/Sheet';
-import { Button } from './ui';
+import { Button, LinkButton } from './ui';
 import { MaintenanceTaskStatus } from './MaintenanceTaskStatus';
 import { invalidateAfterSplit, useAlbumSplit, useAnalyzeSplit, useRunSplit } from '../hooks/useAlbumSplit';
 import { usePlaybackAvailable } from '../hooks/usePlayer';
 import { streamUrl } from '../player/logic';
 import styles from './SplitSheet.module.css';
 
-const CONFIDENCE: Record<CutConfidence, string> = { high: 'High', medium: 'Medium', low: 'Low' };
-/** Play around cut: this long before and after it. */
 const AROUND_S = 3;
 
 export interface SplitSheetProps {
@@ -28,23 +19,22 @@ export interface SplitSheetProps {
   albumId: string;
   title: string;
   artist?: string | null | undefined;
+  coverUrl?: string | null | undefined;
   side?: 'bottom' | 'right';
   returnFocus?: RefObject<HTMLElement | null> | undefined;
-  /**
-   * 0089: the cuts checked for a tag plan that splits first: the button
-   * confirms them (the plan then splits and tags) instead of splitting here,
-   * and opening never asks for new cut points.
-   */
-  confirm?: { label: string; onConfirm: (splitId: string) => void } | undefined;
+  confirm?: { splitId: string; label: string; cuts: SplitCuts; onConfirm: (splitId: string, cuts: SplitCuts) => void } | undefined;
 }
 
-/** "24-bit · 192 kHz". */
 function formatOf(plan: SplitPlan): string {
-  const khz = plan.sampleRate / 1000;
-  return `${plan.bitsPerSample}-bit · ${Number.isInteger(khz) ? khz : khz.toFixed(1)} kHz`;
+  return `${plan.bitsPerSample}-bit FLAC · ${plan.sampleRate / 1000} kHz`;
 }
 
-export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, artist, side = 'bottom', returnFocus, confirm }: SplitSheetProps) {
+function cutClock(sample: number, rate: number): string {
+  const ms = Math.round(sampleMs(sample, rate));
+  return `${clockOf(ms - ms % 1000)}.${String(ms % 1000).padStart(3, '0')}`;
+}
+
+export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, artist, coverUrl, side = 'bottom', returnFocus, confirm }: SplitSheetProps) {
   const qc = useQueryClient();
   const view = useAlbumSplit(libraryId, albumId, open);
   const analyze = useAnalyzeSplit(libraryId, albumId);
@@ -52,13 +42,30 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
   const canPlay = usePlaybackAvailable();
   const asked = useRef(false);
   const audio = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState<number | null>(null);
+  const stopAt = useRef(Infinity);
+  const playRequest = useRef(0);
+  const [preview, setPreview] = useState<'loading' | 'playing' | 'error' | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [cuts, setCuts] = useState<SplitCuts>(confirm?.cuts ?? []);
+  const [position, setPosition] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const reviewHeading = useRef<HTMLHeadingElement | null>(null);
 
   const data = view.data;
   const split = data?.split ?? null;
   const state = split?.state ?? null;
+  const original = split?.plan ?? null;
+  const plan = original ? withSplitCuts(original, cuts) ?? original : null;
+  const mismatched = !!confirm && !!split && confirm.splitId !== split.id;
+  const ready = state === 'ready' && !!plan && !mismatched;
+  const busy = state === 'analyzing' || state === 'splitting' || analyze.isPending || run.isPending;
+  const trackId = data?.localTrackId;
+  const previewAvailable = open && ready && canPlay && !!trackId;
 
-  // opening finds the cut points when there is no plan to check
+  useEffect(() => {
+    if (reviewing) reviewHeading.current?.focus();
+  }, [reviewing]);
+
   useEffect(() => {
     if (!open) { asked.current = false; return; }
     if (!data || asked.current || analyze.isPending || confirm) return;
@@ -66,138 +73,225 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
       asked.current = true;
       analyze.mutate();
     }
-  }, [open, data, split, state, analyze]);
+  }, [open, data, split, state, analyze, confirm]);
 
-  // a finished split: the album and Attention change
   const lastState = useRef(state);
   useEffect(() => {
     if (lastState.current === 'splitting' && state === 'done') void invalidateAfterSplit(qc);
     lastState.current = state;
   }, [state, qc]);
 
-  const stop = () => {
-    audio.current?.pause();
-    setPlaying(null);
-  };
-  useEffect(() => { if (!open) stop(); }, [open]);
-  useEffect(() => () => audio.current?.pause(), []);
-
-  const plan = split?.plan ?? null;
-  const playAround = (n: number, cutSample: number) => {
-    if (!plan || !data?.localTrackId) return;
-    if (playing === n) { stop(); return; }
-    const cutS = cutSample / plan.sampleRate;
-    // the stream route starts a transcode at whole seconds (its offset)
-    const from = Math.max(0, Math.floor(cutS - AROUND_S));
-    const until = cutS + AROUND_S - from;
-    audio.current?.pause();
-    const el = new Audio(streamUrl(data.localTrackId, 'mp3', 192, from));
-    el.ontimeupdate = () => { if (el.currentTime >= until) { el.pause(); setPlaying(null); } };
-    el.onended = () => setPlaying(null);
-    el.onerror = () => setPlaying(null);
+  // Prime the original range-capable FLAC stream. Seeking it preserves the
+  // fractional position, unlike the player's whole-second transcode offset.
+  useEffect(() => {
+    if (!previewAvailable || !trackId) return;
+    const el = new Audio();
     audio.current = el;
-    setPlaying(n);
-    void el.play().catch(() => setPlaying(null));
+    el.preload = 'metadata';
+    el.src = streamUrl(trackId, 'original', 0);
+    el.ontimeupdate = () => {
+      if (el.currentTime < stopAt.current) return;
+      el.pause();
+      setPreview(null);
+    };
+    el.onended = () => setPreview(null);
+    el.onerror = () => setPreview('error');
+    return () => {
+      playRequest.current++;
+      el.pause();
+      el.onended = el.onerror = el.ontimeupdate = null;
+      el.removeAttribute('src');
+      el.load();
+      audio.current = null;
+    };
+  }, [previewAvailable, trackId]);
+
+  const stop = () => {
+    playRequest.current++;
+    audio.current?.pause();
+    setPreview(null);
+  };
+  const listen = (sample: number, around = false) => {
+    const el = audio.current;
+    if (!el || !plan) return;
+    const request = ++playRequest.current;
+    const seconds = sample / plan.sampleRate;
+    const from = around ? Math.max(0, seconds - AROUND_S) : seconds;
+    stopAt.current = seconds + AROUND_S;
+    setPreview('loading');
+    if (el.error) el.load();
+    el.currentTime = from;
+    void el.play().then(() => {
+      if (playRequest.current === request) setPreview('playing');
+    }).catch(() => {
+      if (playRequest.current === request) setPreview('error');
+    });
   };
 
-  const busy = state === 'analyzing' || state === 'splitting' || analyze.isPending;
-  const status = (() => {
-    if (view.isLoading) return null;
-    if (split?.task) return null;
-    if (split?.waitingForWorker) return 'Waiting for the file worker';
-    if (analyze.isPending || state === 'analyzing') return 'Finding cut points';
-    if (state === 'splitting') return 'Splitting';
-    if (state === 'done') return `Split · ${split?.outputs?.length ?? 0} files`;
-    if (state === 'failed') return split?.error ?? 'Stopped';
-    if (data && !data.eligible) return 'Not one file that fits its release';
-    return null;
-  })();
-  const failed = state === 'failed';
-  const ready = state === 'ready' && !!plan;
-  const lowCount = ready ? plan!.tracks.filter((t) => t.confidence === 'low').length : 0;
+  const active = ready ? plan.tracks.find((t) => t.n === selected) : null;
+  const previous = active && plan ? plan.tracks[active.n - 2] : null;
+  const typedSample = position === null || !plan || !position.trim() ? null : Math.round(Number(position) * plan.sampleRate);
+  const invalidPosition = position !== null && (!active || !previous || typedSample === null ||
+    !Number.isSafeInteger(typedSample) || typedSample <= previous.startSample || typedSample >= active.endSample);
+  const moveCut = (sample: number) => {
+    if (!active || !original || !previous) return;
+    const next = Math.min(active.endSample - 1, Math.max(previous.startSample + 1, sample));
+    const start = original.tracks.find((t) => t.n === active.n)?.startSample;
+    setCuts([...cuts.filter((cut) => cut.track !== active.n), ...(next === start ? [] : [{ track: active.n, sample: next }])]);
+    if (preview === 'playing' || preview === 'loading') listen(next);
+  };
+  const selectCut = (n: number) => {
+    stop();
+    setPosition(null);
+    setSelected(n === selected ? null : n);
+  };
+
+  const review = () => {
+    if (!split || !plan || invalidPosition) return;
+    stop();
+    if (confirm) { confirm.onConfirm(split.id, cuts); return; }
+    setReviewing(true);
+  };
+
+  const analysis = state === 'analyzing' || analyze.isPending;
+  const writing = state === 'splitting' || run.isPending;
+  const task = split?.task;
+  const done = state === 'done';
+  const status = view.isLoading ? 'Loading split plan'
+    : view.isError ? 'Couldn’t load the split plan'
+      : mismatched ? 'This plan has changed. Reopen the Tag Plan to review the current cuts.'
+        : split?.waitingForWorker ? 'Waiting for the file worker'
+          : analysis ? 'Finding cut points'
+            : writing ? 'Writing FLAC tracks'
+              : state === 'failed' ? split?.error ?? 'The split stopped'
+                : data && !data.eligible && !done ? 'This album is no longer eligible for a one-file split' : null;
+  const outputCount = split?.outputs?.length ?? 0;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={`${title}: split`} side={side} returnFocus={returnFocus}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={`Split ${title}`} side={side} returnFocus={returnFocus} className={styles.popup}>
       <div className={styles.sheet} data-split-sheet="">
         <header className={styles.head}>
-          <h2 className={styles.title}>{title}</h2>
-          {artist && <div className={styles.sub}>{artist}</div>}
-          {plan && (
-            <dl className={styles.facts}>
-              <div><dt>Tracks</dt><dd>{plan.tracks.length}</dd></div>
-              <div><dt>Length</dt><dd>{clockOf(sampleMs(plan.totalSamples, plan.sampleRate))}</dd></div>
-              <div><dt>Format</dt><dd>{formatOf(plan)}</dd></div>
-              {lowCount > 0 && <div className={styles.low}><dt>Low</dt><dd>{lowCount}</dd></div>}
-            </dl>
-          )}
+          <div className={styles.art} aria-hidden="true">
+            {coverUrl ? <img src={coverUrl} alt="" /> : <span className={styles.disc} />}
+          </div>
+          <div className={styles.identity}>
+            <p className={styles.context}>{done ? 'Split complete' : 'Split album'}</p>
+            <h2>{title}</h2>
+            {artist && <p>{artist}</p>}
+            {plan && <p className={styles.format}>{formatOf(plan)} · {clockOf(sampleMs(plan.totalSamples, plan.sampleRate))}</p>}
+          </div>
         </header>
 
-        {split?.task && libraryId && <MaintenanceTaskStatus task={split.task} libraryId={libraryId} />}
-        {status && <p className={failed ? styles.statusFailed : styles.status} role="status">{status}</p>}
-
-        {plan && state !== 'done' && (
-          <ol className={styles.tracks} aria-label="Tracks">
-            {plan.tracks.map((t) => {
-              const start = sampleMs(t.startSample, plan.sampleRate);
-              const end = sampleMs(t.endSample, plan.sampleRate);
-              const low = t.confidence === 'low';
-              return (
-                <li key={t.n} className={styles.track} data-low={low || undefined}>
-                  <span className={styles.n}>{String(t.n).padStart(2, '0')}</span>
-                  <span className={styles.name}>{t.title}</span>
-                  <span className={styles.times}>
-                    {clockOf(start)} → {clockOf(end)}
-                    <span className={styles.len}>{clockOf(end - start)}</span>
-                  </span>
-                  <span className={styles.cut}>
-                    {t.shiftMs !== null && t.confidence && (
-                      <>
-                        <span className={styles.shift}>{shiftLabel(t.shiftMs)}</span>
-                        <span className={low ? styles.confLow : styles.conf}>{CONFIDENCE[t.confidence]}</span>
-                      </>
-                    )}
-                  </span>
-                  <span className={styles.play}>
-                    {t.n > 1 && canPlay && data?.localTrackId && (
-                      <Button
-                        variant="quiet"
-                        size="sm"
-                        aria-label={`Play around cut ${t.n}`}
-                        aria-pressed={playing === t.n}
-                        onClick={() => playAround(t.n, t.startSample)}
-                      >
-                        {playing === t.n ? 'Stop' : 'Play'}
-                      </Button>
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+        {done ? (
+          <section className={styles.receipt} aria-label="Split result">
+            <h3>{outputCount} FLAC {outputCount === 1 ? 'track' : 'tracks'} created</h3>
+            <p>The original is in Trash. You can restore it from Library care.</p>
+            <ol aria-label="Created files">
+              {split?.outputs?.map((file) => <li key={file}>{file.split('/').at(-1)}</li>)}
+            </ol>
+          </section>
+        ) : (
+          <>
+            {(task || status) && (
+              <div className={styles.status} data-error={state === 'failed' || view.isError || undefined}>
+                {task && libraryId ? <MaintenanceTaskStatus task={task} libraryId={libraryId} /> : <p role="status">{status}</p>}
+                {busy && <p>You can close this panel. Follow the task in Background activity.</p>}
+                {view.isError && <Button variant="quiet" size="sm" onClick={() => void view.refetch()}>Reload plan</Button>}
+              </div>
+            )}
+            {ready && reviewing && (
+              <section className={styles.receipt} aria-labelledby="split-review-heading">
+                <h3 id="split-review-heading" ref={reviewHeading} tabIndex={-1}>Split into {plan.tracks.length} FLAC files?</h3>
+                <p>Tagave writes a file for each track at the reviewed cuts, then moves the original to Trash.</p>
+              </section>
+            )}
+            {ready && !reviewing && (
+              <section aria-label="Track boundaries" className={styles.editor}>
+                <h3>Where each track starts</h3>
+                <p>Select a cut to fine-tune it. Moving it also changes where the previous track ends.</p>
+                <ol className={styles.tracks} aria-label="Tracks">
+                  {plan.tracks.map((track) => (
+                    <li key={track.n} className={styles.track} data-selected={selected === track.n || undefined}>
+                      <span className={styles.number}>{String(track.n).padStart(2, '0')}</span>
+                      <div className={styles.trackText}>
+                        <span className={styles.name}>{track.title}</span>
+                        <span className={styles.times}>
+                          Starts {cutClock(track.startSample, plan.sampleRate)} · {clockOf(sampleMs(track.endSample - track.startSample, plan.sampleRate))} long
+                          {cuts.some((cut) => cut.track === track.n) && <span> · Adjusted</span>}
+                          {track.confidence === 'low' && <strong> · Check this cut</strong>}
+                        </span>
+                      </div>
+                      {track.n > 1 && (
+                        <Button variant="quiet" size="sm" aria-label={`Adjust cut for ${track.title}`} aria-expanded={selected === track.n}
+                          onClick={() => selectCut(track.n)}>{selected === track.n ? 'Hide cut' : 'Adjust cut'}</Button>
+                      )}
+                      {active === track && (
+                        <div className={styles.controls}>
+                          <div className={styles.adjust}>
+                            <Button variant="secondary" size="sm" aria-label="Move cut 100 milliseconds earlier"
+                              onClick={() => { setPosition(null); moveCut(track.startSample - Math.round(plan.sampleRate / 10)); }}>−100 ms</Button>
+                            <label className={styles.position}>Start in seconds
+                              <input type="number" step="0.001" value={position ?? (track.startSample / plan.sampleRate).toFixed(3)}
+                                aria-invalid={invalidPosition || undefined}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setPosition(value);
+                                  const sample = Math.round(Number(value) * plan.sampleRate);
+                                  if (value.trim() && previous && Number.isSafeInteger(sample) && sample > previous.startSample && sample < track.endSample) moveCut(sample);
+                                }} />
+                            </label>
+                            <Button variant="secondary" size="sm" aria-label="Move cut 100 milliseconds later"
+                              onClick={() => { setPosition(null); moveCut(track.startSample + Math.round(plan.sampleRate / 10)); }}>+100 ms</Button>
+                          </div>
+                          {invalidPosition && <p role="alert">Enter a time between the adjacent track boundaries.</p>}
+                          {cuts.some((cut) => cut.track === track.n) && (
+                            <Button variant="quiet" size="sm" onClick={() => {
+                              const start = original?.tracks.find((t) => t.n === track.n)?.startSample;
+                              if (start !== undefined) { setPosition(null); moveCut(start); }
+                            }}>Reset cut</Button>
+                          )}
+                          {previewAvailable ? (
+                            <div className={styles.transport}>
+                              <Button variant="secondary" size="sm" disabled={invalidPosition} onClick={() => listen(track.startSample)}>Play from cut</Button>
+                              <Button variant="quiet" size="sm" disabled={invalidPosition} onClick={() => listen(track.startSample, true)}>Hear transition</Button>
+                              {(preview === 'playing' || preview === 'loading') && <Button variant="quiet" size="sm" onClick={stop}>Stop</Button>}
+                              {preview === 'loading' && <span role="status">Opening audio…</span>}
+                              {preview === 'error' && <span role="alert">Couldn’t play the original FLAC. Check the player and try again.</span>}
+                            </div>
+                          ) : <p>Preview needs a connected player that can stream this album.</p>}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+          </>
         )}
 
         <footer className={styles.foot}>
-          {ready && data && !data.writable && <span className={styles.note}>Music folder is read-only</span>}
-          {failed && data?.eligible && !split?.task && (
-            <Button variant="secondary" onClick={() => analyze.mutate()} loading={analyze.isPending}>Find cut points</Button>
-          )}
-          {confirm && ready && split && (
-            <Button variant="primary" disabled={!data?.writable} onClick={() => confirm.onConfirm(split.id)}>{confirm.label}</Button>
-          )}
-          {!confirm && state !== 'done' && (
-            <Button
-              variant="primary"
-              disabled={!ready || !data?.writable || busy || run.isPending}
-              loading={state === 'splitting' || run.isPending}
-              onClick={() => split && run.mutate(split.id)}
-            >
-              Split
-            </Button>
-          )}
-          {state === 'done' && <Button variant="secondary" onClick={() => onOpenChange(false)}>Close</Button>}
+          {ready && !data?.writable && <p>Music folder is read-only.</p>}
+          {ready && cuts.length > 0 && <p>{cuts.length} {cuts.length === 1 ? 'cut adjusted' : 'cuts adjusted'} · Saved when you apply the split.</p>}
+          {run.error && <p role="alert">{(run.error as { detail?: string }).detail ?? 'Couldn’t start the split.'}</p>}
+          {analyze.error && <p role="alert">Couldn’t queue cut point analysis.</p>}
+          <div className={styles.actions}>
+            {done && <LinkButton variant="quiet" size="sm" to="/work" search={{ tab: 'deleting' }}>Open Trash</LinkButton>}
+            {!done && busy && <LinkButton variant="quiet" size="sm" to="/jobs">Background activity</LinkButton>}
+            <Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
+            {(state === 'failed' || analyze.isError) && data?.eligible && !task && (
+              <Button size="sm" disabled={analyze.isPending} onClick={() => analyze.mutate()}>Retry analysis</Button>
+            )}
+            {ready && reviewing && <Button variant="quiet" size="sm" disabled={run.isPending} onClick={() => setReviewing(false)}>Back to cuts</Button>}
+            {ready && (
+              <Button size="sm" disabled={!data?.writable || busy || invalidPosition} onClick={() => {
+                if (reviewing && split) run.mutate({ splitId: split.id, cuts });
+                else review();
+              }}>
+                {run.isPending ? 'Queuing split…' : reviewing ? 'Split album' : confirm?.label ?? `Review split · ${plan.tracks.length} tracks`}
+              </Button>
+            )}
+          </div>
         </footer>
-        {analyze.error && <p className={styles.statusFailed} role="alert">Couldn’t queue cut point analysis.</p>}
-        {run.error && <p className={styles.statusFailed} role="alert">{(run.error as { detail?: string }).detail ?? 'Not split'}</p>}
       </div>
     </Sheet>
   );

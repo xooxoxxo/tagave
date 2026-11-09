@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { flacUpgradeSource, latestMaintenanceTask, lidarrEnabled, lidarrStoredSettings, saveMaintenanceTask, type MaintenanceRow } from '@tagave/db';
 import type { FlacUpgradeView } from '@tagave/shared';
+import { LidarrClient, flacProfileIssue, lidarrConnectionOf } from '@tagave/core/lidarr';
 import { getSql } from '../db.js';
 import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -48,6 +49,19 @@ export async function createFlacUpgradeRoutes(app: FastifyInstance) {
     if (!await available(libraryId)) throw new ApiError(409, 'Conflict', 'Connect Lidarr to the drop pool first.');
     const source = await flacUpgradeSource(sql, libraryId, albumId);
     if (!source) throw new ApiError(409, 'Conflict', 'This album needs a complete matched edition and writable files to upgrade.');
+    let issue: string | null;
+    try {
+      const conn = lidarrConnectionOf(await lidarrStoredSettings(sql), process.env.APP_SECRET ?? '');
+      if (!conn) throw new ApiError(409, 'Conflict', 'Finish connecting Lidarr in Settings before upgrading.');
+      const client = new LidarrClient(conn.server);
+      const artist = await client.artistByMbid(source.artistMbid);
+      issue = await flacProfileIssue(client, artist?.qualityProfileId ?? conn.qualityProfileId);
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      request.log.warn({ albumId }, 'could not check the Lidarr upgrade profile');
+      throw new ApiError(502, 'Lidarr profile unavailable', 'Tagave could not check the quality profile. Test the connection in Lidarr settings, then retry.');
+    }
+    if (issue) throw new ApiError(409, 'Lidarr profile needs review', issue);
     const task = await saveMaintenanceTask(sql, {
       libraryId, kind: 'flac-upgrade', scope: albumId, subjectId: albumId, queue: 'files.upgrade',
       input: { albumId, releaseId: source.releaseId, fileIds: source.files.map((f) => f.id), userId: request.user!.id },

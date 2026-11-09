@@ -4,6 +4,7 @@ import { statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { readRenamedEnv, tagaveEnv } from '@tagave/shared/env';
+import { backupFrequencySchema, backupSchedule, NIGHTLY_BACKUP_HOUR, type BackupFrequency } from '@tagave/shared';
 import postgres from 'postgres';
 import { ensureDir } from './ensureDir.js';
 
@@ -684,18 +685,23 @@ export async function pruneKind(
   return doomed;
 }
 
-/** The next time the nightly backup runs: the next whole hour that is `hour` o'clock in `timeZone`. */
-export function nextNightlyRun(hour: number, timeZone: string, now = new Date()): Date {
+/** The next matching whole local hour, optionally restricted to one weekday. */
+export function nextScheduledRun(hour: number, timeZone: string, now = new Date(), weekday: number | null = null): Date {
   const zone = safeZone(timeZone);
-  const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', hourCycle: 'h23' });
+  const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: zone, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const day = weekday === null ? null : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][weekday];
   const t = new Date(now);
-  t.setUTCMinutes(0, 0, 0);
-  for (let i = 0; i < 50; i++) {
-    t.setTime(t.getTime() + 3_600_000);
-    if (parseInt(fmt.format(t), 10) === hour) return t;
+  t.setUTCSeconds(0, 0);
+  for (let i = 0; i < 8 * 24 + 2; i++) {
+    const parts = Object.fromEntries(fmt.formatToParts(t).map(({ type, value }) => [type, value]));
+    const minute = Number(parts['minute']);
+    if (t > now && minute === 0 && Number(parts['hour']) === hour && (day === null || parts['weekday'] === day)) return t;
+    t.setUTCMinutes(t.getUTCMinutes() + 60 - minute);
   }
-  return new Date(now.getTime() + 86_400_000);
+  return t;
 }
+
+export const nextNightlyRun = nextScheduledRun;
 
 export interface BackupKindSummary {
   kind: BackupKind;
@@ -719,7 +725,10 @@ export function summarizeKinds(entries: BackupEntry[], settings: BackupSettings,
     if (kind === 'pre-restore' && mine.length === 0) continue;
     let names: string[] = [];
     if (kind === 'nightly') {
-      if (settings.enabled) names = kindDeletes(entries, kind, settings, timeZone, nextNightlyRun(settings.hour, timeZone, now));
+      if (settings.enabled) {
+        const { hour, weekday } = backupSchedule(settings);
+        names = kindDeletes(entries, kind, settings, timeZone, nextScheduledRun(hour, timeZone, now, weekday));
+      }
     } else if (kind !== 'pre-restore') {
       names = kindDeletes(entries, kind, settings, timeZone, now);
     }
@@ -748,10 +757,13 @@ export const SETTINGS_FILE = 'backup-settings.json';
 export const STATUS_FILE = 'backup-status.json';
 
 export interface BackupSettings {
-  /** Nightly backup on or off. */
+  /** Automatic backups on or off. */
   enabled: boolean;
-  /** Hour of the day (0–23, container time zone) the nightly backup runs. */
+  /** Hour for daily or weekly backups, in the configured time zone. */
   hour: number;
+  frequency?: BackupFrequency | undefined;
+  /** Cron weekday, Sunday = 0. */
+  weekday?: number | undefined;
   keepDaily: number;
   keepWeekly: number;
   /**
@@ -804,7 +816,7 @@ export function envKeepPreUpdate(env: NodeJS.ProcessEnv): number {
 export function defaultBackupSettings(env: NodeJS.ProcessEnv = process.env): BackupSettings {
   return {
     enabled: !/^(0|false|off|no)$/i.test(env['BACKUP_NIGHTLY'] ?? ''),
-    hour: envInt(env, 'BACKUP_HOUR', 3, SETTINGS_LIMITS.hour.min, SETTINGS_LIMITS.hour.max),
+    hour: envInt(env, 'BACKUP_HOUR', NIGHTLY_BACKUP_HOUR, SETTINGS_LIMITS.hour.min, SETTINGS_LIMITS.hour.max),
     keepDaily: envInt(env, 'BACKUP_KEEP_DAILY', 7, SETTINGS_LIMITS.keepDaily.min, SETTINGS_LIMITS.keepDaily.max),
     keepWeekly: envInt(env, 'BACKUP_KEEP_WEEKLY', 4, SETTINGS_LIMITS.keepWeekly.min, SETTINGS_LIMITS.keepWeekly.max),
     keepPreUpdate: envKeepPreUpdate(env),
@@ -825,12 +837,15 @@ export async function readBackupSettings(dir: string, env: NodeJS.ProcessEnv = p
   let raw: Record<string, unknown>;
   try {
     raw = JSON.parse(await readFile(join(dir, SETTINGS_FILE), 'utf8')) as Record<string, unknown>;
+    if (!raw || typeof raw !== 'object') return defaults;
   } catch {
     return defaults;
   }
   const L = SETTINGS_LIMITS;
+  const frequency = backupFrequencySchema.safeParse(raw['frequency']);
   return {
     enabled: typeof raw['enabled'] === 'boolean' ? raw['enabled'] : defaults.enabled,
+    ...(frequency.success ? { frequency: frequency.data, weekday: clampInt(raw['weekday'], 1, 0, 6) } : {}),
     hour: clampInt(raw['hour'], defaults.hour, L.hour.min, L.hour.max),
     keepDaily: clampInt(raw['keepDaily'], defaults.keepDaily, L.keepDaily.min, L.keepDaily.max),
     keepWeekly: clampInt(raw['keepWeekly'], defaults.keepWeekly, L.keepWeekly.min, L.keepWeekly.max),

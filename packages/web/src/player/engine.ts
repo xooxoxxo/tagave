@@ -42,6 +42,7 @@ import { api, type ApiError } from '../services/api';
 import {
   FAILURE_TEXT, chooseFormat, classifyFailure, clearQueued, handoffDelayMs, heardDelta, insertQueued, moveUpcoming, nextPlayable, nothingPlayableMessage, queueOrder,
   previousAction, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, shuffleTracks, startContext, startIndex, streamUrl, transcodeFormat, type CanPlay,
+  streamFailureText,
 } from './logic';
 import { getPlayerQuality } from './quality';
 import { cachedCastLink, castSrc, fetchCastLink } from './castLinks';
@@ -998,16 +999,22 @@ onContextTrouble(() => {
 });
 
 /** A one-byte request to the stream URL: its status tells a 409 or 429 from a decode failure. */
-async function probe(url: string): Promise<number | null> {
+async function probe(url: string): Promise<{ status: number | null; problem?: { title?: string; instance?: string } }> {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeout = setTimeout(() => ctrl?.abort(), 6000);
   try {
     const res = await fetch(url, { credentials: 'include', headers: { Range: 'bytes=0-0' }, ...(ctrl ? { signal: ctrl.signal } : {}) });
-    const status = res.status;
-    try { void res.body?.cancel(); } catch { /* already closed */ }
-    ctrl?.abort();
-    return status;
+    if (!res.ok && (res.headers.get('content-type') ?? '').includes('json')) {
+      const problem = await res.json().catch(() => undefined);
+      return { status: res.status, problem };
+    }
+    void res.body?.cancel().catch(() => undefined);
+    return { status: res.status };
   } catch {
-    return null;
+    return { status: null };
+  } finally {
+    clearTimeout(timeout);
+    ctrl?.abort();
   }
 }
 
@@ -1020,7 +1027,7 @@ async function onError(a: HTMLAudioElement) {
   if (!cur || !a.getAttribute('src')) return;
   const gen = generation;
   const failing = cur;
-  const status = await probe(a.currentSrc || a.src);
+  const { status, problem } = await probe(a.currentSrc || a.src);
   if (gen !== generation || cur !== failing) return;
   const kind = classifyFailure({ probe: status, format: failing.format, triedFallback: failing.triedFallback });
   const s = get();
@@ -1036,7 +1043,7 @@ async function onError(a: HTMLAudioElement) {
     loadTrack(failing.index, { format: transcodeFormat(canPlayOf(a)), offset: s.position, keepSession: true });
     return;
   }
-  showError(FAILURE_TEXT[kind], 'stream');
+  showError(streamFailureText(kind, status, problem), 'stream');
 }
 
 function markUnavailable(index: number) {

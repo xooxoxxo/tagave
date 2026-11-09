@@ -25,8 +25,9 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { IdentifyRequestView } from '@tagave/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useFlacUpgrade } from '../hooks/useFlacUpgrade';
+import { useCoverEmbed } from '../hooks/useCoverEmbed';
 import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
 import { useCan, useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned, type PreviousPhysicalLink } from '../hooks';
 import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
@@ -61,7 +62,7 @@ import { MaintenanceInspector, MaintenanceSummary, PickBar, type InspectorSelect
 import { EMPTY_TICKS, inspectorRows, reconcileTicks } from '../utils/maintenanceInspector';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { CandidateTable, TrackComparison } from './AlbumMatchTable';
-import { STATE_LABEL, artPollMs, dur } from './albumFormat';
+import { STATE_LABEL, artPollMs, dur, totalLength } from './albumFormat';
 import { AlbumFlowHeader } from './AlbumFlowHeader';
 import { AlbumActionRow } from './AlbumActionRow';
 import { LikeKey } from '../components/LikeKey';
@@ -76,7 +77,8 @@ const MoveSheet = lazy(() => import('../components/MoveSheet').then((m) => ({ de
 const MaintenanceSheet = lazy(() => import('./MaintenanceSheet').then((m) => ({ default: m.MaintenanceSheet })));
 import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
-import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
+import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, releaseYear, shortFormat, wantsFiller } from './albumFlow';
+import { ALBUM_WIDGETS, type AlbumWidgetId } from './albumWidgets';
 import { useAlbumFlow } from './useAlbumFlow';
 import { useAlbumListenLinks } from '../hooks/useListenLinks';
 import { useReviews } from '../hooks/useReviews';
@@ -128,6 +130,8 @@ export function AlbumDetailPage() {
   const { albumId } = useParams({ strict: false }) as { albumId: string };
   const search = useSearch({ strict: false }) as AlbumSearch;
   const navigate = useNavigate();
+  const artistOrigin = useLocation({ select: (location) =>
+    (location.state as { albumArtistOrigin?: { id: string; name: string } }).albumArtistOrigin });
   const { libraryId } = useCurrentLibrary();
   const queryClient = useQueryClient();
   const [maintenance, setMaintenance] = useMaintenance();
@@ -154,7 +158,7 @@ export function AlbumDetailPage() {
   const undoMove = useUndoMove(libraryId);
   // Play and Shuffle: every role has player.use today; the strip follows the permission
   const mayPlay = useCan('player.use');
-  const [{ shortAlbumArt }] = useDisplayPrefs();
+  const [{ shortAlbumArt, shortAlbumWaves, albumWidgets }, setDisplayPrefs] = useDisplayPrefs();
   // the opt-in player: Play and per-track play exist only while one is installed
   // and answering; installed but silent, Play shows disabled with a word why
   const player = useCapabilities().data?.player;
@@ -163,6 +167,7 @@ export function AlbumDetailPage() {
   const playerInstalled = !!player?.installed;
   const playability = useAlbumPlayability(albumId, canPlay);
   const playingHere = usePlayerStore((s) => currentTrack(s)?.albumId === albumId);
+  const playingLocally = usePlayerStore((s) => s.status === 'playing' && !s.remoteDeviceId && currentTrack(s)?.albumId === albumId);
   const playlistsOn = usePlaylistsOn();
   // the owner's one delete item (Mark for deletion / Move to trash), and what waits out its Undo
   const del = useDeleteAction(libraryId);
@@ -170,6 +175,7 @@ export function AlbumDetailPage() {
   // after a delete: one step up the path taken (utils/backNav afterDelete)
   const leaveDeleted = useLeaveDeleted();
   const playStatus = usePlayerStore((s) => s.status);
+  const playError = usePlayerStore((s) => s.status === 'error' && currentTrack(s)?.albumId === albumId ? s.message : null);
   const playingTrackId = usePlayerStore((s) => (currentTrack(s)?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
   const queueLoading = usePlayerStore((s) => s.loadingAlbumId === albumId);
   // the sections switcher is a Maintenance tool: without it, the page is the tracks
@@ -261,6 +267,7 @@ export function AlbumDetailPage() {
     onSuccess: () => { setArtAsked(true); refresh(0); },
   });
   const coverAction = useMaintenanceAction(libraryId);
+  const embed = useCoverEmbed(libraryId, albumId, canSplit && maintenance);
   const keepAsIs = useMutation({
     mutationFn: () => api.post(`/albums/${albumId}/as-is`),
     onSuccess: () => refresh(),
@@ -319,6 +326,7 @@ export function AlbumDetailPage() {
     hero: { current: null as HTMLElement | null },
     cover: { current: null as HTMLElement | null },
     names: { current: null as HTMLElement | null },
+    topWidgets: { current: null as HTMLElement | null },
     nameA: { current: null as HTMLElement | null },
     nameB: { current: null as HTMLElement | null },
     tl: { current: null as HTMLElement | null },
@@ -445,9 +453,14 @@ export function AlbumDetailPage() {
   // opened cold, a deleted album leaves for its artist, else Albums
   const firstArtistId = album.artists?.find((a) => a.id)?.id;
   const deletedFallback = firstArtistId ? `/artists/${firstArtistId}` : '/albums';
+  const releaseCredit = Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit;
+  const sameCredit = !!album.artistCredit && album.artistCredit.toLowerCase() === releaseCredit?.toLowerCase();
+  const origin = artistOrigin && artistOrigin.name.toLowerCase() === album.artistCredit?.toLowerCase() ? artistOrigin : null;
+  const originMatches = !!origin && (sameCredit || !releaseCredit);
+  const dockArtistId = album.artists?.length === 1 ? firstArtistId : !album.artists?.length && originMatches ? origin?.id : null;
   const albumArtist = album.artists?.length
     ? album.artists.map((a) => a.name).join(', ')
-    : Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit ?? album.artistCredit;
+    : originMatches ? origin.name : sameCredit ? album.artistCredit : releaseCredit ?? album.artistCredit;
   const trackCountText = album.trackCount == null ? null : album.isCueImage
     ? `${album.trackCount} audio ${album.trackCount === 1 ? 'file' : 'files'} (CUE image)`
     : `${album.trackCount} ${album.trackCount === 1 ? 'track' : 'tracks'}`;
@@ -795,6 +808,14 @@ export function AlbumDetailPage() {
           <div className={`${styles.stack} ${styles.gapBody}`}>
             <p className={styles.bodyText}>{f.explain}{f.guidance && <> {f.guidance}</>}</p>
             {f.affected?.map((line) => <div key={line} className={styles.affected}>{line}</div>)}
+            {f.key === 'noEmbeddedArt' && canSplit && (!embed.view.data?.task || embed.view.data.task.state === 'done') && (
+              <>
+                <Button variant="secondary" size="sm" disabled={embed.start.isPending} onClick={() => embed.start.mutate()}>
+                  {embed.start.isPending ? 'Queuing cover embedding…' : 'Embed local cover'}
+                </Button>
+                {embed.start.isError && <p role="alert">{errorDetail(embed.start) ?? 'Couldn’t queue cover embedding.'}</p>}
+              </>
+            )}
             {f.action === 'split' && (
               <div className={styles.inlineActions}>
                 <Button variant="secondary" size="sm" onClick={() => void folder.split('lossless')} disabled={folder.busy}>Split off lossy copies</Button>
@@ -942,10 +963,6 @@ export function AlbumDetailPage() {
     formats: album.formats,
     tracks: album.tracks,
   });
-  const dotted = (parts: ReactNode[]) => parts.flatMap((part, i) => [
-    ...(i > 0 ? [<span key={`dot${i}`} className={styles.dot} aria-hidden="true"> · </span>] : []),
-    <span key={`part${i}`} className={styles.part}>{part}</span>,
-  ]);
   const artistLine = albumArtist ?? 'Unknown artist';
   const albumRef = { albumId, title: title ?? 'Untitled', artist: artistLine, coverUrl: album.coverUrl };
   const excerpt = aboutExcerpt(reviews.data?.external ?? []);
@@ -968,7 +985,7 @@ export function AlbumDetailPage() {
       : playingHere && playStatus === 'paused' ? 'resume' : 'play',
     loading: queueLoading,
     disabled: playDisabled,
-    note: playNote,
+    note: playError ?? playNote,
     onPlay: () => void playAlbum(albumRef),
     onToggle: togglePlayback,
     onShuffle: () => void shuffleAlbum(albumRef),
@@ -982,7 +999,8 @@ export function AlbumDetailPage() {
     canCare,
     maintenance,
     shuffle: playState && !playState.disabled && playState.onShuffle ? playState.onShuffle : null,
-    artists: (album.artists ?? []).map((a) => ({ id: a.id, name: a.name, go: () => void navigate({ to: '/artists/$artistId', params: { artistId: a.id } }) })),
+    artists: (album.artists?.length ? album.artists : originMatches ? [origin] : [])
+      .map((a) => ({ id: a.id, name: a.name, go: () => void navigate({ to: '/artists/$artistId', params: { artistId: a.id } }) })),
     ownPhysical: !ownsPhysical && canOwnPhysical ? { pending: addPhysical.isPending, onSelect: () => void ownPhysical() } : null,
     // from the drawer, focus goes back to the ⋮ that opened it; the dropdown has just put it back on its own ⋮
     onInfo: () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; openInfo('about'); },
@@ -990,6 +1008,12 @@ export function AlbumDetailPage() {
     upgrade: upgrade.view.data?.eligible
       ? tool({ key: 'flac-upgrade', label: 'Upgrade to FLAC', disabled: upgrade.request.isPending, onSelect: () => void startUpgrade() })
       : null,
+    artwork: wantsFiller(album.tracks.length) ? {
+      key: 'album-waves', icon: 'disc',
+      label: shortAlbumArt && shortAlbumWaves ? 'Use still artwork' : 'Animate album artwork',
+      onSelect: () => setDisplayPrefs({ shortAlbumArt: true, shortAlbumWaves: !shortAlbumArt || !shortAlbumWaves }),
+    } : null,
+    customize: () => void navigate({ to: '/settings/$section', params: { section: 'appearance' }, hash: 'album-widgets' }),
     onToggleMaintenance: () => setMaintenance(!maintenance),
     listen: listenLinks.data?.available ? listenLinks.data.links : [],
     queue: playState && !playState.disabled ? {
@@ -1038,6 +1062,24 @@ export function AlbumDetailPage() {
   // Settings › Appearance can turn the short-album artwork off
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';
+  const widgetValues: Record<AlbumWidgetId, ReactNode> = {
+    genre: genreLabels[0],
+    year: releaseYear(album.release?.date, album.year),
+    tracks: [trackCountText, (album.discCount ?? 1) > 1 ? `${album.discCount} discs` : null].filter(Boolean).join(' · '),
+    duration: totalLength(album.totalDurationMs),
+    format: shortFormat(album.tracks, album.formats),
+    ownership: showOwnChip ? <Link to="/collection">
+      {physicalFormats || 'Physical'}{physicalPending ? ' · syncing' : ''}
+    </Link> : null,
+  };
+  const widgets = (placement: 'above' | 'below') => {
+    const shown = ALBUM_WIDGETS.filter(({ id }) => albumWidgets[id] === placement && widgetValues[id]);
+    if (shown.length === 0) return null;
+    return <dl className={styles.widgets} data-placement={placement}
+      ref={placement === 'above' ? (el) => { flowRefs.topWidgets.current = el; } : undefined}>
+      {shown.map(({ id, label }) => <div key={id} className={styles.widget}><dt>{label}</dt><dd>{widgetValues[id]}</dd></div>)}
+    </dl>;
+  };
 
   // ---- Maintenance, the owner: the songs picked, Move to album… and Delete ----
   const visibleTracks = album.tracks.filter((t) => !hiddenDel.track(t.id));
@@ -1150,6 +1192,7 @@ export function AlbumDetailPage() {
     selection,
     tools: inspectorTools,
     upgrade: upgradeTask && libraryId ? <MaintenanceTaskStatus task={upgradeTask} libraryId={libraryId} /> : null,
+    embedCover: embed.view.data?.task && libraryId ? <MaintenanceTaskStatus task={embed.view.data.task} libraryId={libraryId} /> : null,
     sections: { value: tab, onChange: (next) => openSection(next), live: requestLive },
     reveal,
   };
@@ -1176,6 +1219,7 @@ export function AlbumDetailPage() {
         <AlbumFlowHeader
           docked={flow.docked}
           artist={artistLine}
+          artistId={dockArtistId}
           title={title ?? 'Untitled'}
           glide={flow.glide}
           backLabel={backAct?.label ?? null}
@@ -1198,7 +1242,7 @@ export function AlbumDetailPage() {
           </div>
           <div className={styles.headInfo}>
             {/* "Rock · 2012" */}
-            {lines.kicker.length > 0 && <p className={styles.kicker} data-album-kicker="">{dotted(lines.kicker)}</p>}
+            {widgets('above')}
             {/* the title over the artist; they move only with the page and shrink into the header title */}
             <div ref={(el) => { flowRefs.names.current = el; }} className={styles.names}>
               <h1 ref={(el) => { flowRefs.nameB.current = el; }} className={styles.nameB} dir="auto">{title}</h1>
@@ -1210,21 +1254,12 @@ export function AlbumDetailPage() {
                       {idx < album.artists!.length - 1 && ', '}
                     </span>
                   ))
-                  : artistLine}
+                  : originMatches
+                    ? <Link to="/artists/$artistId" params={{ artistId: origin.id }}>{artistLine}</Link>
+                    : artistLine}
               </span>
             </div>
-            {/* what it is: tracks · length · format, and your copy (everything else is in Album info) */}
-            {(lines.facts.length > 0 || showOwnChip) && (
-              <p className={styles.factsLine} data-album-facts="">
-                {dotted(lines.facts)}
-                {showOwnChip && (
-                  <Link to="/collection" title="In your physical collection" className={styles.ownChip}>
-                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10" cy="10" r="7" /><circle cx="10" cy="10" r="2" /></svg>
-                    {`Your ${physicalFormats || 'copy'}`}{physicalPending ? ' (adding to Discogs…)' : ''}
-                  </Link>
-                )}
-              </p>
-            )}
+            {widgets('below')}
             {/* the album's text, two lines; More opens the album info */}
             {excerpt && (
               <div className={styles.excerpt} data-album-excerpt="">
@@ -1310,7 +1345,7 @@ export function AlbumDetailPage() {
         </div>
         {/* short albums: a generative piece under the tracklist, seeded by the title */}
         {showFiller && (
-          <AlbumFiller title={title ?? 'Untitled'} />
+          <AlbumFiller title={title ?? 'Untitled'} waves={shortAlbumWaves} coverUrl={album.coverUrl} playing={playingLocally} />
         )}
 
         {/* the album's other sections (Maintenance): picked in the inspector, shown here in the tracks' place */}
@@ -1480,6 +1515,7 @@ export function AlbumDetailPage() {
               albumId={albumId}
               title={title ?? 'This album'}
               artist={artistLine}
+              coverUrl={album.coverUrl}
               side={drawer ? 'bottom' : 'right'}
             />
           </Suspense>

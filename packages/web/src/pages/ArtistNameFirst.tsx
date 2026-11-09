@@ -131,7 +131,7 @@ export function ArtistNameFirst(p: NameFirstProps) {
 
       <div className={styles.mainCol}>
         {s.owned.length > 0
-          ? <Section id={SECTION_IDS.owned} title="In your library" count={s.owned.length}><AlbumGrid albums={s.owned} /></Section>
+          ? <Section id={SECTION_IDS.owned} title="In your library" count={s.owned.length}><AlbumGrid albums={s.owned} artistOrigin={artist} /></Section>
           : <Section id={SECTION_IDS.owned} title="In your library"><p className={styles.empty}>Nothing in your library</p></Section>}
         {s.missing.length > 0 && <Section id={SECTION_IDS.missing} title="Not in your library" count={s.missing.length} action={<MissingHeadingMenu />}><AlbumGrid albums={s.missing} /></Section>}
         {maintenance && s.skipped.length > 0 && <Section id={SECTION_IDS.skipped} title="Skipped" count={s.skipped.length}>

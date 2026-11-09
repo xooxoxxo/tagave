@@ -228,7 +228,12 @@ async function streamTrack(request: FastifyRequest, reply: FastifyReply, userId:
       res = await open(songId);
       err = await failure(res);
     }
-    if (err) throw new ApiError(502, 'Bad Gateway', err.message);
+    if (err) {
+      if (err.code === 70 || /^data not found$/i.test(err.message.trim())) {
+        throw new ApiError(502, 'Player track unavailable', 'The player could not find this track for your account. Check your player account’s access to this music library.', request.id);
+      }
+      throw new ApiError(502, 'Bad Gateway', err.message, request.id);
+    }
     if (!res.body) throw new ApiError(502, 'Bad Gateway', 'The player server sent no audio');
 
     reply.status(res.status);

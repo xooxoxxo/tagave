@@ -1,5 +1,5 @@
 /**
- * Database backups run by the app: the nightly pg-boss schedule and "Back up
+ * Database backups run by the app: the pg-boss schedule and "Back up
  * now". The app owns this because its image ships pg_dump/pg_restore and
  * mounts the backups folder; the workers have neither.
  *
@@ -17,6 +17,7 @@ import {
   type BackupSettings,
 } from '@tagave/doctor';
 import { readRenamedEnv } from '@tagave/shared/env';
+import { backupSchedule } from '@tagave/shared';
 
 export const BACKUP_QUEUE = 'backup.nightly';
 
@@ -43,8 +44,9 @@ async function historyFromDb(): Promise<UpdateHistoryRow[]> {
   return readUpdateHistory(getSql() as unknown as Parameters<typeof readUpdateHistory>[0]);
 }
 
-export function nightlyCron(settings: BackupSettings): string {
-  return `0 ${settings.hour} * * *`;
+export function backupCron(settings: BackupSettings): string {
+  const { hour, weekday } = backupSchedule(settings);
+  return `0 ${hour} * * ${weekday ?? '*'}`;
 }
 
 export class BackupService {
@@ -101,11 +103,12 @@ export class BackupService {
   }
 }
 
-/** (Re)apply the nightly schedule from the saved settings: on at the chosen hour, or off. */
+/** Replace the single scheduled job with the current cadence, or turn it off. */
 export async function applyBackupSchedule(boss: PgBoss, service: BackupService, settings?: BackupSettings): Promise<void> {
   const s = settings ?? (await service.settings());
   if (s.enabled) {
-    await boss.schedule(BACKUP_QUEUE, nightlyCron(s), {}, { tz: service.timeZone, singletonKey: BACKUP_QUEUE });
+    const cron = backupCron(s);
+    await boss.schedule(BACKUP_QUEUE, cron, { cron }, { tz: service.timeZone, singletonKey: BACKUP_QUEUE });
   } else {
     await boss.unschedule(BACKUP_QUEUE);
   }
@@ -114,12 +117,15 @@ export async function applyBackupSchedule(boss: PgBoss, service: BackupService, 
 /** Create the queue, work it in this process, and apply the schedule. */
 export async function startBackupScheduler(boss: PgBoss, service: BackupService, logger: Logger): Promise<void> {
   await boss.createQueue(BACKUP_QUEUE, { retryLimit: 0, expireInSeconds: 6 * 3600 });
-  await boss.work(BACKUP_QUEUE, { batchSize: 1 }, async (jobs) => {
+  await boss.work<{ cron?: string }>(BACKUP_QUEUE, { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) {
-      logger.info({ jobId: job.id }, 'nightly backup start');
+      const settings = await service.settings();
+      const queuedCron = job.data?.cron;
+      if (!settings.enabled || (queuedCron ? queuedCron !== backupCron(settings) : settings.frequency !== undefined)) continue;
+      logger.info({ jobId: job.id }, 'scheduled backup start');
       const record = await service.run('nightly');
-      if (record.ok) logger.info({ file: record.file, pruned: record.pruned }, 'nightly backup written');
-      else logger.error({ error: record.error }, 'nightly backup failed');
+      if (record.ok) logger.info({ file: record.file, pruned: record.pruned }, 'scheduled backup written');
+      else logger.error({ error: record.error }, 'scheduled backup failed');
     }
   });
   await applyBackupSchedule(boss, service);

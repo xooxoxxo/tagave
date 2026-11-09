@@ -13,7 +13,7 @@ import { startUpdateChecks } from './routes/updates.js';
 import { startPlayerScanWorker } from './lib/player.js';
 import { startPlayerPeopleWorker } from './lib/playerSync.js';
 import { getSql } from './db.js';
-import { BackupService, startBackupScheduler } from './lib/backupService.js';
+import { BackupService, backupCron, startBackupScheduler } from './lib/backupService.js';
 import { startMaintenanceQueue } from './lib/maintenance.js';
 import { getBoss, setBossLogger } from './boss.js';
 import { initAuth } from './middleware/auth.js';
@@ -173,7 +173,7 @@ try {
   process.exit(1);
 }
 
-// Database backups: nightly schedule + Settings › Backups (the app image
+// Database backups: automatic schedule + Settings › Backups (the app image
 // ships pg_dump and mounts the backups folder).
 const backupService = new BackupService({ databaseUrl });
 
@@ -229,9 +229,9 @@ const start = async () => {
     try {
       await startBackupScheduler(await getBoss(), backupService, logger);
       const s = await backupService.settings();
-      logger.info({ dir: backupService.dir, enabled: s.enabled, hour: s.hour, tz: backupService.timeZone }, 'backup schedule applied');
+      logger.info({ dir: backupService.dir, cron: s.enabled ? backupCron(s) : null, tz: backupService.timeZone }, 'backup schedule applied');
     } catch (err) {
-      logger.error({ err }, 'could not start the nightly backup schedule');
+      logger.error({ err }, 'could not start the backup schedule');
     }
     // The player module's scans: the API works this queue itself, so the
     // player credentials never leave the app.

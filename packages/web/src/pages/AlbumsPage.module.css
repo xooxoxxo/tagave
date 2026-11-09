@@ -85,7 +85,7 @@
   .listState, .listBadges { display: none; }
 }
 @container (max-width: 560px) {
-  .listYear, .listTracks, .listRow > .formatTag, .listRow > .formatLossless, .listRow > .formatMixed { display: none; }
+  .listYear, .listTracks, :is(.listRow, .listRowSelected) > :is(.formatTag, .formatLossless, .formatMixed) { display: none; }
 }
 
 .virtualCanvas {
@@ -476,6 +476,13 @@
   color: var(--warning);
 }
 
+:is(.listRow, .listRowSelected) > :is(.formatTag, .formatLossless, .formatMixed) {
+  width: 3.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Inside a card the format tag is inline text, not a list column. */
 .albumStats .formatTag,
 .albumStats .formatLossless,
@@ -551,7 +558,7 @@
 @media (max-width: 640px) {
   /* on a phone the actions wrap onto as many lines as they need: all visible */
   .bulkBar { padding: .6rem .75rem; gap: var(--space-xs) var(--space-sm); }
-  .listState, .listYear, .listTracks, .listBadges, .listRow > .formatTag, .listRow > .formatLossless, .listRow > .formatMixed { display: none; }
+  .listState, .listYear, .listTracks, .listBadges, :is(.listRow, .listRowSelected) > :is(.formatTag, .formatLossless, .formatMixed) { display: none; }
 }
 /* a finger: the list's checkboxes too only while albums are selected */
 @media (hover: none) {

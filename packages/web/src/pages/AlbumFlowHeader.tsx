@@ -13,6 +13,7 @@
  * the name, and Maintenance as its right-hand icon.
  */
 import type { CSSProperties, ReactNode } from 'react';
+import { Link } from '@tanstack/react-router';
 import { BackIcon, EmbossIconButton, WrenchIcon } from '../components/ui';
 import { maintenanceLabel } from './albumActions';
 import styles from './AlbumFlowHeader.module.css';
@@ -21,6 +22,7 @@ export interface AlbumFlowHeaderProps {
   docked: boolean;
   /** the small line (the album's artist; the artist page's kind line) */
   artist: string;
+  artistId?: string | null | undefined;
   /** the main line (the album title; the artist's name) */
   title: string;
   /** the main line on top (the album page), or the small line on top (the artist page) */
@@ -42,9 +44,10 @@ export interface AlbumFlowHeaderProps {
 
 export const maintenanceKeyLabel = maintenanceLabel;
 
-export function AlbumFlowHeader({ docked, artist, title, titleFirst = true, glide, backLabel, onBack, onTop, topLabel = 'Back to the top of the album', end, maintenance = false, onToggleMaintenance }: AlbumFlowHeaderProps) {
+export function AlbumFlowHeader({ docked, artist, artistId, title, titleFirst = true, glide, backLabel, onBack, onTop, topLabel = 'Back to the top of the album', end, maintenance = false, onToggleMaintenance }: AlbumFlowHeaderProps) {
   const small = <span key="a" className={styles.titleA} data-header-artist="">{artist}</span>;
   const main = <span key="b" className={styles.titleB} data-header-title="" dir="auto">{title}</span>;
+  const glideStyle = { '--glide-x': `${glide.x}px`, '--glide-y': `${glide.y}px` } as CSSProperties;
   return (
     <div className={`${styles.header} ${docked ? styles.docked : ''}`} data-album-header="" data-docked={docked ? '' : undefined}>
       <div className={styles.box}>
@@ -56,7 +59,14 @@ export function AlbumFlowHeader({ docked, artist, title, titleFirst = true, glid
             </EmbossIconButton>
           </span>
         )}
-        <button
+        {artistId && titleFirst ? (
+          <div className={styles.mid} data-top-key="" data-artist-link="" inert={!docked} aria-hidden={!docked || undefined}>
+            <div className={styles.title} style={glideStyle}>
+              <button type="button" className={styles.dockedTitleButton} aria-label={topLabel} onClick={onTop}>{main}</button>
+              <Link className={styles.titleA} data-header-artist="" to="/artists/$artistId" params={{ artistId }}>{artist}</Link>
+            </div>
+          </div>
+        ) : <button
           type="button"
           className={styles.mid}
           aria-label={topLabel}
@@ -65,10 +75,10 @@ export function AlbumFlowHeader({ docked, artist, title, titleFirst = true, glid
           aria-hidden={docked ? undefined : true}
           onClick={onTop}
         >
-          <span className={`${styles.title} ${titleFirst ? '' : styles.smallFirst}`} style={{ '--glide-x': `${glide.x}px`, '--glide-y': `${glide.y}px` } as CSSProperties}>
+          <span className={`${styles.title} ${titleFirst ? '' : styles.smallFirst}`} style={glideStyle}>
             {titleFirst ? [main, small] : [small, main]}
           </span>
-        </button>
+        </button>}
         <span className={`${styles.slot} ${styles.end}`} data-header-end="">
           {end ?? (onToggleMaintenance && (
             <EmbossIconButton

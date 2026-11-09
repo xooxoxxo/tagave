@@ -3,7 +3,7 @@
  * Split. Owner only (system.manage): nobody else asks.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AlbumSplitView } from '@tagave/shared';
+import type { AlbumSplitView, SplitCuts } from '@tagave/shared';
 import { api } from '../services/api';
 import { useCan } from './usePermissions';
 import { invalidateLibraryViews } from './useDeletions';
@@ -45,7 +45,8 @@ export function useAnalyzeSplit(libraryId: string | undefined, albumId: string |
 export function useRunSplit(libraryId: string | undefined, albumId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (splitId: string) => api.post<AlbumSplitView>(`${base(libraryId, albumId)}/${splitId}/run`, {}),
+    mutationFn: ({ splitId, cuts }: { splitId: string; cuts: SplitCuts }) =>
+      api.post<AlbumSplitView>(`${base(libraryId, albumId)}/${splitId}/run`, { cuts }),
     onSuccess: (view) => {
       qc.setQueryData(albumSplitKey(libraryId, albumId), view);
       void invalidateAlbumCare(qc);

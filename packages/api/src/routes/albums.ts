@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, or, isNotNull, sql, inArray, desc, type SQLWrapper } from 'drizzle-orm';
 import {
-  albumMatches, files, canonicalTracks, gaps, images, libraries, localAlbums,
+  albumMatches, artists as canonicalArtists, files, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
   releaseGroupArtists, fieldLocks, auditLog, albumLiveSql, albumDeletedSql, fileDeletedSql, trackLiveSql,
-  saveMaintenanceTask, restartMaintenanceTask,
+  saveMaintenanceTask, restartMaintenanceTask, latestMaintenanceTask,
 } from '@tagave/db';
 import { normalizeGenreMap, effectiveGenres, physicalFormatLabel } from '@tagave/core';
 import { getDb, getSql } from '../db.js';
@@ -19,7 +19,7 @@ import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
 import { scanRoots as scanRootRows, files as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
-import { dispatchMaintenance } from '../lib/maintenance.js';
+import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
 import { albumsChanged } from '../lib/albumCare.js';
 import { containsPattern, textMatches } from '../lib/textMatch.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -116,7 +116,7 @@ export function albumQueryParts(
   if (genres.length) {
     // `in (a, b)` (not `= a or = b`) lets the planner probe idx_entity_tags_entity_id
     // once per album; a null release id simply matches nothing.
-    conds.push(sql`exists (select 1 from entity_tags et where et.tag in ${inList(genres)} and et.kind in ('genre', 'style')
+    conds.push(sql`exists (select 1 from entity_tags et where lower(et.tag) in ${inList(genres.map((genre) => genre.toLowerCase()))} and et.kind in ('genre', 'style')
       and et.entity_id in (${localAlbums.releaseGroupId}, ${localAlbums.releaseId}))`);
   }
   const decades = arr(q['decade']).map((d) => parseInt(d, 10)).filter(Number.isFinite);
@@ -271,9 +271,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       // tag garbage produces years like 1000 or 1720; the rail only offers plausible decades
       rows(sql`select (year_guess / 10) * 10 as decade, count(*)::int as n from local_albums where ${wDecade} and year_guess between 1900 and 2100 group by 1 order by 1`),
       rows(sql`
-        select et.tag, count(distinct local_albums.id)::int as n from local_albums
+        select lower(et.tag) as tag, coalesce(min(et.tag) filter (where et.tag <> lower(et.tag) and et.tag <> upper(et.tag)), min(et.tag)) as label,
+               count(distinct local_albums.id)::int as n from local_albums
         join entity_tags et on et.kind in ('genre', 'style') and et.entity_id in (local_albums.release_group_id, local_albums.release_id)
-        where ${wGenre} group by et.tag order by n desc, et.tag limit 60`),
+        where ${wGenre} group by lower(et.tag) order by n desc, lower(et.tag) limit 60`),
       rows(sql`
         select l->>'name' as name, count(*)::int as n from local_albums
         join releases r on r.id = local_albums.release_id
@@ -294,7 +295,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       formats: facet(formats, 'k'),
       containers: facet(containers, 'f'),
       decades: facet(decades, 'decade', (d) => `${d}s`),
-      genres: facet(genres, 'tag'),
+      genres: genres.map((row) => ({ value: String(row['tag']), label: String(row['label']), count: Number(row['n']) })),
       labels: facet(labels, 'name'),
       review: [
         { value: 'reviewed', count: n('reviewed') }, { value: 'unreviewed', count: total - n('reviewed') },
@@ -870,8 +871,13 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           // artists from release_group_artists and the release group's tags, together
           const [artistRows, rgTagRows] = await Promise.all([
             db
-              .select()
+              .select({
+                artistId: releaseGroupArtists.artistId,
+                creditedName: sql<string>`coalesce(nullif(${releaseGroupArtists.creditedName}, ''), ${canonicalArtists.name})`,
+                position: releaseGroupArtists.position,
+              })
               .from(releaseGroupArtists)
+              .innerJoin(canonicalArtists, eq(releaseGroupArtists.artistId, canonicalArtists.id))
               .where(eq(releaseGroupArtists.releaseGroupId, album.releaseGroupId))
               .orderBy(releaseGroupArtists.position),
             db
@@ -887,7 +893,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
           artists = artistRows.map((row) => ({
             id: row.artistId,
-            name: row.creditedName ?? '',
+            name: row.creditedName,
             position: row.position,
           }));
 
@@ -1111,6 +1117,36 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       reply.status(202).send({ ok: true, jobId: queued?.attempt_id ?? null, artFetch: await artFetchState(albumId, libraryId) });
     }
   );
+
+  const coverEmbedPath = '/libraries/:libraryId/albums/:albumId/embed-cover';
+  const coverOwner = { config: { permission: 'system.manage' as const } };
+  type CoverParams = { libraryId: string; albumId: string };
+  fastify.get<{ Params: CoverParams }>(coverEmbedPath, coverOwner, async ({ params: { libraryId, albumId } }) => {
+    const task = await latestMaintenanceTask(getSql(), libraryId, 'embed-cover', albumId);
+    return { task: task ? maintenanceView(task, await liveMaintenanceQueues()) : null };
+  });
+
+  fastify.post<{ Params: CoverParams }>(coverEmbedPath, coverOwner, async (request, reply) => {
+    const { libraryId, albumId } = request.params;
+    const sql = getSql();
+    const [album] = await sql<{ enabled: boolean | null }[]>`
+      select libraries.settings->'tagWritesEnabled' = 'true'::jsonb as enabled
+        from libraries join local_albums a on a.library_id = libraries.id
+       where libraries.id = ${libraryId} and a.id = ${albumId}`;
+    if (!album) throw new ApiError(404, 'Not Found', 'Album not found');
+    if (!album.enabled) throw new ApiError(403, 'Forbidden', 'Enable tag writes in Tag preferences to embed artwork.');
+    const rows = await sql<{ id: string }[]>`
+      select distinct f.id from local_tracks t join files f on f.id = t.audio_file_id
+       where t.local_album_id = ${albumId} and f.library_id = ${libraryId}
+         and not exists (select 1 from file_deletions d where d.file_id = f.id)`;
+    if (rows.length === 0) throw new ApiError(409, 'Conflict', 'There are no music files to update.');
+    const task = await saveMaintenanceTask(sql, {
+      libraryId, kind: 'embed-cover', scope: albumId, subjectId: albumId, queue: 'files.embedCover',
+      input: { albumId, fileIds: rows.map(({ id }) => id) }, stage: 'Cover embedding queued',
+    });
+    await dispatchMaintenance(task.id, request.log);
+    return reply.status(202).send({ task: maintenanceView(task, await liveMaintenanceQueues()) });
+  });
 
   // IDN-6 manual entry: paste a MusicBrainz release / release-group URL or id,
   // or a Discogs release / master URL or id. A release matches outright; a

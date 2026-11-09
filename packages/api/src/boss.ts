@@ -52,6 +52,7 @@ async function startBoss(): Promise<PgBoss> {
     'dj.analyze', // DJ: the player asks for its next tracks' analysis, turning the module on starts the sweep
     'files.trash', // Deleting: moves into and out of the trash folder, Empty trash
     'files.upgrade', // Upgrade to FLAC
+    'files.embedCover',
     'files.split', // Whole album in one file: the cut points, then the split
     'files.move', // Move to album: the release search, the plan, the move and its undo
   ]) {

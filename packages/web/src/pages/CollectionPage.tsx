@@ -180,9 +180,13 @@ export function CollectionPage() {
     }
   };
 
-  const subtitle = source?.lastSyncAt
-    ? <span className={styles.meta}>Synced {shortDate(source.lastSyncAt)}</span>
-    : undefined;
+  const copyCount = Math.max(0, counts.total - counts.removed);
+  const subtitle = source ? (
+    <span className={styles.meta}>
+      {copyCount} {copyCount === 1 ? 'copy' : 'copies'} on your shelf
+      {source.lastSyncAt && <> · Synced {shortDate(source.lastSyncAt)}</>}
+    </span>
+  ) : undefined;
 
   if (sources.isLoading) {
     return <PageShell title="Physical collection" subtitle={subtitle}><p className={styles.loading}>Loading…</p></PageShell>;
@@ -195,6 +199,7 @@ export function CollectionPage() {
     <PageShell
       title="Physical collection"
       subtitle={subtitle}
+      alignActionsWithTitle
       actions={source && canCare && (
         <>
           {source.status === 'syncing' && <span className={styles.statusChip} role="status">Syncing…</span>}
@@ -376,7 +381,7 @@ function CollectionRow({ group, view, libraryId }: { group: CopyGroup<Collection
     item.rating ? '★'.repeat(item.rating) : null,
   ].filter(Boolean);
   const onDisk = album
-    ? `On disk: ${album.title ?? 'album'}${item.localAlbums.length > 1 ? ` and ${item.localAlbums.length - 1} more` : ''}`
+    ? `${album.title ?? 'Album'}${item.localAlbums.length > 1 ? ` and ${item.localAlbums.length - 1} more` : ''}`
     : null;
 
   const list = suggestions.data?.suggestions ?? [];
@@ -391,7 +396,8 @@ function CollectionRow({ group, view, libraryId }: { group: CopyGroup<Collection
           </div>
           <div className={styles.details}>
             {mediaOf(item.format).map((m) => <Badge key={m} size="sm">{m}</Badge>)}
-            {onDisk && <span className={styles.onDisk} role="img" aria-label={onDisk} title={onDisk}><OnDiskIcon /></span>}
+            {onDisk && <span className={styles.onDisk} title={onDisk}><OnDiskIcon /> On disk</span>}
+            {!onDisk && item.mappingState !== 'unmapped' && <span>Physical only</span>}
             {copies.length > 1 && <Badge size="sm" tone={extra ? 'warning' : 'neutral'}>{copies.length} copies</Badge>}
             {facts.length > 0 && <span>{facts.join(' · ')}</span>}
             {copies.some((c) => c.pushState === 'pending') && <span className={styles.status}>adding to Discogs…</span>}

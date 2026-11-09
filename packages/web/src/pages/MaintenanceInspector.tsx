@@ -75,6 +75,7 @@ export interface MaintenanceInspectorProps {
   selection?: InspectorSelection | null | undefined;
   tools: InspectorTool[];
   upgrade?: ReactNode;
+  embedCover?: ReactNode;
   sections: InspectorSections;
   /** a row a deep link opened: brought into view */
   reveal?: string | null | undefined;
@@ -229,6 +230,7 @@ export function MaintenanceInspector(p: MaintenanceInspectorProps) {
       ))}
 
       {p.upgrade && group('flac-upgrade', 'Upgrade to FLAC', p.upgrade)}
+      {p.embedCover && group('embed-cover', 'Embed cover art', p.embedCover)}
 
       {p.tools.length > 0 && group('tools', 'Tools', (
         <div className={styles.list}>

@@ -69,6 +69,17 @@ export function lidarrConnectionOf(settings: LidarrSettings | null | undefined, 
   };
 }
 
+/** Why the effective Lidarr profile cannot be used for a FLAC upgrade. */
+export async function flacProfileIssue(client: LidarrClient, id: number): Promise<string | null> {
+  const profile = await client.qualityProfile(id);
+  const qualities = profile.items.filter((item) => item.allowed)
+    .flatMap((item) => item.items?.length ? item.items.map((child) => child.quality?.name ?? '') : [item.quality?.name ?? '']);
+  const other = [...new Set(qualities.filter((quality) => !/^flac\b/i.test(quality)))];
+  if (qualities.length > 0 && other.length === 0) return null;
+  const why = other.length > 0 ? `also allows ${other.map((quality) => quality || 'an unknown quality').join(', ')}` : 'has no enabled qualities';
+  return `Lidarr’s “${profile.name}” profile ${why}. Select a FLAC-only profile for this artist in Lidarr, or in Tagave’s Lidarr settings for a new artist, then retry.`;
+}
+
 /** What Get asks for: the album's and its first artist's MusicBrainz ids. */
 export interface LidarrWant {
   releaseGroupMbid: string;

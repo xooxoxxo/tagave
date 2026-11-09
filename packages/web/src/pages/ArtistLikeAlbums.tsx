@@ -76,7 +76,7 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
     </div>}
 
     <div className={styles.aBody}>
-      {groups.map(([k, list]) => <Group key={k} label={heads ? KIND_HEADINGS[k] : null}><AlbumGrid albums={list} /></Group>)}
+      {groups.map(([k, list]) => <Group key={k} label={heads ? KIND_HEADINGS[k] : null}><AlbumGrid albums={list} artistOrigin={artist} /></Group>)}
       {s.owned.length === 0 && <p className={styles.empty}>Nothing in your library</p>}
       {s.missing.length > 0 && <Group label={`Not in your library · ${s.missing.length}`} action={<MissingHeadingMenu />}><AlbumGrid albums={s.missing} /></Group>}
       {maintenance && s.skipped.length > 0 && <Group label={`Skipped · ${s.skipped.length}`}>

@@ -14,13 +14,15 @@ import { LidarrChip, MissingAlbumMenu } from '../components/LidarrControls';
 import styles from './ArtistPage.module.css';
 
 const CHIP: Partial<Record<ArtistAlbumOwnership, [string, CoverChipTone]>> = {
-  // missing and skipped albums sit under their own headings, dimmed: no chip
   physical: ['Physical only', 'neutral'],
-  both: ['Physical', 'accent'],
+  both: ['Physical + digital', 'accent'],
 };
 
-export function AlbumCard({ album, onReopen, reopening }: {
+type ArtistOrigin = { id: string; name: string };
+
+export function AlbumCard({ album, artistOrigin, onReopen, reopening }: {
   album: ArtistAlbum;
+  artistOrigin?: ArtistOrigin | undefined;
   /** a skipped release: bring it back to the missing list */
   onReopen?: ((gapId: string) => void) | undefined;
   reopening?: boolean;
@@ -55,7 +57,11 @@ export function AlbumCard({ album, onReopen, reopening }: {
   </>;
   if (album.localAlbumId) {
     return <li className={styles.card}>
-      <Link to="/albums/$albumId" params={{ albumId: album.localAlbumId }} className={styles.cardLink}>{cover}{text}</Link>
+      <Link to="/albums/$albumId" params={{ albumId: album.localAlbumId }} className={styles.cardLink}
+        state={(previous) => ({
+          ...previous,
+          albumArtistOrigin: album.matchedBy === 'tags' && artistOrigin ? { id: artistOrigin.id, name: artistOrigin.name } : undefined,
+        })}>{cover}{text}</Link>
     </li>;
   }
   // A missing album can be requested directly. Its menu manages an existing request.
@@ -70,9 +76,9 @@ export function AlbumCard({ album, onReopen, reopening }: {
   </li>;
 }
 
-export function AlbumGrid({ albums, onReopen, reopening }: { albums: ArtistAlbum[]; onReopen?: ((gapId: string) => void) | undefined; reopening?: boolean }) {
+export function AlbumGrid({ albums, artistOrigin, onReopen, reopening }: { albums: ArtistAlbum[]; artistOrigin?: ArtistOrigin; onReopen?: ((gapId: string) => void) | undefined; reopening?: boolean }) {
   return <ul className={styles.grid}>
-    {albums.map((a) => <AlbumCard key={a.key} album={a} onReopen={onReopen} reopening={!!reopening} />)}
+    {albums.map((a) => <AlbumCard key={a.key} album={a} artistOrigin={artistOrigin} onReopen={onReopen} reopening={!!reopening} />)}
   </ul>;
 }
 

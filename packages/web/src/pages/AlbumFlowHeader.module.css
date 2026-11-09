@@ -73,6 +73,20 @@
 .mid:hover:not(:disabled), .mid:active:not(:disabled) { background: transparent; transform: none; }
 .docked .mid { opacity: 1; pointer-events: auto; }
 .mid:focus-visible { outline: 2px solid var(--ring); outline-offset: -6px; border-radius: var(--r-inner); }
+.mid[data-artist-link] { cursor: default; }
+.dockedTitleButton {
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dockedTitleButton:hover:not(:disabled), .dockedTitleButton:active:not(:disabled) { background: transparent; transform: none; }
+.mid a:hover { color: var(--dew); text-decoration: underline; }
 
 .title {
   height: 100%;

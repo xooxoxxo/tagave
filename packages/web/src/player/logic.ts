@@ -308,6 +308,22 @@ export const FAILURE_TEXT: Record<Exclude<StreamFailure, 'skip' | 'fallback'>, s
   failed: 'This track could not be played.',
 };
 
+const STREAM_FAILURE_BY_STATUS: Partial<Record<number, string>> = {
+  401: 'Your session ended. Sign in and try again.',
+  403: 'This account doesn’t have permission to play the track.',
+  502: 'The player server couldn’t open this track.',
+  504: 'The player server took too long to open this track.',
+};
+
+export function streamFailureText(kind: Exclude<StreamFailure, 'skip' | 'fallback'>, status: number | null, problem?: { title?: string; instance?: string }): string {
+  if (kind !== 'failed') return FAILURE_TEXT[kind];
+  const message = problem?.title === 'Player track unavailable'
+    ? 'The player can’t find this track for your account. Check your player account’s access to this music library.'
+    : (status === null ? undefined : STREAM_FAILURE_BY_STATUS[status]) ?? FAILURE_TEXT.failed;
+  const requestId = problem?.instance;
+  return requestId && /^req-[a-z0-9]+$/i.test(requestId) ? `${message} Reference ${requestId}.` : message;
+}
+
 // ---- keyboard ----
 
 /** The bits of an element the Space guard reads (a real Element fits). */

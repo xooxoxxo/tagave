@@ -142,10 +142,10 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
 
   return (
     <aside className={variant === 'sheet' ? styles.railSheet : styles.rail}>
-      <div className={styles.railHead}>
-        <span className={styles.total}>{facets ? plural(facets.total, 'album') : '…'}</span>
+      {(variant === 'sheet' || activeCount > 0) && <div className={styles.railHead}>
+        {variant === 'sheet' && <span className={styles.total}>{facets ? plural(facets.total, 'album') : '…'}</span>}
         {activeCount > 0 && <Button variant="quiet" size="sm" onClick={onClear}>Clear {activeCount}</Button>}
-      </div>
+      </div>}
 
       <Section title="Saved views">
         {savedViews && savedViews.length > 0 ? savedViews.map((v) => (

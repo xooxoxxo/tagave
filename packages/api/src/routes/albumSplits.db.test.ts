@@ -11,6 +11,8 @@ import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
 import { setLidarrEnabled, setModuleSettings, syncInstalledModules } from '@tagave/db';
 import { ledgerEntries } from '@tagave/core/facets';
+import { sealSecret } from '@tagave/core';
+import { startFakeLidarr, type FakeLidarr } from '@tagave/core/lidarr-fake';
 import type { AuthHandle } from '@tagave/auth';
 
 const sent: Array<{ name: string; data: unknown }> = [];
@@ -23,7 +25,7 @@ vi.mock('../boss.js', () => ({
 
 const { registerApiRoutes } = await import('../app.js');
 const { initAuth } = await import('../middleware/auth.js');
-const { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } = await import('../testkit/authApp.js');
+const { TEST_APP_SECRET, TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } = await import('../testkit/authApp.js');
 const { createTestUser } = await import('../testkit/users.js');
 const { initDb } = await import('../db.js');
 type TestUser = Awaited<ReturnType<typeof createTestUser>>;
@@ -38,6 +40,7 @@ describe.skipIf(!adminUrl)('album split and FLAC upgrade requests (integration)'
   let owner: TestUser;
   let editor: TestUser;
   let libraryId = '';
+  let lidarr: FakeLidarr;
   const rootId = randomUUID();
   const albumId = randomUUID();
   const twoFiles = randomUUID();
@@ -48,6 +51,8 @@ describe.skipIf(!adminUrl)('album split and FLAC upgrade requests (integration)'
   const base = (id = albumId) => `/libraries/${libraryId}/albums/${id}/split`;
 
   beforeAll(async () => {
+    vi.stubEnv('APP_SECRET', TEST_APP_SECRET);
+    lidarr = await startFakeLidarr({ apiKey: 'fixture' });
     const admin = postgres(adminUrl!, { max: 1, onnotice: () => undefined });
     db = await createScratchDb(adminUrl!, admin);
     await admin.end({ timeout: 2 });
@@ -84,6 +89,8 @@ describe.skipIf(!adminUrl)('album split and FLAC upgrade requests (integration)'
   });
 
   afterAll(async () => {
+    await lidarr?.close();
+    vi.unstubAllEnvs();
     await app?.close();
     await handle?.close();
     await sql?.end({ timeout: 2 });
@@ -138,18 +145,40 @@ describe.skipIf(!adminUrl)('album split and FLAC upgrade requests (integration)'
     const { split } = (await call(owner, 'GET', base())).json();
     await sql`update scan_roots set probe_writable = true where id = ${rootId}`;
     expect((await call(owner, 'POST', `${base()}/${split.id}/run`)).statusCode).toBe(409);
-    await sql`update album_splits set state = 'ready', plan = '{"tracks": []}'::jsonb where id = ${split.id}`;
+    const plan = { sampleRate: 44100, totalSamples: 103370400, channels: 2, bitsPerSample: 16, tracks: [
+      { n: 1, disc: 1, position: 1, title: 'One', startSample: 0, endSample: 52920000, fileName: '01 - One.flac', shiftMs: null, confidence: null },
+      { n: 2, disc: 1, position: 2, title: 'Two', startSample: 52920000, endSample: 103370400, fileName: '02 - Two.flac', shiftMs: 0, confidence: 'high' },
+    ] };
+    await sql`update album_splits set state = 'ready', plan = ${JSON.stringify(plan)}::text::jsonb where id = ${split.id}`;
     await sql`update scan_roots set probe_writable = false where id = ${rootId}`;
     const ro = await call(owner, 'POST', `${base()}/${split.id}/run`);
     expect(ro.statusCode).toBe(409);
     expect(ro.json().detail).toBe('The music folder is read-only');
     await sql`update scan_roots set probe_writable = true where id = ${rootId}`;
-    const ok = await call(owner, 'POST', `${base()}/${split.id}/run`);
+    const invalid = await call(owner, 'POST', `${base()}/${split.id}/run`, { cuts: [{ track: 2, sample: plan.totalSamples }] });
+    expect(invalid.statusCode).toBe(400);
+    const ok = await call(owner, 'POST', `${base()}/${split.id}/run`, { cuts: [{ track: 2, sample: 52924410 }] });
     expect(ok.statusCode).toBe(202);
     expect(ok.json().split.state).toBe('splitting');
+    expect(ok.json().split.plan.tracks).toMatchObject([
+      { startSample: 0, endSample: 52924410 }, { startSample: 52924410, endSample: 103370400, shiftMs: 100 },
+    ]);
     expect(sent.at(-1)).toEqual({ name: 'files.split', data: { splitId: split.id, action: 'split', maintenance: { taskId: expect.any(String), attemptId: expect.any(String) } } });
     // not twice
     expect((await call(owner, 'POST', `${base()}/${split.id}/run`)).statusCode).toBe(409);
+  });
+
+  it('queues one cover embed for the owner when tag writes are enabled', async () => {
+    const url = `/libraries/${libraryId}/albums/${twoFiles}/embed-cover`;
+    expect((await call(editor, 'POST', url)).statusCode).toBe(403);
+    expect((await call(owner, 'POST', url)).statusCode).toBe(403);
+    await sql`update libraries set settings = '{"tagWritesEnabled":true}'::jsonb where id = ${libraryId}`;
+    const first = await call(owner, 'POST', url);
+    expect(first.statusCode, first.body).toBe(202);
+    const { task } = first.json();
+    expect(task).toMatchObject({ kind: 'embed-cover', state: 'waiting', subjectId: twoFiles });
+    expect((await call(owner, 'POST', url)).json().task.id).toBe(task.id);
+    expect((await call(owner, 'GET', url)).json().task.id).toBe(task.id);
   });
 
   it('queues one upgrade for an eligible owner and shows it after reload', async () => {
@@ -159,7 +188,9 @@ describe.skipIf(!adminUrl)('album split and FLAC upgrade requests (integration)'
     expect((await call(owner, 'GET', path)).json()).toEqual({ eligible: false, task: null });
     await syncInstalledModules(sql, ledgerEntries());
     await setLidarrEnabled(sql, true);
-    await setModuleSettings(sql, 'lidarr', { url: 'http://fixture.test', apiKey: 'fixture', useDropPool: true });
+    const connection = { url: lidarr.url, apiKey: sealSecret('fixture', TEST_APP_SECRET), useDropPool: true,
+      rootFolderPath: '/music', metadataProfileId: 1, qualityProfileId: 1 };
+    await setModuleSettings(sql, 'lidarr', connection);
     await sql`update libraries set settings = settings || ${JSON.stringify({ dropPool: { enabled: true, scanRootId: rootId, dirPath: 'Pool' } })}::text::jsonb where id = ${libraryId}`;
     const [artist] = await sql<{ id: string }[]>`insert into artists (mbid, name) values (${randomUUID()}, 'Fixture') returning id`;
     await sql`insert into release_group_artists (release_group_id, artist_id, position)
@@ -172,6 +203,11 @@ describe.skipIf(!adminUrl)('album split and FLAC upgrade requests (integration)'
     )
     update local_tracks lt set track_no = numbered.position from numbered where lt.id = numbered.id`;
     expect((await call(owner, 'GET', path)).json()).toEqual({ eligible: true, task: null });
+    const blocked = await call(owner, 'POST', path);
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().detail).toContain('“Any” profile also allows MP3');
+    expect((await call(owner, 'GET', path)).json().task).toBeNull();
+    await setModuleSettings(sql, 'lidarr', { ...connection, qualityProfileId: 2 });
     const [one, two] = await Promise.all([call(owner, 'POST', path), call(owner, 'POST', path)]);
     expect(one.statusCode, one.body).toBe(202);
     expect(two.json().id).toBe(one.json().id);

@@ -161,9 +161,13 @@ describe.skipIf(!adminUrl)('a tag plan splits a one-file album first (integratio
     expect((await splitsOf(plan.id))[0]!.state).toBe('ready');
 
     sent.length = 0;
-    const ok = await call(owner, 'POST', `/tag-plans/${plan.id}/apply`, { confirmSplits: [split!.id] });
+    const ok = await call(owner, 'POST', `/tag-plans/${plan.id}/apply`, {
+      confirmSplits: [split!.id], splitCuts: { [split!.id]: [{ track: 2, sample: 600 }] },
+    });
     expect(ok.statusCode).toBe(202);
     expect((await splitsOf(plan.id))[0]!.state).toBe('splitting');
+    const result = (await call(owner, 'GET', `/tag-plans/${plan.id}`)).json();
+    expect(result.splits[0].plan.tracks).toMatchObject([{ startSample: 0, endSample: 600 }, { startSample: 600, endSample: 1000 }]);
     expect(sent).toEqual([{ name: 'tags.apply', data: { planId: plan.id, maintenance: { taskId: expect.any(String), attemptId: expect.any(String) } } }]);
   });
 

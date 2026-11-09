@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { DEFAULT_ALBUM_WIDGETS, parseAlbumWidgets, type AlbumWidgetLayout } from './pages/albumWidgets';
 
 /**
  * Display preferences from Settings › Appearance: where the sidebar's search
@@ -13,6 +14,8 @@ export interface DisplayPrefs {
   showWordmark: boolean;
   /** The ripple artwork under albums of five tracks or fewer, where the pane has room. */
   shortAlbumArt: boolean;
+  shortAlbumWaves: boolean;
+  albumWidgets: AlbumWidgetLayout;
   /** The artist page: 'name' (the name first, notes in a column beside the albums) or 'albums' (laid out like an album page). */
   artistLayout: 'name' | 'albums';
   /**
@@ -26,7 +29,7 @@ export interface DisplayPrefs {
 }
 
 export const DISPLAY_STORAGE_KEY = 'tagave-display';
-export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, artistLayout: 'name', adaptiveColour: true, eqGlow: false };
+export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, shortAlbumWaves: false, albumWidgets: DEFAULT_ALBUM_WIDGETS, artistLayout: 'name', adaptiveColour: true, eqGlow: false };
 
 /** Reads what is stored, keeping only valid values; anything else falls back to the default. */
 export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs {
@@ -39,6 +42,8 @@ export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs 
     searchPlacement: stored['searchPlacement'] === 'beside' ? 'beside' : 'below',
     showWordmark: typeof stored['showWordmark'] === 'boolean' ? stored['showWordmark'] : true,
     shortAlbumArt: typeof stored['shortAlbumArt'] === 'boolean' ? stored['shortAlbumArt'] : true,
+    shortAlbumWaves: stored['shortAlbumWaves'] === true,
+    albumWidgets: parseAlbumWidgets(stored['albumWidgets']),
     artistLayout: stored['artistLayout'] === 'albums' ? 'albums' : 'name',
     adaptiveColour: typeof stored['adaptiveColour'] === 'boolean' ? stored['adaptiveColour'] : true,
     eqGlow: stored['eqGlow'] === true,

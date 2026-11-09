@@ -33,6 +33,9 @@ import {
   type TagPlanScope,
   type TagPolicies,
   can,
+  splitCutsSchema,
+  withSplitCuts,
+  type SplitPlan,
 } from '@tagave/shared';
 import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
 import { ensurePlanSplits, hasPendingSplits, planSplitsOf, splitGate } from '../lib/planSplits.js';
@@ -1006,14 +1009,22 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       if (!owner && (await hasPendingSplits(getSql(), planId))) {
         throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
       }
-      const confirmed = z.object({ confirmSplits: z.array(z.string().uuid()).optional() }).safeParse(request.body ?? {});
-      const gate = await splitGate(getSql(), libraryId, planId, owner && confirmed.success ? confirmed.data.confirmSplits ?? [] : []);
+      const confirmed = z.object({
+        confirmSplits: z.array(z.string().uuid()).optional(),
+        splitCuts: z.record(z.string().uuid(), splitCutsSchema).optional(),
+      }).safeParse(request.body ?? {});
+      if (!confirmed.success) throw new ApiError(400, 'Bad Request', 'Invalid split review');
+      const gate = await splitGate(getSql(), libraryId, planId, owner ? confirmed.data.confirmSplits ?? [] : []);
       if (gate.ok && gate.splitIds.length > 0 && !owner) {
         throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
       }
       if (!gate.ok) {
         if (!owner) throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
         throw new ApiError(gate.status, gate.status === 403 ? 'Forbidden' : 'Conflict', gate.detail);
+      }
+      const cutEdits = Object.entries(confirmed.data.splitCuts ?? {});
+      if (cutEdits.some(([id]) => !gate.splitIds.includes(id))) {
+        throw new ApiError(409, 'Conflict', 'A split changed. Reload this plan.');
       }
 
       // Get all items in the plan to check scan root writability
@@ -1047,9 +1058,16 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       if (gate.splitIds.length > 0) {
         const task = await getSql().begin(async (tx) => {
-          const splitRows = await tx`update album_splits set state = 'splitting', updated_at = now()
-            where id = any(${gate.splitIds}::uuid[]) and tag_plan_id = ${planId} and state = 'ready' returning id`;
+          const splitRows = await tx<{ id: string; plan: SplitPlan | null }[]>`
+            update album_splits set state = 'splitting', updated_at = now()
+            where id = any(${gate.splitIds}::uuid[]) and tag_plan_id = ${planId} and state = 'ready' returning id, plan`;
           if (splitRows.length !== gate.splitIds.length) throw new ApiError(409, 'Conflict', 'A split changed. Reload this plan.');
+          for (const [id, cuts] of cutEdits) {
+            const original = splitRows.find((row) => row.id === id)?.plan;
+            const edited = original && withSplitCuts(original, cuts);
+            if (!edited) throw new ApiError(400, 'Bad Request', 'Cuts must stay between the preceding and following track starts');
+            await tx`update album_splits set plan = ${JSON.stringify(edited)}::text::jsonb where id = ${id}`;
+          }
           return saveMaintenanceTask(tx, {
             libraryId, kind: 'split', scope: `plan:${planId}:apply`, subjectId: planId,
             queue: 'tags.apply', input: { planId }, stage: 'Tag Plan queued',

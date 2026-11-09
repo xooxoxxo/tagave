@@ -22,9 +22,15 @@ export const backupEntrySchema = z.object({
 }).strict();
 export type BackupEntryView = z.infer<typeof backupEntrySchema>;
 
+export const backupFrequencySchema = z.enum(['nightly', 'daily', 'weekly']);
+export type BackupFrequency = z.infer<typeof backupFrequencySchema>;
+export const NIGHTLY_BACKUP_HOUR = 3;
+
 export const backupSettingsSchema = z.object({
   enabled: z.boolean(),
   hour: z.number().int().min(0).max(23),
+  frequency: backupFrequencySchema.optional(),
+  weekday: z.number().int().min(0).max(6).optional(),
   keepDaily: z.number().int().min(1).max(90),
   keepWeekly: z.number().int().min(0).max(52),
   /** Before-update dumps to keep (the app's before it migrates, and the updater's); at least 2. */
@@ -33,6 +39,19 @@ export const backupSettingsSchema = z.object({
   keepManual: z.number().int().min(1).max(100).nullable(),
 }).strict();
 export type BackupSettingsView = z.infer<typeof backupSettingsSchema>;
+
+/** Older settings used the configured hour for the one daily job. */
+export function backupFrequency(settings: Pick<BackupSettingsView, 'frequency' | 'hour'>): BackupFrequency {
+  return settings.frequency ?? (settings.hour === NIGHTLY_BACKUP_HOUR ? 'nightly' : 'daily');
+}
+
+export function backupSchedule(settings: Pick<BackupSettingsView, 'frequency' | 'hour' | 'weekday'>) {
+  const frequency = backupFrequency(settings);
+  return {
+    hour: frequency === 'nightly' ? NIGHTLY_BACKUP_HOUR : settings.hour,
+    weekday: frequency === 'weekly' ? settings.weekday ?? 1 : null,
+  };
+}
 
 export const backupRunSchema = z.object({
   kind: backupKindSchema,

@@ -8,6 +8,13 @@
 .back { color: var(--ink-2); text-decoration: none; font-size: var(--font-size-sm); }
 .back:hover { color: var(--ink); }
 .headerActions { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.loader { min-height: 12rem; display: grid; place-content: center; justify-items: center; gap: var(--space-sm); color: var(--ink-2); }
+.loaderGlyph { width: 9rem; height: 6rem; }
+.previewLoader { display: flex; gap: var(--space-md); align-items: center; }
+.previewGlyph { width: 4rem; height: 3rem; flex: none; }
+@media (forced-colors: active) {
+  .loaderGlyph, .previewGlyph { display: none; }
+}
 /* Delete on a plan that is kept: faint, still pressable (it says why). */
 .keptDelete.keptDelete { --b-ink: var(--ink-3); cursor: help; }
 .keptNote { margin: 0; font-size: var(--font-size-sm); color: var(--ink-2); }
