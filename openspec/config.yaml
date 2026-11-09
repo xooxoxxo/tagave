@@ -1,7 +1,0 @@
-schema: spec-driven
-
-context: |
-  Tagave is a self-hosted music library. It uses a pnpm workspace with a
-  TypeScript API, a React web app, Postgres, and pg-boss workers.
-  Music files may live on a remote mount. Run file operations on the worker
-  that can reach that mount, and preserve owner permissions for file writes.

@@ -17,6 +17,9 @@ packages/tagwriter-py/.venv/
 .claude/
 .impeccable/
 
+# Project planning belongs in the private OpenSpec repository.
+/openspec/
+
 # Storybook build and story-test output (packages/web)
 storybook-static/
 storybook-test-results/
