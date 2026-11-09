@@ -26,10 +26,15 @@ export interface DisplayPrefs {
   adaptiveColour: boolean;
   /** An equalizer of light rising from the player bar's top edge while music plays (BarGlow). */
   eqGlow: boolean;
+  /**
+   * Parked: the desktop sidebar hides and slides in from the left edge.
+   * Off by default and not in Settings until a new design is chosen.
+   */
+  sidebarAutoHide: boolean;
 }
 
 export const DISPLAY_STORAGE_KEY = 'tagave-display';
-export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, shortAlbumWaves: false, albumWidgets: DEFAULT_ALBUM_WIDGETS, artistLayout: 'name', adaptiveColour: true, eqGlow: false };
+export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, shortAlbumWaves: false, albumWidgets: DEFAULT_ALBUM_WIDGETS, artistLayout: 'name', adaptiveColour: true, eqGlow: false, sidebarAutoHide: false };
 
 /** Reads what is stored, keeping only valid values; anything else falls back to the default. */
 export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs {
@@ -47,6 +52,7 @@ export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs 
     artistLayout: stored['artistLayout'] === 'albums' ? 'albums' : 'name',
     adaptiveColour: typeof stored['adaptiveColour'] === 'boolean' ? stored['adaptiveColour'] : true,
     eqGlow: stored['eqGlow'] === true,
+    sidebarAutoHide: stored['sidebarAutoHide'] === true,
   };
 }
 

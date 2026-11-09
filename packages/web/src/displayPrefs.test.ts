@@ -4,12 +4,12 @@ import { DEFAULT_ALBUM_WIDGETS } from './pages/albumWidgets';
 
 describe('display preferences', () => {
   it('defaults to today\'s look', () => {
-    expect(DEFAULT_DISPLAY_PREFS).toEqual({ searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, shortAlbumWaves: false, albumWidgets: DEFAULT_ALBUM_WIDGETS, artistLayout: 'name', adaptiveColour: true, eqGlow: false });
+    expect(DEFAULT_DISPLAY_PREFS).toEqual({ searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, shortAlbumWaves: false, albumWidgets: DEFAULT_ALBUM_WIDGETS, artistLayout: 'name', adaptiveColour: true, eqGlow: false, sidebarAutoHide: false });
     expect(parseDisplayPrefs(null)).toEqual(DEFAULT_DISPLAY_PREFS);
   });
   it('keeps valid stored values', () => {
-    expect(parseDisplayPrefs(JSON.stringify({ searchPlacement: 'beside', showWordmark: false, shortAlbumArt: false, shortAlbumWaves: true, artistLayout: 'albums', adaptiveColour: false, eqGlow: true })))
-      .toEqual({ searchPlacement: 'beside', showWordmark: false, shortAlbumArt: false, shortAlbumWaves: true, albumWidgets: DEFAULT_ALBUM_WIDGETS, artistLayout: 'albums', adaptiveColour: false, eqGlow: true });
+    expect(parseDisplayPrefs(JSON.stringify({ searchPlacement: 'beside', showWordmark: false, shortAlbumArt: false, shortAlbumWaves: true, artistLayout: 'albums', adaptiveColour: false, eqGlow: true, sidebarAutoHide: true })))
+      .toEqual({ searchPlacement: 'beside', showWordmark: false, shortAlbumArt: false, shortAlbumWaves: true, albumWidgets: DEFAULT_ALBUM_WIDGETS, artistLayout: 'albums', adaptiveColour: false, eqGlow: true, sidebarAutoHide: true });
   });
   it('keeps valid widget placements and fills in missing widgets', () => {
     expect(parseDisplayPrefs('{"albumWidgets":{"ownership":"above","genre":"hidden","year":"invalid"}}').albumWidgets)

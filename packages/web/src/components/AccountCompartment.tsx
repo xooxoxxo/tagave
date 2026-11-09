@@ -93,7 +93,7 @@ export function AccountCompartment({ name, email, onAccount, onListening, onSign
   /** Close; focus goes back to the row when it was inside the compartment. */
   const close = useCallback((refocus = true) => {
     setOpen(false);
-    if (refocus && root.current?.contains(document.activeElement)) row.current?.focus({ preventScroll: true });
+    if (refocus && root.current?.contains(document.activeElement)) row.current?.focus();
   }, []);
 
   // leaving the page closes it
@@ -120,8 +120,7 @@ export function AccountCompartment({ name, email, onAccount, onListening, onSign
     // into the section, not onto its first button: no ring after a click,
     // and Tab goes on to Account
     panel.current?.focus({ preventScroll: true });
-    // In the phone's sheet the row can sit low. The desktop row is anchored.
-    if (!window.matchMedia('(max-width: 720px)').matches) return;
+    // in the phone's sheet the row can sit low: once open, bring it all into view
     const t = window.setTimeout(() => root.current?.scrollIntoView?.({ block: 'nearest' }), 220);
     return () => window.clearTimeout(t);
   }, [open]);
