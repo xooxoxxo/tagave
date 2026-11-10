@@ -175,13 +175,16 @@ function MaintenanceSetting() {
 
 
 /**
- * Sidebar, album and artist display: where the search sits, the wordmark,
+ * Sidebar, album and artist display: whether the desktop sidebar stays or
+ * hides (Auto-hide, components/sidebarPeek.ts), where the search sits, the wordmark,
  * the artwork under short albums, and the artist page's layout. Each is its own setting with the same rhythm
  * as Maintenance above.
  */
 function DisplaySettings() {
   const [prefs, setPrefs] = useDisplayPrefs();
   return <>
+    <h2 className={styles.modeSetting}>Sidebar</h2>
+    <SegmentedControl label="Sidebar" value={prefs.sidebarAutoHide ? 'autoHide' : 'always'} onChange={(v) => setPrefs({ sidebarAutoHide: v === 'autoHide' })} options={[{ value: 'always', label: 'Always' }, { value: 'autoHide', label: 'Auto-hide' }]} />
     <h2 className={styles.modeSetting}>Search box</h2>
     
     <SegmentedControl label="Search box" value={prefs.searchPlacement} onChange={(v) => setPrefs({ searchPlacement: v })} options={[{ value: 'below', label: 'Below' }, { value: 'beside', label: 'Beside' }]} />

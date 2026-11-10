@@ -27,6 +27,9 @@ import { AppDownHost } from './update/UpdateDownScreen';
 import { DiskSpaceNotice } from './DiskSpaceNotice';
 import { MusicFolderNotice } from './MusicFolderNotice';
 import { stop as stopPlayback } from '../player/engine';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import { PEEK_QUERY, isPinShortcut, sidebarMode, useSidebarPeek } from './sidebarPeek';
+import { PeekMark, SidebarPin } from './SidebarPin';
 import styles from './Layout.module.css';
 
 export function Layout() {
@@ -37,8 +40,6 @@ export function Layout() {
   const [searchOpen, setSearchOpen] = useState(false);
   // Phone only: the links and the account live behind one menu button.
   const [menuOpen, setMenuOpen] = useState(false);
-  // Parked (display pref, off by default): the desktop sidebar slides in from the left edge.
-  const [sidebarShown, setSidebarShown] = useState(false);
   const searchButton = useRef<HTMLButtonElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const main = useRef<HTMLElement>(null);
@@ -47,7 +48,14 @@ export function Layout() {
   const navigate = useNavigate();
   const [maintenance, setMaintenance] = useMaintenance();
   // Settings › Appearance: search beside the logo or below it, wordmark on or off
-  const [{ searchPlacement, showWordmark, sidebarAutoHide }] = useDisplayPrefs();
+  const [{ searchPlacement, showWordmark, sidebarAutoHide, sidebarPinned }, setPrefs] = useDisplayPrefs();
+  // Settings › Appearance › Sidebar: Always, or Auto-hide on a desktop (sidebarPeek.ts)
+  const sidebar = sidebarMode({ sidebarAutoHide, sidebarPinned }, useMediaQuery(PEEK_QUERY));
+  const peekOn = sidebar !== 'always';
+  const focusPage = useCallback(() => main.current?.focus({ preventScroll: true }), []);
+  const peek = useSidebarPeek(navRef, peekOn, sidebar === 'pinned', focusPage);
+  const { hideNow } = peek;
+  const togglePin = useCallback(() => setPrefs({ sidebarPinned: !sidebarPinned }), [setPrefs, sidebarPinned]);
   const barTitle = useAppBarTitle();
   // A page inside a page (a Settings section on a phone): back to its list.
   const subpage = useSubpage();
@@ -77,13 +85,7 @@ export function Layout() {
   useScrollPlace(mainEl, 'main', useEntry(router.history, pathname), { resetOnEnter: true });
   // a new history entry forgets the places it overwrites
   useEffect(() => trackPlaces(router.history), [router]);
-  useEffect(() => { setMenuOpen(false); setSidebarShown(false); }, [pathname]);
-  useEffect(() => {
-    if (!sidebarShown) return;
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) setSidebarShown(false); };
-    window.addEventListener('keydown', escape);
-    return () => window.removeEventListener('keydown', escape);
-  }, [sidebarShown]);
+  useEffect(() => { setMenuOpen(false); hideNow(); }, [pathname, hideNow]);
   // the phone's menu opens under the bar, to the foot: it needs the bar's height
   useLayoutEffect(() => {
     const nav = navRef.current;
@@ -117,10 +119,14 @@ export function Layout() {
         e.preventDefault();
         setSearchOpen((open) => !open);
       }
+      if (peekOn && isPinShortcut(e)) {
+        e.preventDefault();
+        togglePin();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [maintenance, setMaintenance, canCare]);
+  }, [maintenance, setMaintenance, canCare, peekOn, togglePin]);
 
   if (!user) return <Outlet />;
   const linkClass = (active: boolean) => active ? styles.navLinkActive : styles.navLink;
@@ -225,6 +231,8 @@ export function Layout() {
         {playlistsOn && <Link to="/playlists" className={`${linkClass(pathname.startsWith('/playlists'))} ${styles.wideOnly}`}>{pageTitles['/playlists']}</Link>}
         {likesOn && <Link to="/liked" className={linkClass(pathname.startsWith('/liked'))}>{pageTitles['/liked']}</Link>}
       </nav>
+      {/* Auto-hide on a desktop: keep it in place (or ⌘\) */}
+      {peekOn && <SidebarPin pinned={sidebar === 'pinned'} onToggle={togglePin} />}
       {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
       <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />
       {/* the signed-in person: a band on the bottom edge that opens a compartment above it */}
@@ -245,17 +253,10 @@ export function Layout() {
     </aside>
   );
   return (
-    <div className={styles.container}>
+    <div className={styles.container} data-sidebar={peekOn ? sidebar : undefined} data-peek-shown={sidebar === 'peek' && peek.shown ? '' : undefined}>
       <a href="#main-content" className={styles.skipLink}>Skip to content</a>
-      {sidebarAutoHide ? (
-        <div className={styles.sidebarDock} data-shown={sidebarShown || undefined}
-          onPointerLeave={(e) => { if (e.pointerType === 'mouse') setSidebarShown(false); }}
-          onFocus={() => setSidebarShown(true)}
-          onBlur={(e) => { if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) && !searchOpen) setSidebarShown(false); }}>
-          <div className={styles.sidebarEdge} aria-hidden="true" onPointerEnter={(e) => { if (e.pointerType === 'mouse') setSidebarShown(true); }} />
-          {nav}
-        </div>
-      ) : nav}
+      {nav}
+      {sidebar === 'peek' && <PeekMark />}
       <div className={styles.contentArea}>
         {/* The footer scrolls with the page instead of holding a strip of
             every screen; on a phone that strip cost a fifth of the height. */}

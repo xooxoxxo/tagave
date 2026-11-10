@@ -126,16 +126,34 @@ describe('page shells', () => {
     expect(source('../components/Layout.tsx')).toMatch(/<AccountCompartment/);
   });
 
-  it('the desktop sidebar is always there; auto-hide is parked behind a preference that is off and not in Settings', () => {
-    const layout = read('../components/Layout.module.css');
+  it('the desktop sidebar is there by default; Auto-hide is one implementation, chosen in Settings', () => {
+    const layout = source('../components/Layout.module.css');
     const tsx = source('../components/Layout.tsx');
-    // no edge tab: the only way in to a hidden sidebar is the edge zone or focus
-    expect(tsx).not.toMatch(/sidebarKey|Open sidebar/);
-    expect(tsx).toMatch(/sidebarAutoHide \? \(/);
-    expect(source('./SettingsPage.tsx')).not.toMatch(/sidebarAutoHide/);
+    // the 0.28 edge tab and the 0.29 9px strip are gone; one wrapper-free sidebar
+    expect(tsx).not.toMatch(/sidebarKey|Open sidebar|sidebarDock|sidebarEdge|sidebarShown/);
+    expect(layout).not.toMatch(/sidebarDock|sidebarEdge/);
+    expect(tsx.match(/<aside/g)).toHaveLength(1);
+    expect(tsx).toMatch(/useSidebarPeek\(navRef/);
+    expect(source('./SettingsPage.tsx')).toMatch(/label="Sidebar"[^\n]*label: 'Always'[^\n]*label: 'Auto-hide'/);
     // the sidebar scrolls as one column, the account row sticks to its foot
-    expect(rule(layout, '.nav')).toMatch(/overflow-y: auto/);
-    expect(rule(layout, '.account')).toMatch(/position: sticky/);
+    expect(rule(read('../components/Layout.module.css'), '.nav')).toMatch(/overflow-y: auto/);
+    expect(rule(read('../components/Layout.module.css'), '.account')).toMatch(/position: sticky/);
+  });
+
+  it('Auto-hide lays out only on a desktop with a hovering pointer, by transform, and still under reduced motion', () => {
+    const layout = read('../components/Layout.module.css');
+    const peek = source('../components/sidebarPeek.ts');
+    const query = peek.match(/PEEK_QUERY = '([^']+)'/)?.[1];
+    expect(query).toBe('(min-width: 1024px) and (hover: hover)');
+    // every rule for the peek sits inside that media query (below it: the tablet bar and the phone sheet)
+    const outside = layout.replace(/@media \(min-width: 1024px\) and \(hover: hover\) \{[\s\S]*?\n\}/, '');
+    expect(outside).not.toMatch(/data-sidebar='peek'/);
+    expect(outside).toMatch(/\.peekMark, \.pinItem \{ display: none; \}/);
+    // no width animation: transform (and the shadow) only
+    const inside = layout.slice(layout.indexOf("@media (min-width: 1024px) and (hover: hover)"));
+    const transitions = [...inside.matchAll(/transition:([^;]+);/g)].map((m) => m[1] ?? '').join(' ');
+    expect(transitions).not.toMatch(/width|left|margin|padding/);
+    expect(layout).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.container\[data-sidebar\] \.nav, \.peekMark \{ transition: none; \}/);
   });
 
   it('on a phone an album or artist page hides the sidebar wherever it sits in the shell', () => {
