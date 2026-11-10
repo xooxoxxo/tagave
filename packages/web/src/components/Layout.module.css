@@ -336,7 +336,6 @@ not as a drop. */
   }
   .container[data-sidebar] .pinItem:hover:not(:disabled) { background: var(--mist); color: var(--ink-2); }
   .container[data-sidebar] .pinItem:active:not(:disabled) { transform: none; }
-  .pinItem kbd { opacity: .8; }
   .pinItem:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 }
 /* reduced motion: no slide, it appears and goes */
