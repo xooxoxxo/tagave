@@ -289,7 +289,7 @@ not as a drop. */
     inset: 0 auto 0 0;
     z-index: calc(var(--z-sticky) + 1);
     height: 100%;
-    background: color-mix(in srgb, var(--canvas) 50%, var(--glass));
+    background: color-mix(in srgb, var(--canvas) 88%, var(--glass));
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
     backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
     box-shadow: inset -1px 0 0 var(--glass-edge);
