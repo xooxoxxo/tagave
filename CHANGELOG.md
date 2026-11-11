@@ -2,7 +2,21 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.29.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.29.1)
+## [v0.30.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.0)
+
+**Minor release (0.29 → 0.30).** An auto-hide sidebar for the desktop that slides in when you reach for it.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release. The sidebar stays always visible until you choose Auto-hide.
+
+### New
+
+- **Settings › Appearance › Sidebar: Always | Auto-hide.** With Auto-hide on a desktop, the sidebar is hidden and the page uses the whole width; a faint accent mark sits on the left edge. Rest the pointer where the sidebar lives and it slides over the page; it leaves when the pointer does. The page doesn't move, and its own left-edge controls keep working. Tab into it to show it, Escape to hide it. Pin (or ⌘\ / Ctrl+\) keeps it in place, and the pin is remembered. Phones, tablets and touch screens keep their usual navigation. ([ab5d293](https://github.com/xooxoxxo/tagave/commit/ab5d293), [43f4f02](https://github.com/xooxoxxo/tagave/commit/43f4f02), [7376335](https://github.com/xooxoxxo/tagave/commit/7376335), [89224b5](https://github.com/xooxoxxo/tagave/commit/89224b5))
+
+**All changes:** [v0.29.1...v0.30.0](https://github.com/xooxoxxo/tagave/compare/v0.29.1...v0.30.0)
+
+## [v0.29.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.29.1) (2026-11-10)
 
 **Patch release (0.29.0 → 0.29.1).** Splits, split-first tagging and cover lookups run again, and the album page, sidebar and notices look the way they did in 0.27.
 
