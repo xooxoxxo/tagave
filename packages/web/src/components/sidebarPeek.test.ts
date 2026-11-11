@@ -1,13 +1,13 @@
 /**
  * Auto-hide's logic apart from the DOM: when it applies, which pointer
  * positions reveal the sidebar, the reveal and hide delays, focus and
- * Escape (show and hide at once), and the pin's shortcut. Chrome measures
+ * Escape (show and hide at once), and the pin. Chrome measures
  * the real thing (the Sidebar · Auto-hide stories).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { EDGE_PX, HIDE_MS, REVEAL_MS, armsReveal, createPeek, isPinShortcut, sidebarMode } from './sidebarPeek';
+import { EDGE_PX, HIDE_MS, REVEAL_MS, armsReveal, barBand, createPeek, sidebarMode } from './sidebarPeek';
 import { PeekMark, SidebarPin } from './SidebarPin';
 
 describe('when Auto-hide applies', () => {
@@ -24,24 +24,47 @@ describe('when Auto-hide applies', () => {
 });
 
 describe('the zone', () => {
-  const at = (overControl = false, overPlayer = false) => ({ width: 248, overControl, overPlayer });
+  const band = { top: 64, bottom: 820 };
+  const at = (overControl = false, overPlayer = false) => ({ width: 248, band, overControl, overPlayer });
   it('is the sidebar’s own width', () => {
-    expect(armsReveal(0, at())).toBe(true);
-    expect(armsReveal(120, at())).toBe(true);
-    expect(armsReveal(247, at())).toBe(true);
-    expect(armsReveal(248, at())).toBe(false);
-    expect(armsReveal(900, at())).toBe(false);
-    expect(armsReveal(-1, at())).toBe(false);
+    expect(armsReveal(0, 400, at())).toBe(true);
+    expect(armsReveal(120, 400, at())).toBe(true);
+    expect(armsReveal(247, 400, at())).toBe(true);
+    expect(armsReveal(248, 400, at())).toBe(false);
+    expect(armsReveal(900, 400, at())).toBe(false);
+    expect(armsReveal(-1, 400, at())).toBe(false);
+  });
+  it('lies between the bars: never over the top bar or the player bar', () => {
+    expect(armsReveal(0, 63, at())).toBe(false);
+    expect(armsReveal(0, 64, at())).toBe(true);
+    expect(armsReveal(0, 819, at())).toBe(true);
+    expect(armsReveal(0, 820, at())).toBe(false);
   });
   it('sits under the page’s own controls, except in the leftmost few px', () => {
-    expect(armsReveal(40, at(true))).toBe(false);
-    expect(armsReveal(EDGE_PX + 1, at(true))).toBe(false);
-    expect(armsReveal(EDGE_PX, at(true))).toBe(true);
-    expect(armsReveal(0, at(true))).toBe(true);
+    expect(armsReveal(40, 400, at(true))).toBe(false);
+    expect(armsReveal(EDGE_PX + 1, 400, at(true))).toBe(false);
+    expect(armsReveal(EDGE_PX, 400, at(true))).toBe(true);
+    expect(armsReveal(0, 400, at(true))).toBe(true);
   });
-  it('never over the player bar', () => {
-    expect(armsReveal(0, at(false, true))).toBe(false);
-    expect(armsReveal(100, at(false, true))).toBe(false);
+  it('never over the player bar’s own dock (the strip above it included)', () => {
+    expect(armsReveal(0, 400, at(false, true))).toBe(false);
+    expect(armsReveal(100, 400, at(false, true))).toBe(false);
+  });
+});
+
+describe('the band between the bars', () => {
+  const r = (top: number, height: number) => ({ top, bottom: top + height, height });
+  it('the whole height with no bars', () => {
+    expect(barBand([], null, 900)).toEqual({ top: 0, bottom: 900 });
+  });
+  it('under the lowest top bar, above the player bar', () => {
+    expect(barBand([r(0, 64), r(0, 56)], { top: 820 }, 900)).toEqual({ top: 64, bottom: 820 });
+  });
+  it('ignores a bar that takes no room or sits down the page', () => {
+    expect(barBand([r(0, 0), r(500, 80)], { top: 820 }, 900)).toEqual({ top: 0, bottom: 820 });
+  });
+  it('never starts below a quarter of the window', () => {
+    expect(barBand([r(100, 300)], null, 800)).toEqual({ top: 200, bottom: 800 });
   });
 });
 
@@ -125,22 +148,11 @@ describe('the delays', () => {
 });
 
 describe('the pin', () => {
-  const key = (k: Partial<KeyboardEvent>) => ({ key: '', code: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...k });
-  it('⌘\\ or Ctrl+\\ toggles it; a plain \\ or another chord does not', () => {
-    expect(isPinShortcut(key({ key: '\\', code: 'Backslash', metaKey: true }))).toBe(true);
-    expect(isPinShortcut(key({ key: '\\', code: 'Backslash', ctrlKey: true }))).toBe(true);
-    // a layout where the key types something else still has the Backslash code
-    expect(isPinShortcut(key({ key: '#', code: 'Backslash', ctrlKey: true }))).toBe(true);
-    expect(isPinShortcut(key({ key: '\\', code: 'Backslash' }))).toBe(false);
-    expect(isPinShortcut(key({ key: '\\', code: 'Backslash', metaKey: true, shiftKey: true }))).toBe(false);
-    expect(isPinShortcut(key({ key: '\\', code: 'Backslash', ctrlKey: true, altKey: true }))).toBe(false);
-    expect(isPinShortcut(key({ key: 'k', code: 'KeyK', metaKey: true }))).toBe(false);
-  });
   it('the item says what it will do, and names the sidebar for a screen reader', () => {
     const off = renderToStaticMarkup(createElement(SidebarPin, { pinned: false, onToggle: () => undefined }));
     expect(off).toMatch(/aria-label="Pin the sidebar"/);
     expect(off).toMatch(/<span>Pin<\/span>/);
-    expect(off).toMatch(/aria-keyshortcuts="Meta\+\\ Control\+\\"/);
+    expect(off).not.toMatch(/aria-keyshortcuts|<kbd/);
     const on = renderToStaticMarkup(createElement(SidebarPin, { pinned: true, onToggle: () => undefined }));
     expect(on).toMatch(/aria-label="Unpin the sidebar"/);
     expect(on).toMatch(/<span>Unpin<\/span>/);

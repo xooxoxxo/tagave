@@ -28,7 +28,7 @@ import { DiskSpaceNotice } from './DiskSpaceNotice';
 import { MusicFolderNotice } from './MusicFolderNotice';
 import { stop as stopPlayback } from '../player/engine';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { PEEK_QUERY, isPinShortcut, sidebarMode, useSidebarPeek } from './sidebarPeek';
+import { PEEK_QUERY, sidebarMode, useSidebarPeek } from './sidebarPeek';
 import { PeekMark, SidebarPin } from './SidebarPin';
 import styles from './Layout.module.css';
 
@@ -119,14 +119,10 @@ export function Layout() {
         e.preventDefault();
         setSearchOpen((open) => !open);
       }
-      if (peekOn && isPinShortcut(e)) {
-        e.preventDefault();
-        togglePin();
-      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [maintenance, setMaintenance, canCare, peekOn, togglePin]);
+  }, [maintenance, setMaintenance, canCare]);
 
   if (!user) return <Outlet />;
   const linkClass = (active: boolean) => active ? styles.navLinkActive : styles.navLink;
@@ -265,7 +261,7 @@ export function Layout() {
               page shell renders it); once the title scrolls away this bar
               fades in over the page with the back button and the title. */}
           {back && (
-            <div className={`${styles.appBar} ${barTitle.shown ? styles.appBarScrolled : ''}`} inert={!barTitle.shown}>
+            <div className={`${styles.appBar} ${barTitle.shown ? styles.appBarScrolled : ''}`} inert={!barTitle.shown} data-top-bar="">
               {backButton}
               <span className={`${styles.barTitle} ${barTitle.shown ? styles.barTitleShown : ''}`} aria-hidden={!barTitle.shown}>{shownTitle}</span>
             </div>

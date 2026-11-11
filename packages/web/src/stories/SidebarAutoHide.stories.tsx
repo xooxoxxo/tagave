@@ -2,10 +2,11 @@
  * Settings › Appearance › Sidebar in the app's desktop frame: Always (the
  * sidebar in the row), and Auto-hide: hidden (the page takes the whole
  * width, a faint accent mark on the left edge), revealed (over the page on
- * glass, nothing in the page moved) and pinned (in the row again, with
+ * glass between the page's sticky header and the player bar, nothing in the
+ * page moved) and pinned (in the row again, with
  * Unpin at the foot of the links). 1440 and 1024 wide; at 390 a phone keeps
  * its own bar whatever the preference says. The frame runs the real
- * behaviour: move the pointer to the left edge, Tab in, Escape, ⌘\.
+ * behaviour: move the pointer to the left edge, Tab in, Escape, Pin.
  */
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { PlayerBarView } from '../components/PlayerBar';
@@ -22,7 +23,7 @@ const TRACK = COVERS.moody;
 
 function Albums() {
   return (
-    <PageShell title="Albums">
+    <PageShell title="Albums" sticky>
       <div className={s.grid}>
         {[...COVER_KEYS, ...COVER_KEYS].map((k, i) => (
           <div key={i} className={s.album}>

@@ -99,7 +99,7 @@ export function PageShell({
   const titleOnly = !back && !hero && !band && !subtitle && !aside && !titleAction && !actions;
   return (
     <div ref={shellRef} className={fill ? styles.pageShellFill : styles.pageShell} data-page-shell="" data-virtual-page={fill ? '' : undefined}>
-      <header ref={headerRef} className={sticky ? styles.headerSticky : styles.header} data-title-only={titleOnly ? '' : undefined}
+      <header ref={headerRef} className={sticky ? styles.headerSticky : styles.header} data-top-bar={sticky ? '' : undefined} data-title-only={titleOnly ? '' : undefined}
         data-align-title-actions={alignActionsWithTitle && actions ? '' : undefined}>
         {band && <div className={styles.band} aria-hidden="true">{band}</div>}
         {hero ?? (<>

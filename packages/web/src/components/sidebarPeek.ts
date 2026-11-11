@@ -3,16 +3,19 @@
  * hidden and the page takes the whole width; a faint accent mark sits on the
  * left edge. When the pointer comes to where the sidebar sits it slides in
  * over the page (no layout shift) after REVEAL_MS, and slides out HIDE_MS
- * after the pointer leaves it. Tab into it shows it; Escape, focus leaving or
- * another page hides it. Pin (or ⌘\ / Ctrl+\) keeps it in place, pushing the
- * page as Always does. Phones and tablets keep their own bar and menu sheet.
+ * after the pointer leaves it. It opens between the bars: under the page's
+ * top bar (an album's or a detail page's header, Settings' sticky header)
+ * and above the player bar, which both stay whole. Tab into it shows it;
+ * Escape, focus leaving or another page hides it. Pin keeps it in place,
+ * pushing the page as Always does. Phones and tablets keep their own bar and
+ * menu sheet.
  *
- * The zone is the sidebar's own width, but it sits under the page's controls:
- * nothing covers the page, the pointer is read from document-wide pointer
- * moves. Over the page's own buttons, links and fields in that strip (a
- * detail page's back key, a list's first column) the pointer does nothing,
- * so they stay clickable; over anything else there, and always in the
- * leftmost EDGE_PX, it reveals. The player bar never reveals it.
+ * The zone is the sidebar's own width between the bars, but it sits under
+ * the page's controls: nothing covers the page, the pointer is read from
+ * document-wide pointer moves. Over the page's own buttons, links and fields
+ * in that strip (a list's first column) the pointer does nothing, so they
+ * stay clickable; over anything else there, and always in the leftmost
+ * EDGE_PX, it reveals. Over a top bar or the player bar it never does.
  */
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
@@ -25,6 +28,11 @@ export const EDGE_PX = 8;
 /** The sidebar's width (Layout.module.css .nav), until it can be measured. */
 export const SIDEBAR_PX = 248;
 
+/** A page's top bar: the sidebar opens under it. */
+export const TOP_BAR = '[data-top-bar]';
+/** The player bar's dock (<html> carries the same attribute while the bar is there). */
+export const PLAYER_BAR = ':not(html)[data-player-bar]';
+
 /** What the page's own controls are: under the pointer, they win over the zone. */
 export const PAGE_CONTROL = 'a[href], button, input, select, textarea, summary, label, [role="button"], [role="link"], [role="slider"], [role="tab"], [role="checkbox"], [role="radio"], [role="switch"], [role="menuitem"], [role="option"], [contenteditable=""], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
@@ -36,15 +44,26 @@ export function sidebarMode(prefs: { sidebarAutoHide: boolean; sidebarPinned: bo
   return prefs.sidebarPinned ? 'pinned' : 'peek';
 }
 
-/** Whether the pointer, at x, asks for the hidden sidebar. */
-export function armsReveal(x: number, at: { width: number; overControl: boolean; overPlayer: boolean }): boolean {
-  if (x < 0 || x >= at.width || at.overPlayer) return false;
-  return x <= EDGE_PX || !at.overControl;
+/** Where the sidebar opens, in viewport px: from `top` (under the top bar) down to `bottom` (the player bar's top edge). */
+export interface Band { top: number; bottom: number }
+
+/**
+ * The band between the bars. A top bar counts when it sits in the top
+ * quarter of the window (a sticky header, not one scrolled down the page);
+ * the lowest one wins. Without a player bar the band reaches the bottom.
+ */
+export function barBand(tops: ReadonlyArray<{ top: number; bottom: number; height: number }>, player: { top: number } | null, viewportH: number): Band {
+  let top = 0;
+  for (const r of tops) if (r.height > 0 && r.top < viewportH / 4) top = Math.max(top, Math.min(r.bottom, viewportH / 4));
+  const bottom = player ? Math.max(top, Math.min(player.top, viewportH)) : viewportH;
+  return { top: Math.round(top), bottom: Math.round(bottom) };
 }
 
-/** ⌘\ on a Mac, Ctrl+\ elsewhere (either is taken), without Shift or Alt. */
-export function isPinShortcut(e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): boolean {
-  return (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === '\\' || e.code === 'Backslash');
+/** Whether the pointer, at (x, y), asks for the hidden sidebar. */
+export function armsReveal(x: number, y: number, at: { width: number; band: Band; overControl: boolean; overPlayer: boolean }): boolean {
+  if (x < 0 || x >= at.width || at.overPlayer) return false;
+  if (y < at.band.top || y >= at.band.bottom) return false;
+  return x <= EDGE_PX || !at.overControl;
 }
 
 export interface Timers { set: (run: () => void, ms: number) => unknown; clear: (id: unknown) => void }
@@ -132,16 +151,33 @@ export function useSidebarPeek(nav: RefObject<HTMLElement | null>, enabled: bool
     if (initialShown && !pinnedRef.current) p.show();
     const doc = globalThis.document;
     const el = () => nav.current;
+    // the band between the bars, written onto the sidebar for its CSS
+    let band: Band = { top: 0, bottom: globalThis.innerHeight ?? 0 };
+    const measure = () => {
+      const vh = globalThis.innerHeight ?? 0;
+      const tops = [...(doc?.querySelectorAll(TOP_BAR) ?? [])].map((n) => n.getBoundingClientRect());
+      const player = doc?.querySelector(PLAYER_BAR)?.getBoundingClientRect() ?? null;
+      const next = barBand(tops, player, vh);
+      const side = el();
+      if (side && (next.top !== band.top || next.bottom !== band.bottom || !side.style.getPropertyValue('--peek-top'))) {
+        side.style.setProperty('--peek-top', `${next.top}px`);
+        side.style.setProperty('--peek-bottom', `${Math.max(0, vh - next.bottom)}px`);
+      }
+      band = next;
+    };
+    measure();
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
       const t = e.target instanceof Element ? e.target : null;
       const onSidebar = !!t && !!el()?.contains(t);
       const width = el()?.offsetWidth || SIDEBAR_PX;
-      const here = (p.shown && onSidebar) || armsReveal(e.clientX, {
+      // only near the left edge is it worth a look at where the bars are
+      if (!p.shown && e.clientX < width) measure();
+      const here = (p.shown && onSidebar) || armsReveal(e.clientX, e.clientY, {
         width,
+        band,
         overControl: !!t?.closest(PAGE_CONTROL) && !onSidebar,
-        // the bar's dock (<html> carries the same attribute while the bar is there)
-        overPlayer: !!t?.closest(':not(html)[data-player-bar]'),
+        overPlayer: !!t?.closest(PLAYER_BAR),
       });
       pointerHere.current = here;
       if (pinnedRef.current) return;
@@ -155,7 +191,7 @@ export function useSidebarPeek(nav: RefObject<HTMLElement | null>, enabled: bool
     };
     const onFocusIn = (e: FocusEvent) => {
       if (pinnedRef.current) return;
-      if (e.target instanceof Node && el()?.contains(e.target)) p.show();
+      if (e.target instanceof Node && el()?.contains(e.target)) { measure(); p.show(); }
     };
     const onFocusOut = (e: FocusEvent) => {
       if (pinnedRef.current || !(e.target instanceof Node) || !el()?.contains(e.target)) return;
@@ -170,6 +206,7 @@ export function useSidebarPeek(nav: RefObject<HTMLElement | null>, enabled: bool
       p.hide();
       if (inside) away.current();
     };
+    globalThis.addEventListener?.('resize', measure, { passive: true });
     doc?.addEventListener('pointermove', onMove, { passive: true });
     doc?.addEventListener('pointerout', onOut, { passive: true });
     doc?.addEventListener('focusin', onFocusIn);
@@ -184,6 +221,9 @@ export function useSidebarPeek(nav: RefObject<HTMLElement | null>, enabled: bool
       doc?.removeEventListener('focusin', onFocusIn);
       doc?.removeEventListener('focusout', onFocusOut);
       globalThis.removeEventListener?.('keydown', onKey);
+      globalThis.removeEventListener?.('resize', measure);
+      el()?.style.removeProperty('--peek-top');
+      el()?.style.removeProperty('--peek-bottom');
     };
     // initialShown is for stories: read once
   }, [enabled, nav]);

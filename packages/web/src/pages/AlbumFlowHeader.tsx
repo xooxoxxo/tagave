@@ -50,7 +50,7 @@ export function AlbumFlowHeader({ docked, artist, artistId, title, titleFirst = 
   const glideStyle = { '--glide-x': `${glide.x}px`, '--glide-y': `${glide.y}px` } as CSSProperties;
   return (
     <div className={`${styles.header} ${docked ? styles.docked : ''}`} data-album-header="" data-docked={docked ? '' : undefined}>
-      <div className={styles.box}>
+      <div className={styles.box} data-top-bar="">
         <div className={styles.band} aria-hidden="true" />
         {backLabel && (
           <span className={`${styles.slot} ${styles.start}`}>

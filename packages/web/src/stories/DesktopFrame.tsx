@@ -5,11 +5,11 @@
  * (--player-bar-h on <html>), so the account row shares the bar's top edge.
  * Static: no router state, no queries. `sidebar` picks Settings ›
  * Appearance › Sidebar; with Auto-hide the frame runs the app's own
- * behaviour (sidebarPeek.ts), the pin and ⌘\ included.
+ * behaviour (sidebarPeek.ts), the pin included.
  */
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { PEEK_QUERY, isPinShortcut, sidebarMode, useSidebarPeek } from '../components/sidebarPeek';
+import { PEEK_QUERY, sidebarMode, useSidebarPeek } from '../components/sidebarPeek';
 import { PeekMark, SidebarPin } from '../components/SidebarPin';
 import { BrandMark } from '../components/BrandMark';
 import { AccountCompartment } from '../components/AccountCompartment';
@@ -42,12 +42,6 @@ export function DesktopFrame({ children, dock, empty = false, compartmentOpen = 
   const peekOn = sidebar !== 'always';
   const peek = useSidebarPeek(navRef, peekOn, sidebar === 'pinned', useCallback(() => mainRef.current?.focus({ preventScroll: true }), []), revealed);
   const togglePin = useCallback(() => setPinned((p) => !p), []);
-  useLayoutEffect(() => {
-    if (!peekOn) return;
-    const onKey = (e: KeyboardEvent) => { if (isPinShortcut(e)) { e.preventDefault(); togglePin(); } };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [peekOn, togglePin]);
   useLayoutEffect(() => {
     const root = document.documentElement;
     const node = ref.current;

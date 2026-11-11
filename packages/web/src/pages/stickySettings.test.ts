@@ -50,11 +50,12 @@ describe('settings: sticky header and section list', () => {
 
   it('the shell renders the sticky header and marks a heading-only header', () => {
     const html = renderToStaticMarkup(createElement(PageShell, { title: 'Settings', sticky: true, children: 'x' }));
-    expect(html).toMatch(/<header class="[^"]*headerSticky[^"]*" data-title-only="">/);
+    // a top bar: an auto-hide sidebar opens under it (sidebarPeek.ts)
+    expect(html).toMatch(/<header class="[^"]*headerSticky[^"]*" data-top-bar="" data-title-only="">/);
     expect(html).toMatch(/<h1 class="[^"]*" data-page-title="">Settings<\/h1>/);
     const plain = renderToStaticMarkup(createElement(PageShell, { title: 'Albums', aside: '12', children: 'x' }));
     expect(plain).not.toMatch(/headerSticky/);
-    expect(plain).not.toMatch(/data-title-only/);
+    expect(plain).not.toMatch(/data-title-only|data-top-bar/);
     const detail = renderToStaticMarkup(createElement(PageShell, { title: 'Plan', back: true, children: 'x' }));
     expect(detail).not.toMatch(/data-page-title/);
   });

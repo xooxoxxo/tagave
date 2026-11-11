@@ -8,9 +8,9 @@ import styles from './Layout.module.css';
 
 export function SidebarPin({ pinned, onToggle }: { pinned: boolean; onToggle: () => void }) {
   return (
-    <button type="button" className={styles.pinItem} onClick={onToggle} aria-keyshortcuts="Meta+\ Control+\"
+    <button type="button" className={styles.pinItem} onClick={onToggle}
       aria-label={pinned ? 'Unpin the sidebar' : 'Pin the sidebar'}>
-      <span>{pinned ? 'Unpin' : 'Pin'}</span> <kbd aria-hidden="true">⌘ \</kbd>
+      <span>{pinned ? 'Unpin' : 'Pin'}</span>
     </button>
   );
 }
