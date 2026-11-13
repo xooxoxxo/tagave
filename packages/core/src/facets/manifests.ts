@@ -189,7 +189,8 @@ export const AUTOTAGGER_MODULE = defineModule({
   // a table before the ones it references (decider_calls → decider_runs)
   tables: ['decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings', 'decider_models'],
   migrations: 'modules/autotagger',
-  // off until the owner turns it on: it sends album evidence to an outside model, at a cost
+  // off until the owner turns it on; then the local model is its decider (nothing leaves the
+  // machine), and Jev, which sends album evidence out at a cost, only with a key
   defaultEnabled: false,
 });
 
