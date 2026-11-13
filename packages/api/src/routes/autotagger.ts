@@ -510,6 +510,15 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
       throw err;
     }
     request.log.info({ event: parsed.data.enabled ? 'module.enable' : 'module.disable', module: 'autotagger', userId: request.user?.id }, 'autotagger switched');
+    // on: the evidence its deciders read is backfilled for albums identified before it was kept
+    // (only while on; a worker boot while on queues it again if this send is lost)
+    if (parsed.data.enabled) {
+      try {
+        await (await getBoss()).send('evidence.backfill', {}, { singletonKey: 'evidence.backfill' });
+      } catch (err) {
+        request.log.warn({ err, event: 'autotagger.evidence_backfill_not_queued' }, 'evidence backfill not queued');
+      }
+    }
     return moduleView();
   });
 

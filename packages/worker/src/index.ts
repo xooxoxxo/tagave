@@ -1,6 +1,6 @@
 import { PgBoss } from 'pg-boss';
 import pino from 'pino';
-import { DECIDER_ACCEPT_EXPIRE_SECONDS, DECIDER_RUN_EXPIRE_SECONDS, failStaleBatches, listMigrationChain, maintenanceSender, makeDb, pauseStaleRuns, recoverMaintenanceTasks } from '@tagave/db';
+import { DECIDER_ACCEPT_EXPIRE_SECONDS, DECIDER_RUN_EXPIRE_SECONDS, autotaggerEnabled, failStaleBatches, listMigrationChain, maintenanceSender, makeDb, pauseStaleRuns, recoverMaintenanceTasks } from '@tagave/db';
 import { readBuildInfo, WORKER_QUEUES, workedWith } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
@@ -253,14 +253,27 @@ async function main() {
   }
   // Matching evidence for albums identified before it was kept: re-scored
   // from stored candidates (no network); albums in review whose release data
-  // was never stored are re-identified. Rides with identify.album.
+  // was never stored are re-identified. Rides with identify.album. Only while
+  // the autotagger is on (its deciders read the evidence): an install that
+  // never turns it on keeps its stored distances as they are. Turning it on
+  // sends the sweep (api › routes/autotagger.ts); every boot while on resumes it.
   if (wants('identify.album')) {
     await boss.work<EvidenceBackfillJobData>('evidence.backfill', { batchSize: 1 }, async (jobs) => {
       const results = [];
-      for (const job of jobs) results.push(await evidenceBackfillJob(ctx, job.data ?? {}));
+      for (const job of jobs) {
+        if (!(await autotaggerEnabled(ctx.sql))) {
+          ctx.logger.info('evidence backfill: autotagger off, nothing done');
+          continue;
+        }
+        results.push(await evidenceBackfillJob(ctx, job.data ?? {}));
+      }
       return results.length === 1 ? results[0] : results;
     });
-    await boss.send('evidence.backfill', {}, { singletonKey: 'evidence.backfill' });
+    try {
+      if (await autotaggerEnabled(ctx.sql)) await boss.send('evidence.backfill', {}, { singletonKey: 'evidence.backfill' });
+    } catch (err) {
+      ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'evidence backfill not queued');
+    }
   }
   // Accept batches (the owner's rules, a decider run) and their undo: rides
   // with identify.album, database-only, one batch at a time.

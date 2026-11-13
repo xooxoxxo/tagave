@@ -16,7 +16,8 @@ import { ledgerEntries } from '@tagave/core/facets';
 import { openSecret } from '@tagave/core';
 import type { AuthHandle } from '@tagave/auth';
 
-vi.mock('../boss.js', () => ({ getBoss: async () => ({ send: async () => 'job' }) }));
+const bossSend = vi.hoisted(() => vi.fn(async (..._args: unknown[]): Promise<string | null> => 'job'));
+vi.mock('../boss.js', () => ({ getBoss: async () => ({ send: bossSend }) }));
 
 const { registerApiRoutes } = await import('../app.js');
 const { initAuth } = await import('../middleware/auth.js');
@@ -113,9 +114,12 @@ describe.skipIf(!adminUrl)('autotagger settings routes (integration, scratch db)
     expect(refused.json().title).toBe('Step-up required');
     expect((await get('/settings/autotagger')).json().enabled).toBe(false);
     expect((await put('/settings/autotagger', { enabled: 'yes' })).statusCode).toBe(400);
+    bossSend.mockClear();
     const on = await put('/settings/autotagger', { enabled: true });
     expect(on.statusCode).toBe(200);
     expect(on.json().enabled).toBe(true);
+    // on starts the matching-evidence backfill its deciders read
+    expect(bossSend).toHaveBeenCalledWith('evidence.backfill', {}, { singletonKey: 'evidence.backfill' });
     const [row] = await sql`select enabled from installed_modules where id = 'autotagger'`;
     expect(row!.enabled).toBe(true);
   });

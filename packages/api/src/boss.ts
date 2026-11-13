@@ -62,6 +62,8 @@ async function startBoss(): Promise<PgBoss> {
   // the autotagger's runs: stately from the first send, so the per-library
   // singletonKey holds before a worker has set the queue's other options
   await boss.createQueue('decider.run', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
+  // turning the autotagger on starts the matching-evidence sweep: one queued behind a running one
+  await boss.createQueue('evidence.backfill', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   // the player module's debounced scans (worked by the API itself, see lib/player.ts)
   await boss.createQueue('tags.apply', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   await boss.createQueue('player.scan', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });

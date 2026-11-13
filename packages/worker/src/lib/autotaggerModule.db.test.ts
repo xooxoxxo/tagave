@@ -36,7 +36,7 @@ describe('autotagger config shape', () => {
     expect([sameConfig, samePatch]).toEqual([true, true]);
     expect(DB_DEFAULTS).toEqual(DEFAULT_AUTOTAGGER_CONFIG);
     expect(DEFAULT_AUTOTAGGER_CONFIG).toEqual({
-      model: 'jev-latest', monthlyCap: null, currency: 'USD', maxErrorRate: 0.01, maxRequestBytes: null, payloadSeenAt: null, payloadSeenBy: null,
+      decider: 'local', model: 'jev-latest', monthlyCap: null, currency: 'USD', maxErrorRate: 0.01, maxRequestBytes: null, payloadSeenAt: null, payloadSeenBy: null,
     });
     expect(parse({ monthlyCap: 20, model: 'jev-2026-09-15' })).toEqual({ monthlyCap: 20, model: 'jev-2026-09-15' });
     expect(parse({ monthlyCap: null, maxRequestBytes: null })).toEqual({ monthlyCap: null, maxRequestBytes: null });
