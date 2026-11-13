@@ -100,6 +100,13 @@ export const matchInfoSchema = z.object({
   decidedBy: z.enum(['system', 'user']).describe('Who/what made the decision'),
   distance: z.number().min(0).max(1).describe('Match distance (0 = perfect)'),
   reason: z.string().optional().describe('User reason for rejection or decision'),
+  decidedKind: decidedKindSchema.optional().describe('Who or what decided: a person, the matcher, the owner\'s rules, a model'),
+  deciderId: z.string().nullable().optional().describe('The decider of a model or rules decision'),
+  deciderVersion: z.string().nullable().optional().describe('Its dated version'),
+  probability: z.number().min(0).max(1).nullable().optional().describe('A model\'s probability for the chosen tracklist'),
+  batch: z.object({ id: z.string().uuid(), createdAt: z.string().datetime(), startedBy: z.string().nullable() }).nullable().optional()
+    .describe('The accept batch the match came in'),
+  person: z.string().nullable().optional().describe('The person who decided, by name'),
 }).strict();
 
 export type MatchInfo = z.infer<typeof matchInfoSchema>;

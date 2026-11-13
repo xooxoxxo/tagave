@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { provenanceLine } from '@tagave/shared';
 
 vi.mock('../boss.js', () => ({
   getBoss: async () => ({ send: async () => 'job-id', createQueue: async () => undefined }),
@@ -104,5 +105,27 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: model match kind (
     expect(headers['x-tagave-facets']).toBe('summary');
     expect(countOf(facets, 'model')).toBe(1);
     expect(countOf(facets, 'auto_strong')).toBe(0);
+  });
+  it('the album detail says who decided its match, with the batch and the person', async () => {
+    const batch = randomUUID();
+    await client`update users set display_name = 'Ada' where id = ${userId}`;
+    await client`insert into decider_batches (id, library_id, decider_id, decider_version, decided_kind, band, state, started_by_user_id, created_at)
+                 values (${batch}, ${lib}, 'jev', 'jev-2026-09-15', 'model', 'p99', 'accepted', ${userId}, '2026-10-27T09:00:00Z')`;
+    await client`update album_matches set batch_id = ${batch} where local_album_id = ${modelAlbum}`;
+    await client`update album_matches set decided_kind = 'user', decided_by = 'user', decided_by_user_id = ${userId} where local_album_id = ${ruleAlbum}`;
+    try {
+      const { body: model } = await get(`/api/v1/libraries/${lib}/albums/${modelAlbum}`);
+      expect(model.match).toMatchObject({
+        decidedKind: 'model', deciderId: 'jev', deciderVersion: 'jev-2026-09-15', probability: 0.994,
+        batch: { id: batch, createdAt: '2026-10-27T09:00:00.000Z', startedBy: 'Ada' }, person: null,
+      });
+      expect(provenanceLine({ ...model.match, reason: null }, { locale: 'en-GB' })).toBe('Automatic: Jev 2026-09, probability 0.994, batch of 27 Oct, run by Ada');
+      const { body: byHand } = await get(`/api/v1/libraries/${lib}/albums/${ruleAlbum}`);
+      expect(byHand.match).toMatchObject({ decidedKind: 'user', person: 'Ada', batch: null });
+    } finally {
+      await client`update album_matches set batch_id = null where local_album_id = ${modelAlbum}`;
+      await client`update album_matches set decided_kind = 'system', decided_by = 'system', decided_by_user_id = null where local_album_id = ${ruleAlbum}`;
+      await client`delete from decider_batches where id = ${batch}`;
+    }
   });
 });

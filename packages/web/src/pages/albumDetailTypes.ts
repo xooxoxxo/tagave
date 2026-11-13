@@ -160,6 +160,13 @@ export interface AlbumDetail {
     decidedAt: string | null;
     reason: string | null;
     releaseGroupOnly?: boolean;
+    /** who decided (@tagave/shared MatchProvenance): absent on an older server */
+    decidedKind?: 'user' | 'system' | 'rule' | 'model' | 'unknown';
+    deciderId?: string | null;
+    deciderVersion?: string | null;
+    probability?: number | null;
+    batch?: { id: string; createdAt: string; startedBy: string | null } | null;
+    person?: string | null;
   } | null;
   discogsCollectionItems?: DiscogsCollectionItem[];
   editions?: {

@@ -15,7 +15,7 @@ import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
 import { summaryEligible, summaryFresh, summaryFilterCounts, markFilterCountsDirty } from '../lib/filterCounts.js';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
 import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
-import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
+import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER, type DecidedKind, type MatchProvenance } from '@tagave/shared';
 import { scanRoots as scanRootRows, files as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
@@ -690,6 +690,28 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           .from(albumMatches)
           .where(eq(albumMatches.localAlbumId, albumId));
         const liveMatch = matchRows.find((m) => m.status === 'auto' || m.status === 'confirmed');
+        // who decided it: the person by name, and the accept batch with who started it
+        let provenance: MatchProvenance | null = null;
+        if (liveMatch) {
+          const [who] = liveMatch.decidedByUserId
+            ? await getSql()<Array<{ name: string | null }>>`select display_name as name from users where id = ${liveMatch.decidedByUserId}`
+            : [];
+          const [batch] = liveMatch.batchId
+            ? await getSql()<Array<{ id: string; created_at: Date | string; started_by: string | null }>>`
+                select b.id::text as id, b.created_at, u.display_name as started_by
+                  from decider_batches b left join users u on u.id = b.started_by_user_id where b.id = ${liveMatch.batchId}`
+            : [];
+          provenance = {
+            decidedKind: liveMatch.decidedKind as DecidedKind,
+            decidedBy: liveMatch.decidedBy as 'system' | 'user',
+            deciderId: liveMatch.deciderId ?? null,
+            deciderVersion: liveMatch.deciderVersion ?? null,
+            probability: liveMatch.probability === null || liveMatch.probability === undefined ? null : Number(liveMatch.probability),
+            batch: batch ? { id: batch.id, createdAt: new Date(batch.created_at).toISOString(), startedBy: batch.started_by } : null,
+            person: who?.name ?? null,
+            reason: liveMatch.reason ?? null,
+          };
+        }
 
         // Get editions if matched and release group has an mbid
         let editions = null;
@@ -754,7 +776,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             };
           }
         }
-        return { liveMatch, editions };
+        return { liveMatch, editions, provenance };
       })();
 
       const artP = db
@@ -932,7 +954,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
          where lt.local_album_id = ${album.id}`) as unknown as Promise<Array<{ any_lossless: boolean | null; any_lossy: boolean | null }>>;
 
       const [
-        trackRows, { release, canonicalTrackRows }, { liveMatch, editions }, art, gapRows,
+        trackRows, { release, canonicalTrackRows }, { liveMatch, editions, provenance }, art, gapRows,
         { candRows, candTracksByRelease }, duplicateRows, physicalRows, { artists, genres },
         idStates, [mix], mergeCandidates, artFetch, folders,
       ] = await Promise.all([
@@ -1014,6 +1036,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               decidedAt: liveMatch.decidedAt?.toISOString() ?? null,
               reason: liveMatch.reason,
               releaseGroupOnly: liveMatch.releaseGroupOnly,
+              ...(provenance ? {
+                decidedKind: provenance.decidedKind, deciderId: provenance.deciderId, deciderVersion: provenance.deciderVersion,
+                probability: provenance.probability, batch: provenance.batch, person: provenance.person,
+              } : {}),
             }
           : null,
         editions,
