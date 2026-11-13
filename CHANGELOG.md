@@ -2,7 +2,23 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.30.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.0)
+## [v0.30.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.1)
+
+**Patch release (0.30.0 → 0.30.1).** The auto-hide sidebar opens between the top bar and the player bar, and the Drop pool sees folder changes at once.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+
+### Fixed
+
+- **Auto-hide sidebar:** it opens between the page's top bar and the player bar, so both stay whole. Pointing at either bar no longer opens it. ([77e4ad0](https://github.com/xooxoxxo/tagave/commit/77e4ad0))
+- **Pin shortcut removed:** ⌘\ / Ctrl+\ is gone, since password managers use it. The Pin button stays. ([77e4ad0](https://github.com/xooxoxxo/tagave/commit/77e4ad0))
+- **Drop pool folders:** adding, editing or removing a library folder updates the Drop pool's folder choices without a reload. ([dca0447](https://github.com/xooxoxxo/tagave/commit/dca0447))
+
+**All changes:** [v0.30.0...v0.30.1](https://github.com/xooxoxxo/tagave/compare/v0.30.0...v0.30.1)
+
+## [v0.30.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.0) (2026-11-11)
 
 **Minor release (0.29 → 0.30).** An auto-hide sidebar for the desktop that slides in when you reach for it.
 
