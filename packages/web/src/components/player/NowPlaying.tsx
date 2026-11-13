@@ -42,6 +42,8 @@ export interface NowPlayingQueueProps {
   onSave?: ((name: string) => Promise<void>) | undefined;
   /** History was opened: the caller loads it */
   onHistoryOpen?: (() => void) | undefined;
+  /** each queue row's ⋮ */
+  menus?: boolean | undefined;
 }
 
 export interface NowPlayingTransport {
@@ -100,7 +102,7 @@ function Credits({ track, onNavigate }: { track: QueueEntry; onNavigate?: (() =>
   );
 }
 
-function Seek({ t, glow }: { t: NowPlayingTransport; glow?: ReactNode }) {
+function Seek({ t }: { t: NowPlayingTransport }) {
   const [scrub, setScrub] = useState<number | null>(null);
   const total = t.duration && Number.isFinite(t.duration) && t.duration > 0 ? t.duration : null;
   const shown = Math.min(scrub ?? t.position, total ?? Number.POSITIVE_INFINITY);
@@ -108,9 +110,7 @@ function Seek({ t, glow }: { t: NowPlayingTransport; glow?: ReactNode }) {
   const commit = () => { if (scrub != null) t.onSeek(scrub); setScrub(null); };
   return (
     <div className={styles.seek}>
-      {/* the range and, under it, the equalizer glow (SeekGlow), as in the player bar */}
       <span className={bar.track} style={{ '--fill': `${fill}%` } as CSSProperties}>
-        {glow}
         <input
           type="range"
           className={bar.range}
@@ -166,7 +166,13 @@ export interface NowPlayingViewProps extends NowPlayingQueueProps {
   onNavigate?: (() => void) | undefined;
   /** the ⋮ of the playing track */
   actions?: ReactNode;
+  /** the playing song's heart (LikeKey), before the ⋮ */
+  like?: ReactNode;
   initialTab?: QueueTab;
+  /** "Casting to …" while casting (player/cast.ts castLine) */
+  castLine?: string | null | undefined;
+  /** the DJ key (the dj module's DJ view), before the heart; absent where the view cannot run */
+  dj?: ReactNode;
 }
 
 /** Desktop: the full view over the page, the queue beside the cover. */
@@ -181,12 +187,13 @@ export function NowPlayingView(p: NowPlayingViewProps) {
       <header className={styles.viewHead}>
         <EmbossIconButton label="Close Now playing" place="header" onClick={p.onClose}><ChevronDownIcon /></EmbossIconButton>
         {from && <span className={styles.from}><span className={styles.fromLabel}>{from.kind === 'album' ? 'Playing from album' : 'Playing from playlist'}</span><span className={styles.fromValue} dir="auto">{from.name}</span></span>}
-        <span className={styles.headEnd}>{p.actions}</span>
+        <span className={styles.headEnd}>{p.dj}{p.like}{p.actions}</span>
       </header>
       <div className={styles.viewBody}>
         <section className={styles.viewLeft} aria-label="Playing">
           <CoverArt src={p.track.coverUrl} title={p.track.album} className={styles.viewCover} />
           <Names track={p.track} onNavigate={p.onNavigate} center />
+          {p.castLine && <p className={styles.castLine} role="status">{p.castLine}</p>}
           <Credits track={p.track} onNavigate={p.onNavigate} />
         </section>
         <section className={styles.viewRight} aria-label="Queue">
@@ -195,7 +202,7 @@ export function NowPlayingView(p: NowPlayingViewProps) {
             tracks={p.tracks} index={p.index} context={p.context} tab={tab}
             onTab={(t) => { setTab(t); if (t === 'history') p.onHistoryOpen?.(); }}
             onPlay={p.onPlay} onMove={p.onMove} onRemove={p.onRemove} onClear={p.onClear}
-            history={p.history} onPlayHistory={p.onPlayHistory} onSave={p.onSave}
+            history={p.history} onPlayHistory={p.onPlayHistory} onSave={p.onSave} menus={p.menus}
           />
         </section>
       </div>
@@ -205,8 +212,8 @@ export function NowPlayingView(p: NowPlayingViewProps) {
 
 export interface NowPlayingScreenProps extends NowPlayingViewProps, NowPlayingTransport {
   initialSegment?: 'playing' | 'queue';
-  /** the equalizer glow under the seek bar (SeekGlow) */
-  glow?: ReactNode;
+  /** the cast key (CastKey), when a device is there; on a phone it lives here, not in the mini bar */
+  cast?: ReactNode;
 }
 
 /** Phone: the full screen, Playing | Queue. */
@@ -224,14 +231,20 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
         <div className={styles.segment}>
           <SegmentedControl<'playing' | 'queue'> label="Now playing" size="sm" value={segment} onChange={setSegment} options={[{ value: 'playing', label: 'Playing' }, { value: 'queue', label: 'Queue' }]} />
         </div>
-        <span className={styles.headEnd}>{p.actions ?? <span className={styles.keySpace} />}</span>
+        <span className={styles.headEnd}>{p.like}{p.actions ?? <span className={styles.keySpace} />}</span>
       </header>
       {segment === 'playing' ? (
         <div className={styles.screenBody}>
           <CoverArt src={p.track.coverUrl} title={p.track.album} className={styles.screenCover} />
           <Names track={p.track} onNavigate={p.onNavigate} />
-          <Seek t={p} glow={p.glow} />
+          <Seek t={p} />
           <Keys t={p} />
+          {(p.cast || p.castLine || p.dj) && (
+            <div className={styles.devices}>
+              {p.castLine ? <p className={styles.castLine} role="status">{p.castLine}</p> : <span />}
+              <span className={styles.devicesKeys}>{p.dj}{p.cast}</span>
+            </div>
+          )}
           {next ? (
             <button type="button" className={styles.peek} onClick={() => { setTab('next'); setSegment('queue'); }}>
               <span className={styles.peekLabel}>Up next</span>
@@ -246,7 +259,7 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
             tracks={p.tracks} index={p.index} context={p.context} tab={tab}
             onTab={(t) => { setTab(t); if (t === 'history') p.onHistoryOpen?.(); }}
             onPlay={p.onPlay} onMove={p.onMove} onRemove={p.onRemove} onClear={p.onClear}
-            history={p.history} onPlayHistory={p.onPlayHistory} onSave={p.onSave}
+            history={p.history} onPlayHistory={p.onPlayHistory} onSave={p.onSave} menus={p.menus}
           />
         </div>
       )}
@@ -265,24 +278,32 @@ export interface MiniPlayerProps {
   onToggle: () => void;
   onNext: () => void;
   onRetry: () => void;
+  /** the equalizer glow, behind the mini bar's content (BarGlow) */
+  glow?: ReactNode;
+  /** "Casting to …" while casting: it takes the artist's line */
+  castLine?: string | null | undefined;
+  /** the DJ module's Mix chip during a fade (MixChip) */
+  mix?: ReactNode;
 }
 
 /** Phone: the mini bar at the foot of the screen. */
-export function MiniPlayer({ track, status, position, duration, canNext, message, onOpen, onToggle, onNext, onRetry }: MiniPlayerProps) {
+export function MiniPlayer({ track, status, position, duration, canNext, message, onOpen, onToggle, onNext, onRetry, glow, castLine, mix }: MiniPlayerProps) {
   const total = duration && duration > 0 ? duration : null;
   const fill = total ? Math.min(100, Math.max(0, (position / total) * 100)) : 0;
   const busy = status === 'loading' || status === 'buffering';
   const failed = status === 'error';
   return (
     <section className={styles.mini} aria-label="Player" data-status={status}>
+      {status === 'error' ? null : glow}
       <span className={styles.miniProgress} style={{ '--fill': `${fill}%` } as CSSProperties} aria-hidden="true" />
       <button type="button" className={styles.miniOpen} data-mini-open="" onClick={onOpen} aria-label={`Now playing: ${track.title}, ${track.artist}. Open the player`}>
         <CoverArt src={track.coverUrl} title={track.album} compact className={styles.miniCover} />
         <span className={styles.miniNames}>
           <span className={styles.miniTitle} dir="auto">{track.title}</span>
-          <span className={`${styles.miniArtist} ${failed ? styles.miniError : ''}`} dir="auto">{failed ? message || 'This track could not be played.' : track.artist}</span>
+          <span className={`${styles.miniArtist} ${failed ? styles.miniError : castLine ? styles.miniCast : ''}`} dir="auto">{failed ? message || 'This track could not be played.' : castLine || track.artist}</span>
         </span>
       </button>
+      {!failed && mix}
       {failed ? (
         <EmbossIconButton label="Retry" className={styles.miniKey} onClick={onRetry}><PlayIcon /></EmbossIconButton>
       ) : (

@@ -1,5 +1,5 @@
 /**
- * Settings › Connections (Music Connections, spec §4 UI): the links this
+ * Settings › Modules › Music Connections (spec §4 UI): the links this
  * person made from tagave to other music apps. Each shows what it reads
  * (granted, not granted, or newly offered: re-link to grant), the last sync,
  * the last error and its state, with Sync now, Re-approve, Edit address and
@@ -8,7 +8,7 @@
  *
  * ConnectionsPanel is the view (stories); SettingsConnectionsContent wires it.
  */
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { mcRemoteUrlSchema, type McConnectionsView, type McLinkErrorCode, type McLinkView } from '@tagave/shared';
 import { Badge, Banner, Button, TextField, confirmDialog, showToast, type BadgeTone } from '../components/ui';
 import { useAddConnection, useConnections, useEditConnectionUrl, useReapproveConnection, useRevokeConnection, useSyncConnection } from '../hooks/useConnections';
@@ -71,15 +71,17 @@ export interface ConnectionsPanelProps {
   onEditUrl: (id: string, url: string) => Promise<boolean> | boolean;
   onRevoke: (link: McLinkView) => void;
   onCopy?: (text: string) => void;
+  /** the module's page carries the heading (Settings › Modules › Music Connections) */
+  heading?: boolean;
 }
 
 export function ConnectionsPanel(props: ConnectionsPanelProps) {
-  const { view, returned = null, adding = false, addError = null, linkErrors = {}, busyLinkId = null } = props;
+  const { view, returned = null, adding = false, addError = null, linkErrors = {}, busyLinkId = null, heading = true } = props;
   const links = view?.links ?? [];
   const linkedOne = returned && 'linked' in returned ? links.find((l) => l.id === returned.linked) : undefined;
   return (
     <>
-      <h2>Connections</h2>
+      {heading && <h2>Music Connections</h2>}
 
       {returned && 'linked' in returned && <Banner tone="success">Linked{linkedOne?.service ? ` to ${linkedOne.service}` : ''}</Banner>}
       {returned && 'error' in returned && <Banner tone="danger">{returnError(returned.error)}</Banner>}
@@ -106,24 +108,6 @@ export function ConnectionsPanel(props: ConnectionsPanelProps) {
       <AddConnection adding={adding} error={addError} onAdd={props.onAdd} />
 
       {links.length > 0 && view?.ownUrl && <LinkBack ownUrl={view.ownUrl} {...(props.onCopy ? { onCopy: props.onCopy } : {})} />}
-    </>
-  );
-}
-
-/**
- * Music Connections turned off (Settings › Modules, off by default): nothing
- * links or syncs. `modules` is the way to Settings › Modules for someone who
- * may turn it on (the owner); everyone else is told to ask.
- */
-export function ConnectionsOff({ modules = null }: { modules?: ReactNode }) {
-  return (
-    <>
-      <h2>Connections</h2>
-      <Banner tone="info">
-        Music Connections is turned off.{' '}
-        {modules ? <>Turn it on in {modules}.</> : 'Ask the owner to turn it on in Settings › Modules.'}
-      </Banner>
-
     </>
   );
 }
@@ -296,7 +280,7 @@ function readReturn(): ConnectionsReturn {
   }
 }
 
-export function SettingsConnectionsContent() {
+export function SettingsConnectionsContent({ heading = true }: { heading?: boolean } = {}) {
   const connections = useConnections();
   const add = useAddConnection();
   const sync = useSyncConnection();
@@ -306,7 +290,7 @@ export function SettingsConnectionsContent() {
   const [returned] = useState(readReturn);
   const [linkErrors, setLinkErrors] = useState<Record<string, string>>({});
   const [busyLinkId, setBusy] = useState<string | null>(null);
-  // the ?linked= / ?error= note is read once; the address goes back to plain Settings › Connections
+  // the ?linked= / ?error= note is read once; the address goes back to plain Settings › Modules › Music Connections
   useEffect(() => {
     if (returned) {
       try { globalThis.history?.replaceState(globalThis.history.state, '', globalThis.location.pathname); } catch { /* keep it */ }
@@ -350,6 +334,7 @@ export function SettingsConnectionsContent() {
         onReapprove={(id) => void run(id, () => reapprove.mutateAsync(id), 'The approval could not be started.')}
         onEditUrl={(id, url) => run(id, () => edit.mutateAsync({ id, url }), 'The address could not be changed.')}
         onRevoke={(link) => void onRevoke(link)}
+        heading={heading}
       />
     </>
   );

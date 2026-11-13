@@ -1,9 +1,13 @@
 /**
- * A track's (or an album's) ⋮ (direction A, Spotify / Apple Music):
+ * A song's ⋮ (direction A, Spotify / Apple Music), the same on every
+ * surface (trackMenuKeys below):
  *
- *   Play next · Add to queue · Add to playlist ›   (with a player / with playlists)
+ *   Play next · Add to queue · Add to playlist › · Like   (with a player / with playlists; Like or Unlike for one song)
  *   Go to album · Go to artist                     (when given)
- *   extra rows                                     (Remove from this playlist)
+ *   extra rows                                     (Remove from playlist, Remove from queue)
+ *
+ * No Delete: songs are deleted only in the album page's Maintenance (owner,
+ * 2026-11-04), from its selection.
  *
  * On a desktop a glass dropdown whose "Add to playlist" opens a submenu of
  * the person's playlists, New playlist first; arrow keys move, Arrow right
@@ -14,10 +18,11 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from '@tanstack/react-router';
-import { AddQueueIcon, ChevronRightIcon, DiscIcon, EmbossIconButton, KebabIcon, PersonIcon, PlayNextIcon, PlaylistIcon, showToast, type EmbossPlace } from '../ui';
+import { AddQueueIcon, ChevronRightIcon, DiscIcon, EmbossIconButton, HeartIcon, KebabIcon, PersonIcon, PlayNextIcon, PlaylistIcon, showToast, type EmbossPlace } from '../ui';
 import { enqueue, type QueueSource } from '../../player/engine';
 import { useCapabilities } from '../../hooks/usePlayer';
 import { usePlaylistsOn } from '../../hooks/usePlaylists';
+import { useLiked, useLikesOn, useToggleLike } from '../../hooks/useLikes';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { PlaylistChoices } from './PlaylistChoices';
 import type { DrawerRow } from './TrackDrawer';
@@ -53,7 +58,9 @@ export interface TrackActionsProps {
   /** open on Add to playlist's list (stories) */
   defaultStep?: 'actions' | 'playlists' | undefined;
   /** what this person can do here, when the caller knows (stories); else read from the player and the modules */
-  abilities?: { queue: boolean; playlists: boolean } | undefined;
+  abilities?: { queue: boolean; playlists: boolean; like?: boolean } | undefined;
+  /** after a row's action ran (a search closes itself after Go to album) */
+  onAction?: ((key: string) => void) | undefined;
 }
 
 interface Row extends DrawerRow { sub?: boolean; separated?: boolean }
@@ -70,26 +77,65 @@ export async function enqueueWithToast(source: QueueSource, where: 'next' | 'end
   }
 }
 
+export type TrackMenuKey = 'next' | 'queue' | 'playlist' | 'like' | 'album' | 'artist';
+
+/** What a song's menu can do here. */
+export interface TrackMenuAbilities {
+  /** a player is set up: Play next, Add to queue */
+  queue: boolean;
+  /** the playlists module is on: Add to playlist */
+  playlists: boolean;
+  /** one song, and the person may like it: Like or Unlike */
+  like?: boolean;
+  /** the album and the artist to go to (none on their own pages) */
+  album: boolean;
+  artist: boolean;
+}
+
+/**
+ * The one order of every song's menu (the album's tracklist, a playlist's
+ * rows, the queue and history, Now Playing, search): Play next · Add to
+ * queue · Add to playlist · Like | Go to album · Go to artist | the surface's own
+ * rows (Remove from playlist, Remove from queue). Each where it applies;
+ * `extra` keys come back last.
+ */
+export function trackMenuKeys(a: TrackMenuAbilities, extra: readonly string[] = []): Array<{ key: string; separated: boolean }> {
+  const groups: string[][] = [
+    [...(a.queue ? ['next', 'queue'] : []), ...(a.playlists ? ['playlist'] : []), ...(a.like ? ['like'] : [])],
+    [...(a.album ? ['album'] : []), ...(a.artist ? ['artist'] : [])],
+    [...extra],
+  ];
+  const out: Array<{ key: string; separated: boolean }> = [];
+  for (const g of groups) g.forEach((key, n) => out.push({ key, separated: n === 0 && out.length > 0 }));
+  return out;
+}
+
 function useRows(p: TrackActionsProps, close: () => void, openPlaylists: () => void): Row[] {
   const navigate = useNavigate();
   const installed = useCapabilities().data?.player?.installed === true;
   const listsOn = usePlaylistsOn();
-  const player = p.abilities?.queue ?? installed;
-  const lists = p.abilities?.playlists ?? listsOn;
-  const rows: Row[] = [];
-  const tile = (key: string) => TILES.has(key);
-  if (player) {
-    rows.push({ key: 'next', label: 'Play next', icon: <PlayNextIcon />, tile: tile('next'), onSelect: () => { close(); void enqueueWithToast(p.source, 'next'); } });
-    rows.push({ key: 'queue', label: 'Add to queue', icon: <AddQueueIcon />, tile: tile('queue'), onSelect: () => { close(); void enqueueWithToast(p.source, 'end'); } });
-  }
-  if (lists) rows.push({ key: 'playlist', label: 'Add to playlist', icon: <PlaylistIcon />, tile: true, sub: true, onSelect: openPlaylists });
-  const go: Row[] = [];
-  if (p.albumId) go.push({ key: 'album', label: 'Go to album', icon: <DiscIcon />, tile: false, onSelect: () => { close(); void navigate({ to: '/albums/$albumId', params: { albumId: p.albumId! } }); } });
-  if (p.artist) go.push({ key: 'artist', label: 'Go to artist', icon: <PersonIcon />, tile: false, onSelect: () => { close(); void navigate({ to: '/artists/$artistId', params: { artistId: p.artist!.id } }); } });
-  if (go.length && rows.length) go[0]!.separated = true;
-  rows.push(...go);
-  const extra = (p.extra ?? []).map((x, n): Row => ({ ...x, tile: false, separated: n === 0 && rows.length > 0, onSelect: () => { close(); x.onSelect(); } }));
-  return [...rows, ...extra];
+  const likesOn = useLikesOn();
+  const songId = 'trackIds' in p.source && p.source.trackIds.length === 1 ? p.source.trackIds[0]! : null;
+  const liked = useLiked('song', songId);
+  const toggleLike = useToggleLike();
+  const abilities: TrackMenuAbilities = {
+    queue: p.abilities?.queue ?? installed,
+    playlists: p.abilities?.playlists ?? listsOn,
+    like: !!songId && (p.abilities?.like ?? likesOn),
+    album: !!p.albumId,
+    artist: !!p.artist,
+  };
+  const done = (key: string, run: () => void) => () => { close(); run(); p.onAction?.(key); };
+  const all: Record<string, Omit<Row, 'separated'>> = {
+    next: { key: 'next', label: 'Play next', icon: <PlayNextIcon />, tile: TILES.has('next'), onSelect: done('next', () => void enqueueWithToast(p.source, 'next')) },
+    queue: { key: 'queue', label: 'Add to queue', icon: <AddQueueIcon />, tile: TILES.has('queue'), onSelect: done('queue', () => void enqueueWithToast(p.source, 'end')) },
+    playlist: { key: 'playlist', label: 'Add to playlist', icon: <PlaylistIcon />, tile: true, sub: true, onSelect: openPlaylists },
+    like: { key: 'like', label: liked ? 'Unlike' : 'Like', icon: <HeartIcon filled={liked} />, tile: false, onSelect: done('like', () => { if (songId) toggleLike.mutate({ kind: 'song', id: songId, like: !liked }); }) },
+    album: { key: 'album', label: 'Go to album', icon: <DiscIcon />, tile: false, onSelect: done('album', () => void navigate({ to: '/albums/$albumId', params: { albumId: p.albumId! } })) },
+    artist: { key: 'artist', label: 'Go to artist', icon: <PersonIcon />, tile: false, onSelect: done('artist', () => void navigate({ to: '/artists/$artistId', params: { artistId: p.artist!.id } })) },
+  };
+  for (const x of p.extra ?? []) all[x.key] = { ...x, tile: false, onSelect: done(x.key, x.onSelect) };
+  return trackMenuKeys(abilities, (p.extra ?? []).map((x) => x.key)).map(({ key, separated }) => ({ ...all[key]!, separated }));
 }
 
 export function TrackActions(p: TrackActionsProps) {

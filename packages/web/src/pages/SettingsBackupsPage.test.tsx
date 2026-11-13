@@ -50,7 +50,7 @@ describe('SettingsBackupsPage', () => {
       ],
       totalBytes: 3072,
     }));
-    for (const title of ['>Nightly</h3>', '>Before update</h3>', '>Manual</h3>']) expect(html).toContain(title);
+    for (const title of ['>Scheduled backups</h3>', '>Before update</h3>', '>Manual</h3>']) expect(html).toContain(title);
     expect(html).toContain('2 · 3.0 KB');
     expect(html).toContain('0.11.0');
     expect(html).toContain('0.10.0<span');
@@ -64,15 +64,25 @@ describe('SettingsBackupsPage', () => {
     expect(versionLabel({ version: null, versionInferred: false })).toBe('—');
   });
 
-  it('has one select per setting, with Off as the first time and All for manual', () => {
+  it('shows one selected schedule and separates retention', () => {
     const html = render(status());
     expect(html.match(/<select/g)).toHaveLength(5);
     expect(html).toContain('<option value="off">Off</option>');
+    expect(html).toContain('<option value="nightly" selected="">Nightly</option>');
     expect(html).toContain('<option value="all" selected="">All</option>');
     expect(html).toContain('<option value="7" selected="">7 days</option>');
     expect(html).toContain('<option value="4" selected="">4 weeks</option>');
     // nothing to press: changes save on their own
     expect(html).not.toContain('>Save<');
+  });
+
+  it('shows a weekday and hour for the weekly schedule', () => {
+    const html = render(status({ settings: { ...status().settings, frequency: 'weekly', weekday: 5, hour: 20 } }));
+    expect(html).toContain('<option value="weekly" selected="">Weekly</option>');
+    expect(html).toContain('<option value="5" selected="">Friday</option>');
+    expect(html).toContain('<option value="20" selected="">20:00</option>');
+    // labels and values: no sentence restates the choice
+    expect(html).not.toMatch(/Every Friday|Retention applies|Music files are stored/);
   });
 
   it('keeps a saved number that is not on the ladder', () => {

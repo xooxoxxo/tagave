@@ -42,13 +42,20 @@ describe('settings: sticky header and section list', () => {
     expect(sticky).toMatch(/background:/);
   });
 
+  it('no rule under the sticky header, at rest or scrolled (owner: "what is that weird bar there?")', () => {
+    const css = read('../components/ui/PageShell.module.css');
+    expect(block(css, '.headerSticky')).not.toMatch(/border|box-shadow|animation/);
+    expect(css).not.toMatch(/stuckEdge|animation-timeline/);
+  });
+
   it('the shell renders the sticky header and marks a heading-only header', () => {
     const html = renderToStaticMarkup(createElement(PageShell, { title: 'Settings', sticky: true, children: 'x' }));
-    expect(html).toMatch(/<header class="[^"]*headerSticky[^"]*" data-title-only="">/);
+    // a top bar: an auto-hide sidebar opens under it (sidebarPeek.ts)
+    expect(html).toMatch(/<header class="[^"]*headerSticky[^"]*" data-top-bar="" data-title-only="">/);
     expect(html).toMatch(/<h1 class="[^"]*" data-page-title="">Settings<\/h1>/);
     const plain = renderToStaticMarkup(createElement(PageShell, { title: 'Albums', aside: '12', children: 'x' }));
     expect(plain).not.toMatch(/headerSticky/);
-    expect(plain).not.toMatch(/data-title-only/);
+    expect(plain).not.toMatch(/data-title-only|data-top-bar/);
     const detail = renderToStaticMarkup(createElement(PageShell, { title: 'Plan', back: true, children: 'x' }));
     expect(detail).not.toMatch(/data-page-title/);
   });
@@ -86,7 +93,8 @@ describe('phone top bar: the page name in place of the wordmark', () => {
     expect(phone).toMatch(/\.wordmark \{ display: none; \}/);
     expect(phone).toMatch(/\.pageTitle \{ display: block;/);
     expect(phone).toMatch(/\.page \[data-page-title\] \{ position: absolute;/);
-    expect(phone).toMatch(/\.page \[data-title-only\] \{ padding: var\(--page-top\) 0 0;/);
+    // a step under the bar, not the page's full top padding (the compact pass)
+    expect(phone).toMatch(/\.page \[data-title-only\] \{ padding: \.5rem 0 0;/);
     // a detail page (back key) and a sub-page trade the mark and the name for the back bar
     expect(css).toMatch(/\.navDetail \.brand, \.navDetail \.pageTitle \{ display: none; \}/);
   });

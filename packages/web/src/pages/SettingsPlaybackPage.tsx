@@ -1,17 +1,15 @@
 /**
- * Settings › Playback: the opt-in player module. Whether a player server is
- * connected (the bundled Navidrome or one the owner already runs), a scan on
- * demand, the bring-your-own form (owner), Scrobbling (owner: the Last.fm
- * API key tagave signs scrobbles with), and the quality this device asks
- * for (kept in this browser). Non-owners see the status and the quality;
- * everyone's own scrobbling is in Settings › Listening.
+ * Settings › Modules › Player, the owner's part (it was Settings › Modules › Player):
+ * whether a player server is connected (the bundled Navidrome or one the
+ * owner already runs), a scan on demand, the bring-your-own form,
+ * Scrobbling (the Last.fm API key tagave signs scrobbles with), and the
+ * quality this device asks for (kept in this browser). Everyone's own
+ * account and scrobbling follow on the same page (SettingsListeningPage).
  */
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link } from '@tanstack/react-router';
-import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type ModulesView, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
+import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, Collapse, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
-import { useModules } from '../hooks/useModules';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
 import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
@@ -33,12 +31,6 @@ export function playerStatus(cap: PlayerCapability | null | undefined): { tone: 
   return { tone: 'success', label: 'Connected', detail: `${backendName(cap.backend)}${cap.version ? ` ${cap.version}` : ''}, ${where}` };
 }
 
-/** Settings › Modules can turn the player on (a button, or the command without the updater). */
-export function modulesOffersPlayer(view: ModulesView | undefined): boolean {
-  if (!view || !view.verified || view.mode === 'unreachable') return false;
-  return view.modules.some((m) => m.id === 'player' && m.available);
-}
-
 const problem = (err: unknown, fallback: string) => {
   const e = err as Partial<ApiError> | null;
   return e?.detail || e?.title || fallback;
@@ -55,20 +47,13 @@ export function SettingsPlaybackContent() {
   const cap = settings.data?.capability ?? caps.data?.player;
   const status = playerStatus(cap);
   const scan = useScanPlayer(libraryId);
-  const modules = useModules(owner && !!cap && !cap.installed);
 
   return (
     <>
-      <h2>Playback</h2>
-
       <div className={styles.status} role="status">
         <Badge tone={status.tone}>{status.label}</Badge>
         {status.detail && <span className={styles.statusDetail}>{status.detail}</span>}
       </div>
-
-      {owner && cap && !cap.installed && modulesOffersPlayer(modules.data) && (
-        <p className={styles.hint}><Link to="/settings/$section" params={{ section: 'modules' }}>Turn on in Modules</Link></p>
-      )}
 
       {owner && cap?.installed && (
         <div className={styles.row}>

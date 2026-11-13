@@ -1,13 +1,12 @@
 /**
  * The books app (the spike, behind TAGAVE_DEV_APPS; api › routes/books.ts):
- * the works for the Books page and the Settings › Modules row. Off, or a
- * server without the flag: nothing is asked for (the row's own request
- * answers 404 and the row stays hidden).
+ * the works for the Books page and its Settings › Modules switch. Off, or a
+ * server without the flag: nothing is asked for and nothing shows.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BooksModuleView, BooksView } from '@tagave/shared';
 import { api } from '../services/api';
-import { facetsKey, useAppOn } from './useFacets';
+import { facetsKey, useAppOn, useDevAppAllowed } from './useFacets';
 import { useCan } from './usePermissions';
 
 export const booksKey = ['books'] as const;
@@ -34,10 +33,12 @@ export function useBooks() {
   });
 }
 
-/* ---------- Settings › Modules: the Books row (404 without the flag: no row) ---------- */
+/* ---------- Settings › Modules › Books (only with the flag) ---------- */
 
 export function useBooksModule() {
-  return useQuery({ queryKey: booksModuleKey, queryFn: () => api.get<BooksModuleView>('/settings/books'), retry: false });
+  // asked for only when the server names books in TAGAVE_DEV_APPS: an install without the flag sends nothing
+  const allowed = useDevAppAllowed('books') === true;
+  return useQuery({ queryKey: booksModuleKey, queryFn: () => api.get<BooksModuleView>('/settings/books'), enabled: allowed, retry: false });
 }
 
 export function useSetBooksModule() {

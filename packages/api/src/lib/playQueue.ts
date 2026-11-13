@@ -71,7 +71,7 @@ export async function readQueue(deps: { sql: Sql; boss: Pick<PgBoss, 'send'> | n
 }
 
 export type WriteOutcome =
-  | { ok: true; updatedAt: string; revision: number }
+  | { ok: true; updatedAt: string; revision: number; deviceId: string }
   | { ok: false; reason: 'taken' | 'stale' };
 
 /**
@@ -83,7 +83,7 @@ export async function writeQueue(sql: Sql, userId: string, s: QueueStateInput): 
   const index = s.items.length === 0 ? -1 : Math.min(s.index, s.items.length - 1);
   const mode = s.mode ?? 'save';
   const base = s.revision ?? null;
-  const rows = await sql<Array<{ updated_at: Date; revision: number | string }>>`
+  const rows = await sql<Array<{ updated_at: Date; revision: number | string; device_id: string }>>`
     insert into player_queue_state (user_id, items, context, idx, position_ms, device_id, revision, updated_at)
     values (${userId}, ${JSON.stringify(s.items)}::text::jsonb, ${s.context ? JSON.stringify(s.context) : null}::text::jsonb, ${index}, ${s.positionMs}, ${s.deviceId}, 1, clock_timestamp())
     on conflict (user_id) do update set items = excluded.items, context = excluded.context, idx = excluded.idx,
@@ -94,8 +94,8 @@ export async function writeQueue(sql: Sql, userId: string, s: QueueStateInput): 
       where ${mode} = 'play'
          or (${mode} = 'save' and player_queue_state.device_id = excluded.device_id and player_queue_state.revision = coalesce(${base}::bigint, player_queue_state.revision))
          or (${mode} = 'edit' and player_queue_state.revision = coalesce(${base}::bigint, player_queue_state.revision))
-    returning updated_at, revision`;
-  if (rows[0]) return { ok: true, updatedAt: new Date(rows[0].updated_at).toISOString(), revision: Number(rows[0].revision) };
+    returning updated_at, revision, device_id`;
+  if (rows[0]) return { ok: true, updatedAt: new Date(rows[0].updated_at).toISOString(), revision: Number(rows[0].revision), deviceId: rows[0].device_id };
   const [now] = await sql<Array<{ device_id: string }>>`select device_id from player_queue_state where user_id = ${userId}`;
   return { ok: false, reason: mode === 'save' && now && now.device_id !== s.deviceId ? 'taken' : 'stale' };
 }

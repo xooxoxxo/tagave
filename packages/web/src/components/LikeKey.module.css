@@ -1,0 +1,15 @@
+/* The heart (LikeKey.tsx): an embossed key; liked fills it in the accent. */
+.key[data-liked] { color: var(--dew); }
+@media (hover: hover) {
+  .key[data-liked]:hover:not(:disabled) { color: var(--dew); }
+}
+/* the press: a small give, then back (no bounce) */
+.key:active:not(:disabled) svg { transform: scale(0.92); }
+
+/* a song row's heart: the row's height, a smaller glyph */
+.sm { width: 36px; height: 36px; border-radius: var(--r-inner); }
+.sm svg { width: 18px; height: 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .key:active:not(:disabled) svg { transform: none; }
+}

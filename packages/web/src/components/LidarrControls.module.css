@@ -1,0 +1,17 @@
+/* A missing album's ⋮ and the Missing heading's ⋮ (LidarrControls.tsx):
+   the embossed key, sized like the Listen control beside it. */
+.anchor { display: inline-flex; }
+
+.more {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  color: var(--ink-2);
+}
+.more svg { width: 18px; height: 18px; }
+
+@media (pointer: coarse) {
+  .more { width: 44px; height: 44px; min-height: 44px; }
+}
+
+.get { align-self: flex-start; margin-block: 4px 2px; max-width: 100%; white-space: normal; }

@@ -8,12 +8,14 @@
  * The job's return value is its output (pg-boss), which the API hands to the
  * screen: the new candidate's id, or a sentence saying why there is none.
  */
-import { and, eq, notLike } from 'drizzle-orm';
-import { localAlbums, localTracks, matchCandidates } from '@tagave/db';
-import { scoreCandidates, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
+import { eq } from 'drizzle-orm';
+import { albumEvidenceLock, localAlbums, localTracks } from '@tagave/db';
+import { scoreCandidates, buildCandidateEvidence, stableJson, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { libraryProviderSettings, getProviders } from '../lib/providers.js';
+import { remoteInputOf, upsertAlbumEvidence } from '../lib/evidenceStore.js';
 import { discogsMaster, discogsRelease, localViewOf, mbRelease, persistFetched, toScorable } from './identifyAlbum.js';
+import { rebuildAlbumEvidence } from './evidenceBackfill.js';
 
 export type EditionTarget =
   | { source: 'musicbrainz'; mbid: string }
@@ -66,9 +68,15 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
     return { ok: false, message: 'That release has too many tracks to compare with your files.' };
   }
 
-  const { local } = await localViewOf(ctx, album, tracks);
+  const { local, albumEvidence } = await localViewOf(ctx, album, tracks);
   const scored = scoreCandidates(local, [toScorable(release)])[0]!;
   const { releaseId } = await persistFetched(ctx, release);
+  // The evidence goes with the distance on both paths below: a refreshed
+  // score next to stale evidence would pin a decision to facts it never saw.
+  // A pasted release has no fingerprint lookup behind it: a new candidate has
+  // no AcoustID coverage, and a listed one keeps the coverage its
+  // identification measured (the fingerprints did not change).
+  const evidence = buildCandidateEvidence(remoteInputOf(release, null), scored, local.tracks.length);
 
   // One candidate per release: pasting a listed (or excluded) edition again
   // refreshes its score and brings it back instead of adding a twin. A
@@ -76,22 +84,59 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
   // that candidate: its breakdown (mc.key names it for the linked app's
   // retract and revoke) stays as the module wrote it, and the owner's
   // evidence goes in a candidate of its own beside it.
-  const existing = await ctx.db.select({ id: matchCandidates.id }).from(matchCandidates)
-    .where(and(eq(matchCandidates.localAlbumId, album.id), eq(matchCandidates.releaseId, releaseId), notLike(matchCandidates.source, 'mc:%'))).limit(1);
   const distance = scored.distance.toFixed(4);
-  if (existing[0]) {
-    await ctx.db.update(matchCandidates)
-      .set({ distance, breakdown: scored.breakdown, excluded: false })
-      .where(eq(matchCandidates.id, existing[0].id));
-    return { ok: true, candidateId: existing[0].id, releaseId, distance: scored.distance, added: false };
+  const ev = JSON.stringify(evidence);
+  const breakdown = JSON.stringify(scored.breakdown);
+  const source = t.source === 'musicbrainz' ? 'user_mbid' : 'user_discogs';
+  // The candidate and the album evidence it was scored against change together.
+  const written = await ctx.sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtextextended(${albumEvidenceLock(album.id)}, 0))`;
+    // When the album's own side changed since its candidates were scored (its
+    // tracks were re-read without a re-identification), their evidence
+    // points at tracks the album no longer has: it is dropped here and
+    // rebuilt below. Should the rebuild fail, the candidates are left without
+    // evidence, which the evidence backfill picks up, never with stale evidence.
+    const [prev] = await tx<Array<{ evidence: unknown }>>`select evidence from album_evidence where local_album_id = ${album.id}`;
+    const albumChanged = !prev || stableJson(prev.evidence) !== stableJson(albumEvidence);
+    await upsertAlbumEvidence(tx, album.id, albumEvidence);
+    const [existing] = await tx<Array<{ id: string }>>`
+      select id from match_candidates
+       where local_album_id = ${album.id} and release_id = ${releaseId} and source not like 'mc:%' limit 1`;
+    let id: string;
+    let added: boolean;
+    if (existing) {
+      await tx`update match_candidates
+                  set distance = ${distance}::numeric, breakdown = ${breakdown}::text::jsonb, excluded = false, evidence = ${ev}::text::jsonb
+                where id = ${existing.id}`;
+      id = existing.id;
+      added = false;
+    } else {
+      const [inserted] = await tx<Array<{ id: string }>>`
+        insert into match_candidates (local_album_id, release_id, distance, breakdown, source, evidence, acoustid_coverage)
+        values (${album.id}, ${releaseId}, ${distance}::numeric, ${breakdown}::text::jsonb, ${source}, ${ev}::text::jsonb, null)
+        returning id`;
+      id = inserted!.id;
+      added = true;
+    }
+    if (albumChanged) {
+      await tx`update match_candidates set evidence = null
+                where local_album_id = ${album.id} and source not like 'mc:%' and id <> ${id} and evidence is not null`;
+    }
+    return { id, added, albumChanged };
+  });
+  if (written.albumChanged) {
+    try {
+      // the other candidates, re-scored offline from their stored releases
+      await rebuildAlbumEvidence(ctx, album.id, { except: written.id, incomplete: 'clear' });
+    } catch (err) {
+      // The pasted edition is in; the owner's screen gets it. The others stay
+      // without evidence until the backfill rebuilds them.
+      ctx.logger.error({ localAlbumId: album.id, err: (err as Error).message }, 'edition added: rebuilding the other candidates\' evidence failed');
+    }
   }
-  const inserted = await ctx.db.insert(matchCandidates).values({
-    localAlbumId: album.id,
-    releaseId,
-    distance,
-    breakdown: scored.breakdown,
-    source: t.source === 'musicbrainz' ? 'user_mbid' : 'user_discogs',
-  }).returning({ id: matchCandidates.id });
+  if (!written.added) {
+    return { ok: true, candidateId: written.id, releaseId, distance: scored.distance, added: false };
+  }
   ctx.logger.info({ localAlbumId: album.id, releaseId, distance: scored.distance }, 'edition added by the owner');
-  return { ok: true, candidateId: inserted[0]!.id, releaseId, distance: scored.distance, added: true };
+  return { ok: true, candidateId: written.id, releaseId, distance: scored.distance, added: true };
 }

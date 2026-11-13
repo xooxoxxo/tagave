@@ -89,12 +89,13 @@ export async function reportProgress(
 /**
  * Fan-out hook for the API's SSE stream (spec §11.4 `queue.changed`): an
  * identification decision changed the review queue / coverage counters.
- * Payload stays tiny; clients refetch the counts they show.
+ * Payload stays tiny; clients refetch the counts they show. A batch of
+ * decisions sends one notice with no album id.
  */
 export async function notifyQueueChanged(
   ctx: WorkerContext,
   libraryId: string,
-  localAlbumId: string,
+  localAlbumId: string | null,
   state: string,
 ): Promise<void> {
   const payload = JSON.stringify({ type: 'queue.changed', libraryId, localAlbumId, state });

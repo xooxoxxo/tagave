@@ -1,8 +1,10 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { DEFAULT_ALBUM_WIDGETS, parseAlbumWidgets, type AlbumWidgetLayout } from './pages/albumWidgets';
 
 /**
  * Display preferences from Settings › Appearance: where the sidebar's search
- * sits, whether the "tagave" wordmark shows beside the mark, the
+ * sits, whether the "tagave" wordmark shows beside the mark, whether the
+ * desktop sidebar stays or hides, the
  * generative artwork under short albums, and how the artist page is laid out. Per-browser conveniences like the
  * theme, kept in localStorage; every access is guarded, and with storage
  * blocked the defaults (today's look) apply.
@@ -13,6 +15,8 @@ export interface DisplayPrefs {
   showWordmark: boolean;
   /** The ripple artwork under albums of five tracks or fewer, where the pane has room. */
   shortAlbumArt: boolean;
+  shortAlbumWaves: boolean;
+  albumWidgets: AlbumWidgetLayout;
   /** The artist page: 'name' (the name first, notes in a column beside the albums) or 'albums' (laid out like an album page). */
   artistLayout: 'name' | 'albums';
   /**
@@ -21,12 +25,20 @@ export interface DisplayPrefs {
    * themes/themeChoice.ts). Settings no longer shows it.
    */
   adaptiveColour: boolean;
-  /** A soft glow along the player's seek bar that moves with the music. */
+  /** An equalizer of light rising from the player bar's top edge while music plays (BarGlow). */
   eqGlow: boolean;
+  /**
+   * Settings › Appearance › Sidebar: Always (false) or Auto-hide (true). With
+   * Auto-hide a desktop's sidebar hides and slides in over the page when the
+   * pointer comes to where it sits (components/sidebarPeek.ts).
+   */
+  sidebarAutoHide: boolean;
+  /** Auto-hide only: pinned in place (Pin, or ⌘\ / Ctrl+\), like Always. */
+  sidebarPinned: boolean;
 }
 
 export const DISPLAY_STORAGE_KEY = 'tagave-display';
-export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, artistLayout: 'name', adaptiveColour: true, eqGlow: false };
+export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, shortAlbumWaves: false, albumWidgets: DEFAULT_ALBUM_WIDGETS, artistLayout: 'name', adaptiveColour: true, eqGlow: false, sidebarAutoHide: false, sidebarPinned: false };
 
 /** Reads what is stored, keeping only valid values; anything else falls back to the default. */
 export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs {
@@ -39,9 +51,13 @@ export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs 
     searchPlacement: stored['searchPlacement'] === 'beside' ? 'beside' : 'below',
     showWordmark: typeof stored['showWordmark'] === 'boolean' ? stored['showWordmark'] : true,
     shortAlbumArt: typeof stored['shortAlbumArt'] === 'boolean' ? stored['shortAlbumArt'] : true,
+    shortAlbumWaves: stored['shortAlbumWaves'] === true,
+    albumWidgets: parseAlbumWidgets(stored['albumWidgets']),
     artistLayout: stored['artistLayout'] === 'albums' ? 'albums' : 'name',
     adaptiveColour: typeof stored['adaptiveColour'] === 'boolean' ? stored['adaptiveColour'] : true,
     eqGlow: stored['eqGlow'] === true,
+    sidebarAutoHide: stored['sidebarAutoHide'] === true,
+    sidebarPinned: stored['sidebarPinned'] === true,
   };
 }
 

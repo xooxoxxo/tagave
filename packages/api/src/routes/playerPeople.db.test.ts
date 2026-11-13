@@ -200,10 +200,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
     expect(cb.origin).toBe('http://localhost:3100');
     // Last.fm sends the browser back with a token; a state made for someone else is refused
     const forged = await app.inject({ method: 'GET', url: `${cb.pathname}${cb.search}&token=good-token`, headers: as(ben) });
-    expect(forged.headers.location).toBe('/settings/listening?lastfm=expired');
+    expect(forged.headers.location).toBe('/settings/modules/player?lastfm=expired');
     const back = await app.inject({ method: 'GET', url: `${cb.pathname}${cb.search}&token=good-token`, headers: as(anna) });
     expect(back.statusCode).toBe(303);
-    expect(back.headers.location).toBe('/settings/listening?lastfm=connected');
+    expect(back.headers.location).toBe('/settings/modules/player?lastfm=connected');
     const [acct] = await sql`select account_name, secret_sealed from scrobble_accounts where user_id = ${anna} and service = 'lastfm'`;
     expect(acct.account_name).toBe('anna-fm');
     expect(acct.secret_sealed).toMatch(/^enc:v1:/);

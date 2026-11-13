@@ -1,5 +1,5 @@
 /** The album detail as GET /libraries/:id/albums/:albumId returns it. */
-import type { IdentifyRequestView } from '@tagave/shared';
+import type { IdentifyRequestView, MaintenanceTaskView } from '@tagave/shared';
 
 /** another album with this title that fits together with this one */
 export interface MergeCandidateView {
@@ -117,7 +117,7 @@ export interface AlbumDetail {
   identifyRequest?: IdentifyRequestView | null;
   coverOrigin: string | null;
   /** the latest cover-art lookup (API ≥ 0.6): live while queued or running */
-  artFetch?: { state: 'queued' | 'running' | 'done' | 'failed'; finishedAt: string | null } | null;
+  artFetch?: { state: 'queued' | 'running' | 'done' | 'failed' | 'interrupted' | 'unavailable'; finishedAt: string | null; task?: MaintenanceTaskView } | null;
   /** each folder with its scan root and "Open folder" link (API ≥ 0.6) */
   folders?: Array<{ path: string; scanRootId: string | null; link: string | null }>;
   isCueImage: boolean;
@@ -160,6 +160,13 @@ export interface AlbumDetail {
     decidedAt: string | null;
     reason: string | null;
     releaseGroupOnly?: boolean;
+    /** who decided (@tagave/shared MatchProvenance): absent on an older server */
+    decidedKind?: 'user' | 'system' | 'rule' | 'model' | 'unknown';
+    deciderId?: string | null;
+    deciderVersion?: string | null;
+    probability?: number | null;
+    batch?: { id: string; createdAt: string; startedBy: string | null } | null;
+    person?: string | null;
   } | null;
   discogsCollectionItems?: DiscogsCollectionItem[];
   editions?: {

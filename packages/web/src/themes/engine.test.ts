@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hexFromArgb } from '@material/material-color-utilities';
+import { argbFromHex, hexFromArgb } from '@material/material-color-utilities';
 import { CUSTOM_START, STARTERS, generate, generatedSpec, hctOf, minRatios, withHue, type ThemeSpec } from './engine';
 
 /** a seeded random, so a failure names a seed that can be replayed */
@@ -26,7 +26,7 @@ describe('theme engine', () => {
         for (const p of generate(spec, dark).pairs) expect(p.ratio, `${JSON.stringify(spec)} ${dark ? 'dark' : 'light'} ${p.name}`).toBeGreaterThanOrEqual(p.min);
       }
     }
-  });
+  }, 30_000); // hundreds of seeds: CI runners are slower than a laptop
 
   it('reports the lowest ratios', () => {
     const m = minRatios(STARTERS.moody, true);

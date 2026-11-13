@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from '../components/player/NowPlaying';
 import { HISTORY, QUEUE } from './queueFixtures';
+import { CastKeyView } from '../components/player/CastKey';
+import { MixChip } from '../components/player/MixChip';
+import { DeviceStripView, DevicesKeyView } from '../components/player/DevicesKey';
+import { DjIcon, EmbossIconButton } from '../components/ui';
 
 const noop = () => undefined;
 const queue = {
@@ -48,6 +52,22 @@ export const DesktopHistory: Story = {
   render: () => <OverPage><NowPlayingView {...queue} track={QUEUE[0]!} onClose={noop} initialTab="history" /></OverPage>,
 };
 
+/** The DJ module's DJ key (where the DJ view can run here): in the header on a desktop, beside the cast key on a phone. */
+const djKey = (place: 'page' | 'header') => <EmbossIconButton label="DJ" place={place} onClick={noop}><DjIcon /></EmbossIconButton>;
+
+export const DesktopDjKey: Story = {
+  name: 'Desktop · DJ key',
+  tags: ['shot-viewport'],
+  render: () => <OverPage><NowPlayingView {...queue} track={QUEUE[0]!} onClose={noop} dj={djKey('header')} /></OverPage>,
+};
+
+export const PhoneDjKey: Story = {
+  name: 'Phone · DJ key',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => <NowPlayingScreen {...queue} {...transport} track={QUEUE[0]!} onClose={noop} dj={djKey('page')} />,
+};
+
 export const PhonePlaying: Story = {
   name: 'Phone · Playing',
   tags: ['phone'],
@@ -73,6 +93,18 @@ export const PhoneMiniBar: Story = {
   ),
 };
 
+/** The DJ module fades one track into the next: the Mix chip beside the keys, held halfway. */
+export const PhoneMiniBarMix: Story = {
+  name: 'Phone · Mini bar · Mix',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
+      <MiniPlayer track={QUEUE[0]!} status="playing" position={3} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} mix={<MixChip lengthMs={6000} frozenAt={0.5} />} />
+    </div>
+  ),
+};
+
 export const PhoneMiniBarLongNames: Story = {
   name: 'Phone · Mini bar, long names',
   tags: ['phone'],
@@ -85,4 +117,72 @@ export const PhoneMiniBarLongNames: Story = {
       />
     </div>
   ),
+};
+
+const castKey = (on: boolean) => <CastKeyView kind="remote" available state={on ? 'on' : 'off'} device={null} reach="ok" host={null} onChoose={noop} />;
+
+export const DesktopCasting: Story = {
+  name: 'Desktop · Casting',
+  tags: ['shot-viewport'],
+  render: () => <OverPage><NowPlayingView {...queue} track={QUEUE[0]!} onClose={noop} castLine="Casting to Living Room" /></OverPage>,
+};
+
+/** On a phone the cast key lives in the full player, under the keys. */
+export const PhoneCastAvailable: Story = {
+  name: 'Phone · Cast, device there',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => <NowPlayingScreen {...queue} {...transport} track={QUEUE[0]!} onClose={noop} cast={castKey(false)} />,
+};
+
+export const PhoneCasting: Story = {
+  name: 'Phone · Casting',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => <NowPlayingScreen {...queue} {...transport} track={QUEUE[0]!} onClose={noop} cast={castKey(true)} castLine="Casting to Living Room" />,
+};
+
+export const PhoneMiniBarCasting: Story = {
+  name: 'Phone · Mini bar, casting',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
+      <MiniPlayer track={QUEUE[0]!} status="playing" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} castLine="Casting to Living Room" />
+    </div>
+  ),
+};
+
+/* Play in one place: another of the person's devices plays; this one shows it and controls it. */
+const devicesKey = <DevicesKeyView lit onChoose={noop} devices={[{ id: 'phone', name: 'Safari on iPhone', here: true, playing: false }, { id: 'mac', name: 'Chrome on Mac', here: false, playing: true }]} />;
+
+export const PhoneMiniBarRemote: Story = {
+  name: 'Phone · Mini bar, playing on another device',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
+      <DeviceStripView playingOn="Chrome on Mac" menu={{ onChoose: noop, devices: [{ id: 'phone', name: 'Safari on iPhone', here: true, playing: false }, { id: 'mac', name: 'Chrome on Mac', here: false, playing: true }] }} />
+      <MiniPlayer track={QUEUE[0]!} status="playing" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} />
+    </div>
+  ),
+};
+
+export const PhoneMiniBarTapToPlay: Story = {
+  name: 'Phone · Mini bar, tap to play here',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0 }}>
+      <DeviceStripView needsTap onTap={noop} />
+      <MiniPlayer track={QUEUE[0]!} status="paused" position={141} duration={413} canNext onOpen={noop} onToggle={noop} onNext={noop} onRetry={noop} />
+    </div>
+  ),
+};
+
+export const PhoneRemote: Story = {
+  name: 'Phone · Playing on another device',
+  tags: ['phone'],
+  globals: { viewport: { value: 'phone' } },
+  render: () => <NowPlayingScreen {...queue} {...transport} track={QUEUE[0]!} onClose={noop} cast={devicesKey} castLine="Playing on Chrome on Mac" />,
 };

@@ -97,6 +97,24 @@ describe('album identity', () => {
     expect(identityProvenance({ status: null, source: null, distance: null, embeddedMbid: null, releaseMbid: null }))
       .toEqual({ provenance: 'auto', confidence: 0 });
   });
+  it('a model decision is automatic, with the model probability as confidence', () => {
+    expect(identityProvenance({ status: 'auto', decidedBy: 'system', decidedKind: 'model', probability: '0.9940', source: 'mb_search', distance: '0.2000', embeddedMbid: null, releaseMbid: null }))
+      .toEqual({ provenance: 'auto', confidence: 0.994 });
+  });
+  it('a model decision without a usable probability falls back to 1 − distance', () => {
+    for (const probability of [null, 'NaN']) {
+      expect(identityProvenance({ status: 'auto', decidedBy: 'system', decidedKind: 'model', probability, source: 'mb_search', distance: '0.2000', embeddedMbid: null, releaseMbid: null }))
+        .toEqual({ provenance: 'auto', confidence: 0.8 });
+    }
+  });
+  it('a model probability above 1 is clamped to 1', () => {
+    expect(identityProvenance({ status: 'auto', decidedBy: 'system', decidedKind: 'model', probability: '1.5', source: 'mb_search', distance: '0.2000', embeddedMbid: null, releaseMbid: null }))
+      .toEqual({ provenance: 'auto', confidence: 1 });
+  });
+  it('a rule decision keeps 1 − distance', () => {
+    expect(identityProvenance({ status: 'auto', decidedBy: 'system', decidedKind: 'rule', probability: null, source: 'mb_search', distance: '0.0300', embeddedMbid: null, releaseMbid: null }))
+      .toEqual({ provenance: 'auto', confidence: 0.97 });
+  });
 });
 
 describe('parseSince', () => {

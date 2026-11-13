@@ -1,24 +1,28 @@
 /**
  * Pieces both artist page layouts share: the album card and grid, the
- * follow button, the details note (fetching, failed), the biography and the
- * Maintenance tools.
+ * follow button, the details note (fetching, failed), the short biography,
+ * About and the Maintenance tools.
  */
-import { useContext, useState } from 'react';
+import { useContext, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Button, CoverArt, CoverChip, IconButton, UndoIcon, type CoverChipTone } from '../components/ui';
 import type { ArtistAlbum, ArtistAlbumOwnership, ArtistDetail } from '../hooks';
-import { paragraphs, shortDate, type DetailsState } from './artistPageView';
-import { ListenControl, MissingListenLinks } from '../components/ListenControl';
+import { aboutFacts, paragraphs, shortDate, type DetailsState } from './artistPageView';
+import { ListenControl, MissingListenLinks, MissingPrimary, PlayOnControl } from '../components/ListenControl';
+import { splitPrimary } from '@tagave/shared';
+import { LidarrChip, MissingAlbumMenu } from '../components/LidarrControls';
 import styles from './ArtistPage.module.css';
 
 const CHIP: Partial<Record<ArtistAlbumOwnership, [string, CoverChipTone]>> = {
-  // missing and skipped albums sit under their own headings, dimmed: no chip
   physical: ['Physical only', 'neutral'],
-  both: ['Physical', 'accent'],
+  both: ['Physical + digital', 'accent'],
 };
 
-export function AlbumCard({ album, onReopen, reopening }: {
+type ArtistOrigin = { id: string; name: string };
+
+export function AlbumCard({ album, artistOrigin, onReopen, reopening }: {
   album: ArtistAlbum;
+  artistOrigin?: ArtistOrigin | undefined;
   /** a skipped release: bring it back to the missing list */
   onReopen?: ((gapId: string) => void) | undefined;
   reopening?: boolean;
@@ -28,9 +32,12 @@ export function AlbumCard({ album, onReopen, reopening }: {
   // Listen elsewhere: a missing album's links (the listen-links module)
   const listen = useContext(MissingListenLinks);
   const links = album.ownership === 'missing' && album.releaseGroupId ? listen?.[album.releaseGroupId] ?? [] : [];
+  // "Play on <primary>", the others in the Listen control
+  const split = splitPrimary(links, useContext(MissingPrimary));
   const cover = (
     <CoverArt src={album.coverUrl} title={album.title} dimmed={away ? (album.ownership as 'missing' | 'ignored') : undefined} interactive={!!album.localAlbumId}>
       {chip && <CoverChip tone={chip[1]}>{chip[0]}</CoverChip>}
+      {album.ownership === 'missing' && <LidarrChip releaseGroupId={album.releaseGroupId} />}
       {album.ownership === 'ignored' && album.gapId && onReopen && (
         <IconButton
           size="sm"
@@ -50,15 +57,28 @@ export function AlbumCard({ album, onReopen, reopening }: {
   </>;
   if (album.localAlbumId) {
     return <li className={styles.card}>
-      <Link to="/albums/$albumId" params={{ albumId: album.localAlbumId }} className={styles.cardLink}>{cover}{text}</Link>
+      <Link to="/albums/$albumId" params={{ albumId: album.localAlbumId }} className={styles.cardLink}
+        state={(previous) => ({
+          ...previous,
+          albumArtistOrigin: album.matchedBy === 'tags' && artistOrigin ? { id: artistOrigin.id, name: artistOrigin.name } : undefined,
+        })}>{cover}{text}</Link>
     </li>;
   }
-  return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}{text}{links.length > 0 && <ListenControl links={links} className={styles.cardListen} />}</li>;
+  // A missing album can be requested directly. Its menu manages an existing request.
+  const more = album.ownership === 'missing' ? <MissingAlbumMenu releaseGroupId={album.releaseGroupId} title={album.title} /> : null;
+  return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}
+    {more ? <div className={styles.cardHead}><div className={styles.cardText}>{text}</div>{more}</div> : text}
+    {album.ownership === 'missing' && <MissingAlbumMenu releaseGroupId={album.releaseGroupId} title={album.title} placement="card" />}
+    {split.primary ? <div className={styles.cardListenRow}>
+      <PlayOnControl link={split.primary} />
+      {split.others.length > 0 && <ListenControl links={split.others} beside />}
+    </div> : split.others.length > 0 && <ListenControl links={split.others} className={styles.cardListen} />}
+  </li>;
 }
 
-export function AlbumGrid({ albums, onReopen, reopening }: { albums: ArtistAlbum[]; onReopen?: ((gapId: string) => void) | undefined; reopening?: boolean }) {
+export function AlbumGrid({ albums, artistOrigin, onReopen, reopening }: { albums: ArtistAlbum[]; artistOrigin?: ArtistOrigin; onReopen?: ((gapId: string) => void) | undefined; reopening?: boolean }) {
   return <ul className={styles.grid}>
-    {albums.map((a) => <AlbumCard key={a.key} album={a} onReopen={onReopen} reopening={!!reopening} />)}
+    {albums.map((a) => <AlbumCard key={a.key} album={a} artistOrigin={artistOrigin} onReopen={onReopen} reopening={!!reopening} />)}
   </ul>;
 }
 
@@ -119,28 +139,58 @@ export function BioSource({ bio }: { bio: NonNullable<ArtistDetail['bio']> }) {
   return <span>From <a href={bio.url} target="_blank" rel="noopener noreferrer">Wikipedia</a> · {bio.license || 'CC BY-SA 4.0'}</span>;
 }
 
-/** B's biography: the first two paragraphs, "Show all" for the rest. */
-export function Biography({ bio, headingId }: { bio: NonNullable<ArtistDetail['bio']>; headingId: string }) {
-  const [all, setAll] = useState(false);
+/**
+ * The biography in the header: about three lines, More for the rest in
+ * place, Less to fold it again (owner, 2026-11-04: "reduce the length of the
+ * artist info collapsed version"). More shows only when there is more.
+ */
+export function ShortBio({ bio, className }: { bio: NonNullable<ArtistDetail['bio']>; className?: string | undefined }) {
+  const [open, setOpen] = useState(false);
   const ps = paragraphs(bio.text);
-  const shown = all ? ps : ps.slice(0, 2);
-  return <>
-    {shown.map((p, i) => <p key={i} className={i === 0 ? styles.bioLead : undefined}>{p}</p>)}
-    <div className={styles.bioSource}>
-      {ps.length > 2 && <Button variant="quiet" size="sm" className={styles.showAll} onClick={() => setAll(!all)} aria-expanded={all} aria-controls={headingId}>{all ? 'Show less' : 'Show all'}</Button>}
-      <BioSource bio={bio} />
-    </div>
-  </>;
+  const lead = useRef<HTMLParagraphElement>(null);
+  // until measured (and without a DOM): More whenever there is a second paragraph
+  const [cut, setCut] = useState(ps.length > 1);
+  useLayoutEffect(() => {
+    const el = lead.current;
+    if (!el || open) return;
+    const measure = () => setCut(ps.length > 1 || el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, ps.length]);
+  return <div className={`${styles.shortBio} ${className ?? ''}`} data-open={open ? '' : undefined}>
+    {open
+      ? ps.map((p, i) => <p key={i}>{p}</p>)
+      : <p ref={lead} className={styles.clamped}>{ps.join(' ')}</p>}
+    {(cut || open) && <button type="button" className={styles.textLink} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Less' : 'More'}</button>}
+  </div>;
 }
 
 const LINK_LABELS: Array<[keyof ArtistDetail['links'], string]> = [
   ['musicbrainz', 'MusicBrainz'], ['wikidata', 'Wikidata'], ['wikipedia', 'Wikipedia'], ['discogs', 'Discogs'],
 ];
 
-export function ProviderLinks({ links }: { links: ArtistDetail['links'] }) {
-  const shown = LINK_LABELS.filter(([k]) => links[k]);
-  if (!shown.length) return <span className={styles.when}>No provider links yet</span>;
-  return <>{shown.map(([k, label]) => <a key={k} className={styles.chipLink} href={links[k]!} target="_blank" rel="noopener noreferrer">{label}</a>)}</>;
+/**
+ * About, under the albums: the trivia the header no longer carries — years,
+ * other names, MusicBrainz's description — then where the biography comes
+ * from and the artist's pages elsewhere. Labels and values.
+ */
+export function ArtistAbout({ artist, details, owned }: { artist: ArtistDetail; details: DetailsState; owned?: string | undefined }) {
+  const facts = aboutFacts(artist);
+  // the biography's source leads the links, with its licence; the others follow
+  const links = LINK_LABELS.filter(([k]) => artist.links?.[k] && !(k === 'wikipedia' && artist.bio));
+  const any = !!artist.bio || links.length > 0;
+  return <dl className={styles.about}>
+    {owned && <div className={styles.row}><dt>In your library</dt><dd>{owned}</dd></div>}
+    {facts.map(([k, v]) => <div key={k} className={styles.row}><dt>{k}</dt><dd dir="auto">{v}</dd></div>)}
+    {!artist.bio && details === 'done' && <div className={styles.row}><dt>Biography</dt><dd className={styles.none}>None on Wikipedia</dd></div>}
+    {any && <div className={styles.row}><dt>Links</dt><dd className={styles.aboutLinks}>
+      {artist.bio && <span><a href={artist.bio.url} target="_blank" rel="noopener noreferrer">Wikipedia</a> · {artist.bio.license || 'CC BY-SA 4.0'}</span>}
+      {links.map(([k, label]) => <a key={k} href={artist.links[k]!} target="_blank" rel="noopener noreferrer">{label}</a>)}
+    </dd></div>}
+  </dl>;
 }
 
 /** When the details were fetched, or why they are not. */

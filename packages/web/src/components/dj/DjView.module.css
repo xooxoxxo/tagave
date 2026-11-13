@@ -1,0 +1,97 @@
+/* The DJ view (DjView.tsx, Deck.tsx): flat and calm, tagave's tokens only; the prototype's direction B. */
+
+/* ---- the header ---- */
+.head { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; min-width: 0; }
+.heading { margin: 0 auto 0 2px; font: var(--type-display); color: var(--ink); }
+.auto { display: flex; align-items: center; gap: var(--space-sm); }
+
+.ctlLabel { font: 500 13px / 1 var(--font-body); color: var(--ink-2); white-space: nowrap; }
+.ctlValue { font: 400 12px / 1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); min-width: 4.6em; text-align: right; white-space: nowrap; }
+
+.field { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); max-width: 34rem; min-height: 2.5rem; margin-top: var(--space-sm); }
+.fieldValue { color: var(--ink-2); font-size: var(--font-size-sm); }
+
+/* ---- the body: two decks, the crossfader, the queue ---- */
+.body { display: flex; flex-direction: column; gap: var(--space-md); min-width: 0; padding-bottom: var(--space-xl); }
+.decks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
+
+.deck {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  transition: border-color var(--dur) ease;
+}
+.deck[data-live] { border-color: color-mix(in srgb, var(--dew) 45%, var(--line)); }
+
+.deckHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.letter, .state, .bpmLabel, .fxName { font: 500 11px / 1 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.state[data-on] { color: var(--dew); }
+
+.top { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 12px; align-items: center; margin-bottom: 14px; }
+.cover { width: 56px; height: 56px; border-radius: var(--r-inner); }
+.names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.title { font: 500 15px / 1.3 var(--font-body); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.artist { font: 400 13px / 1.3 var(--font-body); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bpm { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.bpmValue { font: 400 22px / 1 var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--ink); }
+
+.times { display: flex; justify-content: space-between; margin-top: 8px; font: 400 11.5px / 1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-3); }
+
+.controls { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.playKey { color: var(--dew); }
+.playKey svg { width: 28px; height: 28px; }
+.pitch { display: flex; align-items: center; gap: 10px; flex: 1 1 200px; min-width: 0; }
+
+/* Sync and Kill: a word that takes the accent when on (aria-pressed) */
+.toggle, .kill {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 12.5px / 1 var(--font-body);
+  cursor: pointer;
+  transition: color var(--dur) ease, background-color var(--dur) ease, border-color var(--dur) ease;
+}
+.kill { min-height: 24px; padding: 0 8px; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); border-color: transparent; }
+@media (hover: hover) {
+  .toggle:hover:not(:disabled), .kill:hover:not(:disabled) { color: var(--ink); background: transparent; }
+}
+.toggle[aria-pressed="true"], .kill[aria-pressed="true"] { background: var(--dew); border-color: var(--dew); color: var(--dew-ink); }
+@media (hover: hover) {
+  .toggle[aria-pressed="true"]:hover:not(:disabled), .kill[aria-pressed="true"]:hover:not(:disabled) { background: var(--dew-lo); color: var(--dew-ink); }
+}
+.toggle:disabled { opacity: var(--opacity-disabled, 0.45); cursor: not-allowed; }
+.toggle:focus-visible, .kill:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.fx { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.fxGroup { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fxKnobs { display: flex; gap: 4px; align-items: flex-start; }
+.band { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
+.crossfader { display: flex; justify-content: center; padding: 4px 0; }
+.crossfader > * { max-width: 480px; }
+
+.queue { min-width: 0; }
+.queueTitle { margin: var(--space-sm) 0 var(--space-xs) 4px; font: var(--type-title); color: var(--ink); }
+
+/* ---- a phone: the decks stacked ---- */
+@media (max-width: 900px) {
+  .decks { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .deck { padding: 14px; }
+}
+@media (max-width: 480px) {
+  .fx { justify-content: flex-start; gap: 12px; }
+  .heading { font: var(--type-headline); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck, .toggle, .kill { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .toggle[aria-pressed="true"], .kill[aria-pressed="true"] { background: Highlight; color: HighlightText; border-color: Highlight; }
+}

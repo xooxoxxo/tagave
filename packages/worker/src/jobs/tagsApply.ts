@@ -27,9 +27,24 @@ import { audioHandler, tagSnapshotOf } from '@tagave/core/files';
 import { localTracks } from '@tagave/db';
 import { clusterSingletonKey, relDirname, tagsDigest } from '../lib/helpers.js';
 import { requestPlayerRescan } from '../lib/playerScan.js';
+import { queueOrganizeAfterPlan } from './organize.js';
+import { albumsChanged } from '../lib/albumCare.js';
+import { runPlanSplits, type PlanSplitOutcome } from './planSplits.js';
+import type { SplitDeps } from './filesSplit.js';
+import { FlacTools } from '../lib/flacTools.js';
+import type { TagPolicies } from '@tagave/shared';
+import type { MaintenanceWork } from '@tagave/db';
+import { runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
 
 export interface TagsApplyJobData {
   planId: string;
+  maintenance?: MaintenanceWork;
+}
+
+/** What the apply needs from outside; tests pass the split's tools and tag writer. */
+export interface TagsApplyDeps {
+  split?: Omit<SplitDeps, 'policy'>;
+  claim?: MaintenanceRun;
 }
 
 /**
@@ -74,9 +89,26 @@ export function fieldsToWriteFrom(diffs: TagDiffEntry[]): Record<string, string 
  * Apply a tag plan: write tags to files in pending status, update journal,
  * pause on hash mismatch, continue on other errors.
  */
-export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
+export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsApplyDeps = {}) {
+  if (data.maintenance && !deps.claim) {
+    await runMaintenance(ctx, data.maintenance, async (claim) => {
+      const [before] = await ctx.sql<{ status: string }[]>`select status from tag_plans where id = ${data.planId}`;
+      if (before?.status === 'applied') return { state: 'done', stage: 'Tag Plan applied' };
+      if (!before || !['previewed', 'paused', 'applying'].includes(before.status)) {
+        return { state: 'cancelled', stage: 'Tag Plan closed' };
+      }
+      await claim.update({ stage: 'Applying Tag Plan', checkpoint: { planId: data.planId } });
+      await tagsApplyJob(ctx, data, { ...deps, claim });
+      const [plan] = await ctx.sql<{ status: string; error: string | null }[]>`
+        select status, stats->>'lastError' as error from tag_plans where id = ${data.planId}
+      `;
+      if (plan?.status === 'paused') return { state: 'interrupted', stage: 'Tag Plan paused', error: plan.error };
+      return { state: 'done', stage: plan?.status === 'partially_failed' ? 'Tag Plan finished with errors' : 'Tag Plan applied' };
+    });
+    return;
+  }
   try {
-    await applyPlan(ctx, data);
+    await applyPlan(ctx, data, deps);
   } catch (error) {
     // A failure outside the per-item handler (a DB constraint, a missing
     // sidecar, a lost connection) used to leave the plan in 'applying' with
@@ -84,6 +116,7 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
     // 'paused' with the message so the page shows it and Resume retries.
     const message = errorMessage(error);
     ctx.logger.error({ planId: data.planId, error: message }, 'tags.apply failed; plan paused');
+    await deps.claim?.current();
     await parkPlan(ctx, data.planId, message);
     throw error;
   }
@@ -114,7 +147,48 @@ async function parkPlan(ctx: WorkerContext, planId: string, message: string) {
   }
 }
 
-async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
+/**
+ * 0089: the plan's splits first (an album in one file becomes its tracks,
+ * tagged with the plan's values), with the same tag-writes gate as every
+ * item. The split's own sidecar is closed after.
+ */
+async function splitsFirst(ctx: WorkerContext, planId: string, policy: TagPolicies, libraryId: string, deps: TagsApplyDeps): Promise<PlanSplitOutcome> {
+  const none: PlanSplitOutcome = { done: 0, failed: 0, tracks: 0, error: null };
+  const [waiting] = (await ctx.sql`select count(*)::int as n from album_splits where tag_plan_id = ${planId} and (state = 'splitting' or (state = 'done' and write_checkpoint is not null))`) as unknown as Array<{ n: number }>;
+  if (!waiting || waiting.n === 0) return none;
+  const [lib] = (await ctx.sql`select settings from libraries where id = ${libraryId}`) as unknown as Array<{ settings: { tagWritesEnabled?: boolean } | null }>;
+  if (lib?.settings?.tagWritesEnabled !== true) {
+    // nothing ran: the splits wait for the next Apply
+    if (!deps.claim) await ctx.sql`update album_splits set state = 'ready', updated_at = now() where tag_plan_id = ${planId} and state = 'splitting' and write_checkpoint is null`;
+    throw new Error('Tag writes are off for this library');
+  }
+  // the page shows the plan at work while the tracks are written
+  await ctx.sql`update tag_plans set status = 'applying' where id = ${planId} and status in ('previewed', 'paused')`;
+  const check = {
+    beforeWrite: deps.claim?.current ?? deps.split?.beforeWrite ?? (async () => undefined),
+    checkpoint: deps.claim
+      ? (stage: string) => deps.claim!.update({ stage })
+      : deps.split?.checkpoint ?? (async () => undefined),
+  };
+  if (deps.split) return runPlanSplits(ctx, planId, policy, { ...deps.split, ...check });
+  const tags = new MutagenTagWriter();
+  try {
+    return await runPlanSplits(ctx, planId, policy, { tools: new FlacTools(), tags, ...check });
+  } finally {
+    await tags.close();
+  }
+}
+
+/** The splits' outcome, in the plan's stats (the page's "Split into 11 tracks · tagged"). */
+async function recordSplits(ctx: WorkerContext, planId: string, s: PlanSplitOutcome): Promise<void> {
+  if (s.done + s.failed === 0) return;
+  await ctx.sql`update tag_plans set stats = coalesce(stats, '{}'::jsonb)
+                  || jsonb_build_object('splitsDone', ${s.done}::int, 'splitsFailed', ${s.failed}::int, 'splitTracks', ${s.tracks}::int)
+                  || ${s.error ? ctx.sql`jsonb_build_object('lastError', ${s.error}::text)` : ctx.sql`'{}'::jsonb`}
+                 where id = ${planId}`;
+}
+
+async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsApplyDeps = {}) {
   const { planId } = data;
   const { db, logger } = ctx;
 
@@ -144,6 +218,11 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
   // Note: Per-item gate checks happen before safeWriter.write() (finding 3)
   // to catch flips that occur between job start and item processing
 
+  // 0089: split first, then tag: an album in one file becomes its tracks
+  // (already carrying the plan's values) before any item is written
+  const splits = await splitsFirst(ctx, planId, plan.policy as TagPolicies, libraryId, deps);
+  await recordSplits(ctx, planId, splits);
+
   // Get pending and applying items
   const pendingItems = await db
     .select()
@@ -156,10 +235,10 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
     );
 
   if (pendingItems.length === 0) {
-    // All done
+    // All done (a plan that only split: its outcome is the split's)
     await db
       .update(tagPlans)
-      .set({ status: 'applied', appliedAt: new Date() })
+      .set({ status: splits.failed > 0 ? 'partially_failed' : 'applied', appliedAt: new Date() })
       .where(eq(tagPlans.id, planId));
     return;
   }
@@ -225,6 +304,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
   let hashMismatchEncountered = false;
 
   for (let i = 0; i < itemsToProcess.length; i += concurrency) {
+    await deps.claim?.current();
     const batch = itemsToProcess.slice(i, i + concurrency);
     const results = await Promise.allSettled(
       batch.map(async (item) => {
@@ -298,6 +378,16 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
               'Tag apply: tagWritesEnabled gate closed'
             );
             return { success: false, hashMismatch: true }; // Treated as critical to pause
+          }
+
+          // 0081: a file whose tags already agree is in the plan only to move
+          // (its path under the naming rules); nothing to write here
+          if (Object.keys(fieldsToWrite).length === 0) {
+            await db
+              .update(tagPlanItems)
+              .set({ status: 'applied', after: afterTags, appliedAt: new Date() })
+              .where(eq(tagPlanItems.id, item.id));
+            return { success: true };
           }
 
           // Compute audio-stream hash before writing
@@ -463,13 +553,25 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
         .select({ id: tagPlanItems.id })
         .from(tagPlanItems)
         .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'failed')));
-      const status = failed.length > 0 ? 'partially_failed' : 'applied';
+      const status = failed.length > 0 || splits.failed > 0 ? 'partially_failed' : 'applied';
       // Queued before the status flips, so the plan page never sees a
       // finished plan whose albums have not started updating yet.
       await reclusterWrittenDirs(ctx, planId);
+      // 0081: then the files to their paths under the naming rules, one move
+      // per album (files.move: journal, Undo); a blocked album keeps its place
+      let movesQueued = 0;
+      try {
+        movesQueued = await queueOrganizeAfterPlan(ctx, planId);
+      } catch (error) {
+        logger.warn({ planId, error: String(error) }, 'tags.apply: could not queue the moves');
+      }
       await db
         .update(tagPlans)
-        .set({ status, appliedAt: new Date() })
+        .set({
+          status,
+          appliedAt: new Date(),
+          ...(movesQueued > 0 ? { stats: sql`coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('movesQueued', ${movesQueued}::int)` } : {}),
+        })
         .where(eq(tagPlans.id, planId));
       // A fully applied revert plan marks the plan it undid as reverted.
       const revertOf = (plan.policy as { preset?: string; revertOf?: string } | null);
@@ -576,9 +678,6 @@ async function relintTouchedAlbums(ctx: WorkerContext, libraryId: string, fileId
     .where(inArray(localTracks.audioFileId, fileIds));
   const albumIds = rows.map((r) => r.albumId).filter((id): id is string => !!id);
   if (albumIds.length === 0) return;
-  try {
-    await ctx.boss.send('gaps.recompute', { libraryId, albumIds }, {});
-  } catch (error) {
-    ctx.logger.warn({ libraryId, albums: albumIds.length, error: String(error) }, 'tags.apply: could not queue re-lint');
-  }
+  // identity and tags changed: the album-level gaps now, the re-lint queued
+  await albumsChanged(ctx, libraryId, albumIds);
 }

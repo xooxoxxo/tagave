@@ -1,11 +1,11 @@
-import { and, eq, inArray, notLike } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
-  albumMatches, files, localAlbums, localTracks, matchCandidates, releases,
+  acceptInTx, albumEvidenceLock, files, localAlbums, localTracks, releases,
 } from '@tagave/db';
 import {
   scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
-  mediumCountOf,
-  type CanonicalRelease, type ReleaseQuery, type EditionsPage, MB_BROWSE_LIMIT,
+  mediumCountOf, buildAlbumEvidence, buildCandidateEvidence,
+  type CanonicalRelease, type TitleSource, type YearSource, type ReleaseQuery, type EditionsPage, MB_BROWSE_LIMIT,
   pickByChipRule, chipCounts,
 } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
@@ -18,7 +18,10 @@ import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
 import { localTrackViews, linkAlbumTracks } from '../lib/trackLinks.js';
 import { resolvePinnedMb } from '../lib/pinnedMb.js';
 import { acceptByRules } from '../lib/autoAccept.js';
+import { identifyDecision } from '../lib/identifyDecision.js';
+import { albumsChanged } from '../lib/albumCare.js';
 import { isManualRequest, plainFailure, recordIdentifyOutcome, type IdentifyOutcome } from '../lib/identifyRuns.js';
+import { remoteInputOf, upsertAlbumEvidence } from '../lib/evidenceStore.js';
 
 export interface IdentifyAlbumJobData {
   localAlbumId: string;
@@ -26,6 +29,8 @@ export interface IdentifyAlbumJobData {
   force?: boolean;
   /** 'owner' when the owner asked: the outcome is recorded (identify_runs) */
   requestedBy?: string;
+  /** the person who typed a pinned id: the match is theirs */
+  requestedByUserId?: string;
   /** IDN-6 manual entry: match this MB release MBID, bypassing search and
    * thresholds; decided_by=user */
   pinnedMbid?: string;
@@ -163,7 +168,28 @@ export async function localViewOf(ctx: WorkerContext, album: AlbumRow, tracks: T
   const fileRows = tracks.length === 0 ? [] : await ctx.db
     .select({ tagsRaw: files.tagsRaw })
     .from(files)
-    .where(inArray(files.id, tracks.slice(0, 3).map((t) => t.audioFileId)));
+    .where(inArray(files.id, embeddedSourceFileIds(tracks)));
+  return localViewFrom(album, tracks, fileRows);
+}
+
+/** The files whose tags give the album's embedded ids: those of its first three tracks. */
+export function embeddedSourceFileIds(tracks: Pick<TrackRow, 'audioFileId'>[]): string[] {
+  return tracks.slice(0, 3).map((t) => t.audioFileId);
+}
+
+const TITLE_SOURCES: readonly TitleSource[] = ['tag', 'filename', 'folder', 'none'];
+const YEAR_SOURCES: readonly YearSource[] = ['tag', 'folder'];
+/** A stored source label, or null when the column holds none (or one this code does not know). */
+const titleSourceOf = (v: string | null | undefined): TitleSource | null =>
+  (TITLE_SOURCES as readonly string[]).includes(v ?? '') ? v as TitleSource : null;
+const yearSourceOf = (v: string | null | undefined): YearSource | null =>
+  (YEAR_SOURCES as readonly string[]).includes(v ?? '') ? v as YearSource : null;
+
+/**
+ * localViewOf without the database: `fileRows` are the tags of the files
+ * embeddedSourceFileIds names. Lets a caller load many albums' files at once.
+ */
+export function localViewFrom(album: AlbumRow, tracks: TrackRow[], fileRows: Array<{ tagsRaw: unknown }>) {
   let embedded: EmbeddedIds = {};
   for (const f of fileRows) {
     embedded = { ...embeddedIdsOf(f.tagsRaw), ...embedded };
@@ -189,7 +215,25 @@ export async function localViewOf(ctx: WorkerContext, album: AlbumRow, tracks: T
     ...(embedded.rgMbid ? { embeddedMbRgId: embedded.rgMbid } : {}),
     ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
   };
-  return { local, embedded, discsKnown, distinctDiscs };
+  // The local side of the evidence, from the same track list the scorer
+  // sees: position i here is local track index i in every alignment.
+  const albumTitleSource = titleSourceOf(album.titleSource);
+  const albumEvidence = buildAlbumEvidence({
+    artist: local.artist,
+    title: local.title,
+    ...(albumTitleSource ? { titleSource: albumTitleSource } : {}),
+    year: album.yearGuess ?? null,
+    yearSource: yearSourceOf(album.yearSource),
+    discsKnown,
+    discCount: discsKnown && distinctDiscs > 0 ? distinctDiscs : null,
+    tracks: trackView.tracks.map((t, i) => ({
+      ...(t.disc !== undefined ? { disc: t.disc } : {}),
+      title: t.title,
+      titleSource: titleSourceOf(trackView.order[i]!.titleSource),
+      duration: t.duration,
+    })),
+  });
+  return { local, embedded, discsKnown, distinctDiscs, albumEvidence };
 }
 
 /** core/matching input: seconds + 0-based indices; provider tracks are ms. */
@@ -296,6 +340,8 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     await ctx.db.update(localAlbums)
       .set({ state, identifyReason: reason, updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
+    // a re-identification that gave up: what the old match made it (incomplete, a duplicate) no longer holds
+    if (album.state === 'matched') await albumsChanged(ctx, album.libraryId, [album.id], { queue: false });
     await notifyQueueChanged(ctx, album.libraryId, album.id, state);
     return { outcome: state, message: GIVE_UP_MESSAGE[reason] };
   };
@@ -319,7 +365,7 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     .where(eq(localTracks.localAlbumId, album.id));
   if (tracks.length === 0) return { outcome: 'skipped', message: 'The album has no tracks to compare.' };
 
-  const { local, embedded, discsKnown, distinctDiscs } = await localViewOf(ctx, album, tracks);
+  const { local, embedded, discsKnown, distinctDiscs, albumEvidence } = await localViewOf(ctx, album, tracks);
   // Fast-path eligibility is a library metric (XO-309): remember the tag id.
   if ((embedded.albumMbid ?? null) !== (album.embeddedMbid ?? null)) {
     await ctx.db.update(localAlbums)
@@ -514,21 +560,57 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   for (const r of fetched) {
     releaseDbIds.set(r.id, (await persistFetched(ctx, r)).releaseId);
   }
-  // A linked app's suggestions (source mc:<link>, worker › mcLanding.ts) are
-  // its own: a re-identification leaves them; revoking the link removes them.
-  await ctx.db.delete(matchCandidates).where(and(eq(matchCandidates.localAlbumId, album.id), notLike(matchCandidates.source, 'mc:%')));
-  for (const s of scored) {
+  // Every row is built, evidence included, before anything is written: a
+  // builder that throws (an alignment that does not fit the tracklists, a
+  // coverage that is not a number) leaves the old candidates and album
+  // evidence as they were.
+  const fetchedRelease = new Map(fetched.map((r) => [r.id, r]));
+  const rows = scored.flatMap((s) => {
     const relDb = releaseDbIds.get(s.id);
-    if (!relDb) continue;
+    if (!relDb) return [];
     const source: CandidateSource = sourceOf.get(s.id) ?? (s.source === 'discogs' ? 'discogs_search' : 'mb_search');
-    await ctx.db.insert(matchCandidates).values({
-      localAlbumId: album.id,
+    const coverage = data.acoustidCoverage?.[s.id];
+    if (coverage !== undefined && !Number.isFinite(coverage)) {
+      throw new RangeError(`identify: AcoustID coverage for ${s.id} is not a finite number (${coverage})`);
+    }
+    return [{
       releaseId: relDb,
       distance: s.distance.toFixed(4),
-      breakdown: s.breakdown,
+      breakdown: JSON.stringify(s.breakdown),
       source,
-    });
-  }
+      evidence: JSON.stringify(buildCandidateEvidence(remoteInputOf(fetchedRelease.get(s.id)!, null), s, local.tracks.length)),
+      acoustidCoverage: coverage !== undefined ? coverage.toFixed(4) : null,
+    }];
+  });
+  // Replace the candidates and the album evidence together: a crash midway
+  // must not leave half a candidate list beside the old album evidence.
+  // A linked app's suggestions (source mc:<link>, worker › mcLanding.ts) are
+  // its own: a re-identification leaves them; revoking the link removes them.
+  await ctx.sql.begin(async (tx) => {
+    // the album's evidence lock: an evidence rebuild never interleaves with this
+    await tx`select pg_advisory_xact_lock(hashtextextended(${albumEvidenceLock(album.id)}, 0))`;
+    // The identify time again, with the candidates it now stands for: a
+    // decision pinned to the time read while this run was still searching
+    // (from the old candidates) no longer matches and is skipped. The album
+    // row before the candidate rows, the order a release relink takes them in.
+    await tx`update local_albums set last_identify_at = now() where id = ${album.id}`;
+    await tx`delete from match_candidates where local_album_id = ${album.id} and source not like 'mc:%'`;
+    if (rows.length > 0) {
+      await tx`
+        insert into match_candidates (local_album_id, release_id, distance, breakdown, source, evidence, acoustid_coverage)
+        select ${album.id}::uuid, t.release_id, t.distance, t.breakdown::jsonb, t.source, t.evidence::jsonb, t.coverage
+          from unnest(
+            ${rows.map((r) => r.releaseId)}::uuid[],
+            ${rows.map((r) => r.distance)}::numeric[],
+            ${rows.map((r) => r.breakdown)}::text[],
+            ${rows.map((r) => r.source)}::text[],
+            ${rows.map((r) => r.evidence)}::text[],
+            ${rows.map((r) => r.acoustidCoverage)}::numeric[]
+          ) with ordinality as t(release_id, distance, breakdown, source, evidence, coverage, n)
+         order by t.n`;
+    }
+    await upsertAlbumEvidence(tx, album.id, albumEvidence);
+  });
 
   const goLive = async (
     releaseDb: string, status: 'auto' | 'confirmed', decidedBy: 'system' | 'user',
@@ -537,33 +619,24 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     // One live match per album: a re-identification (manual entry, or a
     // fingerprint-backed run on an album the sweep matched meanwhile)
     // supersedes the previous decision instead of tripping the unique index.
-    await ctx.sql`
-      update album_matches set status = 'rejected',
-        reason = ${status === 'confirmed' ? 'superseded by manual entry' : 'superseded by re-identification'}
-      where local_album_id = ${album.id} and status in ('auto', 'confirmed')`;
-    await ctx.db.insert(albumMatches).values({
-      libraryId: album.libraryId,
-      localAlbumId: album.id,
-      releaseId: releaseDb,
-      distance: distance.toFixed(4),
-      status,
-      decidedBy,
-      reason,
-      source,
-    });
-    const rgRow = await ctx.db
-      .select({ rgId: releases.releaseGroupId })
-      .from(releases).where(eq(releases.id, releaseDb)).limit(1);
-    await ctx.db.update(localAlbums)
-      .set({
-        state: 'matched',
-        releaseId: releaseDb,
-        releaseGroupId: rgRow[0]?.rgId ?? null,
-        identifyReason: null,
-        identifiedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(localAlbums.id, album.id));
+    // The accept runs in its own transaction under the album row lock every
+    // accept takes, so it cannot race another accept. The evidence lock taken
+    // for the candidate replace above is already released by now, so an
+    // evidence rebuild may run in between; that is fine, the accept reads
+    // nothing it wrote. The earlier decision keeps its reason: it says why
+    // that one was made. Identification decides whatever state the album is in.
+    const res = await ctx.sql.begin((tx) => acceptInTx(tx, {
+      libraryId: album.libraryId, albumId: album.id, releaseId: releaseDb, distance, source, reason,
+      status, decidedBy, decidedKind: decidedBy === 'user' ? 'user' : 'system',
+      decidedByUserId: decidedBy === 'user' ? data.requestedByUserId ?? null : null,
+      fromStates: null,
+    }));
+    // The album or the release went away while it was being identified:
+    // fail the job, as the insert's foreign key did before.
+    if (!res.ok) throw new Error(`identify: could not record the match (${res.reason === 'gone' ? 'album no longer stored' : 'release no longer stored'})`);
+    // Library care: incomplete against the new release, a duplicate of another copy.
+    // Identity only: the quality flags read the files, which did not change.
+    await albumsChanged(ctx, album.libraryId, [album.id], { queue: false });
     await notifyQueueChanged(ctx, album.libraryId, album.id, 'matched');
     // ENR-1: bridge + enrich the release of record
     await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });
@@ -606,64 +679,69 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
       'acoustid');
   }
 
-  // Decide (IDN-3).
-  const best = scored[0];
-  const second = scored[1];
-  const bestDb = best ? releaseDbIds.get(best.id) : undefined;
-  const gapDemoted = best && second && second.distance - best.distance < MATCHING_THRESHOLDS.recGapThresh
-    && second.distance <= MATCHING_THRESHOLDS.medium && best.distance > 0;
-  const trackParity = best ? (best.tracks?.length ?? 0) === local.tracks.length : false;
-
-  if (best && bestDb && best.distance <= MATCHING_THRESHOLDS.strong && trackParity && !gapDemoted) {
-    ctx.logger.info({ album: album.titleGuess, source: best.source, distance: best.distance }, 'identify: auto-accept');
-    return goLive(bestDb, 'auto', 'system', best.distance, `auto-accept: distance ${best.distance.toFixed(4)} (${best.source})`,
-      sourceOf.get(best.id) ?? null);
-  } else if (best && best.distance <= MATCHING_THRESHOLDS.medium) {
-    // Owner chip rule (2026-09-05): no reds + ≥3 greens auto-accepts even in
-    // the review band; fewest yellows wins. Mirrors hand-review outcomes.
-    const inBand = scored.filter((c) => c.distance <= MATCHING_THRESHOLDS.medium);
-    const pick = pickByChipRule(inBand.map((c) => ({ breakdown: c.breakdown, distance: c.distance })));
-    const chosen = pick >= 0 ? inBand[pick] : undefined;
-    const chosenDb = chosen ? releaseDbIds.get(chosen.id) : undefined;
-    if (chosen && chosenDb) {
-      const cc = chipCounts(chosen.breakdown);
-      return goLive(chosenDb, 'auto', 'system', chosen.distance,
-        `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.distance.toFixed(4)})`,
-        sourceOf.get(chosen.id) ?? null);
+  // Decide (IDN-3): the same rule the drop pool calls confident (decideAuto).
+  const decision = decideAuto(scored, local.tracks.length, fetched, tracks.map((t) => t.discNo));
+  if (decision.kind === 'accept') {
+    const db = releaseDbIds.get(decision.candidate.id);
+    if (db) {
+      if (decision.strong) ctx.logger.info({ album: album.titleGuess, source: decision.candidate.source, distance: decision.candidate.distance }, 'identify: auto-accept');
+      return goLive(db, 'auto', 'system', decision.candidate.distance, decision.reason, sourceOf.get(decision.candidate.id) ?? null);
     }
-    // Owner policy (2026-09-05): the top candidate in the band is what the
-    // owner accepts by hand anyway — take it. Tightened 2026-09-09 (XO-379,
-    // after a one-CD folder auto-took a 2-CD edition at 0.2488 with 2 reds):
-    // nothing red, and no more media than the local cluster has discs.
-    if (best && bestDb) {
-      const cc2 = chipCounts(best.breakdown);
-      // Media guard (peer's discsKnown semantics): only when the local set
-      // carries disc numbers at all — 17,740 untagged albums must not block a
-      // correct two-medium candidate; mediumCountOf reads MB's per-track
-      // medium numbers and falls back to Discogs' media list.
-      const bestRelease = fetched.find((r) => r.id === best.id);
-      const mediaCount = bestRelease ? mediumCountOf(bestRelease) ?? 0 : 0;
-      const localDiscNos = tracks.map((t) => t.discNo).filter((d): d is number => d != null);
-      const discsKnown = localDiscNos.length > 0;
-      const localDiscs = discsKnown ? new Set(localDiscNos).size : 0;
-      if (cc2.reds === 0 && (!discsKnown || mediaCount === 0 || mediaCount <= localDiscs)) {
-        return goLive(bestDb, 'auto', 'system', best.distance,
-          `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, 0 red)`,
-          sourceOf.get(best.id) ?? null);
-      }
-      ctx.logger.info({ album: album.titleGuess, distance: best.distance, reds: cc2.reds, mediaCount, localDiscs }, 'identify: top candidate held for review');
-    }
-    const held = await giveUp('ambiguous');
-    // Review matches › Auto-accept: the owner's rules get the album the
-    // moment it lands in review (no-op while they are off).
-    const byRules = await acceptByRules(ctx, album.libraryId, { albumIds: [album.id], requireEnabled: true });
-    const took = byRules.acceptedAlbums[0];
-    if (took) {
-      const rel = fetched.find((r) => releaseDbIds.get(r.id) === took.releaseId);
-      const label = rel ? [rel.title, rel.year, rel.country].filter(Boolean).join(' · ') : null;
-      return { outcome: 'matched', message: label ? `Matched to ${label} by your auto-accept rules.` : 'Matched by your auto-accept rules.' };
-    }
-    return held;
   }
-  return giveUp('weak_candidates');
+  if (decision.kind === 'weak') return giveUp('weak_candidates');
+  // held, or a pick whose release was not persisted: the owner reviews it
+  if (decision.kind === 'review' && decision.held) ctx.logger.info({ album: album.titleGuess, ...decision.held }, 'identify: top candidate held for review');
+  const held = await giveUp('ambiguous');
+  // Review matches › Auto-accept: the owner's rules get the album the
+  // moment it lands in review (no-op while they are off).
+  const byRules = await acceptByRules(ctx, album.libraryId, { albumIds: [album.id], requireEnabled: true });
+  const took = byRules.acceptedAlbums[0];
+  if (took) {
+    const rel = fetched.find((r) => releaseDbIds.get(r.id) === took.releaseId);
+    const label = rel ? [rel.title, rel.year, rel.country].filter(Boolean).join(' · ') : null;
+    return { outcome: 'matched', message: label ? `Matched to ${label} by your auto-accept rules.` : 'Matched by your auto-accept rules.' };
+  }
+  return held;
+}
+
+type Scored = ReturnType<typeof scoreCandidates>[number];
+
+export type AutoDecision =
+  /** strong: within the strong distance, track parity, no close rival */
+  | { kind: 'accept'; candidate: Scored; reason: string; strong: boolean }
+  /** in the review band: the owner decides (or their auto-accept rules) */
+  | { kind: 'review'; held?: { distance: number; reds: number; mediaCount: number; localDiscs: number } }
+  /** nothing close enough */
+  | { kind: 'weak' };
+
+/**
+ * identify's own auto-accept rule (IDN-3), on scored candidates: what the
+ * matcher takes without the owner. The drop pool's "confident" is exactly
+ * this (then the owner's auto-accept rules), never a threshold of its own.
+ * The rule itself is identifyDecision (lib/identifyDecision.ts), which the
+ * regression reports replay; this adds the reason each accept records.
+ */
+export function decideAuto(scored: Scored[], localTrackCount: number, fetched: readonly CanonicalRelease[], localDiscNos: ReadonlyArray<number | null>): AutoDecision {
+  const fetchedById = new Map(fetched.map((r) => [r.id, r]));
+  const mediaOf = (id: string): number => { const rel = fetchedById.get(id); return rel ? mediumCountOf(rel) ?? 0 : 0; };
+  const discNos = localDiscNos.filter((d): d is number => d != null);
+  const discsKnown = discNos.length > 0;
+  const localDiscs = discsKnown ? new Set(discNos).size : 0;
+  const decision = identifyDecision(scored.map((s) => ({
+    id: s.id, distance: s.distance, breakdown: s.breakdown as Record<string, unknown>, trackCount: s.tracks?.length ?? 0, mediumCount: mediaOf(s.id),
+  })), { trackCount: localTrackCount, discsKnown, localDiscs });
+  if ('id' in decision) {
+    const candidate = scored.find((s) => s.id === decision.id)!;
+    const cc = chipCounts(candidate.breakdown);
+    const d = candidate.distance.toFixed(4);
+    const reason = decision.kind === 'strong' ? `auto-accept: distance ${d} (${candidate.source})`
+      : decision.kind === 'chip_rule' ? `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${d})`
+      : `first-candidate auto-accept: distance ${d} (${cc.greens} green, ${cc.yellows} yellow, 0 red)`;
+    return { kind: 'accept', candidate, reason, strong: decision.kind === 'strong' };
+  }
+  if (decision.kind === 'held') {
+    const best = scored[0]!;
+    return { kind: 'review', held: { distance: best.distance, reds: chipCounts(best.breakdown).reds, mediaCount: mediaOf(best.id), localDiscs } };
+  }
+  return { kind: 'weak' };
 }

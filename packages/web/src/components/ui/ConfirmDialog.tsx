@@ -44,6 +44,17 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   });
 }
 
+/**
+ * Changes the open request's confirm key while it is open (Turn off becomes
+ * Turn off and delete, in the danger tone, when the dialog's own control asks
+ * for it). Focus stays where it is. Does nothing when no request is open.
+ */
+export function updateConfirm(patch: Pick<ConfirmOptions, 'confirmLabel' | 'tone'>) {
+  if (!current) return;
+  current = { ...current, ...patch };
+  emit();
+}
+
 function settle(ok: boolean) {
   const pending = current;
   current = null;
@@ -72,6 +83,9 @@ export function ConfirmDialog({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const messageId = useId();
+  // the tone the dialog opened with decides where focus starts; a later change
+  // of tone (updateConfirm) only restyles the key
+  const openTone = useRef(tone);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -82,12 +96,12 @@ export function ConfirmDialog({
     } else {
       dialog.setAttribute('open', '');
     }
-    (tone === 'danger' ? cancelRef : confirmRef).current?.focus();
+    (openTone.current === 'danger' ? cancelRef : confirmRef).current?.focus();
     return () => {
       if (dialog.open && typeof dialog.close === 'function') dialog.close();
       if (opener && opener.isConnected) opener.focus();
     };
-  }, [tone]);
+  }, []);
 
   return (
     <dialog

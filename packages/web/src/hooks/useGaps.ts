@@ -2,7 +2,7 @@
  * Gap decisions and the Tasks list (0032): counts for the nav and tabs, the
  * task list, and the three choices every gap offers.
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { GapTaskCounts, GapTasksResponse } from '@tagave/shared';
 import { api } from '../services/api';
 
@@ -10,6 +10,19 @@ export interface GapCountsResponse {
   /** open gaps per kind */
   counts: Record<string, number>;
   tasks?: GapTaskCounts;
+}
+
+/**
+ * Library care after an operation that changed albums (rr85): its lists and
+ * counts (the nav dot and Home read ['gaps', libraryId]), the task list, the
+ * album pages' attention and upkeep notes, and the album grid's problem
+ * filters. The server rechecks the albums an operation touched before it
+ * answers; the slower quality check ends with a gaps.recompute job event,
+ * which useJobEvents turns into the same refresh.
+ */
+export function invalidateAlbumCare(qc: Pick<QueryClient, 'invalidateQueries'>): Promise<unknown> {
+  return Promise.all(['gaps', 'tasks', 'album', 'albums', 'album-facets', 'organize']
+    .map((k) => qc.invalidateQueries({ queryKey: [k] })));
 }
 
 /** Open gaps per kind and the task counts; one cached request shared by the nav, Home and Library care. */

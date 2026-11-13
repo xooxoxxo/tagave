@@ -1,8 +1,11 @@
 /**
- * Playlists (the playlists module, 0056): each person's private lists of
- * tracks, with an export file another tagave can import.
+ * Playlists (the playlists module, 0056): each person's lists of tracks,
+ * with an export file another tagave can import. Collaborative (0079): the
+ * owner lets other people of the install add, reorder and take out what they
+ * added; everyone else does not find the list.
  */
 import { z } from 'zod';
+import type { ListenLinkView } from './listenLinks.js';
 
 export const playlistNameSchema = z.string().trim().min(1).max(200);
 
@@ -15,6 +18,16 @@ export interface PlaylistSummary {
   /** up to four album cover URLs, in the list's order: the mosaic */
   covers: string[];
   updatedAt: string;
+  /** the person asking owns it (false: they collaborate on it) */
+  mine: boolean;
+  /** it has collaborators */
+  collaborative: boolean;
+}
+
+/** Someone of the install, as a playlist shows them: their name and its letter. */
+export interface PlaylistPerson {
+  id: string;
+  name: string;
 }
 
 export interface PlaylistItemView {
@@ -27,12 +40,34 @@ export interface PlaylistItemView {
   album: string | null;
   coverUrl: string | null;
   durationMs: number | null;
+  /**
+   * A Missing row: where to play it on the person's primary platform (the
+   * album's link, else a search for the track); null when none is chosen,
+   * the row is in the library, or Listen elsewhere is off.
+   */
+  elsewhere: ListenLinkView | null;
+  /** who added it; null once that account is deleted */
+  addedBy: PlaylistPerson | null;
+  /** the person asking may take it out: the owner any item, a collaborator what they added */
+  removable: boolean;
+  /** the album's first credited artist (Go to artist); null when the album is not identified */
+  artistLink: { id: string; name: string } | null;
 }
 
 /** GET /api/v1/me/playlists/:id */
 export interface PlaylistView extends PlaylistSummary {
+  owner: PlaylistPerson;
+  collaborators: PlaylistPerson[];
   items: PlaylistItemView[];
 }
+
+/** GET /api/v1/me/playlists/:id/collaborators: the owner's sheet, the install's other people. */
+export interface PlaylistCollaboratorChoice extends PlaylistPerson {
+  on: boolean;
+}
+
+/** PUT /api/v1/me/playlists/:id/collaborators/:userId */
+export const playlistCollaboratorSchema = z.object({ on: z.boolean() }).strict();
 
 /** POST /api/v1/me/playlists */
 export const createPlaylistSchema = z.object({

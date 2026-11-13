@@ -1,0 +1,100 @@
+/*
+ * The equalizer glow (BarGlow.tsx): a box standing on the bar's top edge,
+ * the bar's width (so never over the sidebar) and at most --rise tall, so
+ * the light over the page stays low and faint. Its canvas holds the light
+ * (glowDriver.ts paints it, small, and the browser's smoothing as it scales
+ * the canvas up blends it into one wash); the line lies along the edge. Only opacity
+ * moves here: the whole glow fades in and out, the line follows the music.
+ * One hue, the album's accent: its lighter tint on a dark theme, deeper
+ * tones on a light one, so it shows on either.
+ */
+.glow {
+  --rise: 140px;
+  --glow-scheme: light;
+  --glow-body: var(--dew-lo);
+  --glow-core: var(--dew-press);
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: var(--rise);
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 400ms var(--ease-out, ease-out);
+}
+.glow[data-on="true"] {
+  opacity: 1;
+  transition-duration: 200ms;
+}
+/* the phone's mini bar: less of a small screen */
+.glow[data-anchor="centre"] { --rise: 104px; }
+
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme="light"])) .glow {
+    --glow-scheme: dark;
+    --glow-body: var(--dew);
+    --glow-core: var(--dew-hi);
+  }
+}
+:global(:root[data-theme="dark"]) .glow {
+  --glow-scheme: dark;
+  --glow-body: var(--dew);
+  --glow-core: var(--dew-hi);
+}
+
+.light {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* the light's colour: the canvas reads it */
+  color: var(--glow-body);
+}
+
+/* the line: brightest at the anchor, fading out toward the left */
+.line,
+.line::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--glow-body) 45%, transparent) var(--l1),
+    var(--glow-body) var(--l2),
+    var(--glow-core) var(--l3),
+    var(--glow-body) var(--l4),
+    color-mix(in srgb, var(--glow-body) 70%, transparent) 100%);
+}
+.line {
+  --l1: 18%; --l2: 48%; --l3: 72%; --l4: 90%;
+  bottom: -1px;
+  height: 2px;
+  /* its colour: the canvas's tint, read with it */
+  color: var(--glow-core);
+  opacity: 0.35;
+  will-change: opacity;
+}
+.glow[data-anchor="centre"] .line { --l1: 8%; --l2: 30%; --l3: 50%; --l4: 70%; }
+.glow[data-anchor="centre"] .line,
+.glow[data-anchor="centre"] .line::after {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--glow-body) 45%, transparent) var(--l1),
+    var(--glow-body) var(--l2),
+    var(--glow-core) var(--l3),
+    var(--glow-body) var(--l4),
+    color-mix(in srgb, var(--glow-body) 45%, transparent) 92%,
+    transparent 100%);
+}
+/* its bloom, drawn once: the line's opacity carries it */
+.line::after {
+  content: "";
+  top: -4px;
+  bottom: -4px;
+  filter: blur(5px);
+}
+
+@media (forced-colors: active) {
+  .glow { display: none; }
+}

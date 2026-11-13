@@ -5,14 +5,15 @@ Reads and writes audio metadata via mutagen, communicating via JSON-lines over s
 """
 
 import json
+from base64 import b64decode
 import sys
 import os
 from pathlib import Path
 from typing import Any, Dict
 
 from mutagen import File
-from mutagen.id3 import ID3
-from mutagen.flac import FLAC
+from mutagen.id3 import APIC, ID3
+from mutagen.flac import FLAC, Picture
 from mutagen.oggflac import OggFLAC
 from mutagen.oggvorbis import OggVorbis
 from mutagen.oggopus import OggOpus
@@ -23,7 +24,8 @@ from mutagen.oggvorbis import OggVorbis
 from mutagen.oggopus import OggOpus
 from mutagen.wave import WAVE
 from mutagen.aiff import AIFF
-from mutagen.mp4 import MP4
+from mutagen.mp4 import MP4, MP4Cover
+from mutagen.mp3 import MP3
 from mutagen.dsf import DSF
 from mutagen.dsdiff import DSDIFF
 
@@ -695,6 +697,36 @@ def handle_json_command(req: dict) -> str:
         return json.dumps(result)
 
 
+def embed_cover(path: str, jpeg: bytes) -> None:
+    audio = File(path)
+    if isinstance(audio, FLAC):
+        if audio.pictures:
+            return
+        cover = Picture()
+        cover.type = 3
+        cover.mime = "image/jpeg"
+        cover.data = jpeg
+        audio.add_picture(cover)
+    elif isinstance(audio, MP3):
+        if audio.tags is not None and audio.tags.getall("APIC"):
+            return
+        version = audio.tags.version[1] if audio.tags is not None else 4
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Front cover", data=jpeg))
+        audio.save(v2_version=3 if version == 3 else 4)
+        return
+    elif isinstance(audio, MP4):
+        if audio.tags is None:
+            audio.add_tags()
+        if audio.tags.get("covr"):
+            return
+        audio.tags["covr"] = [MP4Cover(jpeg, imageformat=MP4Cover.FORMAT_JPEG)]
+    else:
+        raise ValueError("Cover embedding supports FLAC, MP3 and MP4 audio")
+    audio.save()
+
+
 def _dispatch_json(op: Any, req: dict, result: Dict[str, Any]) -> str:
     if op == "read":
         path = req.get("path")
@@ -719,6 +751,10 @@ def _dispatch_json(op: Any, req: dict, result: Dict[str, Any]) -> str:
             result["success"] = True
         except (OSError, ValueError, AttributeError) as e:  # surfaced to the caller as write_failed
             result["error"] = str(e)
+        return json.dumps(result)
+    if op == "embed-cover":
+        embed_cover(req["path"], b64decode(req["jpeg"], validate=True))
+        result["success"] = True
         return json.dumps(result)
     if op == "supports":
         container = req.get("container")

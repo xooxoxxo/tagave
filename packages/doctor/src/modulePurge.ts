@@ -21,7 +21,7 @@
  * and ListenBrainz connections are per person, but only the player feeds
  * them, so they belong to the player for now and go with it (they hold the
  * session keys). While a player server of the owner's own is still set up
- * (Settings › Playback) only the bundled player's rows go (server_key
+ * (Settings › Modules › Player) only the bundled player's rows go (server_key
  * 'bundled'), with the rows of libraries that server does not serve; that
  * server's rows, the plays, listens and scrobbles of its libraries and the
  * scrobbling connections stay, so it keeps working. Kept: the listens it wrote into the core `listens` table
@@ -38,7 +38,6 @@
  */
 import type postgres from 'postgres';
 import { APPS, MODULES, type AppManifest, type ModuleManifest } from '@tagave/core/facets';
-import { moduleEnabled } from '@tagave/db';
 
 type Sql = postgres.Sql;
 
@@ -51,11 +50,15 @@ export interface ModuleData {
   history: { table: string; where: string } | null;
   /** Set in the app's environment while the module is on: the purge refuses then. */
   onWhenEnv: readonly string[];
-  /** A module switched in the database (the module ledger): on, the purge refuses. */
-  onWhenSettings?: (sql: Sql) => Promise<boolean>;
+  /**
+   * A module switched in the database (the module ledger): on, the purge
+   * refuses. Asked inside the purge's transaction, holding the switch's row
+   * until it commits, so the module cannot be turned on halfway through.
+   */
+  onWhenSettings?: (tx: postgres.TransactionSql) => Promise<boolean>;
   /**
    * Another part still uses some of these tables (the player: a server of
-   * the owner's own, Settings › Playback). `libraries` finds the libraries
+   * the owner's own, Settings › Modules › Player). `libraries` finds the libraries
    * it serves; while there are any, each table is emptied only where
    * `where` says ($1: those libraries' ids), a table mapped to null is kept
    * whole, and the settings keys go only in the other libraries. With none
@@ -97,7 +100,7 @@ export function moduleDataOf(m: ModuleManifest): ModuleData {
     librarySettingsKeys: [],
     history: null,
     onWhenEnv: [],
-    onWhenSettings: (sql) => moduleEnabled(sql, m.id),
+    onWhenSettings: (tx) => moduleOnLocked(tx, m.id),
   };
 }
 
@@ -112,7 +115,7 @@ export function appDataOf(a: AppManifest): ModuleData {
     librarySettingsKeys: [],
     history: null,
     onWhenEnv: [],
-    onWhenSettings: (sql) => moduleEnabled(sql, a.id),
+    onWhenSettings: (tx) => moduleOnLocked(tx, a.id),
     appLibraries: a.id,
   };
 }
@@ -154,6 +157,8 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
       'player_poll_state',
       'player_queue_state',
       'player_rating_sync',
+      'player_like_sync',
+      'player_loves',
       'player_users',
       'player_retired_accounts',
       'scrobble_accounts',
@@ -179,6 +184,9 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
         // the queue is the person's, whichever server plays it: kept while one still does
         player_queue_state: null,
         player_rating_sync: BUNDLED_OR_UNSERVED,
+        player_like_sync: `server_key = ${BUNDLED}`,
+        // the person's loves go to their own Last.fm and ListenBrainz, whichever server: kept
+        player_loves: null,
         player_users: `server_key = ${BUNDLED}`,
         player_retired_accounts: `server_key = ${BUNDLED}`,
         scrobble_accounts: null,
@@ -187,6 +195,12 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
     },
   },
 };
+
+/** The module's ledger switch, its row locked for the rest of the transaction (no row: off). */
+async function moduleOnLocked(tx: postgres.TransactionSql, id: string): Promise<boolean> {
+  const [row] = await tx<{ enabled: boolean }[]>`select enabled from installed_modules where id = ${id} for update`;
+  return row?.enabled === true;
+}
 
 export class PurgeRefused extends Error {}
 
@@ -216,10 +230,10 @@ export async function purgeModuleData(
   const env = opts.env ?? process.env;
   const on = data.onWhenEnv.filter((k) => (env[k] ?? '').trim() !== '');
   if (on.length) throw new PurgeRefused(`${moduleId} is still on here (${on.join(', ')} is set); turn it off first`);
-  if (data.onWhenSettings && (await data.onWhenSettings(sql))) throw new PurgeRefused(`${moduleId} is still on here (Settings › Modules); turn it off first`);
   const deleteHistory = opts.deleteHistory === true;
 
   return sql.begin(async (tx) => {
+    if (data.onWhenSettings && (await data.onWhenSettings(tx))) throw new PurgeRefused(`${moduleId} is still on here (Settings › Modules); turn it off first`);
     const exists = await tx<{ name: string }[]>`
       select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = current_schema() and c.relkind = 'r' and c.relname = any(${[...data.tables]}::text[])`;

@@ -124,9 +124,63 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches routes', () => {
     const rel = releaseIds[releaseIds.length - 1]!;
     await db.insert(albumMatches).values({ libraryId, localAlbumId: decided, releaseId: rel, distance: '0.0100', status: 'auto', decidedBy: 'system', reason: 'auto-accept rules: 99% match (MusicBrainz)' });
     await db.insert(albumMatches).values({ libraryId, localAlbumId: decided, releaseId: rel, distance: '0.0100', status: 'rejected', decidedBy: 'system', reason: 'chip-rule auto-accept: 5 green' });
+    // a rules accept that was later superseded keeps its reason, but is no longer an accept
+    await db.insert(albumMatches).values({ libraryId, localAlbumId: decided, releaseId: rel, distance: '0.0100', status: 'rejected', decidedBy: 'system', reason: 'auto-accept rules: 97% match (MusicBrainz)' });
     const view = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json();
     expect(view.acceptedTotal).toBe(1);
     expect(view.recent).toEqual([expect.objectContaining({ albumId: decided, title: 'Kosmonument', percent: 99 })]);
+  });
+
+  it("does not count a model's accept among the rules' accepts", async () => {
+    const before = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json().acceptedTotal;
+    const albumId = albumIds[0]!;
+    const rel = releaseIds[0]!;
+    await db.insert(albumMatches).values({
+      libraryId, localAlbumId: albumId, releaseId: rel, distance: '0.0300', status: 'auto', decidedBy: 'system', decidedKind: 'model',
+      deciderId: 'jev', deciderVersion: 'jev-2026-09-15', probability: '0.9940', reason: 'model accept: jev-2026-09-15, probability 0.9940',
+    });
+    try {
+      const view = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json();
+      expect(view.acceptedTotal).toBe(before);
+      expect(view.recent.map((r: { albumId: string }) => r.albumId)).not.toContain(albumId);
+    } finally {
+      await db.delete(albumMatches).where(eq(albumMatches.localAlbumId, albumId));
+    }
+  });
+
+  it("counts a rules batch's accept by its kind, live ones only", async () => {
+    const before = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json().acceptedTotal;
+    const albumId = albumIds[1]!;
+    const rel = releaseIds[0]!;
+    await db.insert(albumMatches).values([
+      { libraryId, localAlbumId: albumId, releaseId: rel, distance: '0.0200', status: 'auto', decidedBy: 'system', decidedKind: 'rule', reason: 'accepted by the rules' },
+      // undone: keeps its kind and reason, no longer an accept
+      { libraryId, localAlbumId: albumId, releaseId: rel, distance: '0.0200', status: 'rejected', decidedBy: 'system', decidedKind: 'rule', reason: 'accepted by the rules' },
+    ]);
+    try {
+      const view = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json();
+      expect(view.acceptedTotal).toBe(before + 1);
+      expect(view.recent.map((r: { albumId: string }) => r.albumId)).toContain(albumId);
+    } finally {
+      await db.delete(albumMatches).where(eq(albumMatches.localAlbumId, albumId));
+    }
+  });
+
+  it("does not count a model's accept whose reason reads like the rules'", async () => {
+    const before = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json().acceptedTotal;
+    const albumId = albumIds[2]!;
+    const rel = releaseIds[0]!;
+    await db.insert(albumMatches).values({
+      libraryId, localAlbumId: albumId, releaseId: rel, distance: '0.0300', status: 'auto', decidedBy: 'system', decidedKind: 'model',
+      deciderId: 'jev', deciderVersion: 'jev-2026-09-15', probability: '0.9940', reason: 'auto-accept rules: 97% match (MusicBrainz)',
+    });
+    try {
+      const view = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json();
+      expect(view.acceptedTotal).toBe(before);
+      expect(view.recent.map((r: { albumId: string }) => r.albumId)).not.toContain(albumId);
+    } finally {
+      await db.delete(albumMatches).where(eq(albumMatches.localAlbumId, albumId));
+    }
   });
 
   it('finds no unknown library or album (every library on the install is shared, 0043)', async () => {

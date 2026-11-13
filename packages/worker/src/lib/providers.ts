@@ -76,6 +76,36 @@ export async function libraryProviderSettings(ctx: WorkerContext, libraryId: str
   return out;
 }
 
+/**
+ * The library's TypeSafe key (Settings › Modules › Autotagger), opened with
+ * this host's APP_SECRET; null when it has none, when the module's tables were
+ * never made, or when the key does not open here (warned once). The key is
+ * only ever stored sealed (the table refuses a plain one). The warnings name
+ * the library, never the key or its hint.
+ */
+export async function libraryTypesafeKey(ctx: WorkerContext, libraryId: string): Promise<string | null> {
+  let rows: Array<{ key: string | null }>;
+  try {
+    rows = await ctx.sql`select sealed_key as key from decider_library_settings where library_id = ${libraryId}` as unknown as Array<{ key: string | null }>;
+  } catch (err) {
+    if ((err as { code?: string }).code === '42P01') return null;
+    throw err;
+  }
+  const value = rows[0]?.key;
+  if (!value) return null;
+  const appSecret = process.env.APP_SECRET;
+  if (!appSecret) {
+    warnOnce(ctx, 'APP_SECRET missing on this host; sealed credentials unusable — the autotagger cannot call TypeSafe');
+    return null;
+  }
+  try {
+    return openSecret(value, appSecret);
+  } catch {
+    warnOnce(ctx, `the sealed TypeSafe key of library ${libraryId} does not open with this host's APP_SECRET — the autotagger cannot call TypeSafe`);
+    return null;
+  }
+}
+
 /** Throws without a contact string: the gateway refuses to call providers
  * until PLT-4 onboarding set one (spec §10.2.3). */
 export function getProviders(settings: LibraryProviderSettings): Providers {
@@ -139,4 +169,44 @@ export function critiqueBrainzCall<T>(ctx: WorkerContext, fn: () => Promise<T>):
 
 export function wikipediaCall<T>(ctx: WorkerContext, fn: () => Promise<T>): Promise<T> {
   return paced(ctx.sql, 'wikipedia', PROVIDER_INTERVALS.wikipedia, fn);
+}
+
+/**
+ * The install's User-Agent for install-wide lookups (Listen elsewhere,
+ * Similar artists): the contact of the first library that has one; null
+ * without one (the gateway refuses provider calls then, spec §10.2.3).
+ */
+export async function installUserAgent(ctx: WorkerContext): Promise<string | null> {
+  const [lib] = await ctx.sql<Array<{ id: string }>>`
+    select id from libraries order by (settings->>'contactString') is null, created_at, id limit 1`;
+  if (!lib) return null;
+  const s = await libraryProviderSettings(ctx, lib.id);
+  return s.contactString ? `tagave/0.1 (+${s.contactString})` : null;
+}
+
+/**
+ * The install's Last.fm API key (the player's scrobbling application,
+ * Settings › Modules › Player): sealed in a library's settings, else
+ * TAGAVE_LASTFM_API_KEY. Null when there is none or it does not open here.
+ * Similar artists reads it to ask Last.fm too; nothing else in the worker does.
+ */
+export async function installLastfmApiKey(ctx: WorkerContext, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  const rows = await ctx.sql<Array<{ key: string | null }>>`
+    select settings->>'lastfmApiKey' as key from libraries where settings ? 'lastfmApiKey' order by created_at, id`;
+  for (const r of rows) {
+    if (!r.key) continue;
+    if (!isSealed(r.key)) return r.key;
+    const appSecret = env['APP_SECRET'];
+    if (!appSecret) {
+      warnOnce(ctx, 'APP_SECRET missing on this host; the sealed Last.fm key is unusable: similar artists use ListenBrainz alone');
+      return null;
+    }
+    try {
+      return openSecret(r.key, appSecret);
+    } catch {
+      warnOnce(ctx, 'the sealed Last.fm key does not open with this host\'s APP_SECRET: similar artists use ListenBrainz alone');
+      return null;
+    }
+  }
+  return env['TAGAVE_LASTFM_API_KEY']?.trim() || null;
 }

@@ -18,9 +18,17 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/auth/setup-required': 'public',
   'GET /api/v1/health': 'public',
   'GET /api/v1/internal/updater/versions': 'public',
+  'GET /api/v1/internal/updater/music': 'public',
+  'POST /api/v1/internal/updater/music-heal': 'public',
   'GET /api/v1/invites/:token': 'public',
   'GET /api/v1/openapi.json': 'public',
   'POST /api/v1/invites/:token/accept': 'public',
+  // A cast device (Chromecast, AirPlay) fetching a track or its cover: no session, a signed token for that one item and person (lib/castTokens.ts); the handlers check the person again.
+  'GET /api/v1/player/cast/:token': 'public',
+  'GET /api/v1/player/cast-cover/:token': 'public',
+  // Sign in with your login service (routes/oidc.ts): the button, and starting a sign-in (the service and the gate in @tagave/auth decide who gets in).
+  'GET /api/v1/auth/oidc': 'public',
+  'POST /api/v1/auth/oidc/sign-in': 'public',
   // Music Connections OAuth (routes/connect.ts): the client authenticates itself at token and revoke; authorize only records a request for the consent page.
   'POST /api/v1/connect/register': 'public',
   'GET /api/v1/connect/authorize': 'public',
@@ -34,12 +42,16 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/auth/step-up/passkey/options': 'self',
   'POST /api/v1/auth/step-up/password': 'self',
   'POST /api/v1/auth/step-up/totp': 'self',
+  'POST /api/v1/auth/step-up/oidc': 'self',
+  'GET /api/v1/auth/oidc/link': 'self',
+  'POST /api/v1/auth/oidc/link': 'self',
+  'DELETE /api/v1/auth/oidc/link': 'self',
   'DELETE /api/v1/auth/trusted-devices/:id': 'self',
   'GET /api/v1/version': 'self',
   // The consent page: any signed-in person approves or denies a link to their own account.
   'GET /api/v1/connect/requests/:id': 'self',
   'POST /api/v1/connect/requests/:id/decision': 'self',
-  // Settings › Connections (routes/mcConnections.ts): each person links tagave to other music apps for themselves; every handler filters by request.user.id.
+  // Settings › Modules › Music Connections (routes/mcConnections.ts): each person links tagave to other music apps for themselves; every handler filters by request.user.id.
   'GET /api/v1/me/connections': 'self',
   'POST /api/v1/me/connections': 'self',
   'GET /api/v1/me/connections/callback': 'self',
@@ -52,13 +64,15 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/me/wantlist-suggestions/:id/decision': 'self',
   // Facets (routes/facets.ts): which facets and modules are on, for the app to hide what is off.
   'GET /api/v1/facets': 'self',
-  // Settings › Listen elsewhere (routes/listenLinks.ts): each person's own platforms.
+  // Settings › Modules › Listen elsewhere (routes/listenLinks.ts): each person's own platforms.
   'GET /api/v1/me/listen-links': 'self',
   'PUT /api/v1/me/listen-links': 'self',
   // Each person's own preferences that follow them between devices (the colour theme)
   'GET /api/v1/me/prefs': 'self',
   'PUT /api/v1/me/prefs': 'self',
-  // Playlists (routes/playlists.ts): each person's own lists; every handler filters by request.user.id.
+  // Playlists (routes/playlists.ts): each person's own lists and the ones they collaborate on; every handler checks the person's part in the list (lib/playlists.ts: owner, collaborator, else 404).
+  'GET /api/v1/me/playlists/:id/collaborators': 'catalog.read',
+  'PUT /api/v1/me/playlists/:id/collaborators/:userId': 'catalog.read',
   'GET /api/v1/me/playlists': 'catalog.read',
   'POST /api/v1/me/playlists': 'catalog.read',
   'GET /api/v1/me/playlists/export': 'catalog.read',
@@ -72,6 +86,11 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   // The books app (routes/books.ts, the spike; 404 without TAGAVE_DEV_APPS=books): the works and their covers.
   'GET /api/v1/books': 'catalog.read',
   'GET /api/v1/books/editions/:editionId/cover': 'catalog.read',
+  // Likes (routes/likes.ts): each person's own hearts and Liked songs.
+  'GET /api/v1/me/likes': 'catalog.read',
+  'GET /api/v1/me/likes/songs': 'catalog.read',
+  'PUT /api/v1/me/likes/:kind/:id': 'catalog.read',
+  'DELETE /api/v1/me/likes/:kind/:id': 'catalog.read',
   // catalog.read: Listener and up: the catalogue, and the caller's own reviews, listens, clippings and saved views (the handlers filter by request.user.id).
   'DELETE /api/v1/clippings/:clippingId': 'catalog.read',
   'GET /api/v1/images/album/:albumId': 'catalog.read',
@@ -89,6 +108,12 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/libraries/:libraryId/artists': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/artists/:artistId': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/artists/:artistId/listen-links': 'catalog.read',
+  // Similar artists (routes/similarArtists.ts): the artist page's section, and an artist's tracks for its Play
+  'GET /api/v1/libraries/:libraryId/artists/:artistId/similar': 'catalog.read',
+  'GET /api/v1/libraries/:libraryId/artists/:artistId/mix': 'catalog.read',
+  // Lidarr: the states of an artist's missing albums, and whether Get is set up (Get itself is system.manage)
+  'GET /api/v1/libraries/:libraryId/artists/:artistId/lidarr': 'catalog.read',
+  'GET /api/v1/lidarr': 'catalog.read',
   'POST /api/v1/libraries/:libraryId/release-groups/:rgId/clippings': 'catalog.read',
   'POST /api/v1/libraries/:libraryId/release-groups/:rgId/listens': 'catalog.read',
   'DELETE /api/v1/libraries/:libraryId/release-groups/:rgId/review': 'catalog.read',
@@ -113,6 +138,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/libraries/:libraryId/player/scan-status': 'player.use',
   'POST /api/v1/player/events': 'player.use',
   'GET /api/v1/player/stream/:localTrackId': 'player.use',
+  'POST /api/v1/player/cast-url': 'player.use',
   // The play queue per person and their history (routes/playerQueue.ts): the handlers filter by request.user.id.
   'POST /api/v1/player/tracks': 'player.use',
   'GET /api/v1/me/player/queue': 'player.use',
@@ -120,6 +146,14 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /api/v1/me/player/queue': 'player.use',
   'DELETE /api/v1/me/player/queue': 'player.use',
   'GET /api/v1/me/player/history': 'player.use',
+  'GET /api/v1/me/player/events': 'player.use',
+  'PUT /api/v1/me/player/device': 'player.use',
+  'DELETE /api/v1/me/player/device/:deviceId': 'player.use',
+  'POST /api/v1/me/player/command': 'player.use',
+  // DJ (routes/dj.ts): what the player's DJ engine reads, and its asks for the next tracks' analysis
+  'GET /api/v1/me/dj/tracks': 'player.use',
+  'GET /api/v1/me/dj/peaks/:localTrackId': 'player.use',
+  'POST /api/v1/me/dj/analyze': 'player.use',
   // library.edit: Editor and up: library care, tag changes, identify and matching, scans, jobs, gaps, collection upkeep, follows.
   'POST /api/v1/albums/:albumId/as-is': 'library.edit',
   'POST /api/v1/albums/:albumId/editions': 'library.edit',
@@ -165,10 +199,30 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PATCH /api/v1/libraries/:libraryId/artists/:artistId/follow-rules': 'library.edit',
   'POST /api/v1/libraries/:libraryId/artists/:artistId/follow-rules/reset': 'library.edit',
   'POST /api/v1/libraries/:libraryId/artists/:artistId/refresh': 'library.edit',
+  // The autotagger module, one library (routes/autotagger.ts): the owner changes it (system.manage below); an editor reads it without the key's hint.
+  'GET /api/v1/libraries/:libraryId/autotagger': 'library.edit',
+  // Its runs (routes/autotagger.ts): editors see them; starting, resuming and cancelling one is the owner's (system.manage below).
+  'GET /api/v1/libraries/:libraryId/autotagger/runs': 'library.edit',
+  'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId': 'library.edit',
+  // How often the decider agreed with the owner (routes/autotagger.ts): read only, no payload.
+  'GET /api/v1/libraries/:libraryId/autotagger/agreement': 'library.edit',
+  // Spot checks of a run's picks per band (routes/autotagger.ts): random draws only, the owner's verdicts, the gate per band.
+  'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId/bands': 'library.edit',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks/draw': 'library.edit',
+  'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks': 'library.edit',
+  'PUT /api/v1/libraries/:libraryId/autotagger/spot-checks/:checkId': 'library.edit',
+  // The local decider's stored models (routes/autotagger.ts): read only, counts and held-out figures.
+  'GET /api/v1/libraries/:libraryId/autotagger/models': 'library.edit',
+  // Similar artists: follow an artist the library has no row for yet (by MBID), as Follow is library care
+  'POST /api/v1/libraries/:libraryId/similar-artists/follow': 'library.edit',
   'GET /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'PUT /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/preview': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/run': 'library.edit',
+  // Accept batches (routes/batches.ts): undoing a model's batch also needs system.manage, checked in the handler.
+  'GET /api/v1/libraries/:libraryId/batches': 'library.edit',
+  'GET /api/v1/libraries/:libraryId/batches/:batchId': 'library.edit',
+  'POST /api/v1/libraries/:libraryId/batches/:batchId/undo': 'library.edit',
   'POST /api/v1/libraries/:libraryId/enrich-sweep': 'library.edit',
   'GET /api/v1/libraries/:libraryId/gaps': 'library.edit',
   'GET /api/v1/libraries/:libraryId/gaps/counts': 'library.edit',
@@ -188,6 +242,11 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/libraries/:libraryId/jobs/:jobId/pause': 'library.edit',
   'POST /api/v1/libraries/:libraryId/jobs/:jobId/retry': 'library.edit',
   'GET /api/v1/libraries/:libraryId/jobs/stream': 'library.edit',
+  'GET /api/v1/libraries/:libraryId/albums/:albumId/flac-upgrade': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/albums/:albumId/flac-upgrade': 'system.manage',
+  'GET /api/v1/libraries/:libraryId/maintenance-tasks': 'library.edit',
+  'GET /api/v1/libraries/:libraryId/maintenance-tasks/:taskId': 'library.edit',
+  'POST /api/v1/libraries/:libraryId/maintenance-tasks/:taskId/:action': 'library.edit',
   'DELETE /api/v1/libraries/:libraryId/locks/:lockId': 'library.edit',
   'GET /api/v1/libraries/:libraryId/queue': 'library.edit',
   'GET /api/v1/libraries/:libraryId/scan-roots': 'library.edit',
@@ -222,6 +281,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/libraries/:libraryId/player/scan': 'system.manage',
   'DELETE /api/v1/libraries/:libraryId/player/server': 'system.manage',
   'PUT /api/v1/libraries/:libraryId/player/server': 'system.manage',
+  // "Drain faster": the nightly bridge's pace for the library (routes/batches.ts)
+  'PUT /api/v1/libraries/:libraryId/enrich-pace': 'system.manage',
   'POST /api/v1/libraries/:libraryId/scan-roots': 'system.manage',
   'DELETE /api/v1/libraries/:libraryId/scan-roots/:scanRootId': 'system.manage',
   'PATCH /api/v1/libraries/:libraryId/scan-roots/:scanRootId': 'system.manage',
@@ -239,7 +300,46 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/settings/listen-links': 'system.manage',
   'PUT /api/v1/settings/listen-links': 'system.manage',
   'POST /api/v1/settings/listen-links/remove-data': 'system.manage',
+  // Settings › Modules, the Autotagger row (routes/autotagger.ts): owner; switching, deleting its data and setting a library's key need a fresh step-up.
+  'GET /api/v1/settings/autotagger': 'system.manage',
+  'PUT /api/v1/settings/autotagger': 'system.manage',
+  'POST /api/v1/settings/autotagger/remove-data': 'system.manage',
+  'PUT /api/v1/settings/autotagger/prices': 'system.manage',
+  'DELETE /api/v1/settings/autotagger/prices/:model': 'system.manage',
+  'PATCH /api/v1/libraries/:libraryId/autotagger/config': 'system.manage',
+  'PUT /api/v1/libraries/:libraryId/autotagger/key': 'system.manage',
+  // The payload preview holds the owner's tags, and only the owner may say it was seen; runs spend the owner's money.
+  'GET /api/v1/libraries/:libraryId/autotagger/preview': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/preview/seen': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/resume': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/cancel': 'system.manage',
+  // Training the local decider and accepting a band of a run's picks (through its spot-check gate) are the owner's.
+  'POST /api/v1/libraries/:libraryId/autotagger/train': 'system.manage',
+  'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId/accept-preview': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/accept': 'system.manage',
+  // Settings › Modules › Similar artists (routes/similarArtists.ts): owner, and a fresh step-up to change it.
+  'GET /api/v1/settings/similar-artists': 'system.manage',
+  'PUT /api/v1/settings/similar-artists': 'system.manage',
+  'POST /api/v1/settings/similar-artists/remove-data': 'system.manage',
+  // Settings › Modules › DJ (routes/dj.ts): owner, and a fresh step-up to change it.
+  'GET /api/v1/settings/dj': 'system.manage',
+  'PUT /api/v1/settings/dj': 'system.manage',
+  'POST /api/v1/settings/dj/remove-data': 'system.manage',
   // Settings › Modules, the Playlists row (routes/playlists.ts): owner; switching and deleting need a fresh step-up.
+  // Get missing albums through Lidarr (routes/lidarr.ts): Get spends disk and bandwidth, so it is the owner's; the settings too (switch, connect, disconnect, delete data need a fresh step-up).
+  'GET /api/v1/libraries/:libraryId/lidarr/requests': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/lidarr/requests': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/lidarr/requests/:id/retry': 'system.manage',
+  'DELETE /api/v1/libraries/:libraryId/lidarr/requests/:id': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/artists/:artistId/lidarr/get-all': 'system.manage',
+  'GET /api/v1/settings/lidarr': 'system.manage',
+  'PUT /api/v1/settings/lidarr': 'system.manage',
+  'POST /api/v1/settings/lidarr/test': 'system.manage',
+  'PUT /api/v1/settings/lidarr/connection': 'system.manage',
+  'DELETE /api/v1/settings/lidarr/connection': 'system.manage',
+  'POST /api/v1/settings/lidarr/remove-data': 'system.manage',
+  'POST /api/v1/settings/lidarr/root-folder': 'system.manage',
   'GET /api/v1/settings/playlists': 'system.manage',
   'PUT /api/v1/settings/playlists': 'system.manage',
   'GET /api/v1/settings/playlists/export': 'system.manage',
@@ -251,6 +351,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/storage/tag-changes': 'system.manage',
   'POST /api/v1/storage/tag-changes/cleanup': 'system.manage',
   'GET /api/v1/system/checks': 'system.manage',
+  'GET /api/v1/system/music-folder': 'system.manage',
   'GET /api/v1/updater': 'system.manage',
   'POST /api/v1/updater/update': 'system.manage',
   // users.manage: Owner: Settings › Users.
@@ -260,6 +361,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/users/:userId/reset-sign-in': 'users.manage',
   'POST /api/v1/users/invites': 'users.manage',
   'DELETE /api/v1/users/invites/:inviteId': 'users.manage',
+  'GET /api/v1/users/sign-in-service': 'users.manage',
+  'PUT /api/v1/users/sign-in-service': 'users.manage',
+  'POST /api/v1/users/sign-in-service/test': 'users.manage',
 };
 
 /**

@@ -157,11 +157,12 @@ export const ARTISTS_PAGE_SIZE = 120;
  */
 export function useArtistsInfinite(
   libraryId: string | undefined,
-  opts: { search: string; sort: ArtistSort; group: string | null },
+  opts: { search: string; sort: ArtistSort; group: string | null; liked?: boolean },
 ) {
   const params = new URLSearchParams({ sort: opts.sort, limit: String(ARTISTS_PAGE_SIZE) });
   if (opts.search) params.set('search', opts.search);
   if (opts.group) params.set('group', opts.group);
+  if (opts.liked) params.set('liked', 'yes');
   const query = params.toString();
   return useInfiniteQuery({
     queryKey: ['artists-list', 'infinite', libraryId, query],

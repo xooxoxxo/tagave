@@ -3,7 +3,26 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SCAN_ROOT_EMPTY_MESSAGE } from '@tagave/shared';
-import { classifyProbe, probeRoot } from './rootsValidate.js';
+import { classifyProbe, hostPathFor, probeRoot } from './rootsValidate.js';
+
+describe('hostPathFor (the Marked list delete command, 0073)', () => {
+  it('maps the compose mount onto the host folder compose passes', () => {
+    expect(hostPathFor('/mnt/music', { hostDir: '/srv/music', inContainer: true })).toBe('/srv/music');
+    expect(hostPathFor('/mnt/music/Jazz', { hostDir: '/srv/music/', inContainer: true })).toBe('/srv/music/Jazz');
+    expect(hostPathFor('/mnt/music/', { hostDir: "/Volumes/My Music", inContainer: true })).toBe('/Volumes/My Music');
+  });
+  it('a root outside the mount, or no host folder, in a container: not known', () => {
+    expect(hostPathFor('/data/music', { hostDir: '/srv/music', inContainer: true })).toBeNull();
+    expect(hostPathFor('/mnt/music', { hostDir: '', inContainer: true })).toBeNull();
+    expect(hostPathFor('/mnt/musicbox', { hostDir: '/srv/music', inContainer: true })).toBeNull();
+    // a relative placeholder is no host path
+    expect(hostPathFor('/mnt/music', { hostDir: './music', inContainer: true })).toBeNull();
+  });
+  it('outside a container the root is the host path', () => {
+    expect(hostPathFor('/srv/music', { inContainer: false })).toBe('/srv/music');
+    expect(hostPathFor('/mnt/music', { mount: '/media', hostDir: '/srv/x', inContainer: false })).toBe('/mnt/music');
+  });
+});
 
 describe('classifyProbe', () => {
   it('returns ok when no error and is directory', () => {

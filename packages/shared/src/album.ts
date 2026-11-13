@@ -60,7 +60,7 @@ export const albumSummarySchema = z.object({
   trackCount: z.number().int().nonnegative().describe('Number of local files'),
   needsAttention: z.boolean().optional()
     .describe('Album has an open incomplete/duplicate gap (XO-300)'),
-  matchKind: z.enum(['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid']).nullish()
+  matchKind: z.enum(['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid', 'model']).nullish()
     .describe('How the live match was decided, for provenance filtering'),
   canonicalTrackCount: z.number().int().nonnegative().nullish().describe('Tracks on the matched release'),
   coverUrl: z.string().url().nullable().optional().describe('Cover art URL (300px thumbnail)'),
@@ -80,6 +80,14 @@ export const albumSummarySchema = z.object({
 export type AlbumSummary = z.infer<typeof albumSummarySchema>;
 
 /**
+ * Who or what decided an album match: a person, the matcher's own
+ * thresholds, the owner's auto-accept rules, a decision model, or unknown
+ * (an older row whose reason was replaced when it was superseded).
+ */
+export const decidedKindSchema = z.enum(['user', 'system', 'rule', 'model', 'unknown']);
+export type DecidedKind = z.infer<typeof decidedKindSchema>;
+
+/**
  * Match info for an album
  */
 export const matchInfoSchema = z.object({
@@ -92,6 +100,13 @@ export const matchInfoSchema = z.object({
   decidedBy: z.enum(['system', 'user']).describe('Who/what made the decision'),
   distance: z.number().min(0).max(1).describe('Match distance (0 = perfect)'),
   reason: z.string().optional().describe('User reason for rejection or decision'),
+  decidedKind: decidedKindSchema.optional().describe('Who or what decided: a person, the matcher, the owner\'s rules, a model'),
+  deciderId: z.string().nullable().optional().describe('The decider of a model or rules decision'),
+  deciderVersion: z.string().nullable().optional().describe('Its dated version'),
+  probability: z.number().min(0).max(1).nullable().optional().describe('A model\'s probability for the chosen tracklist'),
+  batch: z.object({ id: z.string().uuid(), createdAt: z.string().datetime(), startedBy: z.string().nullable() }).nullable().optional()
+    .describe('The accept batch the match came in'),
+  person: z.string().nullable().optional().describe('The person who decided, by name'),
 }).strict();
 
 export type MatchInfo = z.infer<typeof matchInfoSchema>;

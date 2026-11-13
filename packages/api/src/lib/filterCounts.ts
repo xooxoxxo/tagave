@@ -17,11 +17,11 @@ import type { getDb } from '../db.js';
 type Db = ReturnType<typeof getDb>;
 type Row = Record<string, string | number | null>;
 
-const SUMMARY_KEYS = new Set(['state', 'filter', 'genre', 'decade', 'format', 'label', 'owned', 'gap']);
+const SUMMARY_KEYS = new Set(['state', 'filter', 'genre', 'decade', 'format', 'label', 'owned', 'gap', 'liked']);
 // `_` is the conventional cache-buster parameter; it never filters anything.
 const IGNORED_KEYS = new Set(['sort', 'order', 'page', 'limit', 'offset', 'cursor', 'view', 'pageSize', '_']);
 const FORMAT_CLASSES = new Set(['lossless', 'lossy', 'mixed']);
-const DECIDED_KEYS = ['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid'] as const;
+const DECIDED_KEYS = ['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid', 'model'] as const;
 
 export type FilterDim = 'state' | 'genre' | 'decade' | 'format' | 'label' | 'gap';
 
@@ -72,7 +72,13 @@ export async function markFilterCountsDirty(db: Db, libraryId: string): Promise<
 }
 
 /** Filter predicates over album_filter_counts `af`, mirroring albumQueryParts() for the covered keys. */
-export function summaryConds(libraryId: string, rawQuery: Record<string, unknown>, omit?: FilterDim): SQL[] {
+/** The person's liked albums (0085) as album_filter_counts rows: by release group, or the album itself. */
+export function likedSummarySql(userId: string): SQL {
+  return sql`(af.release_group_id in (select lk.release_group_id from likes lk where lk.user_id = ${userId} and lk.kind = 'album' and lk.release_group_id is not null)
+    or af.album_id in (select lk.local_album_id from likes lk where lk.user_id = ${userId} and lk.kind = 'album' and lk.local_album_id is not null))`;
+}
+
+export function summaryConds(libraryId: string, rawQuery: Record<string, unknown>, omit?: FilterDim, userId?: string): SQL[] {
   const q = (omit ? { ...rawQuery, [omit]: undefined, ...(omit === 'state' ? { filter: undefined } : {}) } : rawQuery) as Record<string, unknown>;
   const arr = (v: unknown): string[] => (empty(v) ? [] : (Array.isArray(v) ? v : [v]).map(String).filter((s) => s !== ''));
   const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : undefined);
@@ -86,7 +92,7 @@ export function summaryConds(libraryId: string, rawQuery: Record<string, unknown
   const states = arr(q['state'] ?? q['filter']).filter((s) => s !== 'all');
   if (states.length) out.push(sql`af.state in ${inList(states)}`);
   const genres = arr(q['genre']);
-  if (genres.length) out.push(sql`af.genres && ${textArray(genres)}`);
+  if (genres.length) out.push(sql`exists (select 1 from unnest(af.genres) genre where lower(genre) = any(${textArray(genres.map((genre) => genre.toLowerCase()))}))`);
   const decades = arr(q['decade']).map((d) => parseInt(d, 10)).filter(Number.isFinite);
   if (decades.length) out.push(sql`af.decade in ${inList(decades)}`);
   const formats = arr(q['format']);
@@ -98,12 +104,13 @@ export function summaryConds(libraryId: string, rawQuery: Record<string, unknown
   else if (owned === 'digital') out.push(sql`not af.owned`);
   const gapKinds = arr(q['gap']);
   if (gapKinds.length) out.push(anyOf(gapKinds.map((g) => (g === 'none' ? sql`cardinality(af.gap_kinds) = 0` : sql`${g} = any(af.gap_kinds)`))));
+  if (str(q['liked']) === 'yes') out.push(userId ? likedSummarySql(userId) : sql`false`);
   return out;
 }
 
 /** Same response shape as the live facets handler. */
 export async function summaryFilterCounts(db: Db, libraryId: string, userId: string, rawQuery: Record<string, unknown>) {
-  const where = (omit?: FilterDim) => and(...summaryConds(libraryId, rawQuery, omit))!;
+  const where = (omit?: FilterDim) => and(...summaryConds(libraryId, rawQuery, omit, userId))!;
   const rows = async (query: SQL) => (await db.execute(query)) as unknown as Row[];
   const facet = (list: Row[], key: string, label?: (v: string) => string) =>
     list.filter((r) => r[key] != null).map((r) => ({
@@ -123,13 +130,17 @@ export async function summaryFilterCounts(db: Db, libraryId: string, userId: str
              count(*) filter (where af.release_group_id in ${ratedRgs})::int as rated,
              count(*) filter (where af.release_group_id in ${listenedRgs})::int as listened,
              count(*) filter (where cardinality(af.gap_kinds) = 0)::int as no_gap,
+             count(*) filter (where ${likedSummarySql(userId)})::int as liked,
              ${sql.join(DECIDED_KEYS.map((k) => sql`count(*) filter (where ${k} = any(af.decided))::int as ${sql.raw(`decided_${k}`)}`), sql`, `)}
       from album_filter_counts af where ${where()}`),
     rows(sql`select af.state, count(*)::int as n from album_filter_counts af where ${where('state')} group by 1 order by n desc`),
     rows(sql`select af.format as k, count(*)::int as n from album_filter_counts af where ${where('format')} group by 1 order by n desc`),
     rows(sql`select f, count(*)::int as n from album_filter_counts af, unnest(af.containers) f where ${where('format')} group by f order by n desc limit 12`),
     rows(sql`select af.decade, count(*)::int as n from album_filter_counts af where ${where('decade')} and af.decade between 1900 and 2100 group by 1 order by 1`),
-    rows(sql`select t as tag, count(*)::int as n from album_filter_counts af, unnest(af.genres) t where ${where('genre')} group by t order by n desc, t limit 60`),
+    rows(sql`select lower(t) as tag, coalesce(min(t) filter (where t <> lower(t) and t <> upper(t)), min(t)) as label,
+                    count(distinct af.album_id)::int as n
+               from album_filter_counts af, unnest(af.genres) t
+              where ${where('genre')} group by lower(t) order by n desc, lower(t) limit 60`),
     rows(sql`select l as name, count(*)::int as n from album_filter_counts af, unnest(af.labels) l where ${where('label')} group by l order by n desc, l limit 60`),
     rows(sql`select k as kind, count(*)::int as n from album_filter_counts af, unnest(af.gap_kinds) k where ${where('gap')} group by k order by n desc`),
     rows(sql`select count(*)::int as n from album_filter_counts af where ${where('gap')} and cardinality(af.gap_kinds) = 0`),
@@ -142,7 +153,7 @@ export async function summaryFilterCounts(db: Db, libraryId: string, userId: str
     formats: facet(formats, 'k'),
     containers: facet(containers, 'f'),
     decades: facet(decades, 'decade', (d) => `${d}s`),
-    genres: facet(genres, 'tag'),
+    genres: genres.map((row) => ({ value: String(row['tag']), label: String(row['label']), count: Number(row['n']) })),
     labels: facet(labels, 'name'),
     review: [
       { value: 'reviewed', count: n('reviewed') }, { value: 'unreviewed', count: total - n('reviewed') },
@@ -151,5 +162,6 @@ export async function summaryFilterCounts(db: Db, libraryId: string, userId: str
     gaps: [...facet(gapRows, 'kind'), { value: 'none', count: Number(gapNone?.['n'] ?? 0) }],
     owned: [{ value: 'both', count: n('owned_both') }, { value: 'digital', count: total - n('owned_both') }],
     decided: DECIDED_KEYS.map((k) => ({ value: k, count: n(`decided_${k}`) })),
+    liked: [{ value: 'yes', count: n('liked') }],
   };
 }

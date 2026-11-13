@@ -92,3 +92,27 @@
     justify-content: flex-start;
   }
 }
+
+/* inside the Maintenance inspector's narrow row body: one choice per line,
+   its hint beside it */
+@container inspector-body (max-width: 420px) {
+  .segments {
+    grid-template-columns: 1fr;
+    gap: var(--space-xs);
+  }
+
+  .segment {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .segment > :first-child {
+    flex: none;
+    min-width: 8.5rem;
+  }
+
+  .choices {
+    justify-content: flex-start;
+  }
+}

@@ -13,6 +13,10 @@ import {
   artists,
   images,
   releaseGroupArtists,
+  canonicalTracks,
+  latestMaintenanceTask,
+  restartMaintenanceTask,
+  saveMaintenanceTask,
 } from '@tagave/db';
 import {
   type CreateTagPlan,
@@ -28,8 +32,24 @@ import {
   type TagPlanPreviewJob,
   type TagPlanScope,
   type TagPolicies,
+  can,
+  splitCutsSchema,
+  withSplitCuts,
+  type SplitPlan,
 } from '@tagave/shared';
-import { getDb } from '../db.js';
+import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
+import { ensurePlanSplits, hasPendingSplits, planSplitsOf, splitGate } from '../lib/planSplits.js';
+
+/**
+ * 0089: whether a plan with this policy splits its one-file albums first:
+ * on unless the owner turned it off, never for typed values or a revert,
+ * and only for the owner (a split writes the music folder, as Split does).
+ */
+export function splitsFirst(policy: Pick<TagPolicies, 'preset' | 'split'>, role: string | null | undefined): boolean {
+  return policy.split !== false && policy.preset !== 'manual' && policy.preset !== 'revert' && can(role, 'system.manage');
+}
+import { getDb, getSql } from '../db.js';
+import { namingSettings } from '../lib/naming.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { albumQueryParts } from './albums.js';
@@ -502,12 +522,21 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         libraryId,
         name: body.name,
         scope,
-        policy: body.policy,
+        // 0081: a plan organizes by default once naming rules are saved
+        policy: body.policy.organize === undefined
+          ? { ...body.policy, organize: (await namingSettings(getSql(), libraryId)).saved }
+          : body.policy,
         status: 'draft',
         stats: {},
         createdBy: request.user.id,
         createdAt: now,
       });
+
+      // 0089: an album that is one file holding the whole album is split
+      // first; its cut points are found now, before the preview leaves it out
+      if (scope.type === 'albumIds' && splitsFirst(body.policy, (request.user as { role?: string }).role)) {
+        await ensurePlanSplits(getSql(), { libraryId, planId, albumIds: scope.albumIds, userId: request.user.id }, request.log);
+      }
 
       const plans = await db
         .select()
@@ -535,6 +564,8 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         createdAt: plan.createdAt.toISOString(),
         appliedAt: plan.appliedAt?.toISOString(),
       };
+      const splits = await planSplitsOf(getSql(), planId);
+      if (splits.length > 0) formatted.splits = splits;
 
       reply.status(201).send(formatted);
     }
@@ -624,6 +655,13 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         formats,
         ...(previewJob ? { previewJob } : {}),
       };
+      const splits = await planSplitsOf(getSql(), planId);
+      if (splits.length > 0) formatted.splits = splits;
+
+      if (can(request.user.role, 'system.manage')) {
+        const task = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
+        if (task && task.state !== 'done') formatted.applyTask = maintenanceView(task, await liveMaintenanceQueues());
+      }
 
       reply.send(formatted);
     }
@@ -696,9 +734,20 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
             status: tagPlanItems.status,
             error: tagPlanItems.error,
             diffs: tagPlanItems.diff,
+            matchDistance: tagPlanItems.matchDistance,
+            // 0081 (raw: not in the drizzle schema, see there)
+            pathAfter: sql<string | null>`tag_plan_items.path_after`,
+            pathState: sql<string | null>`tag_plan_items.path_state`,
+            ctPosition: canonicalTracks.position,
+            ctMediumNo: canonicalTracks.mediumNo,
+            ctTitle: canonicalTracks.title,
+            ctLengthMs: canonicalTracks.lengthMs,
+            ctMedia: sql<number | null>`(select count(distinct coalesce(m.medium_no, 1))::int from canonical_tracks m where m.release_id = ${canonicalTracks.releaseId})`,
           })
           .from(tagPlanItems)
           .innerJoin(files, eq(files.id, tagPlanItems.audioFileId))
+          // 0077: the release track the preview paired the file with
+          .leftJoin(canonicalTracks, eq(canonicalTracks.id, tagPlanItems.canonicalTrackId))
           .where(where)
           .orderBy(files.relPath)
           .limit(limit)
@@ -713,6 +762,20 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         status: (item.status ?? 'pending') as TagPlanItem['status'],
         ...(item.error ? { error: item.error } : {}),
         diffs: ((item.diffs as any[]) || []).filter((d: any) => !field || d.field === field),
+        ...(item.pathAfter ? { pathAfter: item.pathAfter } : {}),
+        ...(item.pathState === 'clash' || item.pathState === 'unwritable' ? { pathState: item.pathState } : {}),
+        ...(item.ctTitle !== null && item.ctTitle !== undefined
+          ? {
+              releaseTrack: {
+                position: item.ctPosition ?? null,
+                mediumNo: item.ctMediumNo ?? null,
+                media: Math.max(1, Number(item.ctMedia ?? 1)),
+                title: item.ctTitle,
+                lengthMs: item.ctLengthMs ?? null,
+              },
+              ...(item.matchDistance !== null && item.matchDistance !== undefined ? { matchDistance: Number(item.matchDistance) } : {}),
+            }
+          : {}),
       }));
 
       reply.send({ items: formatted, total: count?.n ?? 0, limit, offset });
@@ -934,6 +997,36 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         throw new ApiError(400, 'Bad Request', `Cannot apply plan in status '${plan.status}'`);
       }
 
+      // 0089: the plan's splits run first; every cut found, every Low cut
+      // checked by the owner (body.confirmSplits), the folder writable
+      // A split writes the music folder and trashes the source: owner only,
+      // as the album page's Split (system.manage). Only the owner's checks count.
+      const owner = can((request.user as { role?: string }).role, 'system.manage');
+      const applying = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
+      if (applying && !['done', 'cancelled'].includes(applying.state)) {
+        throw new ApiError(409, 'Conflict', 'The Tag Plan already has an active task.');
+      }
+      if (!owner && (await hasPendingSplits(getSql(), planId))) {
+        throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
+      }
+      const confirmed = z.object({
+        confirmSplits: z.array(z.string().uuid()).optional(),
+        splitCuts: z.record(z.string().uuid(), splitCutsSchema).optional(),
+      }).safeParse(request.body ?? {});
+      if (!confirmed.success) throw new ApiError(400, 'Bad Request', 'Invalid split review');
+      const gate = await splitGate(getSql(), libraryId, planId, owner ? confirmed.data.confirmSplits ?? [] : []);
+      if (gate.ok && gate.splitIds.length > 0 && !owner) {
+        throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
+      }
+      if (!gate.ok) {
+        if (!owner) throw new ApiError(403, 'Forbidden', 'Only the owner can apply a plan that splits an album');
+        throw new ApiError(gate.status, gate.status === 403 ? 'Forbidden' : 'Conflict', gate.detail);
+      }
+      const cutEdits = Object.entries(confirmed.data.splitCuts ?? {});
+      if (cutEdits.some(([id]) => !gate.splitIds.includes(id))) {
+        throw new ApiError(409, 'Conflict', 'A split changed. Reload this plan.');
+      }
+
       // Get all items in the plan to check scan root writability
       const items = await db
         .select({ audioFileId: tagPlanItems.audioFileId })
@@ -961,6 +1054,27 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         if (nonWritableRoots.length > 0) {
           throw new ApiError(403, 'Forbidden', 'Not all scan roots are writable');
         }
+      }
+
+      if (gate.splitIds.length > 0) {
+        const task = await getSql().begin(async (tx) => {
+          const splitRows = await tx<{ id: string; plan: SplitPlan | null }[]>`
+            update album_splits set state = 'splitting', updated_at = now()
+            where id = any(${gate.splitIds}::uuid[]) and tag_plan_id = ${planId} and state = 'ready' returning id, plan`;
+          if (splitRows.length !== gate.splitIds.length) throw new ApiError(409, 'Conflict', 'A split changed. Reload this plan.');
+          for (const [id, cuts] of cutEdits) {
+            const original = splitRows.find((row) => row.id === id)?.plan;
+            const edited = original && withSplitCuts(original, cuts);
+            if (!edited) throw new ApiError(400, 'Bad Request', 'Cuts must stay between the preceding and following track starts');
+            await tx`update album_splits set plan = ${JSON.stringify(edited)}::text::jsonb where id = ${id}`;
+          }
+          return saveMaintenanceTask(tx, {
+            libraryId, kind: 'split', scope: `plan:${planId}:apply`, subjectId: planId,
+            queue: 'tags.apply', input: { planId }, stage: 'Tag Plan queued',
+          });
+        });
+        await dispatchMaintenance(task.id, request.log);
+        return reply.status(202).send({ jobId: task.attempt_id, singletonKey: `tags.apply:${planId}`, message: 'Apply job enqueued' });
       }
 
       // Enqueue the tags.apply job with singletonKey
@@ -1020,6 +1134,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         throw new ApiError(400, 'Bad Request', `Cannot pause plan in status '${plan.status}'`);
       }
 
+      const splitTask = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
+      if (splitTask && !['done', 'cancelled'].includes(splitTask.state)) {
+        throw new ApiError(409, 'Conflict', 'Finish the split task before changing this plan.');
+      }
+
       // Update plan status to paused
       await db
         .update(tagPlans)
@@ -1070,6 +1189,26 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       if (plan.status !== 'paused') {
         throw new ApiError(400, 'Bad Request', `Cannot resume plan in status '${plan.status}'`);
+      }
+      // 0089: a resumed apply runs the plan's splits too: owner only, as Apply and Split
+      if (!can((request.user as { role?: string }).role, 'system.manage') && (await hasPendingSplits(getSql(), planId))) {
+        throw new ApiError(403, 'Forbidden', 'Only the owner can resume a plan that splits an album');
+      }
+
+      if (can(request.user.role, 'system.manage')) {
+        const sql = getSql();
+        const previous = await latestMaintenanceTask(sql, libraryId, 'split', `plan:${planId}:apply`);
+        if (previous || await hasPendingSplits(sql, planId)) {
+          const task = previous
+            ? await restartMaintenanceTask(sql, libraryId, previous.id, previous.attempt)
+            : await saveMaintenanceTask(sql, {
+              libraryId, kind: 'split', scope: `plan:${planId}:apply`, subjectId: planId,
+              queue: 'tags.apply', input: { planId }, stage: 'Tag Plan queued',
+            });
+          if (!task) throw new ApiError(409, 'Conflict', 'The Tag Plan task is already active.');
+          await dispatchMaintenance(task.id, request.log);
+          return reply.status(202).send({ jobId: task.attempt_id, singletonKey: `tags.apply:${planId}`, message: 'Apply job re-enqueued' });
+        }
       }
 
       // Enqueue the tags.apply job to resume processing
@@ -1127,6 +1266,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       if (!['applying', 'paused'].includes(plan.status as string)) {
         throw new ApiError(400, 'Bad Request', `Cannot cancel plan in status '${plan.status}'`);
+      }
+
+      const splitTask = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
+      if (splitTask && !['done', 'cancelled'].includes(splitTask.state)) {
+        throw new ApiError(409, 'Conflict', 'Finish the split task before changing this plan.');
       }
 
       // Update plan status to cancelled
@@ -1190,7 +1334,14 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select({ n: count() })
         .from(tagPlanItems)
         .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
-      if (!appliedCount || Number(appliedCount.n) === 0) {
+      // 0089: a plan that split an album wrote its tracks through the split
+      const splitsDone = (await planSplitsOf(getSql(), planId)).filter((x) => x.state === 'done').length;
+      const wroteItems = !!appliedCount && Number(appliedCount.n) > 0;
+      // undoing a split restores the source and trashes the tracks: owner only, as Split
+      if (splitsDone > 0 && !can((request.user as { role?: string }).role, 'system.manage')) {
+        throw new ApiError(403, 'Forbidden', 'Only the owner can revert a plan that split an album');
+      }
+      if (!wroteItems && splitsDone === 0) {
         throw new ApiError(400, 'Bad Request', 'This plan wrote no files, so there is nothing to revert');
       }
 
@@ -1219,9 +1370,10 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       reply.status(202).send({
         jobId,
-        revertPlanId,
+        // a plan that only split has no tags of its own to restore: undoing the split is the revert
+        revertPlanId: wroteItems ? revertPlanId : null,
         singletonKey: `tags.revert:${planId}`,
-        message: 'Revert job enqueued',
+        message: wroteItems ? 'Revert job enqueued' : 'Undoing the split',
       });
     }
   );
@@ -1350,6 +1502,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       let previewQueued = false;
       if (result.added > 0) {
+        const [now] = await db.select({ policy: tagPlans.policy, scope: tagPlans.scope }).from(tagPlans).where(eq(tagPlans.id, planId));
+        const policy = now?.policy as TagPolicies | undefined;
+        if (policy && splitsFirst(policy, (request.user as { role?: string } | undefined)?.role)) {
+          await ensurePlanSplits(getSql(), { libraryId, planId, albumIds: (now!.scope as { albumIds?: string[] }).albumIds ?? [], userId: request.user!.id }, request.log);
+        }
         // Same singleton key as the preview route. The queue is 'stately': a
         // preview already waiting absorbs this one (it reads the new scope
         // when it starts); one already running gets a successor.

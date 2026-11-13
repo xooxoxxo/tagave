@@ -45,13 +45,27 @@ async function startBoss(): Promise<PgBoss> {
     'collection.sync', 'collection.push', 'collection.remove', // collection
     'roots.validate', 'scan.root', 'enrich.sweep', // library / scan
     'edition.add', 'queue.autoaccept', // review matches
-    'art.thumb', 'art.thumbSweep', // cover thumbnails the images route found missing
-    'connections.pull', // Settings › Connections: Sync now, and the first pull after linking
+    'art.fetch', 'art.thumb', 'art.thumbSweep', // covers and missing thumbnails
+    'connections.pull', // Settings › Modules › Music Connections: Sync now, and the first pull after linking
     'listenLinks.resolve', // Listen elsewhere: an album or artist page asks for its links
+    'decider.accept', // accept batches and decider runs (Library care › Review)
+    'similarArtists.fetch', // Similar artists: an artist page asks for its list
+    'dj.analyze', // DJ: the player asks for its next tracks' analysis, turning the module on starts the sweep
+    'files.trash', // Deleting: moves into and out of the trash folder, Empty trash
+    'files.upgrade', // Upgrade to FLAC
+    'files.embedCover',
+    'files.split', // Whole album in one file: the cut points, then the split
+    'files.move', // Move to album: the release search, the plan, the move and its undo
   ]) {
     await boss.createQueue(q, q === 'scan.root' ? undefined : QUEUE_RETRY_DEFAULTS);
   }
+  // the autotagger's runs: stately from the first send, so the per-library
+  // singletonKey holds before a worker has set the queue's other options
+  await boss.createQueue('decider.run', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
+  // turning the autotagger on starts the matching-evidence sweep: one queued behind a running one
+  await boss.createQueue('evidence.backfill', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   // the player module's debounced scans (worked by the API itself, see lib/player.ts)
+  await boss.createQueue('tags.apply', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   await boss.createQueue('player.scan', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   return boss;
 }

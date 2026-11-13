@@ -16,6 +16,7 @@
  * and idx_local_albums_display_artist_lower (0040) for the tag arm.
  */
 import { sql } from 'drizzle-orm';
+import { albumLiveSql } from '@tagave/db';
 
 type Db = { execute: (query: ReturnType<typeof sql>) => Promise<unknown> };
 
@@ -89,6 +90,7 @@ export async function fetchArtistAlbums(db: Db, libraryId: string, artist: { id:
         from mine m
         join local_albums la on la.id = m.id
         left join release_groups rg on rg.id = la.release_group_id
+       where ${sql.raw(albumLiveSql('la.id'))}
     `),
     // credited release groups with nothing on disk: on the shelf, or a gap
     db.execute(sql`

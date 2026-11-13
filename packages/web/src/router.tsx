@@ -21,25 +21,30 @@ const PlanPage = lazyRouteComponent(() => import('./pages/PlanPage'), 'PlanPage'
 const WorkPage = lazyRouteComponent(() => import('./pages/WorkPage'), 'WorkPage');
 const SettingsPage = lazyRouteComponent(() => import('./pages/SettingsPage'), 'SettingsPage');
 const InvitePage = lazyRouteComponent(() => import('./pages/InvitePage'), 'InvitePage');
+const OidcDonePage = lazyRouteComponent(() => import('./pages/OidcDonePage'), 'OidcDonePage');
 const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
 const ConnectConsentPage = lazyRouteComponent(() => import('./pages/ConnectConsentPage'), 'ConnectConsentPage');
 const PlaylistsPage = lazyRouteComponent(() => import('./pages/PlaylistsPage'), 'PlaylistsPage');
 const BooksPage = lazyRouteComponent(() => import('./pages/BooksPage'), 'BooksPage');
 const PlaylistPage = lazyRouteComponent(() => import('./pages/PlaylistPage'), 'PlaylistPage');
+const LikedSongsPage = lazyRouteComponent(() => import('./pages/LikedSongsPage'), 'LikedSongsPage');
+const DjPage = lazyRouteComponent(() => import('./pages/DjPage'), 'DjPage');
 import { signOut } from './hooks/useAuth';
 import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
+import { parseArtistsSearch } from './pages/artistsView';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
+import { MOVED_SECTIONS } from './pages/moduleSettings';
 
 /**
  * Parse work page search params: validate optional tab
  */
 function parseWorkSearch(search: Record<string, unknown>) {
   const tab = search.tab as string | undefined;
-  if (tab && !['review', 'identify', 'attention', 'tasks'].includes(tab)) {
+  if (tab && !['review', 'identify', 'attention', 'tasks', 'deleting', 'moved', 'organize', 'inbox', 'getting'].includes(tab)) {
     throw new Error(`Invalid work tab: ${tab}`);
   }
-  return { tab: (tab as 'review' | 'identify' | 'attention' | 'tasks' | undefined) ?? 'review' };
+  return { tab: (tab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'organize' | 'inbox' | 'getting' | undefined) ?? 'review' };
 }
 
 // Root route - handles auth redirection
@@ -73,6 +78,13 @@ const inviteRoute = new Route({
   getParentRoute: () => rootRoute,
   path: '/invite/$token',
   component: InvitePage,
+});
+
+// The login service sends a re-verification back here (the step-up popup)
+const oidcDoneRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/auth/oidc-done',
+  component: OidcDonePage,
 });
 
 // Music Connections consent: another app asks to read this person's data.
@@ -128,6 +140,9 @@ const artistsRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/artists',
   component: ArtistsPage,
+  // the words the header's search narrowed the list to ("In artists"), the
+  // sort and the letter: in the URL so Back from an artist returns to them
+  validateSearch: (search: Record<string, unknown>) => parseArtistsSearch(search),
 });
 
 const artistDetailRoute = new Route({
@@ -156,11 +171,25 @@ const booksRoute = new Route({
   component: BooksPage,
 });
 
+// Liked songs: each person's hearted songs, a built-in list (0085)
+const likedRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/liked',
+  component: LikedSongsPage,
+});
+
+// The DJ view (the dj module's Advanced mode): two decks over the player's elements
+const djRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/dj',
+  component: DjPage,
+});
+
 const plansRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/plans',
   component: guarded('library.edit', PlansPage),
-  // ?album=<localAlbumId> opens the wizard scoped to that album (album page "Fix tags").
+  // ?album=<localAlbumId> opens the Tag sheet for that album (older "Fix tags" links).
   validateSearch: (search: Record<string, unknown>): { album?: string } =>
     typeof search['album'] === 'string' && search['album'] ? { album: search['album'] } : {},
 });
@@ -215,6 +244,22 @@ const settingsSectionRoute = new Route({
     typeof search['job'] === 'string' && search['job'] ? { job: search['job'] } : {},
 });
 
+// Settings › Modules › <module> (moduleSettings.ts): each module's own page
+const settingsModuleRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/modules/$module',
+  component: SettingsPage,
+});
+
+// Each module's settings moved into Settings › Modules › <module>
+// (2026-11-04): the old sections redirect there, keeping the query (the
+// Music Connections and Last.fm returns carry ?linked=, ?error=, ?lastfm=).
+const movedSectionRedirects = Object.entries(MOVED_SECTIONS).map(([from, to]) => new Route({
+  getParentRoute: () => layoutRoute,
+  path: `/settings/${from}`,
+  beforeLoad: ({ search }) => redirect({ to: '/settings/modules/$module', params: { module: to }, search, replace: true }),
+}));
+
 const settingsLibraryRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/library',
@@ -251,6 +296,9 @@ const collectionRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/collection',
   component: CollectionPage,
+  // the tab (All, Unmapped, Duplicates): in the URL so Back returns to it
+  validateSearch: (search: Record<string, unknown>): { view?: 'unmapped' | 'duplicates' } =>
+    (search['view'] === 'unmapped' || search['view'] === 'duplicates' ? { view: search['view'] } : {}),
 });
 
 const jobsOldRoute = new Route({
@@ -312,6 +360,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   loginTwoFactorRoute,
   inviteRoute,
+  oidcDoneRoute,
   connectConsentRoute,
   layoutRoute.addChildren([
     dashboardRoute,
@@ -323,6 +372,8 @@ const routeTree = rootRoute.addChildren([
     playlistsRoute,
     playlistRoute,
     booksRoute,
+    likedRoute,
+    djRoute,
     plansRoute,
     planRoute,
     albumDetailRoute,
@@ -330,6 +381,8 @@ const routeTree = rootRoute.addChildren([
     workRoute,
     settingsRoute,
     settingsSectionRoute,
+    settingsModuleRoute,
+    ...movedSectionRedirects,
     settingsLibraryRoute,
     settingsSystemRoute,
     settingsProvidersRoute,

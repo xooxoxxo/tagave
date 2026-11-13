@@ -33,6 +33,11 @@ export interface FacetsView {
    * Absent from an older server: music alone.
    */
   apps?: string[];
+  /**
+   * The apps in development this install may run (TAGAVE_DEV_APPS), on or
+   * off: Settings › Modules lists their switch. Absent without the flag.
+   */
+  devApps?: string[];
 }
 
 /** Settings › Modules: the Music Connections row (a setting, not a container). */

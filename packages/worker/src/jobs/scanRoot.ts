@@ -6,7 +6,7 @@ import { walkRoot, type WalkMode } from '../lib/walk.js';
 import { finishNotes } from '../lib/scanFinish.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
-import { probeRoot } from './rootsValidate.js';
+import { hostPathHere, probeRoot } from './rootsValidate.js';
 import { sendGrouping, walkedHandlers } from '../lib/appFiles.js';
 
 export interface ScanRootJobData {
@@ -73,10 +73,11 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   const scanId = scanRow.id;
   const startedMs = Date.now();
 
-  const fail = async (status: string, message: string) => {
+  // unmounted: the LIB-5 guard stopped it (db › musicFolder.ts reads it for the notice and the updater's self-heal)
+  const fail = async (status: string, message: string, unmounted = false) => {
     await ctx.db
       .update(scans)
-      .set({ status, finishedAt: new Date(), stats: { mode, error: message } })
+      .set({ status, finishedAt: new Date(), stats: { mode, error: message, ...(unmounted ? { unmounted: true } : {}) } })
       .where(eq(scans.id, scanId));
     await ctx.db
       .update(scanRoots)
@@ -92,7 +93,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   const { status, message: validationMessage, probeWritable } = await probeRoot(root.path, root.writable);
   await ctx.db
     .update(scanRoots)
-    .set({ validationStatus: status, validationMessage, validatedAt: new Date(), probeWritable })
+    .set({ validationStatus: status, validationMessage, validatedAt: new Date(), probeWritable, hostPath: await hostPathHere(root.path) })
     .where(eq(scanRoots.id, root.id));
   if (status !== 'ok') {
     await fail('aborted', `root ${status}: ${validationMessage ?? status}`);
@@ -121,7 +122,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
 
   // LIB-5: previously non-empty root that now yields nothing = unmounted share.
   if (walk.looksUnmounted) {
-    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing' + finishNotes(walk));
+    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing' + finishNotes(walk), true);
     return;
   }
 

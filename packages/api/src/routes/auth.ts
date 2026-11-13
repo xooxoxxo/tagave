@@ -9,6 +9,7 @@ import { ApiError } from '../middleware/errorHandler.js';
 import { forwardSetCookies, getAuthHandle, toSessionUser, tryGetAuthHandle } from '../middleware/auth.js';
 import { createAuthSecurityRoutes } from './authSecurity.js';
 import { createStepUpRoutes } from './stepUp.js';
+import { createOidcAuthRoutes } from './oidc.js';
 
 /** Held (transaction-scoped) while setup checks for and creates the owner. */
 export const SETUP_LOCK_KEY = 7_302_026_101;
@@ -25,6 +26,8 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
   await fastify.register(createAuthSecurityRoutes);
   // Re-verification for sensitive actions (signed-in only)
   await fastify.register(createStepUpRoutes);
+  // Sign in with your login service: the button, flow starts, Account's link
+  await fastify.register(createOidcAuthRoutes);
 
   // Is the owner account still to be created? The login page sends a fresh
   // install to /setup on `true`. A database error is a 503, never a guess:

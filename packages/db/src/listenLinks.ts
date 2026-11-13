@@ -3,7 +3,7 @@
  * Principle rule 2).
  *
  *   turn off          listenLinks.resolve skips, the Listen control and
- *                     Settings › Listen elsewhere hide, every row stays
+ *                     Settings › Modules › Listen elsewhere hide, every row stays
  *   delete its data   the module's five tables are emptied, nothing else
  *                     (core albums, artists and people stay as they are)
  *
@@ -45,9 +45,25 @@ export async function listenPrefsOf(sql: Sql | Tx, userId: string): Promise<stri
   return row?.platforms ?? [];
 }
 
-export async function setListenPrefs(sql: Sql | Tx, userId: string, platforms: readonly string[]): Promise<void> {
-  await sql`insert into listen_prefs (user_id, platforms, updated_at) values (${userId}, ${platforms as string[]}::text[], now())
-            on conflict (user_id) do update set platforms = excluded.platforms, updated_at = now()`;
+/** A person's primary platform (0076), or null. */
+export async function listenPrimaryOf(sql: Sql | Tx, userId: string): Promise<string | null> {
+  const [row] = await sql<Array<{ p: string | null }>>`select primary_platform as p from listen_prefs where user_id = ${userId}`;
+  return row?.p ?? null;
+}
+
+/**
+ * Save a person's platforms and, when given, their primary one (null: none).
+ * Left out, the primary stays while it is still among the platforms.
+ */
+export async function setListenPrefs(sql: Sql | Tx, userId: string, platforms: readonly string[], primary?: string | null): Promise<void> {
+  const keep = primary === undefined;
+  await sql`insert into listen_prefs (user_id, platforms, primary_platform, updated_at)
+            values (${userId}, ${platforms as string[]}::text[], ${keep ? null : primary}, now())
+            on conflict (user_id) do update set platforms = excluded.platforms,
+              primary_platform = case when ${keep}::boolean then
+                  (case when listen_prefs.primary_platform = any(excluded.platforms) then listen_prefs.primary_platform end)
+                else excluded.primary_platform end,
+              updated_at = now()`;
 }
 
 /** Every platform someone on this install picked: the resolver looks for nothing else. */

@@ -1,7 +1,8 @@
 import type postgres from 'postgres';
 import { readFile, access } from 'node:fs/promises';
-import { and, eq, inArray, like, or } from 'drizzle-orm';
+import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
+import { albumsChanged } from '../lib/albumCare.js';
 import { scopeHoldState } from '../lib/clusterHold.js';
 import { albumKeyLock, files, clusterOverrides, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
@@ -37,7 +38,11 @@ interface FileTags {
 interface AlbumValues {
   titleGuess: string | null;
   artistGuess: string | null;
+  /** tag: an album tag or a cue sheet title; folder: titled after its folder */
+  titleSource: 'tag' | 'folder' | null;
   yearGuess: number | null;
+  /** tag: a file's tags or its cue sheet; folder: the folder name; null: no year */
+  yearSource: 'tag' | 'folder' | null;
   dirPaths: string[];
   discCount: number;
   trackCount: number;
@@ -49,7 +54,9 @@ interface AlbumValues {
 export const ALBUM_COLUMNS = {
   titleGuess: 'title_guess',
   artistGuess: 'artist_guess',
+  titleSource: 'title_source',
   yearGuess: 'year_guess',
+  yearSource: 'year_source',
   dirPaths: 'dir_paths',
   discCount: 'disc_count',
   trackCount: 'track_count',
@@ -182,6 +189,8 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       or(eq(files.status, 'present'), eq(files.status, 'error')),
       // only files music groups (its manifest's handlers): a book in an album folder is not a track
       inArray(files.handler, [...MUSIC_HANDLERS]),
+      sql`not exists (select 1 from file_deletions fd where fd.file_id = ${files.id}
+        and (fd.state = 'holding' or fd.trash_rel_path like '.tagave-trash/upgrade-%'))`,
       pathFilter,
     ));
 
@@ -209,6 +218,14 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     ctx.logger.info({ scope }, 'cluster.dir: folder held until its new files are checked for moves');
     return;
   }
+
+  // Library care (rr85): every album this run touches gets its gaps
+  // rechecked at the end — the albums the files sit on now, the ones they
+  // land on, the ones removed.
+  const touchedAlbums = new Set(((await ctx.sql`
+    select distinct local_album_id::text as id from local_tracks
+     where audio_file_id = any(${inScope.map((f) => f.id)}::uuid[]) and local_album_id is not null`) as unknown as Array<{ id: string }>)
+    .map((r) => r.id));
 
   /**
    * Disc number per file (spec: cue sheet > tag disk.no > disc subfolder >
@@ -449,20 +466,27 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       trackCount += f.virtual ? f.virtual.tracks.length : 1;
     }
 
+    const tagYear = g.files.map((f) => f.tags.year).find((y) => y !== null)
+      ?? g.files.map((f) => f.virtual?.sheet.date ?? null).find((y) => y !== null) ?? null;
+    const folderYear = tagYear === null ? extractYear(relBasename(dirPaths[0] ?? '')) ?? null : null;
+
     const albumValues: AlbumValues = {
       titleGuess: g.untagged
         ? folderTitle(siblingDirs !== null && scopeToken ? scopeToken.title : relBasename(scope))
         : sample.tags.album
           ? stripDiscToken(sample.tags.album)
           : sample.virtual?.sheet.title ?? null,
+      // Every tagged group was keyed on an album tag or a cue sheet title.
+      // Untagged files folded into the folder's lone tagged album take 'tag'
+      // too: the album's title still comes from that tagged group.
+      titleSource: g.untagged ? 'folder' : 'tag',
       artistGuess: g.various
         ? VARIOUS_ARTISTS
         : g.untagged
           ? soleArtist(g.files)
           : sample.tags.albumartist ?? sample.tags.artist ?? sample.virtual?.sheet.performer ?? null,
-      yearGuess: g.files.map((f) => f.tags.year).find((y) => y !== null)
-        ?? g.files.map((f) => f.virtual?.sheet.date ?? null).find((y) => y !== null)
-        ?? extractYear(relBasename(dirPaths[0] ?? '')) ?? null,
+      yearGuess: tagYear ?? folderYear,
+      yearSource: tagYear !== null ? 'tag' : folderYear !== null ? 'folder' : null,
       dirPaths,
       discCount: discNos.size,
       trackCount,
@@ -512,6 +536,7 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
         returning id::text as id, (xmax = 0) as inserted`;
       if (!row) throw new Error('local_albums upsert returned no row');
       if (row['inserted'] === true) created = true;
+      touchedAlbums.add(row['id'] as string);
       await replaceTracks(ctx, row['id'] as string, g.files, discs, tx);
     }));
   }
@@ -542,6 +567,14 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   // Identify jobs queued for the albums just removed would only find them gone.
   // Best effort: a job that slips through stops quietly on its own.
   const removedIds = [...reaped, ...superseded].map((r) => r.id);
+  for (const id of [...pinnedAlbums, ...removedIds]) touchedAlbums.add(id);
+  // The set-based gaps now (the gaps of removed albums resolve). The quality
+  // check is queued only when an album past identification changed: a rescan
+  // or a re-cluster after an operation. A first scan's pending albums, folder
+  // by folder, are left to scan.root's library-wide check at its end.
+  const decided = touchedAlbums.size > 0 && ((await ctx.sql`
+    select 1 from local_albums where id = any(${[...touchedAlbums]}::uuid[]) and state <> 'pending' limit 1`) as unknown as unknown[]).length > 0;
+  await albumsChanged(ctx, data.libraryId, [...touchedAlbums], { queue: decided });
   if (removedIds.length > 0) {
     try {
       await cancelQueuedIdentify(ctx, removedIds);
@@ -867,6 +900,9 @@ function toFileRow(r: { id: string; relPath: string; durationMs: number | null; 
   };
 }
 
+/** The title a cue track gets when its sheet names none (core's virtualTracksForFile). */
+const CUE_FALLBACK_TITLE = /^Track [0-9]+$/;
+
 async function replaceTracks(
   ctx: WorkerContext,
   albumId: string | null,
@@ -897,6 +933,8 @@ async function replaceTracks(
           discNo,
           trackNo: track.number,
           titleGuess: track.title ?? `Track ${track.number}`,
+          // A cue track without a TITLE gets a generated "Track NN".
+          titleSource: !track.title || CUE_FALLBACK_TITLE.test(track.title) ? 'none' : 'tag',
           artistGuess: track.performer ?? f.tags.artist ?? f.tags.albumartist ?? null,
           durationMs: track.durationMs,
           origin: 'cue',
@@ -912,6 +950,7 @@ async function replaceTracks(
         discNo,
         trackNo: f.tags.track ?? filenameDiscPrefix(name)?.track ?? trackNoFromName(name),
         titleGuess: f.tags.title ?? titleFromName(name),
+        titleSource: f.tags.title ? 'tag' : 'filename',
         artistGuess: f.tags.artist ?? f.tags.albumartist ?? null,
         durationMs: f.durationMs,
         origin: 'file',

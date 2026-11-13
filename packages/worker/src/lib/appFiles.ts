@@ -56,7 +56,7 @@ export async function sendGrouping(
  */
 export async function walkedHandlers(ctx: Pick<WorkerContext, 'sql'>, libraryId?: string): Promise<ReadonlySet<string>> {
   // On a database from before the module ledger (0065), or before
-  // libraries.app (0068), which this worker runs on only with
+  // libraries.app (0096), which this worker runs on only with
   // TAGAVE_ALLOW_SCHEMA_SKEW, no app reads as on and every library as music:
   // the built-in apps' handlers are walked, as before.
   const on = new Set(await enabledAppIds(ctx.sql));

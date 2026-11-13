@@ -28,7 +28,7 @@ export const albumsQuerySchema = z.object({
   root: z.string().uuid().optional().describe('Scan root id: only albums with files under that root (pairs with folder)'),
   sort: z.enum(['artist', 'title', 'year', 'added_date', 'rating', 'listened']).optional(),
   state: multi(albumStateFilterSchema, 6),
-  decided: z.enum(['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid']).optional(),
+  decided: z.enum(['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid', 'model']).optional(),
   review: z.enum(['reviewed', 'unreviewed', 'rated', 'listened']).optional(),
   genre: multi(z.string().max(100), 30).describe('Discogs genre/style or MB genre tag'),
   decade: multi(z.coerce.number().int().min(1900).max(2100), 15).describe('First year of each decade, e.g. 1990'),
@@ -36,6 +36,7 @@ export const albumsQuerySchema = z.object({
   label: multi(z.string().max(255), 20),
   owned: z.enum(['both', 'digital']).optional().describe("'both' = also in the physical collection"),
   gap: multi(albumGapFilterSchema, 4),
+  liked: z.enum(['yes']).optional().describe("'yes' = only the albums the person liked"),
   view: z.enum(['grid', 'list']).optional(),
 }).strict();
 
@@ -57,6 +58,8 @@ export const albumFilterCountsSchema = z.object({
   gaps: z.array(facetCountSchema),
   owned: z.array(facetCountSchema),
   decided: z.array(facetCountSchema),
+  /** the person's liked albums among these ('yes') */
+  liked: z.array(facetCountSchema).optional(),
 }).strict();
 
 export type AlbumFilterCounts = z.infer<typeof albumFilterCountsSchema>;

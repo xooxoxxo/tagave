@@ -18,7 +18,7 @@ import {
   useCan, useCurrentLibrary, useArtist, useEnrichArtist, useFollowArtist, useReopenGap, useFollowRules,
   usePatchArtistFollowRules, useResetArtistFollowRules,
 } from '../hooks';
-import { PageShell, Button, CloseIcon, IconButton } from '../components/ui';
+import { PageShell, Button, CloseIcon, IconButton, showToast } from '../components/ui';
 import { PageBackActionContext } from '../components/ui/PageShell';
 import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { artistLabel } from '@tagave/shared';
@@ -29,8 +29,15 @@ import { ArtistNameFirst, ArtistNameFirstSkeleton } from './ArtistNameFirst';
 import { ArtistLikeAlbums, ArtistLikeAlbumsSkeleton } from './ArtistLikeAlbums';
 import { detailsState, kindLine, pageSections, shelves as shelvesOf } from './artistPageView';
 import { useArtistFlow } from './useArtistFlow';
-import { MissingListenLinks } from '../components/ListenControl';
+import { MissingListenLinks, MissingPrimary } from '../components/ListenControl';
 import { useArtistListenLinks } from '../hooks/useListenLinks';
+import { MissingLidarr } from '../components/LidarrControls';
+import { useArtistLidarr } from '../hooks/useLidarr';
+import { useHiddenDeletions } from './deleteAction';
+import { fetchArtistMix, useArtistSimilar, useFollowSimilar } from '../hooks/useSimilarArtists';
+import { usePlaybackAvailable } from '../hooks/usePlayer';
+import { playTracks } from '../player/engine';
+import { showsSimilar, similarCount, type SimilarArtistsViewProps } from './SimilarArtists';
 import styles from './ArtistPage.module.css';
 
 const NO_GLIDE = { x: 0, y: 0 };
@@ -51,16 +58,47 @@ export function ArtistPage() {
   const nameRef = useRef<HTMLHeadingElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  const shelves = useMemo(() => shelvesOf(artist?.albums ?? []), [artist?.albums]);
+  // an album deleted from its page waits out its Undo off this page too (one step up lands here)
+  const hiddenDel = useHiddenDeletions();
+  const shelves = useMemo(
+    () => shelvesOf((artist?.albums ?? []).filter((a) => !a.localAlbumId || !hiddenDel.album(a.localAlbumId))),
+    [artist?.albums, hiddenDel],
+  );
   const nameFirst = artistLayout !== 'albums';
+  // Similar artists (the similar-artists module): below the albums, above About
+  const similarQuery = useArtistSimilar(libraryId, artist ? artistId : undefined);
+  const similarView = similarQuery.data && showsSimilar(similarQuery.data) ? similarQuery.data : null;
+  const followSimilar = useFollowSimilar(libraryId);
+  const playable = usePlaybackAvailable();
+  const [mixLoading, setMixLoading] = useState<string | null>(null);
+  const similar = useMemo<SimilarArtistsViewProps | null>(() => (similarView ? {
+    view: similarView,
+    onFollow: canCare ? (a) => followSimilar.mutate({ artistId: a.artistId, mbid: a.mbid, name: a.name }) : undefined,
+    following: followSimilar.isPending ? followSimilar.variables?.name ?? null : null,
+    onPlay: playable && libraryId ? async (a) => {
+      setMixLoading(a.artistId);
+      try {
+        const mix = await fetchArtistMix(libraryId, a.artistId);
+        if (mix.trackIds.length) await playTracks(mix.trackIds, { kind: 'artist', id: a.artistId, name: mix.name });
+      } catch {
+        showToast({ message: 'Couldn’t load the songs. Try again.' });
+      } finally {
+        setMixLoading(null);
+      }
+    } : undefined,
+    loading: mixLoading,
+  } : null), [similarView, canCare, followSimilar, playable, libraryId, mixLoading]);
   const sections = useMemo(
-    () => (artist && nameFirst ? pageSections(artist, shelves, maintenance) : []),
-    [artist, nameFirst, shelves, maintenance],
+    () => (artist && nameFirst ? pageSections(artist, shelves, maintenance, detailsState(artist, waiting), similarView ? { count: similarCount(similarView) } : null) : []),
+    [artist, nameFirst, shelves, maintenance, waiting, similarView],
   );
   const flow = useArtistFlow(rootRef, nameRef, sections.map((s) => s.id), endRef, !!artist);
   const [showReleaseTypes, setShowReleaseTypes] = useState(false);
   // Listen elsewhere: links for the albums a followed artist is missing
   const listen = useArtistListenLinks(libraryId, artistId, shelves.missing.length > 0);
+  // Lidarr: each missing album's request and Get (the lidarr module)
+  const lidarr = useArtistLidarr(libraryId, artistId, shelves.missing.length > 0);
+  const lidarrValue = useMemo(() => (lidarr.data?.available ? { view: lidarr.data, libraryId, artistId } : null), [lidarr.data, libraryId, artistId]);
 
   if (error && isNotFound(error)) return <NotFoundPage title="Artist not found" to="/artists" label="Back to artists" />;
   if (error) {
@@ -97,12 +135,13 @@ export function ArtistPage() {
               onReopen: canCare ? (gapId: string) => reopenMutation.mutate(gapId) : undefined,
               reopening: reopenMutation.isPending,
               canFollow: canCare,
+              similar,
             };
-            return <MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
+            return <MissingLidarr.Provider value={lidarrValue}><MissingPrimary.Provider value={listen.data?.available ? listen.data.primary ?? null : null}><MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
               {nameFirst
                 ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />
                 : <ArtistLikeAlbums {...props} />}
-            </MissingListenLinks.Provider>;
+            </MissingListenLinks.Provider></MissingPrimary.Provider></MissingLidarr.Provider>;
           })()}
         {maintenance && showReleaseTypes && artist?.followed && (
           <ReleaseTypes libraryId={libraryId} artistId={artistId} onClose={() => setShowReleaseTypes(false)} />

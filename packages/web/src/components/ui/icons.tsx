@@ -190,6 +190,16 @@ export function PlaylistIcon() {
   return <svg {...LINE}><path d="M4 6h11M4 11h11M4 16h6" /><circle cx="16.5" cy="17" r="2.2" /><path d="M18.7 17V8.5l2.3-1" /></svg>;
 }
 
+/** Two heads and shoulders: people together (a collaborative playlist, its collaborators). */
+export function PeopleIcon() {
+  return <svg {...LINE}><circle cx="9" cy="8.5" r="3.2" /><path d="M3.2 19c1-3 3.2-4.6 5.8-4.6s4.8 1.6 5.8 4.6" /><path d="M15.2 5.6a3.2 3.2 0 0 1 0 5.8M17.4 14.6c1.6.6 2.8 2 3.4 4.4" /></svg>;
+}
+
+/** A heart: like (outline) and liked (filled, filled true). */
+export function HeartIcon({ filled = false }: { filled?: boolean }) {
+  return <svg {...LINE} fill={filled ? 'currentColor' : 'none'}><path d="M12 20.2s-7.6-4.6-8.9-9.5C2.3 7.6 4.2 4.8 7.2 4.8c2 0 3.6 1.1 4.8 2.9 1.2-1.8 2.8-2.9 4.8-2.9 3 0 4.9 2.8 4.1 5.9-1.3 4.9-8.9 9.5-8.9 9.5Z" /></svg>;
+}
+
 /** A plus: new. */
 export function PlusIcon() {
   return <svg {...LINE}><path d="M12 5v14M5 12h14" /></svg>;
@@ -214,6 +224,11 @@ export function ImportIcon() {
   return <svg {...LINE}><path d="M12 4v11M8 11l4 4 4-4" /><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" /></svg>;
 }
 
+/** A drive: the album is on disk, in the library. */
+export function OnDiskIcon() {
+  return <svg {...LINE}><path d="M4 14 6.5 5.5h11L20 14" /><rect x="4" y="14" width="16" height="5.5" rx="1.5" /><path d="M16.5 16.75h.01" strokeWidth="2.4" /></svg>;
+}
+
 /** A pencil: rename. */
 export function RenameIcon() {
   return <svg {...LINE}><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>;
@@ -222,6 +237,11 @@ export function RenameIcon() {
 /** A bin: delete. */
 export function TrashIcon() {
   return <svg {...LINE}><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" /></svg>;
+}
+
+/** A luggage tag: write tags to the files. */
+export function TagIcon() {
+  return <svg {...LINE}><path d="M4 12.5V5h7.5l8 8-7.5 7.5-8-8Z" /><path d="M8.5 8.5h.01" /></svg>;
 }
 
 /** A chevron pointing right: a submenu. */
@@ -241,6 +261,64 @@ export function ListenIcon() {
       <path d="M4.5 15.5v-3a7.5 7.5 0 0 1 15 0v3" />
       <rect x="3.5" y="14" width="4" height="6" rx="1.6" />
       <rect x="16.5" y="14" width="4" height="6" rx="1.6" />
+    </svg>
+  );
+}
+
+/* The list pages' toolbar: sort, filter, grid and list (2026-11-03). */
+
+/** Two arrows, up and down: sort. */
+export function SortIcon() {
+  return <svg {...LINE}><path d="M8 19V5M4.5 8.5 8 5l3.5 3.5" /><path d="M16 5v14M12.5 15.5 16 19l3.5-3.5" /></svg>;
+}
+
+/** A funnel: filter. */
+export function FilterIcon() {
+  return <svg {...LINE}><path d="M4 5.5h16l-6.2 7.3v5.4l-3.6 1.8v-7.2z" /></svg>;
+}
+
+/** Four squares: the grid view. */
+export function GridIcon() {
+  return <svg {...LINE}><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></svg>;
+}
+
+/** Rows, a square leading each: the list view. */
+export function ListIcon() {
+  return <svg {...LINE}><rect x="4" y="4.5" width="4" height="4" rx="1" /><rect x="4" y="10" width="4" height="4" rx="1" /><rect x="4" y="15.5" width="4" height="4" rx="1" /><path d="M11 6.5h9M11 12h9M11 17.5h9" /></svg>;
+}
+
+/* Casting (2026-11-04). */
+
+/** A screen with waves from its corner: cast to a device. */
+export function CastIcon() {
+  return <svg {...LINE}><path d="M3.5 8.5v-2a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H13.5" /><path d="M3.5 12a7.5 7.5 0 0 1 7.5 7.5M3.5 15.5a4 4 0 0 1 4 4" /><path d="M3.75 19.25h.01" strokeWidth="2.6" /></svg>;
+}
+
+/** A screen over a triangle: AirPlay. */
+export function AirPlayIcon() {
+  return <svg {...LINE}><path d="M7 17H5.5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2H17" /><path d="M12 14.5l4.5 5h-9z" /></svg>;
+}
+
+/* Play in one place (2026-11-04). */
+
+/** A speaker beside a phone: where the music plays. */
+export function DevicesIcon() {
+  return <svg {...LINE}><rect x="3.5" y="3.5" width="10" height="17" rx="2" /><circle cx="8.5" cy="14" r="2.6" /><path d="M8.5 7.5h.01" strokeWidth="2.4" /><rect x="16" y="8.5" width="4.5" height="12" rx="1.4" /><path d="M18.25 18h.01" strokeWidth="2.2" /></svg>;
+}
+
+/* The DJ view (2026-11-05). */
+
+/** Two channel faders over a crossfader: the DJ view. */
+export function DjIcon() {
+  return <svg {...LINE}><path d="M7 3.5v10M17 3.5v10M4 19.5h16" /><rect x="5" y="6.5" width="4" height="3" rx="1" /><rect x="15" y="9" width="4" height="3" rx="1" /><rect x="10" y="17.5" width="4" height="4" rx="1" /></svg>;
+}
+
+/** A bar and a triangle pointing right: back to the cue point. */
+export function CueIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+      <rect x="5" y="5.5" width="2.6" height="13" rx="1" />
+      <path d="M10.5 6.6v10.8c0 .8.9 1.3 1.6.8l8.2-5.4a1 1 0 0 0 0-1.6l-8.2-5.4c-.7-.5-1.6 0-1.6.8z" />
     </svg>
   );
 }

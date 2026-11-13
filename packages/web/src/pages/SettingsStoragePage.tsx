@@ -5,7 +5,7 @@
  */
 import { useRef, useState } from 'react';
 import { PROBLEM_TYPES, type DiskSpaceView, type TagChangeCleanupPreview, type TagChangeCleanupScope } from '@tagave/shared';
-import { Badge, Banner, Button, SegmentedControl, confirmDialog, showToast } from '../components/ui';
+import { Badge, Banner, Button, LinkButton, SegmentedControl, confirmDialog, showToast } from '../components/ui';
 import { diskNoticeText, pathsLabel } from '../components/DiskSpaceNotice';
 import { useStorage, useTagChangeCleanup, useTagChangeCleanupPreview } from '../hooks/useStorage';
 import { formatBytes } from '../utils/format';
@@ -97,6 +97,7 @@ export function SettingsStorageContent() {
                 {f.exists && <> · {f.files.toLocaleString()} {f.files === 1 ? 'file' : 'files'}{f.truncated ? ', counting stopped early' : ''}</>}
               </p>
               {f.error && <p className={styles.error}>{f.error}</p>}
+              {f.key === 'backups' && <LinkButton to="/settings/$section" params={{ section: 'backups' }} variant="quiet" size="sm">Manage backups</LinkButton>}
             </li>
           ))}
         </ul>

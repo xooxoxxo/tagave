@@ -111,9 +111,9 @@ describe.skipIf(!adminUrl)('listen elsewhere: links, platforms, the module switc
 
   it('off by default: nothing shows, nothing is queued, a person cannot pick', async () => {
     const before = await coreSnapshot();
-    expect((await albumLinks(anna)).json()).toEqual({ available: false, links: [], pending: false });
-    expect((await artistLinks(anna)).json()).toEqual({ available: false, albums: {}, pending: false });
-    expect((await get(anna, '/api/v1/me/listen-links')).json()).toEqual({ available: false, platforms: [] });
+    expect((await albumLinks(anna)).json()).toEqual({ available: false, links: [], pending: false, primary: null });
+    expect((await artistLinks(anna)).json()).toEqual({ available: false, albums: {}, pending: false, primary: null });
+    expect((await get(anna, '/api/v1/me/listen-links')).json()).toEqual({ available: false, platforms: [], primary: null });
     expect((await pick(anna, ['qobuz'])).statusCode).toBe(409);
     expect((await get(owner, '/api/v1/settings/listen-links')).json()).toEqual({ enabled: false, albums: 0, artists: 0, people: 0 });
     const facets = (await get(anna, '/api/v1/facets')).json();
@@ -133,15 +133,15 @@ describe.skipIf(!adminUrl)('listen elsewhere: links, platforms, the module switc
   });
 
   it('none picked until the person chooses; each person has their own platforms, in their order', async () => {
-    expect((await albumLinks(anna)).json()).toEqual({ available: true, links: [], pending: false });
+    expect((await albumLinks(anna)).json()).toEqual({ available: true, links: [], pending: false, primary: null });
     expect(sent).toEqual([]);
     expect((await pick(anna, ['qobuz', 'qobuz'])).statusCode).toBe(400);
     expect((await pick(anna, ['napster'])).statusCode).toBe(400);
     expect((await app.inject({ method: 'PUT', url: '/api/v1/me/listen-links', headers: { cookie: anna.cookie, origin: 'http://evil.example' }, payload: { platforms: ['qobuz'] } })).statusCode).toBe(403);
-    expect((await pick(anna, ['qobuz', 'spotify', 'tidal'])).json()).toEqual({ available: true, platforms: ['qobuz', 'spotify', 'tidal'] });
+    expect((await pick(anna, ['qobuz', 'spotify', 'tidal'])).json()).toEqual({ available: true, platforms: ['qobuz', 'spotify', 'tidal'], primary: null });
     expect((await pick(ben, ['spotify'])).statusCode).toBe(200);
-    expect((await get(anna, '/api/v1/me/listen-links')).json()).toEqual({ available: true, platforms: ['qobuz', 'spotify', 'tidal'] });
-    expect((await get(ben, '/api/v1/me/listen-links')).json()).toEqual({ available: true, platforms: ['spotify'] });
+    expect((await get(anna, '/api/v1/me/listen-links')).json()).toEqual({ available: true, platforms: ['qobuz', 'spotify', 'tidal'], primary: null });
+    expect((await get(ben, '/api/v1/me/listen-links')).json()).toEqual({ available: true, platforms: ['spotify'], primary: null });
   });
 
   it('an album: its own page, else the artist’s, else a search; opening it queues one lookup', async () => {
@@ -178,11 +178,44 @@ describe.skipIf(!adminUrl)('listen elsewhere: links, platforms, the module switc
     expect(sent.at(-1)).toEqual({ name: 'listenLinks.resolve', data: { artistId }, opts: expect.objectContaining({ singletonKey: `listen:artist:${artistId}` }) });
   });
 
+  it('Play on: each person’s primary platform, one of theirs; dropping it from the list clears it', async () => {
+    const put = (u: TestUser, body: object) => app.inject({ method: 'PUT', url: '/api/v1/me/listen-links', headers: as(u), payload: body });
+    // not one of the person's platforms
+    expect((await put(anna, { platforms: ['qobuz', 'spotify', 'tidal'], primary: 'deezer' })).statusCode).toBe(400);
+    expect((await put(anna, { platforms: ['qobuz', 'spotify', 'tidal'], primary: 'spotify' })).json()).toEqual({ available: true, platforms: ['qobuz', 'spotify', 'tidal'], primary: 'spotify' });
+    // the album and the artist page carry it; ben chose none
+    expect((await albumLinks(anna)).json().primary).toBe('spotify');
+    expect((await artistLinks(anna)).json().primary).toBe('spotify');
+    expect((await albumLinks(ben)).json().primary).toBeNull();
+    // platforms saved without it keep it while it is still one of them
+    expect((await put(anna, { platforms: ['spotify', 'qobuz', 'tidal'] })).json().primary).toBe('spotify');
+    expect((await put(anna, { platforms: ['qobuz', 'tidal'] })).json().primary).toBeNull();
+    expect((await put(anna, { platforms: ['qobuz', 'spotify', 'tidal'], primary: 'spotify' })).json().primary).toBe('spotify');
+  });
+
+  it('a Missing playlist row: the album on the primary platform, else a search for the track', async () => {
+    const releaseMbid = randomUUID();
+    await sql`insert into releases (release_group_id, mbid, title) values (${rgMissing}, ${releaseMbid}, 'Unplugged')`;
+    await sql`insert into listen_links (release_group_id, platform, url, source) values (${rgMissing}, 'spotify', 'https://open.spotify.com/album/unplugged', 'mb-release')`;
+    const [list] = await sql<Array<{ id: string }>>`insert into playlists (user_id, name) values (${anna.userId}, 'Mixed') returning id::text as id`;
+    await sql`insert into playlist_items (playlist_id, position, title, artist, album, release_mbid) values
+              (${list!.id}, 1, 'Gone Track', 'The Plugs', 'Unplugged', ${releaseMbid}),
+              (${list!.id}, 2, 'Other Song', 'Someone Else', 'Elsewhere', null)`;
+    const items = (await get(anna, `/api/v1/me/playlists/${list!.id}`)).json().items;
+    expect(items.map((i: { elsewhere: unknown }) => i.elsewhere)).toEqual([
+      { platform: 'spotify', name: 'Spotify', url: 'https://open.spotify.com/album/unplugged', kind: 'exact' },
+      { platform: 'spotify', name: 'Spotify', url: 'https://open.spotify.com/search/Someone%20Else%20Other%20Song', kind: 'search' },
+    ]);
+    await sql`delete from playlists where id = ${list!.id}`;
+    await sql`delete from listen_links where release_group_id = ${rgMissing}`;
+    await sql`delete from releases where mbid = ${releaseMbid}`;
+  });
+
   it('turned off: links hide, a person’s choice and every row stay', async () => {
     expect((await turn(owner, false)).json()).toMatchObject({ enabled: false, albums: 1, artists: 1, people: 2 });
     sent.length = 0;
-    expect((await albumLinks(anna)).json()).toEqual({ available: false, links: [], pending: false });
-    expect((await artistLinks(anna)).json()).toEqual({ available: false, albums: {}, pending: false });
+    expect((await albumLinks(anna)).json()).toEqual({ available: false, links: [], pending: false, primary: null });
+    expect((await artistLinks(anna)).json()).toEqual({ available: false, albums: {}, pending: false, primary: null });
     expect(sent).toEqual([]);
     for (const t of LISTEN_LINKS_TABLES) expect((await sql`select count(*)::int as n from ${sql(t)}`)[0]!.n, t).toBeGreaterThan(0);
     expect((await turn(owner, true)).statusCode).toBe(200);

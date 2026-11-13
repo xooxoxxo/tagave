@@ -8,13 +8,18 @@
  *             row plays its track. Save as playlist keeps the whole queue.
  *   History   the person's plays, newest first (from the server, so plays on
  *             their other devices are there too); a row plays its track next.
+ *
+ * Each song still to come, and each played one still in the library, has
+ * every song's ⋮ (TrackActions); the playing one has it in the header.
  */
-import { useRef, useState, type CSSProperties, type FormEvent, type ReactElement } from 'react';
+import { useRef, useState, type CSSProperties, type FormEvent, type ReactElement, type ReactNode } from 'react';
 import type { PlayHistoryEntry, QueueContext } from '@tagave/shared';
 import { Button, CloseIcon, CoverArt, EmbossIconButton, GripIcon, SaveListIcon, SegmentedControl } from '../ui';
 import { clock } from '../../player/logic';
 import type { QueueEntry } from '../../player/engine';
 import { useDragReorder } from './useDragReorder';
+import { TrackActions } from './TrackActions';
+import { linkedArtists } from '../NowPlayingLinks';
 import styles from './QueuePanel.module.css';
 
 export type QueueTab = 'next' | 'history';
@@ -34,17 +39,34 @@ export interface QueuePanelProps {
   onPlayHistory?: ((entry: PlayHistoryEntry) => void) | undefined;
   /** Save as playlist (only with the playlists module): resolves when saved */
   onSave?: ((name: string) => Promise<void>) | undefined;
+  /** each row's ⋮ (every song's menu); off where there is no app around it (tests) */
+  menus?: boolean | undefined;
 }
 
 const REASON: Record<string, string> = { not_scanned: 'Not on the player yet', no_file: 'File missing', cue: 'Inside a CUE image' };
 
-function Row({ t, state, handle, dragged, onPlay, onRemove }: {
+/** A row's ⋮: every song's menu. */
+function songMenu(t: { localTrackId: string; title: string; artist: string; album: string; coverUrl: string | null; albumId: string | null; albumArtist?: string; artists?: QueueEntry['artists'] }): ReactNode {
+  return (
+    <TrackActions
+      label={`More for ${t.title}`}
+      className={styles.more}
+      summary={{ title: t.title, subtitle: [t.artist, t.album].filter(Boolean).join(' · '), coverUrl: t.coverUrl }}
+      source={{ trackIds: [t.localTrackId] }}
+      albumId={t.albumId}
+      artist={linkedArtists(t.artist, t.albumArtist ?? '', t.artists)?.[0] ?? null}
+    />
+  );
+}
+
+function Row({ t, state, handle, dragged, onPlay, onRemove, menu }: {
   t: Pick<QueueEntry, 'title' | 'artist' | 'album' | 'coverUrl' | 'durationMs' | 'available' | 'reason'>;
   state: 'current' | 'next' | 'played';
   handle?: Record<string, unknown> | undefined;
   dragged?: { dy: number } | undefined;
   onPlay?: (() => void) | undefined;
   onRemove?: (() => void) | undefined;
+  menu?: ReactNode;
 }) {
   const style = dragged ? ({ '--dy': `${dragged.dy}px` } as CSSProperties) : undefined;
   return (
@@ -60,6 +82,7 @@ function Row({ t, state, handle, dragged, onPlay, onRemove }: {
         </span>
         <span className={styles.time}>{t.durationMs ? clock(t.durationMs / 1000) : ''}</span>
       </button>
+      {menu}
       {onRemove && <EmbossIconButton label={`Remove ${t.title}`} className={styles.remove} onClick={onRemove}><CloseIcon /></EmbossIconButton>}
     </li>
   );
@@ -104,7 +127,7 @@ function SaveAs({ onSave }: { onSave: (name: string) => Promise<void> }) {
   );
 }
 
-export function QueuePanel({ tracks, index, context, tab, onTab, onPlay, onMove, onRemove, onClear, history, onPlayHistory, onSave }: QueuePanelProps) {
+export function QueuePanel({ tracks, index, context, tab, onTab, onPlay, onMove, onRemove, onClear, history, onPlayHistory, onSave, menus = false }: QueuePanelProps) {
   const list = useRef<HTMLDivElement>(null);
   // rows on screen: the playing track (position 0) and what comes after it
   const base = Math.max(0, index);
@@ -126,6 +149,7 @@ export function QueuePanel({ tracks, index, context, tab, onTab, onPlay, onMove,
       dragged={drag?.from === p ? { dy: drag.dy } : undefined}
       onPlay={p === 0 ? undefined : () => onPlay(base + p)}
       onRemove={p > 0 ? () => onRemove(base + p) : undefined}
+      menu={menus && p > 0 && t.localTrackId ? songMenu(t) : undefined}
     />
   );
   const dropLine = (p: number) => (drag && drag.to === p && drag.to !== drag.from ? <li className={styles.drop} aria-hidden="true" data-after={drag.to > drag.from ? '' : undefined} /> : null);
@@ -171,6 +195,7 @@ export function QueuePanel({ tracks, index, context, tab, onTab, onPlay, onMove,
                   state="played"
                   t={{ title: h.title, artist: h.artist ?? '', album: h.album ?? '', coverUrl: h.coverUrl, durationMs: h.durationMs, available: !!h.localTrackId, reason: h.localTrackId ? null : 'no_file' }}
                   onPlay={h.localTrackId && onPlayHistory ? () => onPlayHistory(h) : undefined}
+                  menu={menus && h.localTrackId ? songMenu({ localTrackId: h.localTrackId, title: h.title, artist: h.artist ?? '', album: h.album ?? '', coverUrl: h.coverUrl, albumId: h.albumId }) : undefined}
                 />
               ))}
             </ol>

@@ -21,8 +21,6 @@
  *   and 5:1 for its two lines of text
  * - the bar's seek fill and keys: primary, a tone further out if the bar's
  *   own tone sits close (3:1 against the bar)
- * - the glow along the seek bar: a mid primary tone (50 dark, 70 light),
- *   held where the seek fill still reads 3:1 on top of it
  */
 import { Contrast, Hct, QuantizerCelebi, SchemeContent, SchemeTonalSpot, Score, argbFromRgb, hexFromArgb } from '@material/material-color-utilities';
 
@@ -96,7 +94,6 @@ export function adaptiveTokens(source: number, dark: boolean): Record<string, st
     '--ad-bar-line': hex(sec.tone(dark ? Math.min(100, barTone + 18) : Math.max(0, barTone - 16))),
     '--ad-bar-accent': hex(p.tone(fillTone)),
     '--ad-bar-danger': hex(quiet.errorPalette.tone(dangerTone)),
-    '--ad-glow': hex(p.tone(dark ? 50 : 70)),
     '--accent-rgb': rgbOf(p.tone(accentTone)),
     '--info-rgb': rgbOf(p.tone(accentTone)),
   };

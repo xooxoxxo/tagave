@@ -2,14 +2,19 @@
  * Needs Attention (spec §14.2): open gaps grouped by kind. Each row offers
  * the three choices (0032): add to my tasks, not a problem, this is wrong.
  */
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { useCurrentLibrary } from '../hooks';
+import { useCan, useCurrentLibrary } from '../hooks';
+import { PHONE_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
+import { Button } from '../components/ui';
 import { api } from '../services/api';
 import { GapChoices } from '../components/GapChoices';
 import { gapLine, missingTrackLabel, titleList, type MissingTrack } from '../utils/gapTasks';
 import styles from './AttentionPage.module.css';
+
+// Whole album in one file: the split sheet, loaded the first time one opens
+const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
 
 interface GapItem {
   id: string;
@@ -28,12 +33,16 @@ const KIND_LABEL: Record<string, string> = {
   duplicate: 'Duplicates',
   quality: 'Tags, artwork and files',
   missing_album: 'Missing albums',
+  one_file_album: 'Whole album in one file',
 };
 
 export function AttentionPanel() {
   const { libraryId } = useCurrentLibrary();
   const navigate = useNavigate();
   const [kind, setKind] = useState<string>('incomplete_album');
+  const canSplit = useCan('system.manage');
+  const [splitting, setSplitting] = useState<GapItem | null>(null);
+  const narrow = useMediaQuery(PHONE_QUERY);
 
   const { data, isLoading } = useQuery({
     queryKey: ['gaps', libraryId, kind],
@@ -94,10 +103,26 @@ export function AttentionPanel() {
               <span className={styles.detail}>{gapLine(g)}</span>
               {missingLine(g) && <span className={styles.detailMore}>{missingLine(g)}</span>}
             </div>
+            {g.kind === 'one_file_album' && canSplit && (
+              <Button variant="secondary" size="sm" onClick={() => setSplitting(g)}>Split</Button>
+            )}
             <GapChoices gapId={g.id} subject={`${g.subjectTitle ?? 'this album'}: ${gapLine(g)}`} />
           </div>
         ))}
       </div>
+      {splitting && (
+        <Suspense fallback={null}>
+          <SplitSheet
+            open={!!splitting}
+            onOpenChange={(open) => { if (!open) setSplitting(null); }}
+            libraryId={libraryId}
+            albumId={splitting.subjectId}
+            title={splitting.subjectTitle ?? 'This album'}
+            artist={splitting.subjectArtist}
+            side={narrow ? 'bottom' : 'right'}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

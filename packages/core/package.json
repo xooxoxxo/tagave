@@ -14,9 +14,13 @@
     "./mc": "./dist/mc/index.js",
     "./facets": "./dist/facets/index.js",
     "./listen-links": "./dist/listenLinks/index.js",
+    "./similar-artists": "./dist/similarArtists/index.js",
+    "./lidarr": "./dist/lidarr/index.js",
+    "./lidarr-fake": "./dist/lidarr/fake.js",
     "./playlists": "./dist/playlists/index.js",
     "./files": "./dist/files/index.js",
-    "./files/fixtures": "./dist/files/books/fixtures.js"
+    "./files/fixtures": "./dist/files/books/fixtures.js",
+    "./dj": "./dist/dj/index.js"
   },
   "files": [
     "dist"

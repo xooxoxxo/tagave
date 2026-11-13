@@ -9,6 +9,11 @@ import fastifySwaggerUI from '@fastify/swagger-ui';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
 import { createUserPrefsRoutes } from './routes/userPrefs.js';
+import { createDeletionRoutes } from './routes/deletions.js';
+import { createFlacUpgradeRoutes } from './routes/flacUpgrade.js';
+import { createAlbumSplitRoutes } from './routes/albumSplits.js';
+import { createAlbumMoveRoutes } from './routes/albumMoves.js';
+import { createNamingRoutes } from './routes/naming.js';
 import { createBulkRoutes } from './routes/bulk.js';
 import { createUpdateRoutes } from './routes/updates.js';
 import { createUpdaterInternalRoutes, createUpdaterRoutes } from './routes/updater.js';
@@ -18,11 +23,14 @@ import { createBetterAuthRoutes } from './routes/betterAuth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createSystemRoutes } from './routes/system.js';
+import { createMusicFolderInternalRoutes, createMusicFolderRoutes } from './routes/musicFolder.js';
 import { createAlbumRoutes } from './routes/albums.js';
 import { createFieldLocksRoutes } from './routes/fieldLocks.js';
 import { createJobRoutes } from './routes/jobs.js';
+import { createMaintenanceRoutes } from './routes/maintenance.js';
 import { createQueueRoutes } from './routes/queue.js';
 import { createReviewMatchesRoutes } from './routes/reviewMatches.js';
+import { createBatchRoutes } from './routes/batches.js';
 import { createGapRoutes } from './routes/gaps.js';
 import { createImageRoutes } from './routes/images.js';
 import { createSearchRoutes } from './routes/search.js';
@@ -37,15 +45,22 @@ import { createPlayerRoutes } from './routes/player.js';
 import { createPlayerListeningRoutes } from './routes/playerListening.js';
 import { createUserRoutes } from './routes/users.js';
 import { createInviteRoutes } from './routes/invites.js';
+import { createOidcSettingsRoutes } from './routes/oidc.js';
 import { createConnectRoutes, createManifestRoute } from './routes/connect.js';
 import { createMcFeedRoutes } from './routes/mcFeeds.js';
 import { createMcConnectionRoutes } from './routes/mcConnections.js';
 import { createMcWantlistRoutes } from './routes/mcWantlist.js';
 import { createFacetRoutes } from './routes/facets.js';
 import { createListenLinksRoutes } from './routes/listenLinks.js';
+import { createSimilarArtistsRoutes } from './routes/similarArtists.js';
+import { createDjRoutes } from './routes/dj.js';
+import { createLidarrRoutes } from './routes/lidarr.js';
 import { createPlayerQueueRoutes } from './routes/playerQueue.js';
+import { createPlayerDeviceRoutes } from './routes/playerDevices.js';
 import { createPlaylistRoutes } from './routes/playlists.js';
 import { createBooksRoutes } from './routes/books.js';
+import { createAutotaggerRoutes } from './routes/autotagger.js';
+import { createLikeRoutes } from './routes/likes.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -78,6 +93,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
   // Signed by the updater instead of a session (opt-in updater)
   app.register(createUpdaterInternalRoutes, { prefix: '/api/v1' });
+  app.register(createMusicFolderInternalRoutes, { prefix: '/api/v1' });
 
   // Better Auth: /api/auth/* (sign-in, sign-out, session, 2FA, passkeys)
   app.register(createBetterAuthRoutes);
@@ -115,6 +131,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // System checks with a fix per failure (status page, first-run wizard)
     instance.register(createSystemRoutes, { prefix: '/api/v1' });
+    instance.register(createMusicFolderRoutes, { prefix: '/api/v1' });
 
     // Build identity + release feed (PLT-5 / XO-313)
     instance.register(createUpdateRoutes, { prefix: '/api/v1' });
@@ -131,11 +148,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // Job routes
     instance.register(createJobRoutes, { prefix: '/api/v1' });
+    instance.register(createMaintenanceRoutes, { prefix: '/api/v1' });
 
     // Review queue routes
     instance.register(createQueueRoutes, { prefix: '/api/v1' });
     // Review matches: auto-accept rules, pasted editions
     instance.register(createReviewMatchesRoutes, { prefix: '/api/v1' });
+    instance.register(createBatchRoutes, { prefix: '/api/v1' });
 
     // Gaps, their three-way decisions and the Tasks list (0032)
     instance.register(createGapRoutes, { prefix: '/api/v1' });
@@ -169,15 +188,17 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     // Settings › Storage: disk use and the tag-change cleanup (owner only)
     instance.register(createStorageRoutes, { prefix: '/api/v1', backupDir: deps.backupService.dir, cacheDir: deps.cacheDir });
 
-    // The opt-in player: capabilities, Settings › Playback, queue, stream proxy, play events
+    // The opt-in player: capabilities, Settings › Modules › Player, queue, stream proxy, play events
     instance.register(createPlayerRoutes, { prefix: '/api/v1' });
     // The player per person: listening history, Last.fm and ListenBrainz, phone-app passwords
     instance.register(createPlayerListeningRoutes, { prefix: '/api/v1' });
 
     // Settings › Users: people, roles, invites (owner)
     instance.register(createUserRoutes, { prefix: '/api/v1' });
+    // Settings › Users › Sign-in service: your own login service (owner)
+    instance.register(createOidcSettingsRoutes, { prefix: '/api/v1' });
 
-    // Settings › Connections: Music Connections links this person made to other apps ('self')
+    // Settings › Modules › Music Connections: Music Connections links this person made to other apps ('self')
     instance.register(createMcConnectionRoutes, { prefix: '/api/v1' });
     // Wantlist suggestions from linked apps, Accept / Dismiss ('self')
     instance.register(createMcWantlistRoutes, { prefix: '/api/v1' });
@@ -185,13 +206,32 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createFacetRoutes, { prefix: '/api/v1' });
     // Listen elsewhere: links to streaming platforms, each person's platforms, the module row
     instance.register(createListenLinksRoutes, { prefix: '/api/v1' });
+    // Similar artists: the artist page's section, Follow by MBID, the module row
+    instance.register(createSimilarArtistsRoutes, { prefix: '/api/v1' });
+    // DJ: each track's tempo, beat grid, trim points and waveform for the player, the module row
+    instance.register(createDjRoutes, { prefix: '/api/v1' });
     // The play queue per person (follows them across devices) and their history
     instance.register(createPlayerQueueRoutes, { prefix: '/api/v1' });
+    // Play in one place: the person's devices, their events, commands to the one that plays
+    instance.register(createPlayerDeviceRoutes, { prefix: '/api/v1' });
     // Playlists: each person's own lists, export and import, the module row
     instance.register(createPlaylistRoutes, { prefix: '/api/v1' });
+    // The autotagger module: its switch, prices, and each library's settings and key
+    instance.register(createAutotaggerRoutes, { prefix: '/api/v1' });
+    // Likes: each person's hearts on songs, albums and artists, Liked songs
+    instance.register(createLikeRoutes, { prefix: '/api/v1' });
     // Each person's own preferences that follow them between devices (the colour theme)
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
     // The books app (the spike): the Books page and its Settings › Modules row; 404 without TAGAVE_DEV_APPS=books
     instance.register(createBooksRoutes, { prefix: '/api/v1' });
+    // Deleting songs and albums: Mark or Trash, Library care › Deleting (owner)
+    instance.register(createDeletionRoutes, { prefix: '/api/v1' });
+    // Whole album in one file: the cut points and the split (owner)
+    instance.register(createFlacUpgradeRoutes, { prefix: '/api/v1' });
+    instance.register(createAlbumSplitRoutes, { prefix: '/api/v1' });
+    instance.register(createAlbumMoveRoutes, { prefix: '/api/v1' });
+    instance.register(createNamingRoutes, { prefix: '/api/v1' });
+    // Get missing albums through Lidarr: the states, Get (owner), Settings › Modules › Lidarr
+    instance.register(createLidarrRoutes, { prefix: '/api/v1' });
   });
 }

@@ -119,7 +119,8 @@ describe.skipIf(!url)('the books app: plug in, scan, unplug, purge (integration)
     await sql`insert into libraries (id, owner_user_id, name, settings) values (${ids.music}, ${ids.user}, 'Music', '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${ids.musicRoot}, ${ids.music}, ${path.join(base, 'music')}, 'Music', 'ok')`;
     // an app boot with TAGAVE_DEV_APPS=books: the ledger gets books' row, off
-    expect(await syncInstalledModules(sql, ledgerEntries(APPS, MODULES, new Set(['books'])))).toEqual(['books']);
+    // (the modules no migration records, the autotagger and later, get theirs too)
+    expect(await syncInstalledModules(sql, ledgerEntries(APPS, MODULES, new Set(['books'])))).toContain('books');
   }, 120_000);
 
   afterAll(async () => {

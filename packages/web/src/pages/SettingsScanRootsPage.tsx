@@ -277,6 +277,11 @@ function SettingsScanRootsContentInner() {
                   {root.validationStatus === 'ok' && root.validationMessage !== SCAN_ROOT_EMPTY_MESSAGE && root.probeWritable === false && (
                     <span className={`${styles.badge} ${styles.validationOk}`} title="Mounted read-only">Read-only mount</span>
                   )}
+                  {root.lastStatus === 'aborted' && root.validationStatus === 'ok' && root.validationMessage !== SCAN_ROOT_EMPTY_MESSAGE && (
+                    <span className={`${styles.badge} ${styles.validationError}`} title="The last scan stopped before reading anything: nothing was marked missing">
+                      Unreachable
+                    </span>
+                  )}
                   {root.validationStatus === 'missing' && (
                     <span className={`${styles.badge} ${styles.validationError}`} title={root.validationMessage || 'Path does not exist'}>
                       Missing

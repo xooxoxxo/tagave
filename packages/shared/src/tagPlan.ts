@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { maintenanceTaskSchema } from './maintenance.js';
 import { canonicalFieldSchema } from './tags.js';
 
 /**
@@ -91,6 +92,8 @@ export const tagPoliciesSchema = z.object({
   overrides: z.partialRecord(canonicalFieldSchema, tagFieldPolicySchema).optional().describe('Per-field policy overrides'),
   values: manualTagValuesSchema.optional().describe('Manual preset only: the values to write'),
   revertOf: z.string().uuid().optional().describe('Revert preset only: the plan whose writes this plan undoes'),
+  organize: z.boolean().optional().describe('0081: after the tags, move each file to the path the naming rules give (Settings › Library › Naming); on by default when rules are saved'),
+  split: z.boolean().optional().describe('0089: an album that is one FLAC holding the whole album is split into its tracks first, then the new tracks are tagged; on unless false (owner only)'),
 }).strict().describe('Write policy: preset + per-field overrides');
 
 export type TagPolicies = z.infer<typeof tagPoliciesSchema>;
@@ -121,6 +124,10 @@ export const tagPlanSkippedFileSchema = z.object({
     'album_not_identified',
     'not_in_album',
     'release_missing',
+    // the album is matched, but linking placed this file on none of the release's tracks
+    'track_not_on_release',
+    // 0089: the file holds the whole album; the plan splits it and tags the new tracks
+    'split_first',
   ]).describe('Why the file was skipped'),
   message: z.string().optional().describe('Additional error details'),
   localAlbumId: z.string().uuid().optional().describe('Album the file belongs to, so the page can offer to identify it'),
@@ -143,6 +150,12 @@ export const tagPlanStatsSchema = z.object({
   filesLockedOnly: z.number().int().nonnegative().optional().describe('Files whose only would-be changes are blocked by locks'),
   lastError: z.string().optional().describe('Why the last apply run stopped before finishing; set when the worker parks a plan as paused'),
   albumsBefore: z.number().int().nonnegative().optional().describe('Different albums that held the files to write when the first apply run started'),
+  filesToMove: z.number().int().nonnegative().optional().describe('0081: files the naming rules give another path'),
+  filesMoveBlocked: z.number().int().nonnegative().optional().describe('0081: files whose new path is taken or cannot be written (their tags still apply)'),
+  movesQueued: z.number().int().nonnegative().optional().describe('0081: album moves queued after the tags were written'),
+  splitsDone: z.number().int().nonnegative().optional().describe('0089: albums the apply split into their tracks first'),
+  splitsFailed: z.number().int().nonnegative().optional().describe('0089: splits that stopped, changing nothing'),
+  splitTracks: z.number().int().nonnegative().optional().describe('0089: tracks the splits wrote'),
 }).strict().describe('Aggregate summary of a plan preview');
 
 export type TagPlanStats = z.infer<typeof tagPlanStatsSchema>;
@@ -176,6 +189,21 @@ export const tagPlanSchema = z.object({
   archivedAt: z.string().datetime().optional().describe('ISO 8601 timestamp when the owner archived this finished plan; archived plans leave the default list'),
   formats: z.array(z.string()).optional().describe('Distinct lower-case file extensions of the files in the plan (detail only, once previewed): the ID3 version matters only when one is an ID3 format'),
   progress: z.record(z.string(), z.number()).optional().describe('Item counts by status (applied, failed, …); on the detail, and on list rows whose apply finished with failures'),
+  applyTask: maintenanceTaskSchema.optional(),
+  splits: z.array(z.object({
+    splitId: z.string().uuid(),
+    albumId: z.string().uuid().nullable(),
+    state: z.enum(['analyzing', 'ready', 'splitting', 'done', 'failed', 'undone']),
+    tracks: z.number().int().nonnegative(),
+    low: z.number().int().nonnegative(),
+    medium: z.number().int().nonnegative(),
+    plan: z.any().nullable(),
+    outputs: z.array(z.string()).nullable(),
+    error: z.string().nullable(),
+    task: maintenanceTaskSchema.optional(),
+    retryAnalysis: z.boolean().optional(),
+    waitingForWorker: z.boolean().optional(),
+  }).strict()).optional().describe('0089: the albums this plan splits first (detail only): PlanSplit'),
 }).strict().describe('A tag correction plan');
 
 export type TagPlan = z.infer<typeof tagPlanSchema>;
@@ -292,6 +320,33 @@ export const tagPlanItemSchema = z.object({
   status: z.enum(['pending', 'applying', 'applied', 'failed', 'skipped']).optional().describe('Write state of this file within the plan'),
   error: z.string().optional().describe('Why the write failed or was skipped'),
   diffs: z.array(tagDiffEntrySchema).describe('List of field changes for this file'),
+  releaseTrack: z.object({
+    position: z.number().int().nullable().describe('Track position on its medium'),
+    mediumNo: z.number().int().nullable().describe('Medium (disc) number'),
+    media: z.number().int().positive().describe('How many media the release has, so a single-disc release shows no disc number'),
+    title: z.string(),
+    lengthMs: z.number().int().nullable(),
+  }).optional().describe('The release track this file was paired with when the plan was previewed'),
+  matchDistance: z.number().min(0).max(1).optional().describe('How far apart the file and its release track were in title and length (0 = identical); absent when the track came by position alone'),
+  pathAfter: z.string().optional().describe('0081: where the naming rules put the file (relative to its music folder); absent when it stays'),
+  pathState: z.enum(['clash', 'unwritable']).optional().describe('0081: why the file cannot move (its tags still apply)'),
 }).strict().describe('Per-file diffs in a tag plan');
 
 export type TagPlanItem = z.infer<typeof tagPlanItemSchema>;
+
+/**
+ * Match confidence in percent from a track-link distance: 0 → 100 %.
+ * Below LOW_MATCH_CONFIDENCE the plan page marks the pairing for a look.
+ */
+export function matchConfidence(distance: number): number {
+  return Math.round((1 - Math.min(1, Math.max(0, distance))) * 100);
+}
+
+/**
+ * 70 %: the alignment cost is 0.6 × title distance + 0.4 × length penalty
+ * (none within 10 s, full at 30 s). Spelling variants, "feat." credits and
+ * "Remastered" suffixes at the same length score 75–87 %; an unrelated
+ * title at the same length scores 55–60 %, and a right title 25 s off
+ * about 65 %. Below 70 the pairing is worth a look.
+ */
+export const LOW_MATCH_CONFIDENCE = 70;

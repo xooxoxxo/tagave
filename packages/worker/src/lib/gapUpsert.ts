@@ -1,3 +1,4 @@
+import { keepGapDecision } from '@tagave/db';
 import type { Sql } from './context.js';
 
 /**
@@ -8,13 +9,9 @@ import type { Sql } from './context.js';
  * hidden and a task ('todo', "Add to my tasks") stays on the task list until
  * the condition is gone — the recompute's sweep then marks it resolved and
  * accepted_at keeps it under Done. A resolved gap whose condition came back
- * opens again as a fresh gap (no longer a task).
+ * opens again as a fresh gap (no longer a task). Defined in @tagave/db
+ * (keepGapDecision), which the api's album-level recompute shares.
  */
 export function keepDecisionOnConflict(sql: Sql) {
-  return sql`
-    on conflict (library_id, kind, subject_type, subject_id, flag)
-    do update set details = excluded.details,
-                  state = case when gaps.state in ('dismissed', 'todo') then gaps.state else 'open' end,
-                  accepted_at = case when gaps.state = 'resolved' then null else gaps.accepted_at end,
-                  resolved_at = null`;
+  return keepGapDecision(sql);
 }

@@ -322,3 +322,18 @@ describe('candidate comparison uses the same tolerance', () => {
     expect(r?.differing).toEqual([]);
   });
 });
+
+describe('whole album in one file (0078)', () => {
+  const oneFile = gap({ id: 'o1', kind: 'one_file_album', details: { fileId: 'f', fileMs: 2_344_000, releaseMs: 2_340_000, tracks: 10 } });
+  const incomplete = gap({ id: 'g1', kind: 'incomplete_album', details: { have: 1, want: 10 } });
+  it('offers Split to the owner, first and on its own: the split answers the missing tracks too', () => {
+    const items = attentionItems(album({ gaps: [incomplete, oneFile] }), { now: NOW, canSplit: true });
+    expect(items.map((i) => i.id)).toEqual(['gap:o1']);
+    expect(items[0]).toMatchObject({ line: 'Whole album in one file · 1 file · 10 tracks · 39:04', action: { label: 'Split', do: 'split-image' }, interrupts: true });
+  });
+  it('anyone else sees it to review, with Maintenance on', () => {
+    const a = album({ gaps: [oneFile] });
+    expect(ids(a, false)).toEqual([]);
+    expect(attentionItems(a, { now: NOW })[0]).toMatchObject({ action: { label: 'Review', do: 'expand' }, interrupts: false });
+  });
+});

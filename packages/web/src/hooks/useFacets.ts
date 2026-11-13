@@ -25,6 +25,13 @@ export function useModuleOn(id: string): boolean | null {
   return m ? m.enabled : null;
 }
 
+/** Whether this install may run an app in development (GET /facets devApps, TAGAVE_DEV_APPS): null while unknown. */
+export function useDevAppAllowed(id: string): boolean | null {
+  const { data } = useFacets();
+  if (!data) return null;
+  return (data.devApps ?? []).includes(id);
+}
+
 /**
  * Whether an app is on (GET /facets apps): true, false, or null while
  * unknown. A server that lists no apps (an older one) has music alone.

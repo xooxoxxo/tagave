@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { and, eq } from 'drizzle-orm';
+import { retryRequest } from '../lib/jobView.js';
 import { jobRuns, libraries, scanRoots, users } from '@tagave/db';
 
 const boss = vi.hoisted(() => ({
@@ -176,5 +177,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('POST .../jobs/:jobId/retry (db)
     expect((await app.inject({ method: 'POST', url: url(ids.strangerFailed) })).statusCode).toBe(404);
     expect((await app.inject({ method: 'POST', url: url(ids.strangerFailed, randomUUID()) })).statusCode).toBe(404);
     expect(boss.send).not.toHaveBeenCalled();
+  });
+
+  it('restarts the auto-accept rules as run by the person who pressed retry', async () => {
+    const id = randomUUID();
+    await db.insert(jobRuns).values({ id, libraryId, type: 'queue.autoaccept', state: 'failed', error: 'x', startedAt: ago(1), finishedAt: ago(1), createdAt: ago(1) });
+    try {
+      const res = await app.inject({ method: 'POST', url: url(id) });
+      expect(res.statusCode).toBe(202);
+      expect(boss.send).toHaveBeenCalledWith('queue.autoaccept', { libraryId, mode: 'rules', requestedByUserId: userId }, { singletonKey: `autoaccept:${libraryId}` });
+    } finally {
+      await db.delete(jobRuns).where(and(eq(jobRuns.libraryId, libraryId), eq(jobRuns.type, 'queue.autoaccept')));
+    }
+  });
+});
+
+describe('retryRequest', () => {
+  it("Run again on an auto-accept entry runs the owner's rules", () => {
+    expect(retryRequest({ type: 'queue.autoaccept', subjectType: null, subjectId: null }, 'lib-1'))
+      .toEqual({ queue: 'queue.autoaccept', data: { libraryId: 'lib-1', mode: 'rules' }, singletonKey: 'autoaccept:lib-1' });
   });
 });

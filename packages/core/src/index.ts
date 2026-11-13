@@ -17,6 +17,7 @@ export {
   jaroWinklerDistance,
   tokenSetRatio,
   stringDistance,
+  scriptAwareDistance,
 } from './text/index.js';
 
 // Matching engine
@@ -25,6 +26,7 @@ export {
   scoreRelease,
   scoreCandidates,
   mediumCountOf,
+  normalizeBarcode,
   DEFAULT_WEIGHTS,
   MATCHING_THRESHOLDS,
   MAX_ALIGN_TRACKS,
@@ -33,6 +35,11 @@ export {
   pickByChipRule,
   evaluateAutoAccept,
   rulesFromStored,
+  buildAlbumEvidence,
+  buildCandidateEvidence,
+  evidenceHash,
+  stableJson,
+  EVIDENCE_VERSION,
 } from './matching/index.js';
 
 export type {
@@ -42,9 +49,21 @@ export type {
   TrackAlignment,
   MatchingPreferences,
   MediumCountSource,
+  ReleaseScore,
   Assignment,
   RuleCandidate,
   AutoAcceptDecision,
+  TitleSource,
+  YearSource,
+  LocalTrackEvidence,
+  AlbumEvidence,
+  RemoteFacts,
+  RemoteTrack,
+  AlignTriple,
+  CandidateEvidence,
+  AlbumEvidenceInput,
+  RemoteInput,
+  EvidenceCandidate,
 } from './matching/index.js';
 
 // Matching types (re-exported for convenience)
@@ -188,15 +207,62 @@ export {
   hashDffStream,
 } from './audio/streamHash.js';
 
+// Whole album in one file: cut points, file names, the written tracks' check (0078)
+export {
+  expectedBoundariesMs, msToSample, frameSamplesOf, frameRms, sustained, refineCut, confidenceOf, windowAround,
+  safeNamePart, trackFileName, planSplit, verifySplit, FRAME_MS, MIN_DIP_DB, SURE_DIP_DB,
+} from './audio/splitImage.js';
+export type { RefinedCut, RefineInput, PlanInput, PlanTrackInput, WrittenTrack } from './audio/splitImage.js';
+
+// Move to album: the names a moved file and a new album folder take (0080)
+export { DEFAULT_NAMING, namingOf, folderNaming, describeNaming, movedFileName, newAlbumDir } from './audio/moveNaming.js';
+export type { NamingPattern, NameInput } from './audio/moveNaming.js';
+
 // Physical collection: format lines and one-click album suggestions
 export { physicalFormatLabel, discogsArtistName, matchTitle, scoreSuggestion, rankPhysicalSuggestions } from './collection/index.js';
 export type { PhysicalRecordInfo, LibraryAlbumCandidate, RankedSuggestion } from './collection/index.js';
 
 // Worker queues and the work each serves
-export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, unservedWork } from './queues.js';
+export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, MUSIC_FOLDER_QUEUES, MAINTENANCE_QUEUES, unservedWork, workedWith, workerServesQueue } from './queues.js';
 
 // Artists list ordering (api live list, worker artist_list rebuild)
 export {
   orderArtists, artistListPositions, parseArtistSort, parseArtistGroup, ARTIST_SORTS,
   type ArtistRow, type ArtistSort, type ArtistGroupCount, type OrderedArtists, type ArtistPositions,
 } from './artistList.js';
+
+// Deciders: tracklist groups, the hashed Jev question spec, the Jev request, the decision and the edition pick
+export {
+  GROUPING_DEFAULTS, groupTracklists, fits, hasWildcards, countsKey, groupLabel,
+  JEV_SPEC, jevSpecHash, bandOf, decideFromProbabilities, pickEdition,
+  buildJevRequest, requestBytes, questionName, NotSendableError,
+  requestForAlbum, requestOptions, jevPayloadFor, hashOf, MAX_GROUPS, MAX_EDITIONS_PER_GROUP, WEAK_TOP_CANDIDATES,
+  LOCAL_FEATURES_VERSION, LOCAL_FEATURE_NAMES, BREAKDOWN_FEATURE_KEYS, NO_RIVAL_GAP, groupFeatures, candidateFeatures, featuresSchemaHash,
+  fitStandardiser, fitLogistic, predictLogistic, fitIsotonic, applyIsotonic, calibratedProbability, modelVersion,
+  MIN_OWNER_ALBUMS, TRAIN_FOLDS, TRAIN_SEED, TRAIN_L2, OWNER_WEIGHT, AUTO_WEIGHT, REJECTION_WEIGHT,
+  TrainingRefused, numericBreakdown, localDeciderGroups, trainingRows, assignFolds, trainingDataHash, trainLocalModel,
+  LOCAL_DECIDER_ID, localDecider,
+} from './decider/index.js';
+export type {
+  GroupingCandidate, GroupingOptions, TracklistGroup, JevSpec, BandId, JevDecision, EditionChoice,
+  Decider, DeciderInput, DeciderAnswer, DeciderRequest,
+  JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack, NotSendableReason, AlbumRequest, RequestOptions,
+  LocalCandidate, FeatureRow,
+  Standardiser, LogisticModel, LogisticOptions, IsotonicBlock, IsotonicModel, LocalModel,
+  TrainingAlbum, TrainingRow, TrainingCounts, BandMetrics, LocalTrainMetrics, TrainOptions, TrainResult, TrainingRefusal, LocalPayload,
+} from './decider/index.js';
+
+// Spot-check statistics: the one-sided Clopper–Pearson bound and the per-band gate
+export { clopperPearsonUpper, minCleanChecks, checksStillNeeded, bandGate, type BandGate } from './stats/clopperPearson.js';
+// Naming rules (vault "tagave - Naming Rules and Drop Pool"): where a file belongs, from its tags
+export {
+  NAMING_VARIABLES, DEFAULT_NAMING_RULES, DEFAULT_FOLDER_TEMPLATE, DEFAULT_FILE_TEMPLATE, DEFAULT_SPECIAL_RULES, DEFAULT_LEAVE_ALONE,
+  SEGMENT_MAX_BYTES, PATH_MAX_BYTES, INITIAL_NUMERIC, INITIAL_OTHER, DETECT_MIN_SHARE,
+  initialOf, templateProblem, rulesProblems, safeSegment, capPath, folderRuleFor, ruleDir, ruleFileName, rulePath,
+  isLeftAlone, samePath, namingValuesOf, detectNaming, albumPaths,
+} from './naming/rules.js';
+export type {
+  NamingRules, NamingValues, NamingVariable, SpecialRule, SpecialWhen, RulePath, RuleName, NamingSample, Detected, AlbumFileInput, AlbumPaths,
+} from './naming/rules.js';
+export { currentFieldsFrom } from './naming/currentFields.js';
+export type { CanonicalValue } from './naming/currentFields.js';

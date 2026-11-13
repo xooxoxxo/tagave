@@ -39,8 +39,11 @@ export async function createFacetRoutes(fastify: FastifyInstance) {
     const ctx = await facetContext(sql, { userId: request.user?.id ?? null, libraryId: null });
     // the apps that are on: an app in development only with TAGAVE_DEV_APPS naming it
     const dev = devAppIds();
-    const apps = [...registry.apps.values()].filter((a) => appAllowed(a, dev) && registry.appEnabled(a.id, ctx)).map((a) => a.id);
-    return { ...registry.state(ctx), apps };
+    const allowed = [...registry.apps.values()].filter((a) => appAllowed(a, dev));
+    const apps = allowed.filter((a) => registry.appEnabled(a.id, ctx)).map((a) => a.id);
+    // the apps in development this install may run (named by TAGAVE_DEV_APPS): absent without the flag
+    const devApps = allowed.filter((a) => a.dev).map((a) => a.id);
+    return { ...registry.state(ctx), apps, ...(devApps.length > 0 ? { devApps } : {}) };
   });
 
   fastify.get('/settings/music-connections', async (): Promise<McModuleView> => moduleView());

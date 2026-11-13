@@ -6,11 +6,19 @@ import { Input, Select } from '../components/ui/FormControl';
  * per-field diff. Actions for the current state sit in the header. Nothing
  * is written until Apply.
  */
-import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
+import { FIELD_LABELS } from '../utils/tagFieldLabels';
+import { Fragment, Suspense, lazy, useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import type { TagDiffEntry, TagPlanItem } from '@tagave/shared';
-import { PageShell, Button, Badge, Banner, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
+import { splitDoneLine, type PlanSplit, type SplitCuts, type TagDiffEntry, type TagPlanItem } from '@tagave/shared';
+import { PageShell, Button, Badge, Banner, SegmentedControl, UndoIcon, confirmDialog, showToast, type ConfirmOptions } from '../components/ui';
+import { PlanSplits } from './PlanSplits';
+import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
+import { useAlbumDrawer } from './AlbumMenu';
+
+const SplitSheet = lazy(() => import('../components/SplitSheet').then((m) => ({ default: m.SplitSheet })));
+const PlanGlyph = lazy(() => import('../components/update/UpdateGlyph').then((m) => ({ default: m.UpdateGlyph })));
+import { usePlanOrganize } from '../hooks/useNaming';
 import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
@@ -35,6 +43,7 @@ import { planStatusView, planUsesId3, diffRowKind, diffValueText } from '../util
 import styles from './PlanPage.module.css';
 import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan } from './planPreviewState';
 import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
+import { pairingOf } from './planPairing';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { useIdentifyAlbums } from '../hooks/useCompilations';
 import { useIdentifyStatus, type IdentifyStatusItem } from '../hooks/useIdentifyStatus';
@@ -155,6 +164,7 @@ function PreviewOutcomeNotice({
           <li>{plural(releaseMissing.files, 'file')} {verb(releaseMissing.files, 'belongs', 'belong')} to albums whose matched release is no longer cached; identifying them again restores it.</li>
         )}
         {outcome.notInAlbum > 0 && <li>{plural(outcome.notInAlbum, 'file')} {verb(outcome.notInAlbum, 'is', 'are')} not part of any album.</li>}
+        {outcome.notOnRelease > 0 && <li>Not on this release: {plural(outcome.notOnRelease, 'file')}</li>}
         {outcome.notWritable > 0 && (
           <li>{plural(outcome.notWritable, 'file')} {verb(outcome.notWritable, 'sits', 'sit')} on a scan root that does not allow writes — <Link to="/settings/library">Settings › Music folders</Link>.</li>
         )}
@@ -188,47 +198,6 @@ function scopeLabel(scope: Record<string, unknown> | undefined): string {
 }
 
 const reasonLabel = (r: string) => r.replace('policy:', '');
-const FIELD_LABELS: Record<string, string> = {
-  // Basic metadata
-  title: 'Track title',
-  artist: 'Track artist',
-  artistsort: 'Artist sort name',
-  album: 'Album title',
-  albumartist: 'Album artist',
-  albumartistsort: 'Album artist sort name',
-  // Dates
-  date: 'Release date',
-  originaldate: 'Original date',
-  // Track and disc positioning
-  tracknumber: 'Track number',
-  totaltracks: 'Total tracks',
-  discnumber: 'Disc number',
-  totaldiscs: 'Total discs',
-  discsubtitle: 'Disc subtitle',
-  // Classification
-  genre: 'Genre',
-  compilation: 'Compilation',
-  // Release metadata
-  label: 'Record label',
-  catalognumber: 'Catalog number',
-  barcode: 'Barcode',
-  media: 'Media format',
-  releasecountry: 'Release country',
-  releasestatus: 'Release status',
-  releasetype: 'Release type',
-  // Recording identifiers
-  isrc: 'ISRC',
-  musicbrainz_albumid: 'MusicBrainz release ID',
-  musicbrainz_releasegroupid: 'MusicBrainz release group ID',
-  musicbrainz_albumartistid: 'MusicBrainz album artist ID',
-  musicbrainz_artistid: 'MusicBrainz artist ID',
-  musicbrainz_recordingid: 'MusicBrainz recording ID',
-  musicbrainz_releasetrackid: 'MusicBrainz release track ID',
-  // External identifiers
-  acoustid_id: 'AcoustID',
-  discogs_release_id: 'Discogs release ID',
-  discogs_master_id: 'Discogs master ID',
-};
 
 // Hover text for a file row: the first few field names, then a count.
 // The full list is one click away in the expanded diff.
@@ -266,6 +235,11 @@ export function PlanPage() {
   // Track whether we've fired auto-preview for this mount to prevent re-firing
   const previewAutoFiredRef = useRef(false);
   const [editingValues, setEditingValues] = useState(false);
+  // 0089: the splits whose Low cuts the owner checked, and the one being checked
+  const [confirmedSplits, setConfirmedSplits] = useState<string[]>([]);
+  const [splitCuts, setSplitCuts] = useState<Record<string, SplitCuts>>({});
+  const [checking, setChecking] = useState<PlanSplit | null>(null);
+  const drawer = useAlbumDrawer();
   const [identifyNote, setIdentifyNote] = useState<string | null>(null);
   const identifyAlbums = useIdentifyAlbums(libraryId);
   // Revert builds a new, already previewed plan from the journal; open it
@@ -299,7 +273,10 @@ export function PlanPage() {
   const job = status === 'draft' ? planQ.data?.previewJob : undefined;
   const jobActive = job?.state === 'queued' || job?.state === 'running';
   const polling = shouldPollPlan({ previewRequested, jobActive, awaiting, status });
-  const liveQ = useTagPlan(libraryId, planId, { refetchInterval: polling ? 2000 : false });
+  const splitsWaiting = planQ.data?.splits?.some((split) => split.state === 'analyzing' || split.task?.workerAvailable === false);
+  const applyTask = planQ.data?.applyTask;
+  const applyWaiting = applyTask && (applyTask.state === 'waiting' || applyTask.state === 'running' || !applyTask.workerAvailable);
+  const liveQ = useTagPlan(libraryId, planId, { refetchInterval: polling ? 2000 : splitsWaiting || applyWaiting ? 5000 : false });
   const p = liveQ.data ?? planQ.data;
 
   useEffect(() => {
@@ -332,6 +309,7 @@ export function PlanPage() {
   const revertM = useRevertTagPlan(libraryId, planId);
   const deleteM = useDeleteTagPlan(libraryId, planId);
   const renameM = useRenameTagPlan(libraryId);
+  const organizeM = usePlanOrganize(libraryId, planId);
   const hasResults = !!status && RESULT_STATUSES.has(status);
   const results = useTagPlanResults(libraryId, planId, { enabled: hasResults });
 
@@ -424,6 +402,25 @@ export function PlanPage() {
     }
   };
 
+  // Organize files (0081): the server stores it, puts the plan back to draft
+  // and queues its preview, so this is a preview request like the button's.
+  const setOrganize = async (on: boolean) => {
+    const before = p?.status;
+    setError(null);
+    setPreviewRequested(true);
+    setPreviewAttempt((n) => n + 1);
+    previewAutoFiredRef.current = true;
+    try { sessionStorage.setItem(previewGuardKey(planId), '1'); } catch { /* the ref guards this mount */ }
+    try {
+      await organizeM.mutateAsync(on);
+      const wait = awaitAfterPreview(before);
+      if (wait) setAwaiting(wait);
+    } catch (e) {
+      setPreviewRequested(false);
+      setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
+    }
+  };
+
   // A running job whose progress has not moved for PREVIEW_STALE_MS: the
   // clock restarts on every change the page sees. A worker that dies mid-run
   // leaves the job "running" until the queue expires it, so without this the
@@ -464,7 +461,11 @@ export function PlanPage() {
   const progress = p?.progress;
   const tagWritesDisabled = settings.data !== undefined && !settings.data.tagWritesEnabled;
   const noWritableRoots = roots.data !== undefined && !roots.data.some((r) => r.writable);
-  const nothingToDo = previewed && stats !== undefined && stats.filesTouched === 0;
+  // 0089: the albums this plan splits first; a plan that only splits still has something to do
+  const splits = p?.splits ?? [];
+  const pendingSplits = splits.filter((x) => x.state === 'analyzing' || x.state === 'ready');
+  const splitsDone = splits.filter((x) => x.state === 'done');
+  const nothingToDo = previewed && stats !== undefined && stats.filesTouched === 0 && pendingSplits.length === 0;
   const outcome = previewed ? explainPreview(stats) : null;
   const isManual = p?.policy.preset === 'manual';
   const isRevert = p?.policy.preset === 'revert';
@@ -499,9 +500,12 @@ export function PlanPage() {
     }
     void qc.invalidateQueries({ queryKey: ['identify-status', libraryId] });
   };
-  const canApply = p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots;
+  const analysisStopped = splits.some((x) => x.state === 'failed' && !x.plan);
+  const canApply = !applyTask && !analysisStopped && p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots && !pendingSplits.some((x) => x.state === 'analyzing');
   const applyTitle = !previewed ? 'Preview has not finished yet'
+    : analysisStopped ? 'Retry the stopped cut point analysis'
     : nothingToDo ? 'Nothing to change'
+      : pendingSplits.some((x) => x.state === 'analyzing') ? 'Finding cut points'
       : tagWritesDisabled ? 'Tag writes are off in Settings › Tag preferences'
         : noWritableRoots ? 'No scan root allows writes (Settings › Tag preferences)'
           : p?.status !== 'previewed' ? `Plan is ${p?.status}` : undefined;
@@ -516,6 +520,35 @@ export function PlanPage() {
       setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
     }
   };
+
+  // Apply: the splits' Low cuts are checked first (the split sheet), then split, then tag
+  const apply = async (confirmed: string[], cuts = splitCuts) => {
+    const unchecked = pendingSplits.find((x) => x.state === 'ready' && x.low > 0 && !confirmed.includes(x.splitId));
+    if (unchecked) { setChecking(unchecked); return; }
+    const tracks = pendingSplits.reduce((n, x) => n + x.tracks, 0);
+    const files = stats?.filesTouched ?? 0;
+    const ok = await confirmDialog(pendingSplits.length > 0
+      ? { title: files > 0 ? `Split into ${tracks} tracks, then write ${plural(files, 'file')}?` : `Split into ${tracks} tracks and tag them?`, message: 'Revert puts it back.', confirmLabel: 'Apply' }
+      : { title: `Write the previewed changes to ${plural(files, 'file')}?`, message: 'Every write can be reverted.', confirmLabel: 'Apply' });
+    if (!ok) return;
+    setError(null);
+    try {
+      const reviewed = Object.fromEntries(pendingSplits.flatMap(({ splitId }) => cuts[splitId]?.length ? [[splitId, cuts[splitId]]] : []));
+      await applyM.mutateAsync(confirmed.length > 0 ? { confirmSplits: confirmed, splitCuts: reviewed } : undefined);
+      setAwaiting(p?.status ?? null);
+    } catch (e) {
+      setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
+    }
+  };
+
+  // the notice when a plan that split finishes: "Split into 11 tracks · tagged"
+  const lastStatus = useRef(status);
+  useEffect(() => {
+    if (lastStatus.current === 'applying' && (status === 'applied' || status === 'partially_failed') && (stats?.splitsDone ?? 0) > 0) {
+      showToast({ message: splitDoneLine(stats?.splitTracks ?? 0), durationMs: 8000 });
+    }
+    lastStatus.current = status;
+  }, [status, stats]);
 
   const byField = useMemo(() => {
     const map = new Map<string, { files: number; reasons: Record<string, number> }>();
@@ -542,7 +575,12 @@ export function PlanPage() {
   const toggle = (id: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => { setAllOpen((v) => !v); setExpanded(new Set()); };
 
-  if (!libraryId || planQ.isLoading) return <PageShell back title="Loading" barTitle={null}>Loading plan…</PageShell>;
+  if (!libraryId || planQ.isLoading) return <PageShell back title="Tag changes" barTitle={null}>
+    <div className={styles.loader} role="status">
+      <Suspense fallback={null}><PlanGlyph className={styles.loaderGlyph} seed="load-plan" progress={0.35} /></Suspense>
+      <span>Loading plan…</span>
+    </div>
+  </PageShell>;
   if (planQ.isError && isNotFound(planQ.error)) return <NotFoundPage title="Plan not found" to="/plans" label="Back to Tag changes" />;
   if (planQ.isError || !p) {
     return (
@@ -556,6 +594,8 @@ export function PlanPage() {
   }
 
   const statusView = planStatusView(p.status, progress);
+  // a file the plan splits first is not skipped: its tracks are tagged by the split
+  const skippedCount = (stats?.filesSkipped ?? []).filter((x) => x.reason !== 'split_first').length;
   // A plan that wrote files keeps its journal for Revert; the API refuses to
   // delete it, so the page does not offer it (a reverted plan can go).
   const wroteFiles = (progress?.applied ?? 0) > 0 && p.status !== 'reverted';
@@ -571,6 +611,7 @@ export function PlanPage() {
   return (
     <PageShell
       back
+      alignActionsWithTitle
       barTitle={p.name || 'Untitled plan'}
       title={<span className={`${styles.title} ${(p.name || '').length > 32 ? styles.titleLong : ''}`}>
         {/* The name is clamped to two lines (full name on hover) with the
@@ -597,32 +638,36 @@ export function PlanPage() {
             </Button>
           )}
           {p.status === 'previewed' && (
-            <Button variant="primary" loading={applyM.isPending} onClick={run(applyM, { title: `Write the previewed changes to ${plural(stats?.filesTouched ?? 0, 'file')}?`, message: 'Every write can be reverted.', confirmLabel: 'Apply' })} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
+            <Button variant="primary" loading={applyM.isPending} onClick={() => void apply(confirmedSplits)} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
               {applyM.isPending || awaiting !== null ? 'Starting…' : 'Apply now'}
             </Button>
           )}
-          {p.status === 'applying' && (
+          {p.status === 'applying' && !applyTask && (
             <>
               <Button variant="secondary" onClick={run(pauseM)} disabled={pauseM.isPending}>Pause</Button>
               <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
-          {p.status === 'paused' && (
+          {p.status === 'paused' && !applyTask && (
             <>
               <Button variant="primary" onClick={run(resumeM)} disabled={resumeM.isPending || awaiting !== null}>{awaiting !== null ? 'Resuming…' : 'Resume'}</Button>
               <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
-          {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && (progress?.applied ?? 0) > 0 && (
+          {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && ((progress?.applied ?? 0) > 0 || splitsDone.length > 0) && (
             <Button
               variant="secondary"
               loading={revertM.isPending || revertPlanId !== null}
               onClick={async () => {
-                if (!(await confirmDialog({ title: 'Prepare a revert plan?', message: `It restores the previous tags on ${plural(progress?.applied ?? 0, 'file')}. You will see it before anything is written.`, confirmLabel: 'Prepare revert' }))) return;
+                const onlySplit = (progress?.applied ?? 0) === 0;
+                if (!(await confirmDialog(onlySplit
+                  ? { title: 'Undo the split?', message: 'The one file comes back; the new tracks go to the trash.', confirmLabel: 'Revert' }
+                  : { title: 'Prepare a revert plan?', message: `It restores the previous tags on ${plural(progress?.applied ?? 0, 'file')}. You will see it before anything is written.`, confirmLabel: 'Prepare revert' }))) return;
                 setError(null);
                 try {
                   const r = await revertM.mutateAsync();
                   if (r.revertPlanId) setRevertPlanId(r.revertPlanId);
+                  else if (onlySplit) setAwaiting(p.status);
                   else await navigate({ to: '/plans' });
                 } catch (e) {
                   setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
@@ -727,7 +772,9 @@ export function PlanPage() {
                 {jobLink('View job')}
               </>
             ) : previewBusy ? (
-              <>
+              <div className={styles.previewLoader}>
+                <Suspense fallback={null}><PlanGlyph className={styles.previewGlyph} seed="preview-cuts" progress={0.6} /></Suspense>
+                <div role="status">
                 <strong>Computing the preview…</strong>{' '}
                 {current?.state === 'running' ? (
                   <>
@@ -738,7 +785,8 @@ export function PlanPage() {
                   <>Waiting for the worker. </>
                 ) : null}
                 {jobLink('View job')}
-              </>
+                </div>
+              </div>
             ) : (
               <>
                 <strong>No preview yet</strong>
@@ -775,19 +823,66 @@ export function PlanPage() {
           <Banner tone="info">Every file in scope already carries {isManual ? 'the values you set' : 'the canonical values under this policy'}. Nothing to apply.</Banner>
         ) : null}
 
+        {applyTask && libraryId && <MaintenanceTaskStatus task={applyTask} libraryId={libraryId} />}
+        <PlanSplits libraryId={libraryId} splits={splits} onCheck={p.status === 'previewed' ? (x) => setChecking(x) : null} />
+        {checking?.albumId && libraryId && (
+          <Suspense fallback={null}>
+            <SplitSheet
+              open
+              onOpenChange={(o) => { if (!o) setChecking(null); }}
+              libraryId={libraryId}
+              albumId={checking.albumId}
+              title={p.name || 'Split'}
+              side={drawer ? 'bottom' : 'right'}
+              confirm={{
+                splitId: checking.splitId,
+                cuts: splitCuts[checking.splitId] ?? [],
+                label: 'Split and tag',
+                onConfirm: (splitId, cuts) => {
+                  const next = [...new Set([...confirmedSplits, splitId])];
+                  const edits = { ...splitCuts, [splitId]: cuts };
+                  setConfirmedSplits(next);
+                  setSplitCuts(edits);
+                  setChecking(null);
+                  void apply(next, edits);
+                },
+              }}
+            />
+          </Suspense>
+        )}
+
         {editingValues && libraryId && valueScopes.length > 0 && (
           <BulkTagEditor libraryId={libraryId} scopes={valueScopes} title="Set the values yourself" onClose={() => setEditingValues(false)} />
         )}
 
         {/* The file list below already counts files and changes; only what
             it cannot show (locks kept, files skipped) gets a quiet line. */}
-        {previewed && stats && !hasResults && p.status !== 'reverted' && !nothingToDo && (stats.lockedFieldsRespected > 0 || stats.filesSkipped.length > 0) && (
+        {previewed && stats && !hasResults && p.status !== 'reverted' && !nothingToDo && (stats.lockedFieldsRespected > 0 || skippedCount > 0) && (
           <p className={styles.previewNotes}>
             {[
               stats.lockedFieldsRespected > 0 ? `${stats.lockedFieldsRespected.toLocaleString()} locked ${stats.lockedFieldsRespected === 1 ? 'field' : 'fields'} kept` : null,
-              stats.filesSkipped.length > 0 ? `${plural(stats.filesSkipped.length, 'file')} skipped` : null,
+              skippedCount > 0 ? `${plural(skippedCount, 'file')} skipped` : null,
             ].filter(Boolean).join(' · ')}
           </p>
+        )}
+
+        {!isRevert && (p.status === 'draft' || p.status === 'previewed') && (
+          <div className={styles.organize}>
+            <span className={styles.organizeLabel}>Organize files</span>
+            <SegmentedControl
+              label="Organize files"
+              value={p.policy.organize ? 'on' : 'off'}
+              onChange={(v) => void setOrganize(v === 'on')}
+              options={[{ value: 'off', label: 'Off', disabled: organizeM.isPending }, { value: 'on', label: 'On', disabled: organizeM.isPending }]}
+            />
+          </div>
+        )}
+        {stats && (stats.filesToMove !== undefined || stats.filesMoveBlocked !== undefined || stats.movesQueued !== undefined) && (
+          <dl className={styles.moveStats}>
+            {stats.filesToMove !== undefined && <div><dt>To move</dt><dd>{stats.filesToMove.toLocaleString()}</dd></div>}
+            {!!stats.filesMoveBlocked && <div><dt>Can’t move</dt><dd>{stats.filesMoveBlocked.toLocaleString()}</dd></div>}
+            {stats.movesQueued !== undefined && <div><dt>Moves queued</dt><dd>{stats.movesQueued.toLocaleString()}</dd></div>}
+          </dl>
         )}
 
         <details className={styles.details}>
@@ -802,9 +897,12 @@ export function PlanPage() {
           </dl>
         </details>
 
-        {progress && BUSY.has(p.status) && (
+        {progress && BUSY.has(p.status) && progress.total > 0 && (
           <div className={styles.progress}>
-            <div className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
+            <Suspense fallback={null}>
+              <PlanGlyph className={styles.previewGlyph} seed="write-tags" progress={pct / 100} moving={p.status === 'applying'} />
+            </Suspense>
+            <div className={styles.bar} role="progressbar" aria-label="Tag Plan file progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
               <div className={styles.fill} style={{ ['--scale' as string]: `${pct / 100}` }} />
             </div>
             <span>{done.toLocaleString()} / {progress.total.toLocaleString()} files{p.status === 'paused' ? ' · paused' : ''}</span>
@@ -856,6 +954,7 @@ export function PlanPage() {
                 const name = (it.relPath ?? it.audioFileId).split('/').pop();
                 const st = (it.status ?? 'pending') as ItemStatus;
                 const fieldList = shortFieldList(rows.map((d) => d.field));
+                const pair = pairingOf(it);
                 return (
                   <div key={it.id} className={styles.file}>
                     <button type="button" className={styles.fileRow} onClick={() => toggle(it.id)} aria-expanded={open}>
@@ -865,6 +964,15 @@ export function PlanPage() {
                         {dir !== prevDir && <span className={styles.pathDir}>{dir}</span>}
                         <span className={styles.pathFile}>{name}</span>
                         {it.error && <span className={styles.fileError} title={it.error}>{it.error}</span>}
+                      </span>
+                      <span className={`${styles.pair} ${pair?.low ? styles.pairLow : ''}`} title={pair ? `Release track: ${pair.text}` : undefined}>
+                        {pair && (
+                          <>
+                            {pair.position && <span className={styles.pairPos}>{pair.position}</span>}
+                            <span className={styles.pairTitle}>{pair.title}</span>
+                            {pair.confidence !== undefined && <span className={styles.pairPct}>{pair.confidence}%</span>}
+                          </>
+                        )}
                       </span>
                       <span className={styles.fileFields}>
                         {rows.length === 0 ? (
@@ -877,6 +985,13 @@ export function PlanPage() {
                         )}
                       </span>
                     </button>
+                    {it.pathAfter && (
+                      <p className={styles.movePath}>
+                        <span className={styles.movePathLabel}>Path</span>
+                        <span className={styles.movePathValue}>{it.relPath} → {it.pathAfter}</span>
+                        {it.pathState && <Badge tone={it.pathState === 'clash' ? 'warning' : 'danger'}>{it.pathState === 'clash' ? 'Name taken' : 'Can’t write'}</Badge>}
+                      </p>
+                    )}
                     {open && (
                       <table className={styles.diff}>
                         <colgroup><col className={styles.colField} /><col /><col /><col className={styles.colWhy} /></colgroup>

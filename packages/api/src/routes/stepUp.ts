@@ -8,6 +8,7 @@
  *   POST /api/v1/auth/step-up/passkey           { response }
  *   POST /api/v1/auth/step-up/totp              { code }
  *   POST /api/v1/auth/step-up/password          { password }  (accounts with no second factor)
+ *   POST /api/v1/auth/step-up/oidc              → { url }: at the login service (routes/oidc.ts)
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -42,12 +43,16 @@ function requireSession(request: FastifyRequest): { userId: string; sessionId: s
 
 async function status(userId: string, sessionId: string): Promise<StepUpStatus> {
   const { sql, env } = getAuthHandle();
+  // never waits on the login service: a due retry runs in the background
+  void getAuthHandle().retryOidc().catch(() => undefined);
+  const oidc = getAuthHandle().oidcStatus();
   const at = (await lastVerifiedAt(sql, sessionId)) ?? new Date(0);
   return {
     verifiedAt: at.toISOString(),
     freshUntil: new Date(at.getTime() + STEP_UP_WINDOW_MS).toISOString(),
     fresh: isFresh(at),
-    methods: await stepUpMethods(sql, userId, passkeysCanWork(env.publicUrl)),
+    methods: await stepUpMethods(sql, userId, passkeysCanWork(env.publicUrl), oidc.active),
+    oidcName: oidc.active ? oidc.name : null,
   };
 }
 

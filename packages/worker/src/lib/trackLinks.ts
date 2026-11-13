@@ -22,6 +22,8 @@ export interface LocalTrackRowForView {
   discNo: number | null;
   trackNo: number | null;
   titleGuess: string | null;
+  /** where the title came from (tag | filename | none); carried through to the evidence */
+  titleSource?: string | null;
   artistGuess: string | null;
   durationMs: number | null;
 }
@@ -138,6 +140,59 @@ export function canonicalTrackViews(
   return { tracks, order: sorted };
 }
 
+export interface TrackLink {
+  /** local_tracks.id */
+  id: string;
+  canonicalTrackId: string | null;
+  distance: number;
+  state: 'matched' | 'unmatched';
+}
+
+type CanonicalRowForView = Parameters<typeof canonicalTrackViews>[0][number];
+
+/**
+ * Pair an album's local tracks with its release's canonical tracks: one
+ * entry per local row, keyed by that row's own id. The alignment works on
+ * both lists sorted by position, so every result is mapped back through its
+ * localIndex and canonicalIndex into those sorted lists, never by its place
+ * in the input arrays (which come in whatever order the database returns).
+ */
+/** Above this distance (below 65 % confidence) a pair needs its track number to agree. */
+export const WEAK_PAIR_DISTANCE = 0.35;
+
+function samePosition(row: LocalTrackRowForView, canonical: CanonicalRowForView): boolean {
+  if (row.trackNo == null || canonical.position == null) return false;
+  return (row.discNo ?? 1) === (canonical.mediumNo ?? 1) && row.trackNo === canonical.position;
+}
+
+export function planTrackLinks(
+  localRows: LocalTrackRowForView[],
+  canonicalRows: CanonicalRowForView[],
+): TrackLink[] {
+  const localView = localTrackViews(localRows);
+  const canonicalView = canonicalTrackViews(canonicalRows);
+  const alignment = alignTracks(localView.tracks, canonicalView.tracks);
+  const byId = new Map<string, TrackLink>();
+  for (const a of alignment) {
+    const row = localView.order[a.localIndex];
+    if (!row) continue;
+    let canonical = a.canonicalIndex === null ? undefined : canonicalView.order[a.canonicalIndex];
+    // A weak pair (title and length mostly disagree) only stands when the
+    // file's own disc and track number say the same: an untitled rip
+    // ("Track 01", right length) keeps its slot, a stray from another album
+    // that merely fills a free slot does not.
+    if (canonical && a.distance > WEAK_PAIR_DISTANCE && !samePosition(row, canonical)) canonical = undefined;
+    byId.set(row.id, canonical
+      ? { id: row.id, canonicalTrackId: canonical.id, distance: a.distance, state: 'matched' }
+      : { id: row.id, canonicalTrackId: null, distance: 1, state: 'unmatched' });
+  }
+  // A row the alignment left out is unmatched, so no stale link survives it.
+  for (const r of localRows) {
+    if (!byId.has(r.id)) byId.set(r.id, { id: r.id, canonicalTrackId: null, distance: 1, state: 'unmatched' });
+  }
+  return [...byId.values()];
+}
+
 export interface LinkResult {
   localAlbumId: string;
   releaseId: string;
@@ -183,8 +238,14 @@ export async function linkAlbumTracks(
     .from(canonicalTracks)
     .where(eq(canonicalTracks.releaseId, releaseId as any));
 
-  // If either is empty, mark linked and return
+  // Nothing to align: no link survives (an old one would point into
+  // another release's tracklist), and the album counts as linked.
   if (localRows.length === 0 || canonicalRows.length === 0) {
+    if (localRows.length > 0) {
+      await ctx.sql`
+        update local_tracks set canonical_track_id = null, match_distance = null, state = 'unmatched'
+         where local_album_id = ${localAlbumId}::uuid and canonical_track_id is not null`;
+    }
     await ctx.db
       .update(localAlbums)
       .set({ tracksLinkedAt: new Date() })
@@ -199,26 +260,12 @@ export async function linkAlbumTracks(
     };
   }
 
-  // Build views
-  const localView = localTrackViews(localRows as any);
-  const canonicalView = canonicalTrackViews(canonicalRows as any);
+  const links = planTrackLinks(localRows as any, canonicalRows as any);
 
-  // Align tracks
-  const alignment = alignTracks(localView.tracks, canonicalView.tracks);
-
-  // Update all local_tracks in one statement: build parallel arrays
-  const ids = localRows.map(r => r.id);
-  const alignedIndices = alignment.map(a => a.canonicalIndex);
-  const distances = alignment.map(a => a.distance);
-
-  // Map indices to canonical track ids and track_mbids
-  const canonicalIds = alignedIndices.map(idx => (idx !== null ? canonicalView.order[idx]!.id : null));
-  const trackMbids = alignedIndices.map(idx => (idx !== null ? canonicalView.order[idx]!.trackMbid : null));
-
-  // States: aligned → 'matched', unaligned → 'unmatched'
-  const states = alignment.map(a => (a.canonicalIndex !== null ? 'matched' : 'unmatched'));
-
-  // One statement updates all rows
+  // One statement updates all rows. Each entry carries its own row id: the
+  // alignment runs over the tracks sorted by (disc, track), and pairing it
+  // with the rows in the order the database returned them linked one file
+  // to the canonical track of another (fixed 2026-11, migration 0077).
   await ctx.sql`
     update local_tracks lt
     set
@@ -226,10 +273,10 @@ export async function linkAlbumTracks(
       match_distance = t.distance,
       state = t.state
     from unnest(
-      ${ids}::uuid[],
-      ${canonicalIds}::uuid[],
-      ${distances.map(d => d.toFixed(4))}::numeric[],
-      ${states}::text[]
+      ${links.map((l) => l.id)}::uuid[],
+      ${links.map((l) => l.canonicalTrackId)}::uuid[],
+      ${links.map((l) => l.distance.toFixed(4))}::numeric[],
+      ${links.map((l) => l.state)}::text[]
     ) as t(id, canonical_track_id, distance, state)
     where lt.id = t.id
   `;
@@ -240,8 +287,8 @@ export async function linkAlbumTracks(
     .set({ tracksLinkedAt: new Date() })
     .where(eq(localAlbums.id, localAlbumId as any));
 
-  const linked = alignment.filter(a => a.canonicalIndex !== null).length;
-  const unaligned = alignment.filter(a => a.canonicalIndex === null).length;
+  const linked = links.filter((l) => l.canonicalTrackId !== null).length;
+  const unaligned = links.length - linked;
 
   ctx.logger.info(
     { localAlbumId, releaseId, total: localRows.length, linked, unaligned },

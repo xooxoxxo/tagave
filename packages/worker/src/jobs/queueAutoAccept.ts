@@ -1,100 +1,59 @@
-import { and, eq, inArray, notLike } from 'drizzle-orm';
-import { albumMatches, localAlbums, matchCandidates, releases } from '@tagave/db';
-import { chipCounts, pickByChipRule, MATCHING_THRESHOLDS } from '@tagave/core';
+import { getBatch } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { reportProgress } from './progress.js';
-import { acceptByRules } from '../lib/autoAccept.js';
+import { acceptByRules, RulesBatchFailed } from '../lib/autoAccept.js';
 
 export interface QueueAutoAcceptJobData {
   libraryId: string;
-  /** 'rules': the owner's auto-accept rules ("Accept N now" in Review
-   * matches); absent: the chip-rule sweep below */
+  /** 'rules' ("Accept N now"). A job queued by an older version without it
+   * runs the rules too: the chip-rule sweep it used to mean is retired. */
   mode?: 'rules';
-}
-
-/** "Accept N now": the saved rules over the whole queue, one Activity entry. */
-async function rulesSweep(ctx: WorkerContext, libraryId: string): Promise<void> {
-  const run = await acceptByRules(ctx, libraryId, { requireEnabled: false });
-  await reportProgress(ctx, null, {
-    libraryId,
-    type: 'queue.autoaccept',
-    state: 'completed',
-    done: run.accepted,
-    total: run.considered,
-    // same shape as the chip-rule sweep's message: the Activity summary reads it
-    message: `${run.accepted}/${run.considered} needs_review albums accepted by the auto-accept rules`,
-  });
-  ctx.logger.info({ libraryId, accepted: run.accepted, considered: run.considered }, 'auto-accept rules sweep done');
+  /** who pressed "Accept N now" or "Run again"; the batch records it */
+  requestedByUserId?: string;
 }
 
 /**
- * Applies the owner's chip rule (see core/matching/chipRule.ts) to albums
- * already parked in needs_review: no red components, ≥3 greens → accept the
- * candidate with the fewest yellows. New identifications apply the same rule
- * inline in identifyAlbum; this sweep clears the backlog and re-runs are
- * idempotent (accepted albums leave needs_review).
+ * "Accept N now" and "Run again": the saved rules over the whole queue, as
+ * one batch the owner can undo, and one Activity entry.
  */
 export async function queueAutoAcceptJob(ctx: WorkerContext, data: QueueAutoAcceptJobData): Promise<void> {
-  if (data.mode === 'rules') return rulesSweep(ctx, data.libraryId);
-  const albums = await ctx.db
-    .select({ id: localAlbums.id })
-    .from(localAlbums)
-    .where(and(eq(localAlbums.libraryId, data.libraryId), eq(localAlbums.state, 'needs_review')));
-
-  let accepted = 0;
-  for (const a of albums) {
-    const cands = await ctx.db
-      .select()
-      .from(matchCandidates)
-      .where(and(eq(matchCandidates.localAlbumId, a.id), eq(matchCandidates.excluded, false),
-        // a linked app's suggestion (mc:<link>) is only ever accepted by a person
-        notLike(matchCandidates.source, 'mc:%')));
-    const inBand = cands
-      .map((c) => ({ ...c, dist: Number(c.distance) }))
-      .filter((c) => c.dist <= MATCHING_THRESHOLDS.medium);
-    if (inBand.length === 0) continue;
-    const pick = pickByChipRule(
-      inBand.map((c) => ({ breakdown: c.breakdown as Record<string, unknown>, distance: c.dist })),
-    );
-    // Chip-rule winner when there is one; otherwise the owner's standing
-    // policy: take the best candidate in the band (2026-09-05).
-    const chosen = pick >= 0 ? inBand[pick]! : [...inBand].sort((a, b) => a.dist - b.dist)[0]!;
-    const cc = chipCounts(chosen.breakdown as Record<string, unknown>);
-    const kind = pick >= 0 ? 'chip-rule auto-accept (queue sweep)' : 'first-candidate auto-accept (queue sweep)';
-
-    await ctx.sql`
-      update album_matches set status = 'rejected', reason = 'superseded by chip-rule auto-accept'
-      where local_album_id = ${a.id} and status in ('auto', 'confirmed')`;
-    await ctx.db.insert(albumMatches).values({
-      libraryId: data.libraryId,
-      localAlbumId: a.id,
-      releaseId: chosen.releaseId,
-      distance: chosen.dist.toFixed(4),
-      status: 'auto',
-      decidedBy: 'system',
-      reason: `${kind}: ${cc.greens} green, ${cc.yellows} yellow, ${cc.reds} red (distance ${chosen.dist.toFixed(4)})`,
+  let run: Awaited<ReturnType<typeof acceptByRules>>;
+  try {
+    run = await acceptByRules(ctx, data.libraryId, {
+      requireEnabled: false, viaBatch: true, startedByUserId: data.requestedByUserId ?? null,
     });
-    const rgRow = await ctx.db
-      .select({ rgId: releases.releaseGroupId })
-      .from(releases)
-      .where(eq(releases.id, chosen.releaseId))
-      .limit(1);
-    await ctx.db.update(localAlbums)
-      .set({
-        state: 'matched',
-        releaseId: chosen.releaseId,
-        releaseGroupId: rgRow[0]?.rgId ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(localAlbums.id, a.id));
-    accepted += 1;
+  } catch (err) {
+    if (!(err instanceof RulesBatchFailed)) throw err;
+    // The batch is made and marked failed with its reason. A retry of this
+    // job would run the rules again into a second batch, so it ends here:
+    // the owner can undo what the batch took, or run the rules again.
+    ctx.logger.error({ libraryId: data.libraryId, batchId: err.batchId, err: err.message }, 'auto-accept rules: batch stopped');
+    await recordRun(ctx, data.libraryId, err.batchId, async () => {
+      const batch = await getBatch(ctx.sql, err.batchId);
+      await reportProgress(ctx, null, {
+        libraryId: data.libraryId, type: 'queue.autoaccept', state: 'failed', done: 0, total: 0,
+        error: batch?.message ?? 'Accept stopped',
+      });
+    });
+    return;
   }
+  await recordRun(ctx, data.libraryId, run.batchId, () => reportProgress(ctx, null, {
+    libraryId: data.libraryId, type: 'queue.autoaccept', state: 'completed', done: run.accepted, total: run.considered,
+    message: `${run.accepted}/${run.considered} needs_review albums accepted by the auto-accept rules`,
+  }));
+  ctx.logger.info({ libraryId: data.libraryId, batchId: run.batchId, accepted: run.accepted, considered: run.considered }, 'auto-accept rules sweep done');
+}
 
-  await reportProgress(ctx, null, {
-    libraryId: data.libraryId,
-    type: 'queue.autoaccept',
-    state: 'completed',
-    message: `${accepted}/${albums.length} needs_review albums auto-accepted by chip rule`,
-  });
-  ctx.logger.info({ libraryId: data.libraryId, accepted, reviewed: albums.length }, 'chip-rule sweep done');
+/**
+ * The Activity entry for a run. Once a batch exists a failure here is only
+ * logged: rethrown, it would have pg-boss run the rules again into a second
+ * batch.
+ */
+async function recordRun(ctx: WorkerContext, libraryId: string, batchId: string | null, write: () => Promise<unknown>): Promise<void> {
+  try {
+    await write();
+  } catch (err) {
+    if (!batchId) throw err;
+    ctx.logger.error({ libraryId, batchId, err: (err as Error).message }, 'auto-accept rules: could not record the run');
+  }
 }

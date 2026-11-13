@@ -166,6 +166,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     await plays.pollPerson(deps, backend, ben);
     await plays.deriveListens(sql, ben);
     await ratings.syncPersonRatings({ sql }, backend, anna);
+    // Anna likes a song: a love queued for ListenBrainz, a star on her account (0085)
+    const likes = await import('../lib/likes.js');
+    await sql`delete from likes where user_id = ${anna}`;
+    expect(await likes.addLike(sql, anna, (await likes.targetOf(sql, 'song', t.three))!)).toBe(true);
+    await (await import('../lib/playerLikes.js')).syncPersonLikes({ sql }, backend, anna);
     // a scan after a tag write (its status lands in the library's settings), and one still waiting
     await player.requestPlayerScan(sql, null, libraryId, ['The Plugs/Unplug Album']);
     await player.runPlayerScan(sql, libraryId);
@@ -309,7 +314,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     // the bundled player in use again
     await useThePlayer();
     turnOff();
-    // the owner's own server in Settings › Playback (the fake Navidrome under another account: another server_key)
+    // the owner's own server in Settings › Modules › Player (the fake Navidrome under another account: another server_key)
     nav.state.users.set('own-admin', { id: 'nd-own', password: 'own-pw', isAdmin: true, name: 'Own', plays: new Map(), ratings: new Map(), starred: new Set() });
     const ownSettings = { playerUrl: navUrl, playerUser: 'own-admin', playerPassword: sealSecret('own-pw', process.env['APP_SECRET']!), playerPasswordHint: 'w' };
     await sql`update libraries set settings = settings || ${JSON.stringify(ownSettings)}::jsonb where id = ${libraryId}`;
@@ -361,7 +366,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     const again = await purgeModuleData(sql, 'player', { env: {} });
     expect(Object.values(again.deleted).every((n) => n === 0)).toBe(true);
 
-    // the own server removed too (Settings › Playback): now nothing of the player is left to keep
+    // the own server removed too (Settings › Modules › Player): now nothing of the player is left to keep
     const { playerUrl: _u, playerUser: _n, playerPassword: _p, playerPasswordHint: _h, ...rest } = lib.settings;
     await sql`update libraries set settings = ${JSON.stringify(rest)}::jsonb where id = ${libraryId}`;
     const last = await purgeModuleData(sql, 'player', { env: {} });

@@ -45,6 +45,9 @@ export async function tracksLinkJob(ctx: WorkerContext, data: TracksLinkJobData)
         ),
       );
 
+    let passLinked = 0;
+    let passRemaining = 0;
+
     // Per library with DB-level filtering
     for (const { libraryId } of libraries) {
       if (!libraryId) continue;
@@ -106,11 +109,29 @@ export async function tracksLinkJob(ctx: WorkerContext, data: TracksLinkJobData)
          where library_id = ${libraryId} and state = 'matched' and release_id is not null
            and (tracks_linked_at is null or tracks_linked_at < identified_at)`) as unknown as Array<{ n: number }>;
       const remaining = remainingRow?.n ?? 0;
+      passLinked += linked;
+      passRemaining += remaining;
 
       ctx.logger.info(
         { libraryId, albumsLinked: linked, tracksLinked, releasesFilled, remaining },
         'tracks.link sweep complete',
       );
     }
+
+    // A backlog (every album after migration 0077, or a large first
+    // identify) is worked off batch after batch instead of one batch per
+    // 5-minute tick: ~21k albums would take six hours that way. The next
+    // pass waits a few seconds so other queues get the database in between.
+    // Only while a pass still links something, so an album that can never
+    // be linked does not keep the chain spinning.
+    if (passRemaining > 0 && passLinked > 0) {
+      await ctx.boss.send('tracks.link', { sweep: true, ...(data.limit ? { limit: data.limit } : {}) }, {
+        singletonKey: 'tracks.link:sweep',
+        startAfter: SWEEP_CHAIN_DELAY_S,
+      });
+    }
   }
 }
+
+/** Seconds between back-to-back sweep passes while a backlog remains. */
+export const SWEEP_CHAIN_DELAY_S = 3;

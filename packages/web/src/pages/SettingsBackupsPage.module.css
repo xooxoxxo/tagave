@@ -81,6 +81,8 @@
 
 .rowLabel { min-width: 0; }
 
+.retention { border-top: 1px solid var(--line); }
+
 /* one width for every control on the page */
 .control { width: 9.5rem; flex: none; }
 

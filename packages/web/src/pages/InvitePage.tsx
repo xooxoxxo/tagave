@@ -12,6 +12,7 @@ import { Banner, Button, LinkButton, TextField } from '../components/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { AUTH_QUERY_KEY, signOut } from '../hooks/useAuth';
 import { useAcceptInvite, useInviteLookup } from '../hooks/useUsers';
+import { startOidcSignIn, useOidcButton } from '../services/oidc';
 import styles from './SetupPage.module.css';
 
 const A_ROLE: Record<InviteLookup['role'], string> = { owner: 'an owner', editor: 'an editor', listener: 'a listener' };
@@ -27,6 +28,10 @@ export interface InviteFormViewProps {
   pending?: boolean;
   serverError?: string | null;
   onSubmit: (values: InviteFormValues) => void;
+  /** The login service's name: an invite (not an owner's) can be accepted through it. */
+  oidcName?: string | null;
+  oidcPending?: boolean;
+  onOidc?: () => void;
 }
 
 export function validateInvite(link: Pick<InviteLookup, 'purpose'>, v: InviteFormValues): Partial<Record<keyof InviteFormValues, string>> {
@@ -38,7 +43,7 @@ export function validateInvite(link: Pick<InviteLookup, 'purpose'>, v: InviteFor
 }
 
 /** The form, without data fetching (Storybook renders it with fixtures). */
-export function InviteFormView({ link, pending = false, serverError = null, onSubmit }: InviteFormViewProps) {
+export function InviteFormView({ link, pending = false, serverError = null, onSubmit, oidcName = null, oidcPending = false, onOidc }: InviteFormViewProps) {
   const [values, setValues] = useState<InviteFormValues>({ name: link.name ?? '', password: '', confirm: '' });
   const [errors, setErrors] = useState<ReturnType<typeof validateInvite>>({});
   const [show, setShow] = useState(false);
@@ -82,6 +87,9 @@ export function InviteFormView({ link, pending = false, serverError = null, onSu
         {serverError && <Banner tone="danger">{serverError}</Banner>}
         <div className={styles.actions}>
           <Button type="submit" loading={pending}>{invite ? 'Create account' : 'Set password'}</Button>
+          {invite && link.role !== 'owner' && oidcName && onOidc && (
+            <Button type="button" variant="secondary" loading={oidcPending} disabled={pending} onClick={onOidc}>Continue with {oidcName}</Button>
+          )}
         </div>
       </form>
     </section>
@@ -113,6 +121,19 @@ export function InvitePage() {
   };
   const lookup = useInviteLookup(token);
   const accept = useAcceptInvite(token);
+  const oidc = useOidcButton();
+  const [oidcPending, setOidcPending] = useState(false);
+  const [oidcError, setOidcError] = useState(false);
+  const viaOidc = async () => {
+    setOidcPending(true);
+    setOidcError(false);
+    try {
+      await startOidcSignIn(token);
+    } catch {
+      setOidcPending(false);
+      setOidcError(true);
+    }
+  };
 
   const signedIn = me && !accept.isSuccess;
   let body;
@@ -136,7 +157,10 @@ export function InvitePage() {
       <InviteFormView
         link={link}
         pending={accept.isPending}
-        serverError={err ? (err.status === 404 ? 'This link no longer works. Ask for a new one.' : err.detail ?? 'That did not work. Try again.') : null}
+        serverError={err ? (err.status === 404 ? 'This link no longer works. Ask for a new one.' : err.detail ?? 'That did not work. Try again.') : oidcError ? 'That did not work. Try again.' : null}
+        oidcName={oidc.data?.name ?? null}
+        oidcPending={oidcPending}
+        onOidc={() => void viaOidc()}
         onSubmit={(v) => accept.mutate(
           { password: v.password, ...(link.purpose === 'invite' ? { name: v.name.trim() } : {}) },
           {

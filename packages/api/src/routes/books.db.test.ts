@@ -70,12 +70,16 @@ describe.skipIf(!adminUrl)('the books app routes, behind TAGAVE_DEV_APPS (integr
   });
 
   it('without the flag: no row in the ledger, every books route 404, /facets lists music alone', async () => {
-    expect(await syncInstalledModules(sql, ledgerEntries())).toEqual([]);
+    // a boot without the flag (the modules no migration records get their rows; books does not)
+    expect(await syncInstalledModules(sql, ledgerEntries())).not.toContain('books');
     expect(await sql`select id from installed_modules where id = 'books'`).toHaveLength(0);
     for (const [u, m, url] of [[anna, 'GET', '/books'], [owner, 'GET', '/settings/books'], [owner, 'PUT', '/settings/books'], [anna, 'GET', `/books/editions/${randomUUID()}/cover`]] as const) {
       expect((await call(u, m, url, m === 'PUT' ? { enabled: true } : undefined)).statusCode, url).toBe(404);
     }
-    expect((await call(anna, 'GET', '/facets')).json().apps).toEqual(['music']);
+    const facets = (await call(anna, 'GET', '/facets')).json();
+    expect(facets.apps).toEqual(['music']);
+    // no devApps key: Settings › Modules lists no Books row and asks for nothing
+    expect(facets).not.toHaveProperty('devApps');
     const libs = (await call(anna, 'GET', '/libraries')).json().data;
     expect(libs.map((l: { name: string; app: string }) => `${l.name} ${l.app}`)).toEqual(['Music music']);
   });
@@ -84,6 +88,8 @@ describe.skipIf(!adminUrl)('the books app routes, behind TAGAVE_DEV_APPS (integr
     process.env['TAGAVE_DEV_APPS'] = 'books';
     // the boot with the flag
     expect(await syncInstalledModules(sql, ledgerEntries())).toEqual(['books']);
+    // allowed, still off: Settings › Modules lists its switch
+    expect((await call(owner, 'GET', '/facets')).json()).toMatchObject({ apps: ['music'], devApps: ['books'] });
     expect((await call(owner, 'GET', '/settings/books')).json()).toEqual({ enabled: false, libraryId: null, folders: 0, works: 0, files: 0 });
     expect((await call(anna, 'GET', '/settings/books')).statusCode).toBe(403);
     expect((await call(anna, 'GET', '/books')).statusCode).toBe(409);

@@ -2,7 +2,7 @@
  * Where the player module's server comes from: the bundled Navidrome (its
  * address and admin credentials are in the app's environment, written by
  * install-tagave.sh --with-player) or, when that is not set, the server the
- * owner saved in Settings › Playback (password sealed with APP_SECRET in
+ * owner saved in Settings › Modules › Player (password sealed with APP_SECRET in
  * libraries.settings, like the other provider secrets).
  */
 import { createHash } from 'node:crypto';

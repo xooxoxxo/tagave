@@ -1,12 +1,13 @@
 /**
- * The books app (the spike): the Books grid and the Settings › Modules row
- * render values only; a work without a cover gets the placeholder.
+ * The books app (in development): the Books grid renders values only, a work
+ * without a cover gets the placeholder; Settings › Modules lists Books only
+ * for the owner of a server whose TAGAVE_DEV_APPS names it.
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { BookWorkView } from '@tagave/shared';
 import { BooksGrid } from './BooksPage';
-import { BooksModuleRow } from './SettingsModulesPage';
+import { moduleRows } from './SettingsModulesPage';
 
 const WORKS: BookWorkView[] = [
   { id: 'w1', title: 'A Test of Lanterns', authors: ['Ada Example', 'Eve Second'], series: 'Lantern Tales', seriesIndex: 1, formats: ['epub', 'pdf'], coverEditionId: 'e1' },
@@ -25,14 +26,17 @@ describe('Books', () => {
     expect(html.match(/\/books\/editions\//g)).toHaveLength(1);
   });
 
-  it('the Settings › Modules row: its state and counts, one button', () => {
-    const html = renderToStaticMarkup(
-      <BooksModuleRow view={{ enabled: true, libraryId: 'l', folders: 1, works: 4, files: 1 }} onTurnOn={() => undefined} onTurnOff={() => undefined} />,
-    );
-    expect(html).toContain('Books');
-    expect(html).toContain('On');
-    expect(html).toContain('1 folder · 4 works · 1 file');
-    expect(html).toContain('Turn off');
-    expect(html).not.toContain('Turn on');
+  it('Settings › Modules: a Books row only with the flag, for the owner, last', () => {
+    const enabled = { mc: true, 'listen-links': true, playlists: true };
+    const slugs = (owner: boolean, devApps?: Record<string, boolean> | null) => moduleRows({ owner, enabled, ...(devApps !== undefined ? { devApps } : {}) })!.map((r) => r.slug);
+    // no flag: exactly the rows as before
+    expect(slugs(true)).not.toContain('books');
+    expect(slugs(true, {})).toEqual(slugs(true));
+    expect(slugs(true, null)).toEqual(slugs(true));
+    // the flag: the owner's last row, with its state
+    expect(slugs(true, { books: false }).at(-1)).toBe('books');
+    expect(moduleRows({ owner: true, enabled, devApps: { books: true } })!.at(-1)).toEqual({ slug: 'books', name: 'Books', state: 'On', on: true });
+    // anyone else: never
+    expect(slugs(false, { books: true })).not.toContain('books');
   });
 });

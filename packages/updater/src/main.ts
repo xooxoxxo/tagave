@@ -10,6 +10,10 @@
  *   TAGAVE_UPDATER_HEALTH_TIMEOUT  seconds the new version may take to answer healthy (default 600)
  *   TAGAVE_UPDATER_MIN_FREE_MB     free space left on Docker's disk after an update's images and backups (default 3072)
  *   TAGAVE_UPDATER_STALL_SECONDS   a step that does not move for this long is diagnosed and the cause shown (default 120)
+ *
+ * From the install's .env, read on every check: MUSIC_DIR (the folder the
+ * music self-heal mounts again, music-heal.ts) and TAGAVE_MUSIC_SELF_HEAL
+ * (0 turns it off).
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +21,7 @@ import { DEFAULT_CONFIG } from './update.js';
 import { dockerRunner, httpAppProbe } from './runner.js';
 import { UpdaterService } from './server.js';
 import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
+import { MusicHealer, httpMusicApp } from './music-heal.js';
 
 function num(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -55,8 +60,16 @@ async function main(): Promise<void> {
   });
   await service.load();
   const server = service.listen(port);
+  const healer = new MusicHealer({
+    installDir,
+    docker: dockerRunner(installDir),
+    app: httpMusicApp(appUrl, appSecret),
+    busy: () => service.moving(),
+    log: (m) => console.log(JSON.stringify(m)),
+  });
+  healer.start();
   console.log(JSON.stringify({ msg: 'updater ready', port, installDir, releaseKeys: keys.map((k) => k.id) }));
-  const stop = () => server.close(() => process.exit(0));
+  const stop = () => { healer.stop(); server.close(() => process.exit(0)); };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
 }

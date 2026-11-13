@@ -105,6 +105,8 @@ services:
     environment:
       <<: *worker-env
       TAGAVE_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+      # the music folder as its computer sees it, for the delete command on Library care › Deleting
+      TAGAVE_MUSIC_HOST_DIR: ${MUSIC_DIR:-}
     volumes:
       - cache:/cache
       # register /mnt/music as the music folder in the app

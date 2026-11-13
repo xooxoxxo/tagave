@@ -1,5 +1,6 @@
 /**
- * The person's playlists to add to, New playlist first (a name field once
+ * The person's playlists to add to (the ones they collaborate on too, with
+ * the collaborative mark), New playlist first (a name field once
  * picked): the rows of the ⋮'s submenu on a desktop and of the drawer's
  * second step on a phone. Picking one adds and says so in a toast.
  */
@@ -8,6 +9,7 @@ import { PlusIcon, showToast } from '../ui';
 import type { QueueSource } from '../../player/engine';
 import { useAddToPlaylist, useCreatePlaylist, usePlaylists } from '../../hooks/usePlaylists';
 import { PlaylistCover } from '../playlists/PlaylistCover';
+import { CollabMark } from '../playlists/People';
 import menu from '../ui/Menu.module.css';
 import drawer from '../../pages/AlbumMenu.module.css';
 import styles from './TrackActions.module.css';
@@ -68,6 +70,7 @@ export function PlaylistChoices({ source, onDone, variant }: { source: QueueSour
           <button key={p.id} type="button" role="menuitem" tabIndex={-1} className={`${menu.item} ${styles.item} ${n === 0 ? menu.separated : ''}`} onClick={() => void addTo(p.id, p.name)}>
             <PlaylistCover covers={p.covers} name={p.name} className={styles.listCover} />
             <span className={styles.text}>{p.name}</span>
+            {p.collaborative && <CollabMark />}
           </button>
         ))}
       </>
@@ -87,7 +90,7 @@ export function PlaylistChoices({ source, onDone, variant }: { source: QueueSour
         <li key={p.id}>
           <button type="button" className={drawer.row} onClick={() => void addTo(p.id, p.name)}>
             <PlaylistCover covers={p.covers} name={p.name} className={styles.drawerCover} />
-            <span className={drawer.rowText}><span className={drawer.rowLabel}>{p.name}</span><span className={drawer.rowHint}>{p.tracks === 1 ? '1 track' : `${p.tracks} tracks`}</span></span>
+            <span className={drawer.rowText}><span className={drawer.rowLabel}>{p.name}{p.collaborative && <> <CollabMark /></>}</span><span className={drawer.rowHint}>{p.tracks === 1 ? '1 track' : `${p.tracks} tracks`}</span></span>
           </button>
         </li>
       ))}

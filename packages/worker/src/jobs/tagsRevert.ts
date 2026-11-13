@@ -10,6 +10,8 @@ import {
   tagPlanItems,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { undoMovesOfPlan } from './filesMove.js';
+import { undoSplitsOfPlan } from './planSplits.js';
 import { CanonicalField, type TagDiffEntry, type TagPlanStats, type TagPolicies } from '@tagave/shared';
 
 export interface TagsRevertJobData {
@@ -84,6 +86,17 @@ export async function tagsRevertJob(ctx: WorkerContext, data: TagsRevertJobData)
 
   const originalPlan = plans[0]!;
 
+  // 0081: the files the plan moved to their rule paths go back first (the
+  // moves' own Undo, from their journals), so the revert writes them where
+  // they were; Library care › Moved shows any that could not
+  const undone = await undoMovesOfPlan(ctx, planId);
+  if (undone.tried > 0) logger.info({ planId, ...undone }, 'Revert: the plan\'s moves undone');
+
+  // 0089: the albums the plan split go back to one file (the source from the
+  // trash, the new tracks into it); their tags went with the tracks
+  const unsplit = await undoSplitsOfPlan(ctx, planId);
+  if (unsplit.tried > 0) logger.info({ planId, ...unsplit }, 'Revert: the plan\'s splits undone');
+
   const appliedItems = await db
     .select()
     .from(tagPlanItems)
@@ -95,6 +108,13 @@ export async function tagsRevertJob(ctx: WorkerContext, data: TagsRevertJobData)
     );
 
   if (appliedItems.length === 0) {
+    if (unsplit.tried > 0) {
+      // a plan that only split: undoing the split is the whole revert
+      if (unsplit.undone === unsplit.tried) {
+        await db.update(tagPlans).set({ status: 'reverted' }).where(eq(tagPlans.id, planId));
+      }
+      return;
+    }
     throw new Error(`No applied items found in plan: ${planId}`);
   }
 

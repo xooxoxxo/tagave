@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, asc, sql, inArray } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
-import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums } from '@tagave/db';
+import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums, albumLiveSql, trackLiveSql } from '@tagave/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { sealSecret, computeHint, normalizeGenreMap, normalizeFollowRules, effectiveGenres } from '@tagave/core';
@@ -454,13 +454,14 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
              count(*) filter (where state = 'needs_review')::int as needs_review,
              count(*) filter (where state = 'pending')::int as pending,
              count(*) filter (where state = 'unidentified')::int as unidentified
-      from local_albums where library_id = ${libraryId}`) as unknown as [Record<string, number>];
+      from local_albums where library_id = ${libraryId} and ${sql.raw(albumLiveSql('local_albums.id'))}`) as unknown as [Record<string, number>];
+    // deleted songs (Mark or Trash, 0073) no longer count
     const [fileStats] = await db.execute(sql`
       select count(*)::int as files,
              coalesce(sum(size_bytes), 0)::bigint as bytes,
              coalesce(sum(duration_ms), 0)::bigint as duration_ms,
              count(*) filter (where lossless)::int as lossless
-      from files where library_id = ${libraryId} and status = 'present'`) as unknown as [Record<string, string | number>];
+      from files where library_id = ${libraryId} and status = 'present' and ${sql.raw(trackLiveSql('files.id'))}`) as unknown as [Record<string, string | number>];
     // "Reviews written" is one of the four promise counters (spec §14.2);
     // reviews and listens are per person, so these are the caller's own
     const userId = request.user.id;

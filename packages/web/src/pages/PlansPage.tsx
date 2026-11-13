@@ -11,7 +11,8 @@ import { PageShell, Button, IconButton, Badge, Table, Th, Td, TableRow, EmptySta
 import { useCurrentLibrary } from '../hooks';
 import { useTagPlans, useDeleteTagPlan, useRenameTagPlan, useArchiveTagPlan } from '../hooks/usePlanWizard';
 import { InlineRename } from '../components/InlineRename';
-import { PlanWizard } from '../components/PlanWizard';
+import { TagSheet } from '../components/TagSheet';
+import { useAlbumDrawer } from './AlbumMenu';
 import { wizardCloseNavigation } from '../components/planWizardHistory';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import { planStatusView } from '../utils/planStatus';
@@ -32,6 +33,7 @@ export function PlansPage() {
   const navigate = useNavigate();
   const { album: albumParam } = useSearch({ strict: false }) as { album?: string };
   const [showWizard, setShowWizard] = useState(false);
+  const drawer = useAlbumDrawer();
   const albumForWizard = useQuery({
     queryKey: ['album-label', libraryId, albumParam],
     queryFn: () => api.get<{ title: string; artistCredit: string }>(`/libraries/${libraryId}/albums/${albumParam}`),
@@ -193,12 +195,14 @@ export function PlansPage() {
       )}
 
       {wizardOpen && (albumParam ? !albumForWizard.isLoading : true) && (
-        <PlanWizard
+        <TagSheet
           key={albumParam ?? 'blank'}
+          open
+          onOpenChange={(open) => { if (!open) closeWizard(); }}
           libraryId={libraryId}
-          onClose={closeWizard}
+          side={drawer ? 'bottom' : 'right'}
           replaceHistoryOnDone={!!albumParam}
-          {...(initialScope ? { initialScope } : {})}
+          {...(initialScope ? { albums: { ids: initialScope.albumIds, ...(initialScope.albumLabels ? { labels: initialScope.albumLabels } : {}) } } : {})}
         />
       )}
     </PageShell>

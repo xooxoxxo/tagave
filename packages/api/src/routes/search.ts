@@ -1,6 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
-import { libraries } from '@tagave/db';
+import { albumLiveSql, libraries, trackLiveSql } from '@tagave/db';
+
+/** Deleted songs and albums (0073) are not found. */
+const LIVE_ALBUM = sql.raw(albumLiveSql('la.id'));
+const LIVE_TRACK = sql.raw(trackLiveSql('lt.audio_file_id'));
 import { getDb } from '../db.js';
 import { containsPattern, escapeLike, foldedColumn, foldedValue, textMatches } from '../lib/textMatch.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -40,10 +44,27 @@ export function foldWords(query: string): string {
   return query.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
+/** The kinds a search can be narrowed to (⌘K `@album`, `@artist`, `@song`, `@label`). */
+export const SEARCH_KINDS = ['albums', 'artists', 'tracks', 'labels'] as const;
+export type SearchKind = (typeof SEARCH_KINDS)[number];
+
+/** `?kind=` read leniently: anything else searches every kind but labels. */
+export function searchKind(raw: unknown): SearchKind | null {
+  return typeof raw === 'string' && (SEARCH_KINDS as readonly string[]).includes(raw) ? (raw as SearchKind) : null;
+}
+
+/** Rows per group: 8 side by side, more when the search is narrowed to one kind. */
+export const GROUP_LIMIT = 8;
+export const KIND_LIMIT = 24;
+
 /**
  * BRW-4: one box over albums, artists, tracks. Trigram similarity handles
  * typos; ilike prefix keeps short queries sane (similarity on 2 chars is
  * noise). Grouped result, 8 per group.
+ *
+ * `?kind=albums|artists|tracks|labels` narrows it to one kind (the search's
+ * `@album` chip): only that query runs, with up to 24 rows. Labels (from
+ * the matched releases) are searched only when asked for.
  *
  * Rows are ordered by match tier first (rankSql) and similarity second: a
  * trigram score alone let fuzzy "Salva" push "Road Salt One" down for "salt".
@@ -52,7 +73,8 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
   fastify.get('/libraries/:libraryId/search', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
-    const { q } = request.query as { q?: string };
+    const { q, kind: rawKind } = request.query as { q?: string; kind?: string };
+    const kind = searchKind(rawKind);
     const db = getDb();
 
     const lib = await db
@@ -63,34 +85,36 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
 
     const query = (q ?? '').trim();
     if (query.length < 2) {
-      reply.send({ albums: [], artists: [], tracks: [] });
+      reply.send({ albums: [], artists: [], tracks: [], ...(kind === 'labels' ? { labels: [] } : {}) });
       return;
     }
+    const wants = (k: SearchKind) => (kind ? kind === k : k !== 'labels');
+    const limit = sql.raw(String(kind ? KIND_LIMIT : GROUP_LIMIT));
     const useSimilarity = query.length >= 4;
     const like = containsPattern(query);
     const lowered = query.toLowerCase();
     const words = foldWords(query);
     const rank = (column: SQL) => rankSql(column, lowered, words, like);
 
-    const albums = await db.execute(sql`
+    const albums = !wants('albums') ? [] : await db.execute(sql`
       select la.id, la.title_guess as title, la.artist_guess as artist,
              la.year_guess as year, la.state, la.track_count,
              least(${rank(sql`la.title_guess`)}, ${rank(sql`la.artist_guess`)} + 1) as rank,
              greatest(similarity(la.title_guess, ${query}), similarity(coalesce(la.artist_guess, ''), ${query})) as score
       from local_albums la
-      where la.library_id = ${libraryId}
+      where la.library_id = ${libraryId} and ${LIVE_ALBUM}
         and (${textMatches(sql`la.title_guess`, like)}
              or ${textMatches(sql`la.artist_guess`, like)}
              ${useSimilarity ? sql`or la.title_guess % ${query} or la.artist_guess % ${query}` : sql``})
       order by rank asc, score desc nulls last, lower(la.title_guess) asc
-      limit 8`) as unknown as Record<string, unknown>[];
+      limit ${limit}`) as unknown as Record<string, unknown>[];
 
     // Canonical artists credited on this library's release groups, plus the
     // names that exist only in tags (albums with no credited release group).
     // Tag-only names are most of a young library, and leaving them out kept
     // this group empty. A tag-only name that also has a canonical row is
     // dropped so the same artist never shows twice.
-    const artists = await db.execute(sql`
+    const artists = !wants('artists') ? [] : await db.execute(sql`
       with canon as (
         select a.id, a.name, count(distinct la.id)::int as album_count,
                least(${rank(sql`a.name`)}, ${rank(sql`a.sort_name`)},
@@ -104,7 +128,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
         join release_groups rg on rg.id = la.release_group_id
         join release_group_artists rga on rga.release_group_id = rg.id
         join artists a on a.id = rga.artist_id
-        where la.library_id = ${libraryId}
+        where la.library_id = ${libraryId} and ${LIVE_ALBUM}
           and (${textMatches(sql`a.name`, like)}
                or ${textMatches(sql`a.sort_name`, like)}
                or ${textMatches(sql`array_to_string(a.aliases, ' ')`, like)}
@@ -116,7 +140,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
                min(${rank(sql`la.artist_guess`)}) as rank,
                max(similarity(la.artist_guess, ${query})) as score
         from local_albums la
-        where la.library_id = ${libraryId}
+        where la.library_id = ${libraryId} and ${LIVE_ALBUM}
           and la.artist_guess is not null
           and (la.release_group_id is null or not exists (
             select 1 from release_group_artists rga where rga.release_group_id = la.release_group_id))
@@ -127,11 +151,11 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
       )
       select * from (select * from canon union all select * from guess) combined
       order by rank asc, score desc nulls last, album_count desc, lower(name) asc
-      limit 8`) as unknown as Record<string, unknown>[];
+      limit ${limit}`) as unknown as Record<string, unknown>[];
 
     // Tracks match on their title or their own artist: on a compilation
     // each track credits someone else, and the row names that artist.
-    const tracks = await db.execute(sql`
+    const tracks = !wants('tracks') ? [] : await db.execute(sql`
       select lt.id, lt.title_guess as title, lt.local_album_id,
              la.title_guess as album_title,
              coalesce(nullif(btrim(lt.artist_guess), ''), la.artist_guess) as artist,
@@ -139,12 +163,29 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
              greatest(similarity(lt.title_guess, ${query}), similarity(coalesce(lt.artist_guess, ''), ${query})) as score
       from local_tracks lt
       join local_albums la on la.id = lt.local_album_id
-      where la.library_id = ${libraryId}
+      where la.library_id = ${libraryId} and ${LIVE_TRACK}
         and (${textMatches(sql`lt.title_guess`, like)}
              or ${textMatches(sql`lt.artist_guess`, like)}
              ${useSimilarity ? sql`or lt.title_guess % ${query} or lt.artist_guess % ${query}` : sql``})
       order by rank asc, score desc nulls last, lower(lt.title_guess) asc
-      limit 8`) as unknown as Record<string, unknown>[];
+      limit ${limit}`) as unknown as Record<string, unknown>[];
+
+    // Labels of the matched releases, with how many albums carry each: the
+    // client opens the albums filtered by that label (the rail's label filter).
+    const labels = !wants('labels') ? [] : await db.execute(sql`
+      select l.name, count(distinct la.id)::int as album_count,
+             min(${rank(sql`l.name`)}) as rank,
+             max(similarity(l.name, ${query})) as score
+      from local_albums la
+      join releases r on r.id = la.release_id
+      cross join lateral (select btrim(x->>'name') as name from jsonb_array_elements(coalesce(r.labels, '[]'::jsonb)) x) l
+      where la.library_id = ${libraryId} and ${LIVE_ALBUM}
+        and l.name is not null and l.name <> ''
+        and (${textMatches(sql`l.name`, like)}
+             ${useSimilarity ? sql`or l.name % ${query}` : sql``})
+      group by l.name
+      order by rank asc, score desc nulls last, album_count desc, lower(l.name) asc
+      limit ${limit}`) as unknown as Record<string, unknown>[];
 
     reply.send({
       albums: albums.map((a) => ({
@@ -158,6 +199,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
         id: t['id'], title: t['title'], albumId: t['local_album_id'],
         albumTitle: t['album_title'], artist: t['artist'],
       })),
+      ...(wants('labels') ? { labels: labels.map((l) => ({ name: l['name'], albumCount: l['album_count'] })) } : {}),
     });
   });
 }

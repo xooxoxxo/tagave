@@ -3,15 +3,19 @@
  * a link's sealed tokens, and a pending link's client secret and PKCE code
  * verifier, open with the new secret; a second run changes nothing; a wrong
  * old secret changes nothing; values neither secret opens (stale links) are
- * counted and never stop the other steps.
+ * counted and never stop the other steps. The autotagger's TypeSafe key, in
+ * its module's own table, is re-encrypted too; one neither secret opens is
+ * removed with a warning and never stops the run; and the run works where
+ * that table was never made.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
-import { runMigrations } from '@tagave/db';
+import { runMigrations, setTypesafeKey, typesafeKeyHint } from '@tagave/db';
 import { openOne, openTokens, sealOne, sealTokens } from '@tagave/core/mc';
 import { openSecret, sealSecret } from '@tagave/core';
-import { resealCredentials, resealMcSecrets } from './reseal.js';
+import { resealTwoFactorSecrets, sealTwoFactorValue } from '@tagave/auth';
+import { resealCredentials, resealMcSecrets, resealModuleKeys } from './reseal.js';
 
 const url = process.env.TEST_DATABASE_URL;
 const OLD = 'old-app-secret-0123456789abcdef0123456789';
@@ -26,6 +30,9 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
   let userId: string;
   const libraryId = randomUUID();
   const LOST = 'lost-secret-0123456789abcdef0123456789';
+  const TYPESAFE = 'ts-reseal-test-key-k9z1';
+  const typesafe = async () =>
+    (await sql`select sealed_key from decider_library_settings where library_id = ${libraryId}`)[0]!['sealed_key'] as string;
 
   beforeAll(async () => {
     admin = postgres(url!, { max: 1, onnotice: () => undefined });
@@ -49,6 +56,7 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
 
   beforeEach(async () => {
     await sql`update libraries set settings = ${sql.json({ discogsToken: sealSecret('discogs-token', OLD) })} where id = ${libraryId}`;
+    await setTypesafeKey(sql, libraryId, sealSecret(TYPESAFE, OLD), 'k9z1');
     await sql`delete from mc_links`;
     await sql`delete from mc_pending`;
     await sql`insert into mc_links (user_id, remote_url, manifest, client_id, sealed_tokens, state)
@@ -95,6 +103,7 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
     links: await sql`select sealed_tokens from mc_links order by remote_url`,
     pending: await sql`select code_verifier_sealed, client_secret_sealed from mc_pending`,
     discogs: await discogs(),
+    typesafe: await typesafe(),
   });
 
   it('a wrong old secret changes nothing', async () => {
@@ -138,5 +147,95 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
     const [link] = await sql<Array<{ sealed_tokens: string }>>`select sealed_tokens from mc_links where state = 'active'`;
     expect(openTokens(link!.sealed_tokens, NEW)).toEqual(tokens);
     expect(openSecret(await discogs(), NEW)).toBe('discogs-token');
+    // the autotagger's TypeSafe key (its own table) opens with the new secret; its hint stays
+    expect(openSecret(await typesafe(), NEW)).toBe(TYPESAFE);
+    expect(await typesafeKeyHint(sql, libraryId)).toBe('k9z1');
+  });
+
+  it('the TypeSafe key: re-encrypted once, a second run changes nothing', async () => {
+    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 1, alreadyCurrent: 0, cleared: [], unreadable: 0 });
+    const after = await typesafe();
+    expect(openSecret(after, NEW)).toBe(TYPESAFE);
+    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 1, cleared: [], unreadable: 0 });
+    expect(await typesafe()).toBe(after);
+  });
+
+  it('a TypeSafe key neither secret opens is removed with a warning that names only the library; the other keys are re-encrypted', async () => {
+    const lost = sealSecret(TYPESAFE, LOST);
+    await setTypesafeKey(sql, libraryId, lost, 'k9z1');
+    const { warned } = await doctor();
+    expect(warned).toContain(`the TypeSafe key of library ${libraryId} opens with neither secret and was removed`);
+    for (const leak of [TYPESAFE, lost, lost.slice(0, 16), 'k9z1']) expect(warned).not.toContain(leak);
+    expect(await sql`select sealed_key, key_hint from decider_library_settings where library_id = ${libraryId}`).toEqual([{ sealed_key: null, key_hint: null }]);
+    expect(await typesafeKeyHint(sql, libraryId)).toBeNull();
+    // the other keys are on the new secret
+    expect(openSecret(await discogs(), NEW)).toBe('discogs-token');
+    const [link] = await sql<Array<{ sealed_tokens: string }>>`select sealed_tokens from mc_links where state = 'active'`;
+    expect(openTokens(link!.sealed_tokens, NEW)).toEqual(tokens);
+    // on its own: left as it is unless removing is asked for; then listed by library, and nothing left to remove on a second run
+    await setTypesafeKey(sql, libraryId, lost, 'k9z1');
+    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 1 });
+    expect(await typesafe()).toBe(lost);
+    expect(await resealModuleKeys(sql, OLD, NEW, { clearUnreadable: true })).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [{ label: 'TypeSafe key', where: 'Settings › Modules › Autotagger', libraryId }], unreadable: 0 });
+    expect(await resealModuleKeys(sql, OLD, NEW, { clearUnreadable: true })).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 0 });
+  });
+
+  it('a mistyped old secret never removes a key: with only a TypeSafe key, the run stops and changes nothing', async () => {
+    await sql`update libraries set settings = '{}'::jsonb where id = ${libraryId}`;
+    const sealed = await typesafe();
+    const before = await snapshot();
+    const err = await doctor('typo-secret-0123456789abcdef0123456789').then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/TAGAVE_OLD_APP_SECRET opens no sealed value here, and 1 TypeSafe key\(s\) open with neither secret; is it right\? Nothing was changed\. If it is, remove the key in Settings › Modules › Autotagger and run reseal again\./);
+    for (const leak of [TYPESAFE, sealed, 'k9z1']) expect(err!.message).not.toContain(leak);
+    expect(await snapshot()).toEqual(before);
+    expect(await typesafe()).toBe(sealed);
+    expect(await typesafeKeyHint(sql, libraryId)).toBe('k9z1');
+    // with the right old secret it goes through
+    expect((await doctor()).warned).toBe('');
+    expect(openSecret(await typesafe(), NEW)).toBe(TYPESAFE);
+  });
+
+  it('a Music Connections value or an authenticator app the old secret opens is proof enough: the lost key is removed, the rest re-encrypted', async () => {
+    const lost = sealSecret(TYPESAFE, LOST);
+    // no provider secret: only the links (sealed with the old secret) show it is right
+    await sql`update libraries set settings = '{}'::jsonb where id = ${libraryId}`;
+    await setTypesafeKey(sql, libraryId, lost, 'k9z1');
+    const viaLinks = await doctor();
+    expect(viaLinks.warned).toContain(`the TypeSafe key of library ${libraryId} opens with neither secret and was removed; enter it again in Settings › Modules › Autotagger`);
+    expect(await typesafeKeyHint(sql, libraryId)).toBeNull();
+    const [link] = await sql<Array<{ sealed_tokens: string }>>`select sealed_tokens from mc_links where state = 'active'`;
+    expect(openTokens(link!.sealed_tokens, NEW)).toEqual(tokens);
+
+    // no provider secret and no links: only an authenticator app shows it
+    await sql`delete from mc_links`;
+    await sql`delete from mc_pending`;
+    await setTypesafeKey(sql, libraryId, lost, 'k9z1');
+    await sql`insert into auth_two_factors (user_id, secret, backup_codes) values (${userId}, ${await sealTwoFactorValue(OLD, 'totp-secret')}, ${await sealTwoFactorValue(OLD, 'codes')})`;
+    try {
+      const viaApp = await doctor();
+      expect(viaApp.warned).toContain(`the TypeSafe key of library ${libraryId} opens with neither secret and was removed`);
+      for (const leak of [TYPESAFE, lost, 'k9z1']) expect(viaApp.warned).not.toContain(leak);
+      expect(await typesafeKeyHint(sql, libraryId)).toBeNull();
+      expect(await resealTwoFactorSecrets(sql, OLD, NEW)).toEqual({ rows: 1, resealed: 0, alreadyCurrent: 1 });
+    } finally {
+      await sql`delete from auth_two_factors where user_id = ${userId}`;
+    }
+  });
+
+  it('runs where the module\'s table was never made', async () => {
+    // This suite runs on a database of its own (see beforeAll), so moving the
+    // table aside here touches no other suite. Moved aside (to_regclass finds
+    // no table by its name) and put back, so the order of the tests does not matter.
+    await sql`alter table decider_library_settings rename to decider_library_settings_aside`;
+    try {
+      expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 0 });
+      const { warned } = await doctor();
+      expect(warned).toBe('');
+      expect(openSecret(await discogs(), NEW)).toBe('discogs-token');
+      expect(openTokens((await sql<Array<{ sealed_tokens: string }>>`select sealed_tokens from mc_links where state = 'active'`)[0]!.sealed_tokens, NEW)).toEqual(tokens);
+    } finally {
+      await sql`alter table decider_library_settings_aside rename to decider_library_settings`;
+    }
+    expect(await typesafeKeyHint(sql, libraryId)).toBe('k9z1');
   });
 });

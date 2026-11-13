@@ -4,12 +4,15 @@
  * or deleting their data). Invites, role changes, resets and removal ask the
  * owner to confirm it is them when the last sign-in is older than five
  * minutes (useStepUpAction). No email is sent: the owner copies the link.
+ * The sign-in service (your own login service) is its own section below
+ * (SettingsPage renders it after this page).
  */
 import { useState, type FormEvent } from 'react';
 import { ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, type InviteLinkResponse, type Role, type UserView } from '@tagave/shared';
 import { Banner, Button, Select, TextField, confirmDialog } from '../components/ui';
 import { LinkPanel, PendingLinkRow, UserRow, usersListStyles as list } from '../components/users/UsersList';
 import { useStepUpAction } from '../components/users/useStepUpAction';
+import { useOidcButton } from '../services/oidc';
 import { useChangeUser, useInviteUser, useRemoveUser, useResetSignIn, useRevokeInvite, useUsers } from '../hooks/useUsers';
 import styles from './SettingsSecurityPage.module.css';
 
@@ -26,6 +29,7 @@ export function SettingsUsersPage() {
   const reset = useResetSignIn();
   const remove = useRemoveUser();
   const { run, dialog } = useStepUpAction();
+  const service = useOidcButton().data?.name ?? undefined;
 
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('listener');
@@ -119,6 +123,7 @@ export function SettingsUsersPage() {
               key={u.id}
               user={u}
               busy={busy}
+              service={service}
               actions={{
                 onRole: (r) => void onRole(u, r),
                 onToggleDisabled: () => void onToggleDisabled(u),
@@ -187,6 +192,7 @@ export function SettingsUsersPage() {
           </ul>
         </section>
       )}
+
       {dialog}
     </div>
   );

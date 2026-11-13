@@ -3,7 +3,7 @@
  * the O(n³) Hungarian solver.
  */
 import { describe, it, expect } from 'vitest';
-import { alignTracks, scoreRelease, mediumCountOf, MAX_ALIGN_TRACKS } from './scoring.js';
+import { alignTracks, scoreRelease, scoreCandidates, mediumCountOf, MAX_ALIGN_TRACKS } from './scoring.js';
 import { chipCounts } from './chipRule.js';
 
 const local = (n: number) => Array.from({ length: n }, (_, i) => ({ title: `Song ${i + 1}`, duration: 200 + i, index: i }));
@@ -336,5 +336,158 @@ describe('medium component gate and pairing (round 3)', () => {
     const canonical = [t('A1', 0, { medium: 1 }), t('B1', 1, { medium: 2 })];
     const out = alignTracks(local, canonical);
     expect(out.map((a) => a.canonicalIndex)).toEqual([0, 1]);
+  });
+});
+
+describe('barcode', () => {
+  // A perfect match on everything else: artist 3, album 3, tracks 2, trackTitle 3 → weight 11, score 0.
+  const local6 = { artist: 'Ensemble Nord', title: 'Lichtung', tracks: local(6) };
+  const cand = (over: Record<string, unknown> = {}) => ({
+    id: 'r-1', releaseGroupId: 'rg-1', title: 'Lichtung', artists: ['Ensemble Nord'],
+    tracks: canonical(6), source: 'musicbrainz' as const, ...over,
+  });
+
+  it('a mismatch adds 0.3 on the weight-5 albumId term, and the term counts', () => {
+    const r = scoreRelease({ ...local6, barcode: '0123456789012' }, cand({ barcode: '9999999999999' }));
+    expect(r.breakdown.albumId).toBe(0.3);
+    expect(r.distance).toBeCloseTo((0.3 * 5) / (11 + 5), 10);
+  });
+
+  it('a match is a green albumId chip that does not move the distance', () => {
+    const r = scoreRelease({ ...local6, barcode: '0123456789012' }, cand({ barcode: '0123456789012' }));
+    expect(r.breakdown.albumId).toBe(0);
+    expect(r.distance).toBe(0);
+  });
+
+  it('an embedded-id mismatch already at 1 stays 1 with a barcode mismatch', () => {
+    const r = scoreRelease({ ...local6, embeddedMbId: 'other', barcode: '1' }, cand({ barcode: '2' }));
+    expect(r.breakdown.albumId).toBe(1);
+    expect(r.distance).toBeCloseTo(5 / 16, 10);
+  });
+
+  it('an embedded-id match with a barcode mismatch costs the 0.3', () => {
+    const r = scoreRelease({ ...local6, embeddedMbId: 'r-1', barcode: '1' }, cand({ barcode: '2' }));
+    expect(r.breakdown.albumId).toBe(0.3);
+    expect(r.distance).toBeCloseTo(1.5 / 16, 10);
+  });
+
+  it('a barcode match no longer paints an embedded-id mismatch green', () => {
+    const r = scoreRelease({ ...local6, embeddedMbId: 'other', barcode: '1' }, cand({ barcode: '1' }));
+    expect(r.breakdown.albumId).toBe(1);
+    expect(r.distance).toBeCloseTo(5 / 16, 10);
+  });
+
+  it('one side without a barcode says nothing', () => {
+    expect(scoreRelease(local6, cand({ barcode: '2' })).breakdown.albumId).toBeUndefined();
+    expect(scoreRelease({ ...local6, barcode: '1' }, cand()).breakdown.albumId).toBeUndefined();
+  });
+});
+
+describe('barcode normalisation', () => {
+  const local6 = { artist: 'Ensemble Nord', title: 'Lichtung', tracks: local(6) };
+  const cand = (barcode: string) => ({
+    id: 'r-1', releaseGroupId: 'rg-1', title: 'Lichtung', artists: ['Ensemble Nord'],
+    tracks: canonical(6), source: 'musicbrainz' as const, barcode,
+  });
+  const run = (a: string, b: string) => scoreRelease({ ...local6, barcode: a }, cand(b));
+
+  it('UPC-A equals its EAN-13 form', () => {
+    const r = run('012345678905', '0012345678905');
+    expect(r.breakdown.albumId).toBe(0);
+    expect(r.distance).toBe(0);
+  });
+  it('spaces and dashes are ignored', () => {
+    expect(run('5 099902 98742 2', '5099902987422').breakdown.albumId).toBe(0);
+    expect(run('5-099902-98742-2', '5099902987422').distance).toBe(0);
+  });
+  it('a value with no digits gives no penalty', () => {
+    const r = run('abc', '5099902987422');
+    expect(r.breakdown.albumId).toBeUndefined();
+    expect(r.distance).toBe(0);
+  });
+  it('two different codes still mismatch', () => {
+    expect(run('5099902987422', '5099902987439').breakdown.albumId).toBe(0.3);
+  });
+});
+
+describe('scoreRelease alignment', () => {
+  const base = { artist: 'Ensemble Nord', title: 'Lichtung' };
+  const cand = (tracks: ReturnType<typeof canonical>) => ({ id: 'r', releaseGroupId: 'g', title: 'Lichtung', artists: ['Ensemble Nord'], tracks, source: 'musicbrainz' as const });
+
+  it('returns the alignment the distance was computed from', () => {
+    const r = scoreRelease({ ...base, tracks: local(6) }, cand(canonical(7)));
+    expect(r.alignment).toEqual(alignTracks(local(6), canonical(7)));
+    expect(r.missingRemote).toEqual([6]);
+  });
+
+  it('per-medium alignment is returned as the scorer used it', () => {
+    const tracks = [...discTracks(1, 3), ...discTracks(2, 2, 3)];
+    const media = [...mediumTracks(1, 3), ...mediumTracks(2, 2, 3)];
+    const r = scoreRelease({ ...base, tracks, discsKnown: true, discCount: 2 }, cand(media));
+    expect(r.alignment).toEqual(alignTracks(tracks, media));
+    expect(r.alignment.every((a) => a.canonicalIndex === a.localIndex)).toBe(true);
+  });
+
+  it('over the cap every local track is unaligned and every remote one missing', () => {
+    const r = scoreRelease({ ...base, tracks: local(3) }, cand(canonical(MAX_ALIGN_TRACKS + 1)));
+    expect(r.alignment.every((a) => a.canonicalIndex === null)).toBe(true);
+    expect(r.missingRemote).toHaveLength(MAX_ALIGN_TRACKS + 1);
+  });
+
+  it('scoreCandidates carries alignment and missingRemote', () => {
+    const [top] = scoreCandidates({ ...base, tracks: local(4) }, [cand(canonical(4))]);
+    expect(top!.alignment).toHaveLength(4);
+    expect(top!.missingRemote).toEqual([]);
+  });
+
+  it('distances, breakdowns and recommendations equal what the scorer returned before alignment was exposed', () => {
+    // Captured from the scorer before it returned the alignment.
+    const before = [
+      { distance: 0.03481392557022809, breakdown: { artist: 0, album: 0, tracks: 0.14285714285714285, trackTitle: 0, missingTracks: 0.14285714285714285 }, recommendation: 'medium' },
+      { distance: 0, breakdown: { artist: 0, album: 0, tracks: 0, trackTitle: 0 }, recommendation: 'strong' },
+      { distance: 0.06403940886699507, breakdown: { artist: 0, album: 0, tracks: 0.2857142857142857, trackTitle: 0, unmatchedTracks: 0.2857142857142857 }, recommendation: 'medium' },
+    ];
+    const after = [
+      scoreRelease({ ...base, tracks: local(6) }, cand(canonical(7))),
+      scoreRelease({ ...base, tracks: local(4) }, cand(canonical(4))),
+      scoreRelease({ ...base, tracks: local(7) }, cand(canonical(5))),
+    ].map(({ distance, breakdown, recommendation }) => ({ distance, breakdown, recommendation }));
+    expect(after).toStrictEqual(before);
+  });
+});
+
+describe('scoreRelease compares text by script', () => {
+  const cyrillic = ['Падение Рода', 'Поворот В Никуда', 'Без Четверти Вечность'];
+  // the same titles read with the wrong code page: Latin letters
+  const misread = ['Ïàäåíèå Ðîäà', 'Ïîâîðîò Â Íèêóäà', 'Áåç ×åòâåðòè Âå÷íîñòü'];
+  const tracks = (titles: string[]) => titles.map((title, i) => ({ title, duration: 200 + 40 * i, index: i }));
+  const release = (title: string, titles: string[]) =>
+    ({ id: 'r', releaseGroupId: 'g', title, artists: ['Stigmatic Chorus'], tracks: tracks(titles), source: 'musicbrainz' as const });
+
+  it('a misread tracklist against the Cyrillic one costs nothing; the durations align it', () => {
+    const r = scoreRelease({ artist: 'Stigmatic Chorus', title: 'Ãåäîíèñò', tracks: tracks(misread) }, release('Гедонист', cyrillic));
+    expect(r.breakdown.album).toBe(0);
+    expect(r.breakdown.trackTitle).toBe(0);
+    expect(r.alignment.map((a) => a.canonicalIndex)).toEqual([0, 1, 2]);
+    expect(r.distance).toBe(0);
+  });
+
+  it('a plain-ASCII title against a Cyrillic one costs what it did before', () => {
+    const r = scoreRelease({ artist: 'Stigmatic Chorus', title: 'Gedonist', tracks: tracks(misread) }, release('Гедонист', cyrillic));
+    expect(r.breakdown.album).toBe(1);
+    expect(r.breakdown.trackTitle).toBe(0);
+  });
+
+  it('two Cyrillic tracklists with different titles still cost', () => {
+    const other = ['Ветры солнца', 'Теотиуакан', 'Дороги ведут в Копан'];
+    const r = scoreRelease({ artist: 'Stigmatic Chorus', title: 'Гедонист', tracks: tracks(cyrillic) }, release('Гедонист', other));
+    expect(r.breakdown.trackTitle).toBeGreaterThan(0.3);
+  });
+
+  it('an accent on a Latin name costs nothing', () => {
+    const r = scoreRelease({ artist: 'Chyliñska', title: 'Winna', tracks: tracks(['Zla']) },
+      { ...release('Winna', ['Zła']), artists: ['Chylińska'] });
+    expect(r.breakdown.artist).toBe(0);
+    expect(r.breakdown.trackTitle).toBe(0);
   });
 });

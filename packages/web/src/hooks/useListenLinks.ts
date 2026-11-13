@@ -27,10 +27,12 @@ export function useListenPrefs(enabled = true) {
 export function useSetListenPrefs() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (platforms: ListenPlatform[]) => api.put<ListenPrefsView>('/me/listen-links', { platforms }),
+    mutationFn: (body: { platforms: ListenPlatform[]; primary?: ListenPlatform | null }) => api.put<ListenPrefsView>('/me/listen-links', body),
     onSuccess: (view) => {
       client.setQueryData(listenPrefsKey, view);
       void client.invalidateQueries({ queryKey: linksKey });
+      // Missing playlist rows carry the primary platform's link
+      void client.invalidateQueries({ queryKey: ['playlists', 'one'] });
     },
   });
 }

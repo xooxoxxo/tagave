@@ -5,9 +5,10 @@ import { ensureDir } from './ensureDir.js';
 import postgres from 'postgres';
 import type { DiskSpaceView } from '@tagave/shared';
 import { MIGRATIONS_DIR, classifySkew, compareVersions, listMigrationChain, readLedger, readSchemaState } from '@tagave/db';
-import { MusicBrainzProvider, DiscogsProvider, defaultCacheDir, isSealed, openSecret, unservedWork } from '@tagave/core';
+import { MusicBrainzProvider, DiscogsProvider, defaultCacheDir, isSealed, openSecret, unservedWork, MUSIC_FOLDER_QUEUES, workerServesQueue } from '@tagave/core';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
+type WorkerRoleStatus = 'available' | 'partial' | 'unavailable';
 
 export interface Check {
   id: string;
@@ -17,6 +18,7 @@ export interface Check {
   durationMs: number;
   /** The disk check's numbers per filesystem (only on id 'disk'). */
   disk?: DiskSpaceView;
+  workerRoles?: { files: WorkerRoleStatus; identify: WorkerRoleStatus };
 }
 
 /** "1 worker", "2 workers": details are read by people, not parsed. */
@@ -198,6 +200,24 @@ export async function checkContactString(databaseUrl: string): Promise<Check> {
 
 /** The worker check from the live workers and the queues they serve. */
 export function workerCoverageCheck(liveWorkers: number, served: ReadonlyArray<readonly string[]>, durationMs = 0): Check {
+  const coverage = (queues: readonly string[]): WorkerRoleStatus => {
+    const covered = queues.filter((queue) => served.some((worker) => workerServesQueue(worker, queue))).length;
+    return covered === queues.length ? 'available' : covered > 0 ? 'partial' : 'unavailable';
+  };
+  const workerRoles = {
+    files: coverage(MUSIC_FOLDER_QUEUES),
+    identify: coverage(['identify.album', 'identify.acoustid', 'identify.sweep']),
+  };
+  if (liveWorkers === 0) {
+    return {
+      id: 'workerHeartbeat',
+      title: 'Worker Heartbeat',
+      status: 'fail',
+      detail: 'No worker has checked in during the last two minutes',
+      durationMs,
+      workerRoles,
+    };
+  }
   const unserved = unservedWork(served);
   const running = `${plural(liveWorkers, 'worker')} running`;
   if (unserved.length > 0) {
@@ -205,11 +225,12 @@ export function workerCoverageCheck(liveWorkers: number, served: ReadonlyArray<r
       id: 'workerHeartbeat',
       title: 'Worker Heartbeat',
       status: 'warn',
-      detail: `${running}, but none handles ${joinWords(unserved)}`,
+      detail: `${running}, but none handles ${joinWords(unserved)} (file worker ${workerRoles.files}, identify worker ${workerRoles.identify})`,
       durationMs,
+      workerRoles,
     };
   }
-  return { id: 'workerHeartbeat', title: 'Worker Heartbeat', status: 'pass', detail: `${running}, handling all work`, durationMs };
+  return { id: 'workerHeartbeat', title: 'Worker Heartbeat', status: 'pass', detail: `${running}, handling all work`, durationMs, workerRoles };
 }
 
 const joinWords = (items: string[]) =>
@@ -251,16 +272,6 @@ export async function checkWorkerHeartbeat(
           durationMs: Date.now() - start,
         };
       }
-      if (liveWorkers === 0) {
-        return {
-          id: 'workerHeartbeat',
-          title: 'Worker Heartbeat',
-          status: 'fail',
-          detail: 'No worker has checked in during the last two minutes',
-          durationMs: Date.now() - start,
-        };
-      }
-
       // Enough workers means every kind of work has one: the same answer
       // for one worker that does everything and for a split install.
       return workerCoverageCheck(liveWorkers, served, Date.now() - start);
@@ -696,19 +707,27 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
       try {
         const sql = postgres(databaseUrl, { max: 1 });
         try {
-          const result = await sql`
-            select count(*) as sealed_count
-            from libraries
-            where settings->>'discogsToken' like 'enc:%'
-               or settings->>'acoustidKey' like 'enc:%'
-          `;
+          // libraries.settings, and the autotagger's TypeSafe key in its own
+          // table when the module's tables were made; a library is counted once
+          const [mod] = await sql<Array<{ ok: boolean }>>`select to_regclass('public.decider_library_settings') is not null as ok`;
+          const result = mod?.ok
+            ? await sql<Array<{ sealed_count: string }>>`
+                select count(*) as sealed_count from (
+                  select id from libraries
+                   where settings->>'discogsToken' like 'enc:%' or settings->>'acoustidKey' like 'enc:%'
+                  union
+                  select library_id from decider_library_settings where sealed_key like 'enc:%'
+                ) sealed`
+            : await sql<Array<{ sealed_count: string }>>`
+                select count(*) as sealed_count from libraries
+                 where settings->>'discogsToken' like 'enc:%' or settings->>'acoustidKey' like 'enc:%'`;
           const sealedCount = Number(result[0]?.['sealed_count'] ?? 0);
           if (sealedCount > 0) {
             return {
               id: 'appSecret',
               title: 'App Secret',
               status: 'warn',
-              detail: `${sealedCount === 1 ? 'A library keeps' : `${sealedCount} libraries keep`} an encrypted Discogs token or AcoustID key, but the secret that unlocks them is not set here`,
+              detail: `${sealedCount === 1 ? 'A library keeps' : `${sealedCount} libraries keep`} an encrypted Discogs token, AcoustID key or TypeSafe key, but the secret that unlocks them is not set here`,
               durationMs: Date.now() - start,
             };
           }

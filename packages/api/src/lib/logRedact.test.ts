@@ -7,6 +7,11 @@ describe('redactUrl', () => {
     expect(redactUrl('/api/v1/invites/AbC_123-xyz/accept')).toBe('/api/v1/invites/[redacted]/accept');
     expect(redactUrl('/invite/AbC_123-xyz')).toBe('/invite/[redacted]');
   });
+  it('hides a cast link token, keeps the cast-url route and the query', () => {
+    expect(redactUrl('/api/v1/player/cast/v1.t.abc.def.123.sig?format=original')).toBe('/api/v1/player/cast/[redacted]?format=original');
+    expect(redactUrl('/api/v1/player/cast-cover/v1.c.abc.def.123.sig')).toBe('/api/v1/player/cast-cover/[redacted]');
+    expect(redactUrl('/api/v1/player/cast-url')).toBe('/api/v1/player/cast-url');
+  });
   it('hides the Last.fm token and state in the query, keeps the rest', () => {
     expect(redactUrl('/api/v1/me/listening/lastfm/callback?token=secret&state=1.sig&x=1'))
       .toBe('/api/v1/me/listening/lastfm/callback?token=%5Bredacted%5D&state=%5Bredacted%5D&x=1');

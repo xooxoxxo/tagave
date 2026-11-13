@@ -147,6 +147,8 @@ services:
       APP_SECRET: ${APP_SECRET:?set in .env}
       CACHE_DIR: /cache
       TAGAVE_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+      # the music folder as its computer sees it, for the delete command on Library care › Deleting
+      TAGAVE_MUSIC_HOST_DIR: ${MUSIC_DIR:-}
       TAGAVE_LIBRARY_ID: ${TAGAVE_LIBRARY_ID:-${LINER_LIBRARY_ID:-}}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TAGAVE_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-${LINER_ALLOW_SCHEMA_SKEW:-}}

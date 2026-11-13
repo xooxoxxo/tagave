@@ -130,7 +130,7 @@ function describeOne(key: string, value: unknown, all: Record<string, unknown>, 
         key,
         title: 'No embedded art',
         explain: 'None of the music files carry a cover picture, so players that read the files directly show no artwork.',
-        guidance: 'Nothing to do unless your music player needs artwork inside the files.',
+        guidance: 'The cover shown in tagave is stored separately. To add art to the music files, put a cover.jpg or cover.png in the album folder and embed it here.',
       };
     case 'missingMbIds': {
       const tracks = numbers(field(value, 'missing'));

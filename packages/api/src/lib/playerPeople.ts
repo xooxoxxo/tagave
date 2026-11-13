@@ -143,7 +143,7 @@ export async function personServer(sql: Sql, backend: PlayerBackend, userId: str
   return { server: backend.server, serverKey: backend.key, kind: 'shared', personal: false, serverScrobbles: false };
 }
 
-/** Settings › Listening: the person's account, never its password. */
+/** Settings › Modules › Player: the person's account, never its password. */
 export async function accountView(sql: Sql, backend: PlayerBackend | null, userId: string): Promise<PlayerAccountView> {
   if (!backend) return { kind: 'none', username: null, phonePassword: false, serverScrobbles: false, state: null, lastError: null };
   const row = await playerUserRow(sql, userId, backend.key);

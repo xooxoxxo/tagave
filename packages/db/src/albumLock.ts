@@ -9,3 +9,17 @@
 export function albumKeyLock(libraryId: string, clusterKey: string): string {
   return `album-key:${libraryId}\n${clusterKey}`;
 }
+
+/**
+ * Namespace of the per-album lock on matching evidence. Every transaction
+ * that writes an album's candidates or its album evidence (identification,
+ * a pasted edition, the evidence rebuild) takes
+ * pg_advisory_xact_lock(hashtextextended(albumEvidenceLock(id), 0)) first,
+ * so two of them never interleave and one built from a stale read can see
+ * that it is stale.
+ */
+export const ALBUM_EVIDENCE_LOCK_NAMESPACE = 'album-evidence';
+
+export function albumEvidenceLock(albumId: string): string {
+  return `${ALBUM_EVIDENCE_LOCK_NAMESPACE}:${albumId}`;
+}

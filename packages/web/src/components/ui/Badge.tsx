@@ -5,13 +5,15 @@ export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger' | 
 
 interface BadgeProps {
   tone?: BadgeTone;
+  /** sm: a marker inside a line of small text (a record's format, its copies) */
+  size?: 'md' | 'sm';
   children: ReactNode;
   className?: string;
 }
 
-export function Badge({ tone = 'neutral', children, className }: BadgeProps) {
+export function Badge({ tone = 'neutral', size = 'md', children, className }: BadgeProps) {
   return (
-    <span className={[styles.badge, styles[`tone-${tone}`], className].filter(Boolean).join(' ')}>
+    <span className={[styles.badge, styles[`tone-${tone}`], size === 'sm' ? styles.sm : undefined, className].filter(Boolean).join(' ')}>
       {children}
     </span>
   );

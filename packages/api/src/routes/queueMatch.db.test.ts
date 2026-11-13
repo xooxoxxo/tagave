@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { libraries, localAlbums, matchCandidates, releaseGroups, releases, users } from '@tagave/db';
+import { albumMatches, libraries, localAlbums, matchCandidates, releaseGroups, releases, users } from '@tagave/db';
 
 const sent: Array<{ name: string; data: unknown; opts: { singletonKey?: string } | undefined }> = [];
 vi.mock('../boss.js', () => ({
@@ -66,5 +66,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('accepting a match (db)', () => 
     const [row] = await db.select({ state: localAlbums.state, releaseId: localAlbums.releaseId }).from(localAlbums).where(eq(localAlbums.id, albumId));
     expect(row).toEqual({ state: 'matched', releaseId });
     expect(sent).toContainEqual({ name: 'art.fetch', data: { localAlbumId: albumId }, opts: { singletonKey: `art:${albumId}` } });
+  });
+
+  it('a hand accept is the person\'s, and the decision it replaced keeps its reason', async () => {
+    const otherAlbum = randomUUID();
+    const otherCandidate = randomUUID();
+    await db.insert(localAlbums).values({ id: otherAlbum, libraryId, clusterKey: `accept:${otherAlbum}`, dirPaths: ['a/Windowlicker 2'], titleGuess: 'Windowlicker', state: 'matched', trackCount: 3, releaseId, releaseGroupId: rgId });
+    await db.insert(albumMatches).values({ libraryId, localAlbumId: otherAlbum, releaseId, distance: '0.0300', status: 'auto', decidedBy: 'system', decidedKind: 'system', reason: 'auto-accept: distance 0.0300 (musicbrainz)' });
+    await db.insert(matchCandidates).values({ id: otherCandidate, localAlbumId: otherAlbum, releaseId, distance: '0.0500', breakdown: {}, source: 'mb_search' });
+    const res = await app.inject({ method: 'POST', url: `/albums/${otherAlbum}/match`, payload: { candidateId: otherCandidate } });
+    expect(res.statusCode).toBe(200);
+    const rows = await client`select status, reason, decided_kind, decided_by_user_id from album_matches where local_album_id = ${otherAlbum} order by created_at`;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ status: 'rejected', reason: 'auto-accept: distance 0.0300 (musicbrainz)' });
+    expect(rows[1]).toMatchObject({ status: 'confirmed', decided_kind: 'user', decided_by_user_id: ownerId });
   });
 });

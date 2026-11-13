@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { PlayerBarView } from '../components/PlayerBar';
 import { COVER_SRC } from './fixtures';
+import { MixChip } from '../components/player/MixChip';
 
 const meta = {
   title: 'Components/Player bar',
@@ -40,7 +41,7 @@ const meta = {
     docs: {
       story: { inline: false, iframeHeight: 160 },
       description: {
-        component: 'The player of the opt-in player module (Settings › Playback): what is playing, previous / play-pause / next, a seek bar with the elapsed and total time, the volume on a desktop with a mouse, and the queue key (Now Playing). It takes its own row at the foot of the content column, so the page scrolls above it and nothing is covered; on a phone it spans the screen and clears the home indicator. Loading and buffering put a quiet spinner in the play key; an error says what happened with Retry. `PlayerBarView` is the bar alone, driven by props; `PlayerBar` (mounted once in Layout) connects it to the audio engine: with a player installed it is always there on a desktop, `empty` (keys, seek bar and queue key disabled, no track) until something is queued; on a phone the mini bar shows only while a queue exists. The artist names and the album name link to their pages (plain text until hover or keyboard focus; following one keeps the music playing); an album tagave has not identified has no artist links. Space toggles play and pause outside fields and buttons; media keys go through the Media Session.',
+        component: 'The player of the opt-in player module (Settings › Modules › Player): what is playing, previous / play-pause / next, a seek bar with the elapsed and total time, the volume on a desktop with a mouse, and the queue key (Now Playing). It takes its own row at the foot of the content column, so the page scrolls above it and nothing is covered; on a phone it spans the screen and clears the home indicator. Loading and buffering put a quiet spinner in the play key; an error says what happened with Retry. `PlayerBarView` is the bar alone, driven by props; `PlayerBar` (mounted once in Layout) connects it to the audio engine: with a player installed it is always there on a desktop, `empty` (keys, seek bar and queue key disabled, no track) until something is queued; on a phone the mini bar shows only while a queue exists. The artist names and the album name link to their pages (plain text until hover or keyboard focus; following one keeps the music playing); an album tagave has not identified has no artist links. Space toggles play and pause outside fields and buttons; media keys go through the Media Session.',
       },
     },
   },
@@ -72,5 +73,7 @@ export const TwoArtists: Story = {
 export const NotIdentified: Story = { name: 'Artist not identified (no links)', args: { artists: null, albumId: null } };
 export const NoCover: Story = { args: { coverUrl: null } };
 export const AtTheEnd: Story = { args: { canNext: false, position: 296 } };
+/** The DJ module fades one track into the next: the Mix chip, held halfway through a 6 s fade. */
+export const Mix: Story = { args: { mix: <MixChip lengthMs={6000} frozenAt={0.5} />, position: 3 } };
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
 export const PhoneError: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { status: 'error', message: 'Not on the player yet — its first scan is at 34\u202f%.' } };

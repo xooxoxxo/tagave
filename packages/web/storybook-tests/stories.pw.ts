@@ -17,7 +17,7 @@ const visualOn = () => {
 test.use({ deviceScaleFactor: 2, viewport: { width: 960, height: 640 } });
 
 /** A story of a whole desktop window (the app's frame): tagged with its size, shot as the viewport. */
-const DESKTOP: Array<[tag: string, width: number, height: number]> = [['viewport-1440', 1440, 900], ['viewport-1000', 1000, 620]];
+const DESKTOP: Array<[tag: string, width: number, height: number]> = [['viewport-1440', 1440, 900], ['viewport-1024', 1024, 700], ['viewport-1000', 1000, 620]];
 
 /**
  * A page taller than the window is shot with the window grown to the page,

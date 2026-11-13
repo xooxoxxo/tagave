@@ -1,0 +1,136 @@
+/* Similar artists on the artist page (SimilarArtists.tsx). */
+.similar { display: grid; gap: 28px; min-width: 0; }
+.group { min-width: 0; }
+
+.label {
+  margin: 0 0 12px;
+  font: 500 10.5px/1.3 var(--font-body);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ---------- in your library: artist cards ---------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 24px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.card { min-width: 0; }
+.cardLink { display: block; border-radius: var(--r-cover); color: inherit; }
+.cardLink > :first-child { transition: transform var(--dur) var(--ease-spring), box-shadow var(--dur) var(--ease-out); }
+.cardLink:hover > :first-child { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+.cardLink:focus-visible,
+.cardText:focus-visible,
+.rowLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.cardLink:focus:not(:focus-visible),
+.cardText:focus:not(:focus-visible),
+.rowLink:focus:not(:focus-visible) { outline: none; }
+
+/* name and albums, Play at the end of the name line */
+.cardHead { display: flex; align-items: flex-start; gap: 2px; min-width: 0; margin-top: 10px; }
+.cardText { flex: 1; min-width: 0; display: grid; gap: 2px; color: inherit; text-decoration: none; border-radius: var(--r-kbd); }
+.cardText:hover { text-decoration: none; color: inherit; }
+.cardName {
+  font: 500 14px/1.35 var(--font-body);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cardMeta { font: 400 13px/1.3 var(--font-body); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.play { flex: none; margin: -6px -8px 0 0; }
+.play svg { width: 18px; height: 18px; }
+.spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
+  .cardLink > :first-child { transition: none; }
+  .cardLink:hover > :first-child { transform: none; }
+}
+
+/* ---------- not in your library: dimmed rows ---------- */
+
+.rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  column-gap: 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.rowText { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.rowName {
+  font: 500 14px/1.35 var(--font-body);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowLink { min-width: 0; display: grid; color: inherit; text-decoration: none; border-radius: var(--r-kbd); }
+.rowLink:hover { text-decoration: none; }
+.rowLink:hover .rowName { color: var(--ink); }
+.rowComment {
+  font: 400 12.5px/1.3 var(--font-body);
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowActs { flex: none; display: flex; align-items: center; gap: 4px; }
+.rowActs > a { margin-left: 0; }
+.followed { font: 500 12.5px/1 var(--font-body); color: var(--ink-3); padding: 0 4px; }
+
+/* ---------- the first fetch on its way ---------- */
+
+.loading { min-width: 0; }
+.skel { aspect-ratio: 1; border-radius: var(--r-cover); background: var(--mist); }
+.skelLine { margin-top: 12px; }
+
+/* ---------- a phone: cards in one sideways row, the rest a compact list ---------- */
+
+@media (max-width: 600px) {
+  .cards {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 116px;
+    gap: 14px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    /* the row runs to the screen's edges; its first card lines up with the page */
+    margin: 0 calc(-1 * var(--page-gutter, 16px));
+    padding: 0 var(--page-gutter, 16px) 4px;
+    scroll-padding-inline: var(--page-gutter, 16px);
+  }
+  .cards::-webkit-scrollbar { display: none; }
+  .card { scroll-snap-align: start; }
+  .rows { grid-template-columns: 1fr; }
+  .row { min-height: 52px; gap: 8px; }
+  /* the name keeps its room: Listen beside "Play on …" shows its icon alone */
+  .rowActs [aria-haspopup] > span { display: none; }
+  .rowActs [aria-haspopup] { padding: 0 6px; }
+}

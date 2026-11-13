@@ -1,7 +1,8 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'path';
 
 /**
@@ -26,8 +27,42 @@ function bundleBuild(command: 'build' | 'serve'): { sha: string; version: string
   };
 }
 
+/**
+ * dist/sw.js (the service worker, sw/sw.js) with the build's version and the
+ * files the first screen needs: the entry script, the chunks it imports and
+ * their CSS. The version hashes every output file's name (content-hashed)
+ * and index.html, so a build that changes anything is a new worker.
+ */
+export function serviceWorkerPlugin(): Plugin {
+  let outDir = 'dist';
+  return {
+    name: 'tagave-service-worker',
+    apply: 'build',
+    configResolved(config) { outDir = resolve(config.root, config.build.outDir); },
+    writeBundle(_options, bundle) {
+      const precache = new Set<string>();
+      const visit = (fileName: string) => {
+        const out = bundle[fileName];
+        if (!out || out.type !== 'chunk' || precache.has(`/${fileName}`)) return;
+        precache.add(`/${fileName}`);
+        for (const css of out.viteMetadata?.importedCss ?? []) precache.add(`/${css}`);
+        out.imports.forEach(visit);
+      };
+      for (const out of Object.values(bundle)) if (out.type === 'chunk' && out.isEntry) visit(out.fileName);
+      const hash = createHash('sha256');
+      for (const name of Object.keys(bundle).sort()) hash.update(`${name}\n`);
+      const html = bundle['index.html'];
+      if (html?.type === 'asset') hash.update(html.source);
+      const version = hash.digest('hex').slice(0, 16);
+      const body = readFileSync(resolve(import.meta.dirname, 'sw/sw.js'), 'utf8');
+      const head = `const SW_VERSION = ${JSON.stringify(version)};\nconst SW_PRECACHE = ${JSON.stringify([...precache].sort())};\n`;
+      writeFileSync(resolve(outDir, 'sw.js'), head + body);
+    },
+  };
+}
+
 export default defineConfig(({ command }) => ({
-  plugins: [react()],
+  plugins: [react(), serviceWorkerPlugin()],
   define: {
     __TAGAVE_BUILD__: JSON.stringify(bundleBuild(command)),
   },

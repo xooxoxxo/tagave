@@ -3,7 +3,7 @@
  * Implements spec §12.5 matching algorithm.
  */
 
-import { stringDistance, normalizeString } from '../text/normalize.js';
+import { scriptAwareDistance, normalizeString } from '../text/normalize.js';
 import { hungarianAlgorithm } from './hungarian.js';
 import type {
   LocalAlbumView,
@@ -27,6 +27,21 @@ import {
  * such a candidate is simply "no alignment" (distance 1 per track).
  */
 export const MAX_ALIGN_TRACKS = 500;
+
+/**
+ * The text comparison the scorer uses. Callers leave it out; a read-only
+ * report passes an older normaliser to replay how the scorer used to judge.
+ *
+ * The scorer compares by script: a title or name in a script the other side
+ * does not use at all neither adds to nor takes away from the match, so the
+ * durations and the other fields decide (scriptAwareDistance). Only here,
+ * where that other evidence exists; plain stringDistance keeps scripts apart.
+ */
+export interface ScoringText {
+  normalizeString: (s: string) => string;
+  stringDistance: (a: string, b: string) => number;
+}
+const CURRENT_TEXT: ScoringText = { normalizeString, stringDistance: scriptAwareDistance };
 
 /**
  * A provider release, seen only through what says how many discs it has.
@@ -99,7 +114,8 @@ function unaligned(track: LocalTrack): TrackAlignment {
  */
 export function alignTracks(
   localTracks: LocalTrack[],
-  canonicalTracks: CanonicalTrack[]
+  canonicalTracks: CanonicalTrack[],
+  text: ScoringText = CURRENT_TEXT
 ): TrackAlignment[] {
   if (!localTracks.length || !canonicalTracks.length
     || Math.max(localTracks.length, canonicalTracks.length) > MAX_ALIGN_TRACKS) {
@@ -111,7 +127,7 @@ export function alignTracks(
   // One disc on either side (or no disc information at all) => the historical
   // flat alignment, unchanged.
   if (localDiscs.length < 2 || canonicalMedia.length < 2) {
-    return alignFlat(localTracks, canonicalTracks);
+    return alignFlat(localTracks, canonicalTracks, text);
   }
 
   const byMedium = new Map<number, CanonicalTrack[]>();
@@ -141,7 +157,7 @@ export function alignTracks(
     const group = positions.map((i) => localTracks[i]!);
     const mediumNo = byNumber ? localDiscs[rank] : canonicalMedia[rank];
     const medium = mediumNo === undefined ? undefined : byMedium.get(mediumNo);
-    const sub = medium && medium.length ? alignFlat(group, medium) : group.map(unaligned);
+    const sub = medium && medium.length ? alignFlat(group, medium, text) : group.map(unaligned);
     for (let k = 0; k < positions.length; k++) {
       out[positions[k]!] = sub[k] ?? unaligned(group[k]!);
     }
@@ -155,7 +171,8 @@ export function alignTracks(
  */
 function alignFlat(
   localTracks: LocalTrack[],
-  canonicalTracks: CanonicalTrack[]
+  canonicalTracks: CanonicalTrack[],
+  text: ScoringText
 ): TrackAlignment[] {
   const GRACE_DURATION = 10; // seconds
   const HARD_CAP_DURATION = 30; // seconds
@@ -178,7 +195,7 @@ function alignFlat(
     const row: number[] = [];
     for (const canTrack of canonicalTracks) {
       // Calculate title distance
-      const titleDist = stringDistance(localTrack.title, canTrack.title);
+      const titleDist = text.stringDistance(localTrack.title, canTrack.title);
 
       // Unknown canonical duration (most Discogs releases carry none): the
       // duration says nothing, so the cost is the title alone — a 0 s
@@ -257,19 +274,39 @@ function alignFlat(
 }
 
 /**
+ * Barcode in comparable form: digits only, a 12-digit UPC-A padded to
+ * EAN-13. Empty means no usable barcode.
+ */
+export function normalizeBarcode(raw: string | null | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '');
+  return digits.length === 12 ? `0${digits}` : digits;
+}
+
+export interface ReleaseScore {
+  distance: number;
+  breakdown: DistanceBreakdown;
+  recommendation: 'strong' | 'medium' | 'weak';
+  /** one per local track, in local order: exactly what the distance was computed from */
+  alignment: TrackAlignment[];
+  /** 0-based indexes of candidate tracks nothing local paired with */
+  missingRemote: number[];
+}
+
+/**
  * Score a candidate release against a local album.
  * Lower scores are better (0 = perfect match).
  *
  * @param local - local album cluster
  * @param candidate - candidate release to score
  * @param prefs - matching preferences
- * @returns { distance, breakdown, recommendation }
+ * @returns the distance, breakdown, recommendation and the track alignment it was computed from
  */
 export function scoreRelease(
   local: LocalAlbumView,
   candidate: CanonicalRelease,
-  prefs: MatchingPreferences = {}
-): { distance: number; breakdown: DistanceBreakdown; recommendation: 'strong' | 'medium' | 'weak' } {
+  prefs: MatchingPreferences = {},
+  text: ScoringText = CURRENT_TEXT
+): ReleaseScore {
   const weights = { ...DEFAULT_WEIGHTS, ...(prefs.weights || {}) };
   const breakdown: DistanceBreakdown = {};
 
@@ -290,13 +327,13 @@ export function scoreRelease(
   }
 
   // 2. Artist comparison
-  const localArtist = normalizeString(local.albumartist || local.artist || '');
-  const canArtists = (candidate.artists || []).map((a) => normalizeString(a));
+  const localArtist = text.normalizeString(local.albumartist || local.artist || '');
+  const canArtists = (candidate.artists || []).map((a) => text.normalizeString(a));
   let artistDist = 1;
   if (localArtist && canArtists.length > 0) {
     // Take the best match from artist credits
     artistDist = Math.min(
-      ...canArtists.map((a) => stringDistance(localArtist, a))
+      ...canArtists.map((a) => text.stringDistance(localArtist, a))
     );
   }
   breakdown.artist = artistDist;
@@ -304,14 +341,13 @@ export function scoreRelease(
   totalWeight += weights.artist;
 
   // 3. Album title comparison
-  const albumDist = stringDistance(local.title, candidate.title);
+  const albumDist = text.stringDistance(local.title, candidate.title);
   breakdown.album = albumDist;
   totalScore += albumDist * weights.album;
   totalWeight += weights.album;
 
   // 4. Track alignment and count comparison
-  const alignments = alignTracks(local.tracks, candidate.tracks);
-  let missingCount = 0;
+  const alignments = alignTracks(local.tracks, candidate.tracks, text);
   let unmatchedCount = 0;
   let trackDistSum = 0;
 
@@ -322,12 +358,11 @@ export function scoreRelease(
     trackDistSum += alignment.distance;
   }
 
+  const missingRemote: number[] = [];
   for (const canTrack of candidate.tracks) {
-    const matched = alignments.some((a) => a.canonicalIndex === canTrack.index);
-    if (!matched) {
-      missingCount++;
-    }
+    if (!alignments.some((a) => a.canonicalIndex === canTrack.index)) missingRemote.push(canTrack.index);
   }
+  const missingCount = missingRemote.length;
 
   // Track count distance
   const trackCountDist =
@@ -368,7 +403,7 @@ export function scoreRelease(
   const alignedTitles = alignments.filter((a) => a.canonicalIndex !== null);
   if (alignedTitles.length > 0) {
     const avgTitleDist =
-      alignedTitles.reduce((sum, a) => sum + stringDistance(a.title.local, a.title.canonical || ''), 0) /
+      alignedTitles.reduce((sum, a) => sum + text.stringDistance(a.title.local, a.title.canonical || ''), 0) /
       alignedTitles.length;
     breakdown.trackTitle = avgTitleDist;
     totalScore += avgTitleDist * weights.trackTitle;
@@ -424,13 +459,26 @@ export function scoreRelease(
     totalWeight += weights.catalogNum;
   }
 
-  // 9. Barcode comparison
-  if (local.barcode && candidate.barcode) {
-    if (local.barcode === candidate.barcode) {
-      breakdown.albumId = 0;
+  // 9. Barcode comparison. A mismatch adds 0.3 to the albumId term and the
+  // term counts in the distance; an embedded-id mismatch already at 1 stays
+  // 1. A match marks the term green only when nothing else filled it, so a
+  // stale embedded id is not painted green by a matching barcode.
+  const localBarcode = normalizeBarcode(local.barcode);
+  const candidateBarcode = normalizeBarcode(candidate.barcode);
+  if (localBarcode && candidateBarcode) {
+    const before = breakdown.albumId;
+    if (localBarcode === candidateBarcode) {
+      if (before === undefined) breakdown.albumId = 0;
     } else {
-      // Barcode mismatch is moderately important
-      breakdown.albumId = (breakdown.albumId || 0) + 0.3;
+      const after = Math.min(1, (before ?? 0) + 0.3);
+      breakdown.albumId = after;
+      if (before !== undefined && before > 0) {
+        // the embedded-id mismatch already added this term's weight
+        totalScore += (after - before) * weights.albumId;
+      } else {
+        totalScore += after * weights.albumId;
+        totalWeight += weights.albumId;
+      }
     }
   }
 
@@ -461,6 +509,8 @@ export function scoreRelease(
     distance: normalizedDistance,
     breakdown,
     recommendation,
+    alignment: alignments,
+    missingRemote,
   };
 }
 
@@ -471,16 +521,8 @@ export function scoreCandidates(
   local: LocalAlbumView,
   candidates: CanonicalRelease[],
   prefs: MatchingPreferences = {}
-): Array<CanonicalRelease & { distance: number; breakdown: DistanceBreakdown; recommendation: 'strong' | 'medium' | 'weak' }> {
+): Array<CanonicalRelease & ReleaseScore> {
   return candidates
-    .map((candidate) => {
-      const { distance, breakdown, recommendation } = scoreRelease(local, candidate, prefs);
-      return {
-        ...candidate,
-        distance,
-        breakdown,
-        recommendation,
-      };
-    })
+    .map((candidate) => ({ ...candidate, ...scoreRelease(local, candidate, prefs) }))
     .sort((a, b) => a.distance - b.distance);
 }

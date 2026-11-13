@@ -23,6 +23,7 @@ import { getBoss } from '../boss.js';
 import { permission, requirePlayer } from '../lib/playerAccess.js';
 import { PlayerNotInstalled, queueTracks, readQueue, writeQueue } from '../lib/playQueue.js';
 import { SubsonicError } from '@tagave/core/player';
+import { playerPresence } from '../lib/playerPresence.js';
 
 const notInstalled = () => new ApiError(404, 'Not Found', 'The player is not installed on this server');
 
@@ -68,12 +69,15 @@ export async function createPlayerQueueRoutes(fastify: FastifyInstance) {
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Not a queue');
     const saved = await writeQueue(getSql(), user.id, parsed.data);
     if (!saved.ok) throw new ApiError(409, 'Conflict', saved.reason === 'taken' ? 'Another device is playing this queue now.' : 'The queue changed on another device.');
+    // the person's other devices hear it at once (a play: they stop; an edit: they follow it)
+    await playerPresence().publish({ t: 'queue', userId: user.id, queue: { deviceId: saved.deviceId, revision: saved.revision, mode: parsed.data.mode } });
     return { updatedAt: saved.updatedAt, revision: saved.revision };
   });
 
   fastify.delete('/me/player/queue', permission('player.use'), async (request: FastifyRequest) => {
     const user = requirePlayer(request);
     await getSql()`delete from player_queue_state where user_id = ${user.id}`;
+    await playerPresence().publish({ t: 'queue', userId: user.id, queue: { deviceId: null, revision: 0, mode: 'clear' } });
     return { ok: true };
   });
 

@@ -7,10 +7,17 @@ export * from './migrations-lib.js';
 export * from './schema.js';
 export * from './artistRows.js';
 export * from './autoAccept.js';
+export * from './acceptMatch.js';
+export * from './deciderBatches.js';
+export * from './drain.js';
 export * from './mcLinks.js';
 
-export async function makeDb(databaseUrl: string) {
-  const client = postgres(databaseUrl);
+/**
+ * `readOnly`: every pooled connection starts its transactions read-only, so
+ * a report or audit tool cannot write even by mistake.
+ */
+export async function makeDb(databaseUrl: string, opts: { readOnly?: boolean } = {}) {
+  const client = postgres(databaseUrl, opts.readOnly ? { connection: { default_transaction_read_only: true } } : {});
   // Implicitly-named columns must map to the snake_case identifiers the SQL
   // migrations created (users.displayName -> display_name, ...).
   const db = drizzle(client, { schema, casing: 'snake_case' });
@@ -37,6 +44,24 @@ export * from './identifyQueue.js';
 export * from './wantlist.js';
 export * from './albumLock.js';
 export * from './listenLinks.js';
+export * from './similarArtists.js';
+export * from './dj.js';
 export * from './playlistsModule.js';
+export * from './deletions.js';
+export * from './albumSplits.js';
+export * from './albumGaps.js';
 export * from './modules.js';
 export * from './appLibraries.js';
+export * from './autotaggerModule.js';
+export * from './deciderAgreement.js';
+export * from './deciderBudget.js';
+export * from './deciderRuns.js';
+export * from './evidenceStore.js';
+export * from './deciderPopulation.js';
+export * from './deciderSpotChecks.js';
+export * from './deciderModels.js';
+export * from './deciderAcceptBand.js';
+export * from './lidarr.js';
+export * from './musicFolder.js';
+export * from './maintenance.js';
+export * from './flacUpgrade.js';

@@ -9,11 +9,13 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import type { JobView, JobsSummary } from '@tagave/shared';
+import { MAINTENANCE_LABELS, type JobView, type JobsSummary } from '@tagave/shared';
 import { useCurrentLibrary, useIdentifyStats, useKickSweep, useJobs, useRetryJob } from '../hooks';
 import type { IdentifyStatsResponse } from '../hooks';
 import { Badge, Banner, Button, LinkButton, Table, Td, type BadgeTone } from '../components/ui';
 import { formatRelativeTime } from '../utils/time';
+import { useMaintenanceTasks } from '../hooks/useMaintenance';
+import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
 import { identifyRateLine, summaryMessage } from './jobsSummary';
 import styles from './JobsPage.module.css';
 
@@ -51,6 +53,7 @@ export function JobsPage() {
   const [limit, setLimit] = useState(PAGE);
 
   const { data: stats } = useIdentifyStats(libraryId);
+  const { data: maintenance } = useMaintenanceTasks(libraryId);
   const { data: jobs, isLoading, isError, isFetching } = useJobs(libraryId, { includeRoutine: showRoutine, job: focusId, limit });
   const retry = useRetryJob(libraryId);
   const [retryNote, setRetryNote] = useState<Record<string, string>>({});
@@ -93,6 +96,20 @@ export function JobsPage() {
       )}
 
       {stats && <Identification stats={stats} libraryId={libraryId} />}
+
+      {!!maintenance?.tasks.length && (
+        <section className={styles.section} aria-labelledby="maintenance-activity">
+          <h3 id="maintenance-activity" className={styles.sectionTitle}>Maintenance tasks</h3>
+          <ul>
+            {maintenance.tasks.map((task) => (
+              <li key={task.id}>
+                <strong>{MAINTENANCE_LABELS[task.kind]}</strong>
+                <MaintenanceTaskStatus libraryId={libraryId} task={task} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {attention.length > 0 && (
         <section className={styles.section} aria-labelledby="jobs-attention">

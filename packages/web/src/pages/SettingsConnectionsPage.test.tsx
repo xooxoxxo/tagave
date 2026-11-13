@@ -1,12 +1,12 @@
 /**
- * Settings › Connections: each link's capabilities in words (granted, not
+ * Settings › Modules › Music Connections: each link's capabilities in words (granted, not
  * granted, available after a manifest change), its state and actions, the
  * remote-down notice, and the Link back note after the first link only.
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { McLinkView } from '@tagave/shared';
-import { ConnectionsOff, ConnectionsPanel, problem, returnError, type ConnectionsPanelProps } from './SettingsConnectionsPage';
+import { ConnectionsPanel, problem, returnError, type ConnectionsPanelProps } from './SettingsConnectionsPage';
 
 const link: McLinkView = {
   id: 'l1',
@@ -95,16 +95,9 @@ describe('ConnectionsPanel', () => {
   });
 });
 
-describe('ConnectionsOff', () => {
-  it('says the module is off and points the owner to Settings › Modules', () => {
-    const html = renderToStaticMarkup(<ConnectionsOff modules={<a href="/settings/modules">Settings › Modules</a>} />);
-    expect(html).toContain('Music Connections is turned off');
-    expect(html).toContain('href="/settings/modules"');
-    expect(html).not.toContain('Add connection');
-  });
-
-  it('tells anyone else to ask the owner', () => {
-    const html = renderToStaticMarkup(<ConnectionsOff />);
-    expect(html).toContain('Ask the owner to turn it on in Settings › Modules.');
+describe('on the module page', () => {
+  it('leaves the heading to Settings › Modules › Music Connections', () => {
+    expect(render({ view: { links: [], ownUrl: null } })).toContain('>Music Connections</h2>');
+    expect(render({ view: { links: [], ownUrl: null }, heading: false })).not.toContain('<h2');
   });
 });

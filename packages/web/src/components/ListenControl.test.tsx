@@ -66,7 +66,7 @@ describe('Listen in the album’s ⋮', () => {
   });
 });
 
-describe('Settings › Listen elsewhere', () => {
+describe('Settings › Modules › Listen elsewhere', () => {
   it('none ticked until the person chooses; ticking keeps the list’s order', () => {
     const onChange = vi.fn();
     const html = renderToStaticMarkup(<ListenElsewhereView platforms={[]} onChange={onChange} />);

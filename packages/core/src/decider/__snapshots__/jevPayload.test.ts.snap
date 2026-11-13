@@ -1,0 +1,146 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildJevRequest > matches the snapshot (the exact payload the owner is shown) 1`] = `
+{
+  "model": "jev-latest",
+  "questions": {
+    "is_A": {
+      "criteria": {
+        "false": "The local files are not this tracklist, or it cannot be told.",
+        "true": "The local files are this tracklist.",
+      },
+      "instructions": "The local files (state.local) are a copy of tracklist A (state.tracklists.A): the same songs in the same order on the same discs. Spelling, capitalisation, missing lengths, lengths a few seconds apart and remastering do not matter. A different song list, extra or missing tracks, a live or different recording, or another album do. A title shown as "track N" or a year shown as "year unknown" was not readable and says nothing either way.",
+      "type": "noul",
+    },
+    "is_B": {
+      "criteria": {
+        "false": "The local files are not this tracklist, or it cannot be told.",
+        "true": "The local files are this tracklist.",
+      },
+      "instructions": "The local files (state.local) are a copy of tracklist B (state.tracklists.B): the same songs in the same order on the same discs. Spelling, capitalisation, missing lengths, lengths a few seconds apart and remastering do not matter. A different song list, extra or missing tracks, a live or different recording, or another album do. A title shown as "track N" or a year shown as "year unknown" was not readable and says nothing either way.",
+      "type": "noul",
+    },
+  },
+  "state": {
+    "local": {
+      "album": "Lichtung",
+      "artist": "Ensemble Nord",
+      "discs": null,
+      "tracks": [
+        {
+          "length": "4:05",
+          "n": 1,
+          "title": "Morgenrot",
+        },
+        {
+          "length": null,
+          "n": 2,
+          "title": "Unter Eis",
+        },
+      ],
+      "year": 1999,
+    },
+    "task": "Decide which of the tracklists the local files are a copy of. A tracklist is one release as music databases list it; the local files were ripped or bought by their owner and tagged by hand, so tags can be incomplete.",
+    "tracklists": {
+      "A": {
+        "editions": [
+          {
+            "artist": "Ensemble Nord",
+            "catalogue": "NL-1",
+            "country": "FI",
+            "discs": 1,
+            "format": "CD",
+            "label": "Nordlabel",
+            "source": "MusicBrainz",
+            "status": "Official",
+            "title": "Lichtung",
+            "year": 2011,
+          },
+          {
+            "artist": "Ensemble Nord",
+            "catalogue": "NL-1",
+            "country": "FI",
+            "discs": 1,
+            "format": "CD",
+            "label": "Nordlabel",
+            "source": "Discogs",
+            "status": null,
+            "title": "Lichtung",
+            "year": 2011,
+          },
+        ],
+        "pairing": {
+          "localUnpaired": [],
+          "pairs": [
+            [
+              1,
+              1,
+            ],
+            [
+              2,
+              2,
+            ],
+          ],
+          "remoteUnpaired": [],
+        },
+        "tracks": [
+          {
+            "length": "4:05",
+            "n": 1,
+            "title": "Morgenrot",
+          },
+          {
+            "length": "5:00",
+            "n": 2,
+            "title": "Unter Eis",
+          },
+        ],
+      },
+      "B": {
+        "editions": [
+          {
+            "artist": "Ensemble Nord",
+            "catalogue": "NL-1",
+            "country": "FI",
+            "discs": 1,
+            "format": "CD",
+            "label": "Nordlabel",
+            "source": "MusicBrainz",
+            "status": "Official",
+            "title": "Lichtung",
+            "year": 2011,
+          },
+        ],
+        "pairing": {
+          "localUnpaired": [],
+          "pairs": [
+            [
+              1,
+              1,
+            ],
+            [
+              2,
+              2,
+            ],
+          ],
+          "remoteUnpaired": [],
+        },
+        "tracks": [
+          {
+            "length": "4:20",
+            "n": 1,
+            "title": "Morgenrot (Live)",
+          },
+          {
+            "length": "5:20",
+            "n": 2,
+            "title": "Unter Eis (Live)",
+          },
+        ],
+      },
+    },
+  },
+}
+`;
+
+exports[`buildJevRequest shape > pins the exact JSON text, key order included 1`] = `"{"model":"jev-latest","state":{"task":"Decide which of the tracklists the local files are a copy of. A tracklist is one release as music databases list it; the local files were ripped or bought by their owner and tagged by hand, so tags can be incomplete.","local":{"artist":"Ensemble Nord","album":"Lichtung","year":1999,"discs":null,"tracks":[{"n":1,"title":"Morgenrot","length":"4:05"},{"n":2,"title":"Unter Eis","length":null}]},"tracklists":{"A":{"editions":[{"source":"MusicBrainz","title":"Lichtung","artist":"Ensemble Nord","year":2011,"country":"FI","label":"Nordlabel","catalogue":"NL-1","format":"CD","discs":1,"status":"Official"},{"source":"Discogs","title":"Lichtung","artist":"Ensemble Nord","year":2011,"country":"FI","label":"Nordlabel","catalogue":"NL-1","format":"CD","discs":1,"status":null}],"tracks":[{"n":1,"title":"Morgenrot","length":"4:05"},{"n":2,"title":"Unter Eis","length":"5:00"}],"pairing":{"pairs":[[1,1],[2,2]],"localUnpaired":[],"remoteUnpaired":[]}},"B":{"editions":[{"source":"MusicBrainz","title":"Lichtung","artist":"Ensemble Nord","year":2011,"country":"FI","label":"Nordlabel","catalogue":"NL-1","format":"CD","discs":1,"status":"Official"}],"tracks":[{"n":1,"title":"Morgenrot (Live)","length":"4:20"},{"n":2,"title":"Unter Eis (Live)","length":"5:20"}],"pairing":{"pairs":[[1,1],[2,2]],"localUnpaired":[],"remoteUnpaired":[]}}}},"questions":{"is_A":{"type":"noul","instructions":"The local files (state.local) are a copy of tracklist A (state.tracklists.A): the same songs in the same order on the same discs. Spelling, capitalisation, missing lengths, lengths a few seconds apart and remastering do not matter. A different song list, extra or missing tracks, a live or different recording, or another album do. A title shown as \\"track N\\" or a year shown as \\"year unknown\\" was not readable and says nothing either way.","criteria":{"true":"The local files are this tracklist.","false":"The local files are not this tracklist, or it cannot be told."}},"is_B":{"type":"noul","instructions":"The local files (state.local) are a copy of tracklist B (state.tracklists.B): the same songs in the same order on the same discs. Spelling, capitalisation, missing lengths, lengths a few seconds apart and remastering do not matter. A different song list, extra or missing tracks, a live or different recording, or another album do. A title shown as \\"track N\\" or a year shown as \\"year unknown\\" was not readable and says nothing either way.","criteria":{"true":"The local files are this tracklist.","false":"The local files are not this tracklist, or it cannot be told."}}}}"`;

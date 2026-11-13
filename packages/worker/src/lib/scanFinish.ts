@@ -12,6 +12,18 @@ import type { WalkRoot, WalkTreeResult } from './walk.js';
 import { reconcileTier1, withLibraryLock, type MoveRecord, type RegroupRef } from './reconcile.js';
 import { placeHolds, sendReleasedGrouping } from './clusterHold.js';
 import { groupingQueue } from './appFiles.js';
+import { dropDeletedFiles } from './deletions.js';
+
+/** Of these file ids, the ones with a deletion row (0073), and its kind. */
+async function deletionKinds(ctx: Pick<WorkerContext, 'sql'>, ids: string[]): Promise<Map<string, 'mark' | 'trash'>> {
+  const out = new Map<string, 'mark' | 'trash'>();
+  for (let i = 0; i < ids.length; i += UPDATE_BATCH) {
+    const rows = (await ctx.sql`
+      select file_id::text as id, kind from file_deletions where file_id = any(${ids.slice(i, i + UPDATE_BATCH)}::uuid[])`) as unknown as Array<{ id: string; kind: 'mark' | 'trash' }>;
+    for (const r of rows) out.set(r.id, r.kind);
+  }
+  return out;
+}
 
 export type { MoveRecord, DirRef, RegroupRef } from './reconcile.js';
 
@@ -35,6 +47,8 @@ export interface FinishResult {
   held: number;                                                                                                       // cluster holds
   /** rows marked missing because an earlier held scan, 24 h or more before, already found them gone */
   confirmedAfterHold: number;
+  /** deleted files (0073) the walk no longer found, dropped at once */
+  deletedDropped: number;
 }
 const UPDATE_BATCH = 2000;
 
@@ -262,14 +276,27 @@ export const UNMOUNTED_SKIP = 'the root looks unmounted, so moved files are not 
 export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult, opts: FinishOptions = {}): Promise<FinishResult> {
   const empty: FinishResult = {
     missing: 0, dirsWithMissing: [], missingGroups: [], failedDirs: [], heldMissing: null, reconcileSkipped: null,
-    merged: 0, moves: [], possibleMoves: 0, reclusterDirs: [], held: 0, confirmedAfterHold: 0,
+    merged: 0, moves: [], possibleMoves: 0, reclusterDirs: [], held: 0, confirmedAfterHold: 0, deletedDropped: 0,
   };
   const failedDirs = walk.failedPaths;
   // An unmounted-looking root marks nothing, but still names what it could not read.
   if (walk.looksUnmounted) return { ...empty, failedDirs, reconcileSkipped: UNMOUNTED_SKIP };
   return withLibraryLock(ctx, root.libraryId, async () => {
+    // Deleted files (0073) are no moves and no losses: a trashed one sits in
+    // the trash folder the walk skips, a marked one the owner deleted as
+    // asked. Marked rows the walk no longer finds are dropped right away,
+    // without the hold; neither kind counts towards it.
     // Doubt: an unreadable folder or file is not evidence that anything left.
     const failedSet = new Set(failedDirs);
+    const deleted = await deletionKinds(ctx, walk.unseen.map((r) => r.id));
+    let deletedDropped = 0;
+    if (deleted.size > 0) {
+      const marked = walk.unseen
+        .filter((r) => deleted.get(r.id) === 'mark' && !isUnderFailedPath(r.relPath, failedSet))
+        .map((r) => r.id);
+      walk.unseen = walk.unseen.filter((r) => !deleted.has(r.id));
+      deletedDropped = (await dropDeletedFiles(ctx, marked)).dropped;
+    }
     let gone = failedSet.size ? walk.unseen.filter((r) => !isUnderFailedPath(r.relPath, failedSet)) : walk.unseen;
     // Failed paths do not stop matching (an unreadable folder would otherwise
     // disable move detection for the whole root): rows under them are not in
@@ -315,7 +342,7 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     // A held scan drops no sidecars (the 0052 cascade would take their covers).
     if (heldMissing && toMark.length === 0) {
       await sendReclusters();
-      return { ...empty, ...reconciled, failedDirs, heldMissing };
+      return { ...empty, ...reconciled, failedDirs, heldMissing, deletedDropped };
     }
     const marked = await markMissing(ctx, root, toMark, walk.walkStart);
     // Only a scan that reconciled may hold: Tier 2 is reconciliation too. The
@@ -329,7 +356,7 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     if (rec.sidecarRepointFailed) ctx.logger.warn({ rootId: root.id }, 'scan.finish: stale sidecars kept, the cover re-point failed');
     else if (!heldMissing) await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
     return {
-      ...empty, ...reconciled, failedDirs, heldMissing, confirmedAfterHold,
+      ...empty, ...reconciled, failedDirs, heldMissing, confirmedAfterHold, deletedDropped,
       held: heldIds.length,
       missing: marked.length,
       ...missingFolders(marked),

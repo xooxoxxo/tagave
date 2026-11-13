@@ -1,5 +1,8 @@
 /**
- * Playlists, a module of their own (0056): each person's private lists.
+ * Playlists, a module of their own (0056): each person's lists, and the
+ * lists they collaborate on (0079; who may do what: lib/playlists.ts). A
+ * list the person neither owns nor collaborates on answers 404; what only
+ * its owner may do answers a collaborator 403.
  *
  *   GET    /api/v1/me/playlists                      the person's lists (name, count, length, mosaic covers)
  *   POST   /api/v1/me/playlists                      { name, trackIds? } a new list (Save as playlist starts it with the queue)
@@ -11,6 +14,8 @@
  *   POST   /api/v1/me/playlists/:id/items            { trackIds } or { albumId } at the end
  *   DELETE /api/v1/me/playlists/:id/items/:itemId    take one out
  *   GET    /api/v1/me/playlists/:id/export           one list, one file
+ *   GET    /api/v1/me/playlists/:id/collaborators    the owner: the install's other people, each on or off
+ *   PUT    /api/v1/me/playlists/:id/collaborators/:userId   the owner: { on } (audit log)
  *   GET    /api/v1/settings/playlists                system.manage: the Settings › Modules row
  *   PUT    /api/v1/settings/playlists                system.manage + fresh step-up: { enabled }
  *   GET    /api/v1/settings/playlists/export         system.manage: everyone's lists, one file (Export first, before deleting its data)
@@ -25,15 +30,15 @@ import { playlistsEnabled, removePlaylistsData, setPlaylistsEnabled } from '@tag
 import { readBuildInfo } from '@tagave/core';
 import { parsePlaylistFile, PlaylistFileError } from '@tagave/core/playlists';
 import {
-  addPlaylistItemsSchema, createPlaylistSchema, importPlaylistsSchema, patchPlaylistSchema, playlistsModuleSchema,
-  type PlaylistFile, type PlaylistImportResult, type PlaylistSummary, type PlaylistView, type PlaylistsModuleView,
+  addPlaylistItemsSchema, createPlaylistSchema, importPlaylistsSchema, patchPlaylistSchema, playlistCollaboratorSchema, playlistsModuleSchema,
+  type PlaylistCollaboratorChoice, type PlaylistFile, type PlaylistImportResult, type PlaylistSummary, type PlaylistView, type PlaylistsModuleView,
 } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
 import { requireFreshStepUp } from './stepUp.js';
 import { sameSite } from './mcConnections.js';
 import {
-  addToPlaylist, createPlaylist, deletePlaylist, exportPlaylists, getPlaylist, importPlaylists, listPlaylists, patchPlaylist, removePlaylistItem,
+  addToPlaylist, collaboratorChoices, createPlaylist, deletePlaylist, setCollaborator, exportPlaylists, getPlaylist, importPlaylists, listPlaylists, patchPlaylist, removePlaylistItem,
 } from '../lib/playlists.js';
 
 function user(request: FastifyRequest): { id: string } {
@@ -42,6 +47,7 @@ function user(request: FastifyRequest): { id: string } {
 }
 
 const notFound = () => new ApiError(404, 'Not Found', 'Playlist not found');
+const forbidden = () => new ApiError(403, 'Forbidden', 'Only the playlist’s owner can do that');
 const sql = () => getAuthHandle().sql;
 
 async function on(): Promise<void> {
@@ -111,6 +117,37 @@ export async function createPlaylistRoutes(fastify: FastifyInstance) {
     return result;
   });
 
+  // ---- collaborators (0079): the owner's; a collaborator is refused, anyone else does not find the list ----
+
+  fastify.get('/me/playlists/:id/collaborators', async (request): Promise<{ people: PlaylistCollaboratorChoice[] }> => {
+    const me = user(request);
+    await on();
+    const people = await collaboratorChoices(sql(), me.id, (request.params as { id: string }).id);
+    if (people === null) throw notFound();
+    if (people === 'forbidden') throw forbidden();
+    return { people };
+  });
+
+  fastify.put('/me/playlists/:id/collaborators/:userId', async (request): Promise<{ people: PlaylistCollaboratorChoice[] }> => {
+    const me = user(request);
+    sameSite(request);
+    await on();
+    const { id, userId } = request.params as { id: string; userId: string };
+    const parsed = playlistCollaboratorSchema.safeParse(request.body ?? {});
+    if (!parsed.success) throw new ApiError(400, 'Bad Request', 'on (true or false) is required');
+    const { result, changed } = await setCollaborator(sql(), me.id, id, userId, parsed.data.on);
+    if (result === 'not_found') throw notFound();
+    if (result === 'forbidden') throw forbidden();
+    if (result === 'bad_user') throw new ApiError(400, 'Bad Request', 'Not a person of this install');
+    if (changed) {
+      const action = parsed.data.on ? 'playlist.collaborator_add' : 'playlist.collaborator_remove';
+      await sql()`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id, payload)
+                values (null, ${me.id}, ${action}, 'playlist', ${id}, ${JSON.stringify({ userId })}::text::jsonb)`;
+      request.log.info({ event: action, userId: me.id, playlistId: id, collaborator: userId }, 'playlist collaborator changed');
+    }
+    return { people: (await collaboratorChoices(sql(), me.id, id)) as PlaylistCollaboratorChoice[] };
+  });
+
   fastify.get('/me/playlists/:id', async (request): Promise<PlaylistView> => {
     const me = user(request);
     await on();
@@ -128,6 +165,7 @@ export async function createPlaylistRoutes(fastify: FastifyInstance) {
     if (!parsed.success) throw new ApiError(400, 'Bad Request', 'name (1 to 200 characters) or order (every item once)');
     const res = await patchPlaylist(sql(), me.id, id, parsed.data);
     if (res === 'not_found') throw notFound();
+    if (res === 'forbidden') throw forbidden();
     if (res === 'bad_order') throw new ApiError(409, 'Conflict', 'The playlist changed. Reload it and try again.');
     return (await getPlaylist(sql(), me.id, id))!;
   });
@@ -136,7 +174,9 @@ export async function createPlaylistRoutes(fastify: FastifyInstance) {
     const me = user(request);
     sameSite(request);
     await on();
-    if (!(await deletePlaylist(sql(), me.id, (request.params as { id: string }).id))) throw notFound();
+    const res = await deletePlaylist(sql(), me.id, (request.params as { id: string }).id);
+    if (res === 'not_found') throw notFound();
+    if (res === 'forbidden') throw forbidden();
     return { ok: true };
   });
 
@@ -157,7 +197,9 @@ export async function createPlaylistRoutes(fastify: FastifyInstance) {
     sameSite(request);
     await on();
     const { id, itemId } = request.params as { id: string; itemId: string };
-    if (!(await removePlaylistItem(sql(), me.id, id, itemId))) throw notFound();
+    const res = await removePlaylistItem(sql(), me.id, id, itemId);
+    if (res === 'not_found') throw notFound();
+    if (res === 'forbidden') throw forbidden();
     return (await getPlaylist(sql(), me.id, id))!;
   });
 
@@ -167,7 +209,8 @@ export async function createPlaylistRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const view = await getPlaylist(sql(), me.id, id);
     if (!view) throw notFound();
-    return sendFile(reply, fileName(view.name), await exportPlaylists(sql(), { userId: me.id, playlistId: id }, generator()));
+    // a collaborator's too: the list, not whose it is
+    return sendFile(reply, fileName(view.name), await exportPlaylists(sql(), { userId: null, playlistId: id, owners: false }, generator()));
   });
 
   // ---- Settings › Modules ----

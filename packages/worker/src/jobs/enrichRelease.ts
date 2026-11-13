@@ -3,6 +3,7 @@
  * Spec ENR-1.
  */
 import { eq } from 'drizzle-orm';
+import type postgres from 'postgres';
 import { releases, releaseGroups, externalIds } from '@tagave/db';
 import {
   fuzzyBridgeScore, FUZZY_BRIDGE_ACCEPT, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations,
@@ -429,63 +430,7 @@ export async function enrichReleaseJob(ctx: WorkerContext, data: EnrichReleaseJo
       const newIds = await persistFetched(ctx, mbRel);
 
       // RELINK in ONE transaction
-      await ctx.sql.begin(async (tx) => {
-        // Update release.discogs_release_id = null for old
-        await tx`update releases set discogs_release_id = null where id = ${release.id}`;
-
-        // Set on new (if not already claimed)
-        await tx`update releases set discogs_release_id = ${release.discogsReleaseId} where id = ${newIds.releaseId} and discogs_release_id is null`;
-
-        // Update local_albums
-        await tx`update local_albums set release_id = ${newIds.releaseId}, release_group_id = ${newIds.releaseGroupId} where release_id = ${release.id}`;
-
-        // Update album_matches
-        await tx`update album_matches set release_id = ${newIds.releaseId} where release_id = ${release.id}`;
-
-        // Update match_candidates
-        await tx`update match_candidates set release_id = ${newIds.releaseId} where release_id = ${release.id}`;
-
-        // Move external_ids: insert...select...on conflict do nothing, then delete old
-        await tx`insert into external_ids (provider, external_id, entity_type, entity_id, url, confidence, source)
-          select provider, external_id, entity_type, ${newIds.releaseId}::uuid, url, confidence, source
-          from external_ids where entity_type = 'release' and entity_id = ${release.id}
-          on conflict do nothing`;
-        await tx`delete from external_ids where entity_type = 'release' and entity_id = ${release.id}`;
-
-        // Move entity_tags for release
-        await tx`insert into entity_tags (entity_type, entity_id, tag, kind, source, weight)
-          select entity_type, ${newIds.releaseId}::uuid, tag, kind, source, weight
-          from entity_tags where entity_type = 'release' and entity_id = ${release.id}
-          on conflict do nothing`;
-        await tx`delete from entity_tags where entity_type = 'release' and entity_id = ${release.id}`;
-
-        // Move entity_tags for old RG (if retiring it)
-        if (release.releaseGroupId !== newIds.releaseGroupId) {
-          await tx`insert into entity_tags (entity_type, entity_id, tag, kind, source, weight)
-            select entity_type, ${newIds.releaseGroupId}::uuid, tag, kind, source, weight
-            from entity_tags where entity_type = 'release_group' and entity_id = ${release.releaseGroupId}
-            on conflict do nothing`;
-          await tx`delete from entity_tags where entity_type = 'release_group' and entity_id = ${release.releaseGroupId}`;
-        }
-
-        // Move image_sources
-        await tx`insert into image_sources (entity_type, entity_id, kind, provider, source_url, width, height, license_note, fetched_at)
-          select entity_type, ${newIds.releaseId}::uuid, kind, provider, source_url, width, height, license_note, fetched_at
-          from image_sources where entity_type = 'release' and entity_id = ${release.id}
-          on conflict do nothing`;
-        await tx`delete from image_sources where entity_type = 'release' and entity_id = ${release.id}`;
-
-        // Delete old release
-        await tx`delete from releases where id = ${release.id}`;
-
-        // Delete old RG if no releases left
-        if (release.releaseGroupId !== newIds.releaseGroupId) {
-          const relCount = await tx`select count(*) as cnt from releases where release_group_id = ${release.releaseGroupId}`;
-          if (Number((relCount as unknown as Array<{ cnt: string | number }>)[0]?.cnt ?? 0) === 0) {
-            await tx`delete from release_groups where id = ${release.releaseGroupId}`;
-          }
-        }
-      });
+      await ctx.sql.begin((tx) => relinkRelease(tx, release, newIds));
 
       // After transaction: upsert Discogs sidecars on NEW ids
       const dgRel = await discogsRelease(ctx, p, release.discogsReleaseId);
@@ -537,5 +482,84 @@ export async function enrichReleaseJob(ctx: WorkerContext, data: EnrichReleaseJo
       discogsReleaseId,
       discogsMasterId,
     }, 'enrich: release enriched');
+  }
+}
+
+/**
+ * Move everything that points at a Discogs-only release onto the
+ * MusicBrainz release it was bridged to, then retire the old release (and
+ * its release group when nothing else is left in it), in the caller's
+ * transaction.
+ *
+ * Lock order: the albums it re-points come first, in id order, as every
+ * match accept locks its album before the release; only then the release
+ * rows. Taking the releases first would let an accept that holds an album
+ * and waits for the release deadlock against this.
+ */
+export async function relinkRelease(
+  tx: postgres.TransactionSql<any>,
+  release: { id: string; discogsReleaseId: number | null; releaseGroupId: string },
+  newIds: { releaseId: string; releaseGroupId: string },
+): Promise<void> {
+  // The albums whose release or whose matches move with it
+  await tx`select id from local_albums
+            where release_id = ${release.id}
+               or id in (select local_album_id from album_matches where release_id = ${release.id})
+            order by id for no key update`;
+
+  // Update release.discogs_release_id = null for old
+  await tx`update releases set discogs_release_id = null where id = ${release.id}`;
+
+  // Set on new (if not already claimed)
+  await tx`update releases set discogs_release_id = ${release.discogsReleaseId} where id = ${newIds.releaseId} and discogs_release_id is null`;
+
+  // Update local_albums
+  await tx`update local_albums set release_id = ${newIds.releaseId}, release_group_id = ${newIds.releaseGroupId} where release_id = ${release.id}`;
+
+  // Update album_matches
+  await tx`update album_matches set release_id = ${newIds.releaseId} where release_id = ${release.id}`;
+
+  // Update match_candidates
+  await tx`update match_candidates set release_id = ${newIds.releaseId} where release_id = ${release.id}`;
+
+  // Move external_ids: insert...select...on conflict do nothing, then delete old
+  await tx`insert into external_ids (provider, external_id, entity_type, entity_id, url, confidence, source)
+    select provider, external_id, entity_type, ${newIds.releaseId}::uuid, url, confidence, source
+    from external_ids where entity_type = 'release' and entity_id = ${release.id}
+    on conflict do nothing`;
+  await tx`delete from external_ids where entity_type = 'release' and entity_id = ${release.id}`;
+
+  // Move entity_tags for release
+  await tx`insert into entity_tags (entity_type, entity_id, tag, kind, source, weight)
+    select entity_type, ${newIds.releaseId}::uuid, tag, kind, source, weight
+    from entity_tags where entity_type = 'release' and entity_id = ${release.id}
+    on conflict do nothing`;
+  await tx`delete from entity_tags where entity_type = 'release' and entity_id = ${release.id}`;
+
+  // Move entity_tags for old RG (if retiring it)
+  if (release.releaseGroupId !== newIds.releaseGroupId) {
+    await tx`insert into entity_tags (entity_type, entity_id, tag, kind, source, weight)
+      select entity_type, ${newIds.releaseGroupId}::uuid, tag, kind, source, weight
+      from entity_tags where entity_type = 'release_group' and entity_id = ${release.releaseGroupId}
+      on conflict do nothing`;
+    await tx`delete from entity_tags where entity_type = 'release_group' and entity_id = ${release.releaseGroupId}`;
+  }
+
+  // Move image_sources
+  await tx`insert into image_sources (entity_type, entity_id, kind, provider, source_url, width, height, license_note, fetched_at)
+    select entity_type, ${newIds.releaseId}::uuid, kind, provider, source_url, width, height, license_note, fetched_at
+    from image_sources where entity_type = 'release' and entity_id = ${release.id}
+    on conflict do nothing`;
+  await tx`delete from image_sources where entity_type = 'release' and entity_id = ${release.id}`;
+
+  // Delete old release
+  await tx`delete from releases where id = ${release.id}`;
+
+  // Delete old RG if no releases left
+  if (release.releaseGroupId !== newIds.releaseGroupId) {
+    const relCount = await tx`select count(*) as cnt from releases where release_group_id = ${release.releaseGroupId}`;
+    if (Number((relCount as unknown as Array<{ cnt: string | number }>)[0]?.cnt ?? 0) === 0) {
+      await tx`delete from release_groups where id = ${release.releaseGroupId}`;
+    }
   }
 }

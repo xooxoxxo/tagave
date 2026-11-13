@@ -11,7 +11,7 @@ import {
   scanWaitLine,
   chooseFormat, classifyFailure, clock, firstPlayableFrom, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, parseQuality,
   handoffDelayMs, moveUpcoming, previousAction, previousPlayable, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, spaceTogglesPlayback, startIndex, streamUrl,
-  transcodeFormat, type CanPlay, type KeyTarget, queueOrder, shuffleTracks,
+  transcodeFormat, type CanPlay, type KeyTarget, queueOrder, shuffleTracks, streamFailureText,
 } from './logic';
 
 const track = (id: string, discNo: number, trackNo: number | null, available = true, extra: Partial<PlayerQueueTrack> = {}): PlayerQueueTrack => ({
@@ -183,6 +183,13 @@ describe('a stream that fails', () => {
   it('shows too many streams (429) and an unreachable server as errors with Retry', () => {
     expect(classifyFailure({ probe: 429, format: 'original', triedFallback: false })).toBe('busy');
     expect(classifyFailure({ probe: null, format: 'mp3', triedFallback: false })).toBe('network');
+  });
+  it('shows an actionable upstream track error and only includes a request reference', () => {
+    expect(streamFailureText('failed', 502, { title: 'Player track unavailable', instance: 'req-5go' }))
+      .toBe('The player can’t find this track for your account. Check your player account’s access to this music library. Reference req-5go.');
+    expect(streamFailureText('failed', 502, { instance: '/private/path' }))
+      .toBe('The player server couldn’t open this track.');
+    expect(streamFailureText('network', null)).toContain('Check the connection');
   });
 });
 

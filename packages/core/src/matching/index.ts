@@ -6,10 +6,11 @@ export {
   scoreRelease,
   scoreCandidates,
   mediumCountOf,
+  normalizeBarcode,
   MAX_ALIGN_TRACKS,
 } from './scoring.js';
 
-export type { MediumCountSource } from './scoring.js';
+export type { MediumCountSource, ReleaseScore } from './scoring.js';
 
 export type {
   LocalTrack,
@@ -29,6 +30,27 @@ export {
 
 export { chipCounts, pickByChipRule } from './chipRule.js';
 export type { ChipCounts } from './chipRule.js';
+
+export {
+  buildAlbumEvidence,
+  buildCandidateEvidence,
+  evidenceHash,
+  stableJson,
+  EVIDENCE_VERSION,
+} from './evidence.js';
+export type {
+  TitleSource,
+  YearSource,
+  LocalTrackEvidence,
+  AlbumEvidence,
+  RemoteFacts,
+  RemoteTrack,
+  AlignTriple,
+  CandidateEvidence,
+  AlbumEvidenceInput,
+  RemoteInput,
+  EvidenceCandidate,
+} from './evidence.js';
 
 export { hungarianAlgorithm } from './hungarian.js';
 export type { Assignment } from './hungarian.js';

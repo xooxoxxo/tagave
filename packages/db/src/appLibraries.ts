@@ -1,9 +1,9 @@
 /**
- * Libraries by app (libraries.app, 0068; one app per library): which app a
+ * Libraries by app (libraries.app, 0096; one app per library): which app a
  * library is for, the libraries of an app, and the first library of an app
  * made on demand (the books app's, when it is turned on).
  *
- *   libraryApp(sql, id)                    'music' | 'books' | …; 'music' for a database from before 0068
+ *   libraryApp(sql, id)                    'music' | 'books' | …; 'music' for a database from before 0096
  *   appLibraryIds(sql, app)                the app's libraries, oldest first
  *   ensureAppLibrary(sql, { app, … })      the app's first library, made when there is none
  */
@@ -13,13 +13,13 @@ type Sql = postgres.Sql<any>;
 type Tx = postgres.TransactionSql<any>;
 type Q = Sql | Tx;
 
-/** Every library before 0068 is music's. */
+/** Every library before 0096 is music's. */
 export const DEFAULT_LIBRARY_APP = 'music';
 
-/** Postgres: undefined column (a database from before 0068, under TAGAVE_ALLOW_SCHEMA_SKEW). */
+/** Postgres: undefined column (a database from before 0096, under TAGAVE_ALLOW_SCHEMA_SKEW). */
 const UNDEFINED_COLUMN = '42703';
 
-/** The app a library is for; music for a library this database does not have, or one from before 0068. */
+/** The app a library is for; music for a library this database does not have, or one from before 0096. */
 export async function libraryApp(sql: Q, libraryId: string): Promise<string> {
   try {
     const [row] = await sql<Array<{ app: string }>>`select app from libraries where id = ${libraryId}`;

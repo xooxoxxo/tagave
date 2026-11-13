@@ -357,13 +357,20 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
     }
   });
 
-  it('every mc_, player_, listen_ and playlist table, and the facet transport tables, is listed in exactly one module’s manifest, and every listed table exists', async () => {
+  it('every mc_, player_, listen_ and playlist table, the autotagger’s decider tables and the facet transport tables, is listed in exactly one module’s manifest, and every listed table exists', async () => {
     const tables = (await sql<Array<{ t: string }>>`select table_name as t from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'`).map((r) => r.t);
     const owners = new Map<string, string[]>();
     for (const m of MODULES) for (const t of m.tables) owners.set(t, [...(owners.get(t) ?? []), m.id]);
     // a module-ish table: a module prefix, or the core facet transport
     const CORE_FACET_TABLES = ['facet_changes', 'facet_cursors', 'identity_fills'];
-    const mustOwn = tables.filter((t) => t.startsWith('mc_') || t.startsWith('player_') || t.startsWith('listen_') || t.startsWith('playlist') || CORE_FACET_TABLES.includes(t));
+    // module tables without a prefix of their own: decider_ is shared with the core's accept batches
+    const MODULE_TABLES_WITHOUT_PREFIX = ['decider_library_settings', 'decider_prices', 'decider_runs', 'decider_calls', 'decider_decisions', 'decider_spot_checks', 'decider_models'];
+    const mustOwn = tables.filter((t) => t.startsWith('mc_') || t.startsWith('player_') || t.startsWith('listen_') || t.startsWith('playlist') || CORE_FACET_TABLES.includes(t) || MODULE_TABLES_WITHOUT_PREFIX.includes(t));
+    for (const t of MODULE_TABLES_WITHOUT_PREFIX) expect(owners.get(t), t).toEqual(['autotagger']);
+    // every decider_ table is the autotagger's, but the accept batches, which are core
+    for (const t of tables.filter((x) => x.startsWith('decider_') && !x.startsWith('decider_batch'))) expect(MODULE_TABLES_WITHOUT_PREFIX, t).toContain(t);
+    expect(owners.get('decider_batches')).toBeUndefined();
+    expect(owners.get('decider_batch_items')).toBeUndefined();
     expect(mustOwn.length).toBeGreaterThan(CORE_FACET_TABLES.length);
     for (const t of CORE_FACET_TABLES) expect(tables, t).toContain(t);
     const unlisted = mustOwn.filter((t) => !owners.has(t));

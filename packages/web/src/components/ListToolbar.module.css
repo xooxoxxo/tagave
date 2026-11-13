@@ -1,0 +1,60 @@
+/* The list toolbar (ListToolbar.tsx): the count, then the keys at the row's end. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 40px;
+  min-width: 0;
+}
+
+.count {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.keys {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* the last key's glyph lines up with the column's right edge */
+  margin-right: -10px;
+}
+
+/* 40px keys: a row of three is 124px */
+.key {
+  width: 40px;
+  height: 40px;
+}
+
+.filter {
+  position: relative;
+  display: inline-flex;
+}
+
+/* the number of filters on: a small dew count on the funnel's corner */
+.badge {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  background: var(--dew);
+  color: var(--dew-ink);
+  font: 600 10px / 16px var(--font-body);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  pointer-events: none;
+}
+
+@media (forced-colors: active) {
+  .badge { background: Highlight; color: HighlightText; }
+}

@@ -14,20 +14,27 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useLocation } from '@tanstack/react-router';
+import { useLocation, useNavigate } from '@tanstack/react-router';
 import type { PlayHistoryEntry } from '@tagave/shared';
-import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, VolumeIcon, QueueIcon, showToast } from './ui';
+import { CoverArt, DjIcon, EmbossIconButton, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, VolumeIcon, QueueIcon, showToast } from './ui';
 import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
 import {
-  clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, syncQueue, toggle,
+  clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnHide, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, syncQueue, toggle,
   usePlayerStore, type PlayerStatus,
 } from '../player/engine';
 import { useMediaQuery, PHONE_QUERY } from '../hooks/useMediaQuery';
 import { playHistoryKey, useCreatePlaylist, usePlayHistory, usePlaylistsOn } from '../hooks/usePlaylists';
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from './player/NowPlaying';
 import { TrackActions } from './player/TrackActions';
-import { SeekGlow } from './SeekGlow';
+import { LikeKey } from './LikeKey';
+import { BarGlow } from './BarGlow';
+import { MixChip } from './player/MixChip';
+import { useDjBridge, useDjViewAvailability } from '../hooks/useDj';
+import { CastKey } from './player/CastKey';
+import { DeviceStrip, DevicesKey, useDevicesShown } from './player/DevicesKey';
+import { remoteDevice, startDevices, useDevicesStore } from '../player/devices';
+import { castLine as castLineOf, isCasting, startCastWatch, stopCastWatch, useCastStore } from '../player/cast';
 import { useDisplayPrefs } from '../displayPrefs';
 import { AlbumLink, ArtistLinks, linkedArtists, lineReset, type CreditedArtist } from './NowPlayingLinks';
 import styles from './PlayerBar.module.css';
@@ -63,12 +70,20 @@ export interface PlayerBarViewProps {
   queueOpen?: boolean;
   /** opens and closes the queue; without it there is no queue key */
   onQueue?: () => void;
-  /** the equalizer glow, laid under the seek bar (SeekGlow) */
+  /** the equalizer glow, behind the bar's content (BarGlow) */
   glow?: ReactNode;
+  /** the cast key (CastKey), beside the queue key, when a device is there */
+  cast?: ReactNode;
+  /** "Casting to …" while casting, beside the cast key (wide windows) */
+  castLine?: string | null | undefined;
+  /** the playing song's heart (LikeKey), beside its names */
+  like?: ReactNode;
+  /** the DJ module's Mix chip while one track fades into the next (MixChip) */
+  mix?: ReactNode;
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow, cast, castLine, like, mix }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -84,6 +99,7 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
 
   return (
     <section className={styles.bar} aria-label="Player" data-status={status} data-empty={empty ? '' : undefined}>
+      {status === 'error' ? null : glow}
       {empty ? <div className={styles.now} /> : <div className={styles.now}>
         <CoverArt src={coverUrl} title={album || title} compact className={styles.cover} />
         <div className={styles.names}>
@@ -96,6 +112,7 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
             </span>
           )}
         </div>
+        {like && <span className={styles.like}>{like}</span>}
       </div>}
 
       <div className={styles.keys}>
@@ -125,7 +142,6 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
         <div className={styles.seek}>
           <span className={styles.time} aria-hidden="true">{empty ? '-:--' : clock(shown)}</span>
           <span className={styles.track} style={{ '--fill': `${fill}%` } as CSSProperties}>
-            {glow}
             <input
               type="range"
               className={styles.range}
@@ -163,6 +179,9 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
       </div>
 
       <div className={styles.ends}>
+        {mix}
+        {castLine &&<span className={styles.castTo} role="status" title={castLine}>{castLine}</span>}
+        {cast}
         {onQueue && (
           <IconButton label="Queue" variant="quiet" size="sm" className={styles.key} aria-pressed={queueOpen} aria-expanded={queueOpen} data-queue-key="" onClick={onQueue} disabled={empty}>
             <QueueIcon />
@@ -184,11 +203,16 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
  * is (--player-bar-h on <html>) so toasts and the floating Maintenance pill
  * sit above it. It brings back the person's queue from the server when
  * tagave opens, follows changes made on the person's other devices, and
- * pauses when another device starts playing.
+ * stops when another device starts playing: it then shows that device
+ * ("Playing on …" along its top) and its keys control it (player/devices.ts).
  */
 export function PlayerBar() {
   const s = usePlayerStore();
   const [prefs] = useDisplayPrefs();
+  // the DJ module's switch and the person reach the engine
+  useDjBridge();
+  const djHere = useDjViewAvailability() === 'ok';
+  const navigate = useNavigate();
   const player = useCapabilities().data?.player;
   const phone = useMediaQuery(PHONE_QUERY);
   const playlistsOn = usePlaylistsOn();
@@ -196,9 +220,21 @@ export function PlayerBar() {
   const client = useQueryClient();
   // the module was removed (or the library has none): nothing to play through
   const uninstalled = !!player && !player.installed;
-  useEffect(() => { if (uninstalled) stop(); }, [uninstalled]);
+  useEffect(() => { if (uninstalled) { stop(); stopCastWatch(); } }, [uninstalled]);
   const installed = player?.installed === true;
   const hasQueue = !!s.queue && s.queue.tracks.length > 0 && !uninstalled;
+  // cast devices are looked for once something is queued (the Cast SDK loads then, on a desktop Chrome only);
+  // a cast that is going on outlives a cleared queue
+  const lookForDevices = installed && hasQueue;
+  useEffect(() => { if (lookForDevices) startCastWatch(); }, [lookForDevices]);
+  useEffect(() => () => stopCastWatch(), []);
+  const castState = useCastStore();
+  const casting = isCasting(castState);
+  const castShown = !!castState.kind && (castState.available || casting);
+  const devicesShown = useDevicesShown();
+  const remoteName = useDevicesStore((d) => (s.remoteDeviceId ? remoteDevice(d)?.name ?? null : null));
+  // another device plays: what this one says is where it plays, not what this browser casts to
+  const castLine = s.remoteDeviceId ? (remoteName ? `Playing on ${remoteName}` : null) : castLineOf(castState);
   // a desktop with a player keeps the bar, empty, when nothing is queued
   const shown = hasQueue || (!phone && installed);
   const ref = useRef<HTMLDivElement>(null);
@@ -214,16 +250,19 @@ export function PlayerBar() {
   useEffect(() => {
     if (!installed) return;
     void restoreQueue();
+    const leave = startDevices();
     const look = () => { if (document.visibilityState === 'visible') void syncQueue(); };
+    const onVisibility = () => { if (document.visibilityState === 'hidden') persistOnHide(); else look(); };
     const timer = setInterval(look, 10_000);
-    document.addEventListener('visibilitychange', look);
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('focus', look);
     window.addEventListener('pagehide', persistOnLeave);
     return () => {
       clearInterval(timer);
-      document.removeEventListener('visibilitychange', look);
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', look);
       window.removeEventListener('pagehide', persistOnLeave);
+      leave();
     };
   }, [installed]);
 
@@ -284,6 +323,7 @@ export function PlayerBar() {
     onMove: moveInQueue,
     onRemove: removeFromQueue,
     onClear: clearQueue,
+    menus: true,
     history: history.data ?? (historyWanted ? null : []),
     onHistoryOpen: () => { setHistoryWanted(true); void client.invalidateQueries({ queryKey: playHistoryKey }); },
     onPlayHistory: (h: PlayHistoryEntry) => {
@@ -306,8 +346,20 @@ export function PlayerBar() {
     />
   );
   const barArtist = track.artist || track.albumArtist;
+  const like = (place: 'page' | 'header', size: 'md' | 'sm' = 'md') => <LikeKey kind="song" id={track.localTrackId} place={place} size={size} />;
+  // the DJ view: only where it can run (the module on, this device mixes, nothing casting, no other device playing)
+  const dj = (place: 'page' | 'header') => (djHere ? <EmbossIconButton label="DJ" place={place} data-dj-key="" onClick={() => { setNowOpen(false); void navigate({ to: '/dj' }); }}><DjIcon /></EmbossIconButton> : null);
+  // one glow, over the bar (from its right side) or the phone's mini bar (across it); none while a track fails
+  // casting, it is off: the music is not here
+  // another device plays: nothing sounds here either
+  const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing' && !casting && !s.remoteDeviceId} anchor={phone ? 'centre' : 'right'} /> : null;
+  // with another device to play on, the device key holds the cast picker too
+  const cast = devicesShown ? <DevicesKey /> : castShown ? <CastKey /> : null;
+  // a DJ fade here: never while casting or while another device plays (that one mixes by its own settings)
+  const mix = s.mix && !casting && !s.remoteDeviceId ? <MixChip key={s.mix.at} lengthMs={s.mix.lengthMs} at={s.mix.at} /> : null;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
+      <DeviceStrip />
       {phone ? (
         <>
           <MiniPlayer
@@ -321,6 +373,9 @@ export function PlayerBar() {
             onToggle={toggle}
             onNext={next}
             onRetry={retry}
+            glow={glow}
+            castLine={s.remoteDeviceId ? null : castLine}
+            mix={mix}
           />
           {nowOpen && (
             <NowPlayingScreen
@@ -338,13 +393,16 @@ export function PlayerBar() {
               onClose={close}
               onNavigate={() => setNowOpen(false)}
               actions={actions}
-              glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
+              like={like('header')}
+              cast={cast}
+              castLine={castLine}
+              dj={dj('page')}
             />
           )}
         </>
       ) : (
         <>
-          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} />}
+          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} like={like('header')} castLine={castLine} dj={dj('header')} />}
           <PlayerBarView
             title={track.title}
             artist={barArtist}
@@ -368,7 +426,11 @@ export function PlayerBar() {
             onRetry={retry}
             queueOpen={nowOpen}
             onQueue={() => setNowOpen((o) => !o)}
-            glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
+            glow={glow}
+            cast={cast}
+            castLine={s.remoteDeviceId ? null : castLine}
+            like={like('page', 'sm')}
+            mix={mix}
           />
         </>
       )}

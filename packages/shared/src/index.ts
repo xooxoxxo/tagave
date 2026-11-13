@@ -40,6 +40,7 @@ export {
 
 // People: Settings › Users and invite links
 export * from './users.js';
+export * from './oidc.js';
 
 // Library and scanning
 export {
@@ -74,6 +75,8 @@ export {
   type AlbumSummary,
   matchInfoSchema,
   type MatchInfo,
+  decidedKindSchema,
+  type DecidedKind,
   localTrackSchema,
   type LocalTrack,
   localFileSchema,
@@ -122,6 +125,11 @@ export {
   type BackupEntryView,
   backupSettingsSchema,
   type BackupSettingsView,
+  backupFrequency,
+  backupSchedule,
+  backupFrequencySchema,
+  NIGHTLY_BACKUP_HOUR,
+  type BackupFrequency,
   backupRunSchema,
   type BackupRunView,
   backupKindSummarySchema,
@@ -285,6 +293,8 @@ export {
   type ManualTagValues,
   FINISHED_PLAN_STATUSES,
   isFinishedPlanStatus,
+  matchConfidence,
+  LOW_MATCH_CONFIDENCE,
 } from './tagPlan.js';
 
 // Settings › Storage: disk use and tag-change cleanup
@@ -460,6 +470,10 @@ export {
   STREAM_BITRATES,
   streamQuerySchema,
   type StreamQuery,
+  castUrlRequestSchema,
+  type CastUrlRequest,
+  type CastReach,
+  type CastUrlView,
   playerQualitySchema,
   type PlayerQuality,
   PLAYER_QUALITY_STORAGE_KEY,
@@ -490,7 +504,7 @@ export {
   type ConnectListenbrainzView,
 } from './listening.js';
 
-// Settings › Connections: Music Connections links made from this tagave
+// Settings › Modules › Music Connections: Music Connections links made from this tagave
 export {
   type McLinkState,
   type McCapabilityView,
@@ -531,16 +545,45 @@ export {
   type ArtistListenLinksView,
   type ListenPrefsView,
   listenPrefsSchema,
+  splitPrimary,
   type ListenLinksModuleView,
   listenLinksModuleSchema,
 } from './listenLinks.js';
 
+// Similar artists (the similar-artists module)
+export * from './similarArtists.js';
+
+// DJ (the dj module): what the player's DJ engine reads, the module's page
+export * from './dj.js';
+
 // The play queue per person (player module) and playlists (their own module)
 export * from './playQueue.js';
+export * from './playerDevices.js';
 export * from './playlists.js';
+
+// Likes: hearts on songs, albums and artists
+export * from './likes.js';
 
 // Each person's own preferences that follow them between devices (the colour theme)
 export * from './userPrefs.js';
 
 // The books app (the spike, behind TAGAVE_DEV_APPS): the Books page and its Settings › Modules row
 export * from './books.js';
+// Accept batches (Library care › Review › batches)
+export * from './batches.js';
+// Who decided a match, in one line (the album page)
+export * from './provenance.js';
+
+// The autotagger module: its per-library settings and price rows
+export * from './autotagger.js';
+// Deleting songs and albums: Mark or Trash, Library care › Deleting
+export * from './deletions.js';
+export * from './albumSplits.js';
+export * from './maintenance.js';
+export * from './albumMoves.js';
+
+// Get missing albums through Lidarr (the lidarr module)
+export * from './lidarr.js';
+
+// Naming rules, Library care › Organize, the drop pool and its Inbox (0081)
+export * from './naming.js';

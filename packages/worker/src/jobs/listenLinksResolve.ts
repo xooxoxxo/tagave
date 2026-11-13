@@ -22,7 +22,7 @@ import { listenLinksEnabled, pickedListenPlatforms } from '@tagave/db';
 import { ListenLinkResolver, listenCheckDue, type ListenProvider, type ResolveResult } from '@tagave/core/listen-links';
 import { LISTEN_PLATFORMS, type ListenPlatform } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
-import { libraryProviderSettings } from '../lib/providers.js';
+import { installUserAgent } from '../lib/providers.js';
 import { PROVIDER_INTERVALS, paced } from '../lib/pacer.js';
 
 export interface ListenLinksResolveJobData {
@@ -48,14 +48,6 @@ const defaultResolver = (ctx: WorkerContext): ResolverFactory => (userAgent) => 
   pace: <T>(provider: ListenProvider, fn: () => Promise<T>) =>
     paced(ctx.sql, provider, PROVIDER_INTERVALS[provider], fn, provider === 'musicbrainz' ? {} : { maxAttempts: 1 }),
 });
-
-async function userAgentOf(ctx: WorkerContext): Promise<string | null> {
-  const [lib] = await ctx.sql<Array<{ id: string }>>`
-    select id from libraries order by (settings->>'contactString') is null, created_at, id limit 1`;
-  if (!lib) return null;
-  const s = await libraryProviderSettings(ctx, lib.id);
-  return s.contactString ? `tagave/0.1 (+${s.contactString})` : null;
-}
 
 /**
  * Store one lookup. An incomplete one (Wikidata or Apple did not answer)
@@ -89,7 +81,7 @@ export async function listenLinksResolveJob(ctx: WorkerContext, data: ListenLink
   if (!(await listenLinksEnabled(ctx.sql))) return { skipped: 'listen elsewhere is off' };
   const platforms = (await pickedListenPlatforms(ctx.sql)).filter((p): p is ListenPlatform => (LISTEN_PLATFORMS as readonly string[]).includes(p));
   if (platforms.length === 0) return { skipped: 'nobody picked a platform' };
-  const ua = await userAgentOf(ctx);
+  const ua = await installUserAgent(ctx);
   if (!ua) return { skipped: 'no contact string (Settings › Integrations)' };
   const resolver = (makeResolver ?? defaultResolver(ctx))(ua);
   const force = data.force === true;

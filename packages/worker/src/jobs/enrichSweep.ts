@@ -3,6 +3,7 @@
  * library that still lacks its Discogs↔MB bridge (ENR-1). Restartable;
  * bridge_attempted_at keeps failed lookups from being retried daily.
  */
+import { enrichPace, failStaleBatches, pauseStaleRuns } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { reportProgress } from './progress.js';
 
@@ -14,6 +15,22 @@ export interface EnrichSweepJobData {
 }
 
 export async function enrichSweepJob(ctx: WorkerContext, data: EnrichSweepJobData): Promise<void> {
+  // Rides the nightly schedule: accept batches whose decider.accept job ended
+  // without marking them (expired after its last retry) read failed, not
+  // forever accepting or undoing.
+  // A failure here only logs: the bridging below must still run.
+  try {
+    const stale = await failStaleBatches(ctx.sql, data.libraryId ? { libraryId: data.libraryId } : {});
+    if (stale.length > 0) ctx.logger.warn({ batches: stale }, 'accept batches with no run left marked failed');
+  } catch (err) {
+    ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale accept batch check failed');
+  }
+  try {
+    const stopped = await pauseStaleRuns(ctx.sql, data.libraryId ? { libraryId: data.libraryId } : {});
+    if (stopped.length > 0) ctx.logger.warn({ runs: stopped }, 'decider runs with no job left paused as stopped');
+  } catch (err) {
+    ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale decider run check failed');
+  }
   const libraries = data.libraryId
     ? [data.libraryId]
     : ((await ctx.sql`select id from libraries`) as unknown as Array<{ id: string }>).map((r) => r.id);
@@ -21,7 +38,8 @@ export async function enrichSweepJob(ctx: WorkerContext, data: EnrichSweepJobDat
 }
 
 async function sweepLibrary(ctx: WorkerContext, data: EnrichSweepJobData & { libraryId: string }): Promise<void> {
-  const limit = data.limit ?? 500;
+  // the owner's "drain faster" (Library care › Review › batches) raises the nightly pace
+  const limit = Math.max(data.limit ?? 500, await enrichPace(ctx.sql, data.libraryId));
   // Discogs-only releases missing an MBID first (XO-379 pass 2: the reverse
   // bridge is what unlocks reviews, editions, artist pages and links for a
   // Discogs-first match), then MB releases missing a Discogs id; oldest

@@ -48,6 +48,9 @@ export class MutagenTagWriter implements TagWriter {
   constructor() {
     // Start the subprocess immediately in constructor
     this.initPromise = this.initSubprocess();
+    // The sidecar can fail while the caller is preparing the first file.
+    // Keep that failure for write() without leaving an unhandled rejection.
+    void this.initPromise.catch(() => undefined);
   }
 
   /**
@@ -255,6 +258,11 @@ export class MutagenTagWriter implements TagWriter {
     if (!response.success) {
       throw new Error(`Sidecar write failed for ${filePath}`);
     }
+  }
+
+  async embedCover(filePath: string, jpeg: Buffer): Promise<void> {
+    const response = await this.sendCommand(JSON.stringify({ op: 'embed-cover', path: filePath, jpeg: jpeg.toString('base64') }));
+    if (!response.success) throw new Error(response.error ?? 'Could not write cover art');
   }
 
   /**

@@ -250,6 +250,39 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
     expect(rows).toHaveLength(2);
   });
 
+  it("identify phase redoes a model's match but not a person's confirmed one", async () => {
+    const rgId = randomUUID();
+    const releaseId = randomUUID();
+    const master = 900_000_000 + Math.floor(Math.random() * 99_000_000);
+    await client`insert into release_groups (id, title, discogs_master_id) values (${rgId}, 'Repair', ${master})`;
+    await client`insert into releases (id, release_group_id, title) values (${releaseId}, ${rgId}, 'Repair')`;
+    try {
+      const [byModel] = await db.insert(localAlbums).values({
+        libraryId, clusterKey: `model-${randomUUID()}`, dirPaths: ['X/M'], state: 'matched',
+      }).returning({ id: localAlbums.id });
+      const [byPerson] = await db.insert(localAlbums).values({
+        libraryId, clusterKey: `person-${randomUUID()}`, dirPaths: ['X/P'], state: 'matched',
+      }).returning({ id: localAlbums.id });
+      await client`
+        insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, decided_kind,
+                                   decider_id, decider_version, probability, reason)
+        values (${libraryId}, ${byModel.id}, ${releaseId}, 0.0500, 'auto', 'system', 'model',
+                'jev', 'jev-2026-09-15', 0.9940, 'model accept: jev-2026-09-15, probability 0.9940')`;
+      await client`
+        insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, decided_kind, decided_by_user_id)
+        values (${libraryId}, ${byPerson.id}, ${releaseId}, 0.0500, 'confirmed', 'user', 'user', ${userId})`;
+      const since = new Date(Date.now() - 60_000).toISOString();
+
+      await clusterRepairDiscsJob(ctx, { libraryId, phase: 'identify', since, dirPaths: ['X/M', 'X/P'] });
+
+      const ids = sent.filter((s) => s.name === 'identify.album').map((s) => s.data.localAlbumId);
+      expect(ids).toEqual([byModel.id]);
+    } finally {
+      await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
+      await client`delete from release_groups where id = ${rgId}`;
+    }
+  });
+
   it('never enqueues the scan root itself', async () => {
     // Files loose at the top of a root have relDirname '', which cluster.dir
     // reads as "the whole root is one scope". Layout 2 used to hand it over.

@@ -6,13 +6,23 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { artists, files, libraries, localAlbums, localTracks, releaseGroupArtists, releaseGroups, scanRoots, users } from '@tagave/db';
-import { foldWords } from './search.js';
+import { artists, files, libraries, localAlbums, localTracks, releaseGroupArtists, releaseGroups, releases, scanRoots, users } from '@tagave/db';
+import { foldWords, searchKind } from './search.js';
 
 describe('foldWords', () => {
   it('folds punctuation and case to single spaces', () => {
     expect(foldWords('  Road-Salt  (One) ')).toBe('road salt one');
     expect(foldWords('Sigur Rós')).toBe('sigur rós');
+  });
+});
+
+describe('searchKind', () => {
+  it('takes the four kinds and nothing else', () => {
+    expect(searchKind('albums')).toBe('albums');
+    expect(searchKind('labels')).toBe('labels');
+    expect(searchKind('playlists')).toBeNull();
+    expect(searchKind(['albums'])).toBeNull();
+    expect(searchKind(undefined)).toBeNull();
   });
 });
 
@@ -30,10 +40,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
     state: 'matched', titleGuess: title, artistGuess: artist, releaseGroupId,
   });
 
-  const search = async (q: string) => {
+  const releaseId = randomUUID();
+  const search = async (q: string, kind?: string) => {
     const res = await app.inject({
       method: 'GET',
-      url: `/libraries/${libraryId}/search?q=${encodeURIComponent(q)}`,
+      url: `/libraries/${libraryId}/search?q=${encodeURIComponent(q)}${kind ? `&kind=${kind}` : ''}`,
       headers: { 'x-test-user': ownerId },
     });
     expect(res.statusCode).toBe(200);
@@ -41,6 +52,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
       albums: { title: string }[];
       artists: { id: string | null; name: string; albumCount: number }[];
       tracks: { title: string; artist: string | null; albumTitle: string }[];
+      labels?: { name: string; albumCount: number }[];
     };
   };
 
@@ -55,11 +67,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
     await db.insert(artists).values({ id: artistId, name: 'Pain of Salvation', sortName: 'Pain of Salvation' });
     await db.insert(releaseGroups).values({ id: rgId, mbid: randomUUID(), title: 'Road Salt One' });
     await db.insert(releaseGroupArtists).values({ releaseGroupId: rgId, artistId, position: 0 });
+    await db.insert(releases).values({ id: releaseId, releaseGroupId: rgId, title: 'Road Salt One', labels: [{ name: 'InsideOut Music' }, { name: ' ' }] });
     await db.insert(localAlbums).values([
       album('Salva', 'Someone'),
       album('Saliva Sessions', 'Another'),
       album('Road Salt Two', 'Pain of Salvation'),
-      album('Road Salt One', 'Pain of Salvation', rgId),
+      { ...album('Road Salt One', 'Pain of Salvation', rgId), releaseId },
       album('Sea Salt Songs', 'Salt Cellar'),
       album('Salty Dog', 'Procol Harum'),
       // QA 2026-10-26 Q-08: one folder, tags with and without the umlaut
@@ -93,6 +106,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
   afterAll(async () => {
     await app?.close();
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
+    await db.delete(releases).where(eq(releases.id, releaseId));
     await db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.releaseGroupId, rgId));
     await db.delete(releaseGroups).where(eq(releaseGroups.id, rgId));
     await db.delete(artists).where(inArray(artists.id, [artistId]));
@@ -160,5 +174,26 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
     const { albums, artists: found } = await search('%_%');
     expect(albums).toEqual([]);
     expect(found).toEqual([]);
+  });
+
+  it('narrows to one kind with ?kind= (the search\'s @album chip)', async () => {
+    const r = await search('salt', 'albums');
+    expect(r.albums.length).toBeGreaterThan(0);
+    expect(r.artists).toEqual([]);
+    expect(r.tracks).toEqual([]);
+    expect(r.labels).toBeUndefined();
+  });
+
+  it('finds labels only when asked for, with their album counts', async () => {
+    expect((await search('inside')).labels).toBeUndefined();
+    const r = await search('inside', 'labels');
+    expect(r.labels).toEqual([{ name: 'InsideOut Music', albumCount: 1 }]);
+    expect(r.albums).toEqual([]);
+  });
+
+  it('answers an unknown kind like no kind', async () => {
+    const r = await search('salt', 'playlists');
+    expect(r.albums.length).toBeGreaterThan(0);
+    expect(r.labels).toBeUndefined();
   });
 });

@@ -78,8 +78,8 @@ async function callerLibrary(sql: Sql, libraryId: unknown): Promise<string> {
 
 /** What the panel says when the linked app does not take the decision. */
 export function decisionProblem(service: string, r: { status: number | null; reason: string }): ApiError {
-  if (r.reason === 'needs_reapproval') return new ApiError(409, 'Conflict', `${service} needs this connection approved again before it takes decisions. Re-approve it in Settings › Connections.`);
-  if (r.status === 403) return new ApiError(502, 'Bad Gateway', `${service} refused the decision (403): this connection may not send decisions. Re-approve it in Settings › Connections to grant that.`);
+  if (r.reason === 'needs_reapproval') return new ApiError(409, 'Conflict', `${service} needs this connection approved again before it takes decisions. Re-approve it in Settings › Modules › Music Connections.`);
+  if (r.status === 403) return new ApiError(502, 'Bad Gateway', `${service} refused the decision (403): this connection may not send decisions. Re-approve it in Settings › Modules › Music Connections to grant that.`);
   if (r.status === 404) return new ApiError(502, 'Bad Gateway', `${service} no longer has this suggestion (404). It will drop off at the next sync.`);
   if (r.status !== null) return new ApiError(502, 'Bad Gateway', `${service} did not take the decision (HTTP ${r.status}). Nothing was changed; try again later.`);
   return new ApiError(502, 'Bad Gateway', `Could not reach ${service}. Nothing was changed; try again later.`);
@@ -134,7 +134,7 @@ export async function createMcWantlistRoutes(fastify: FastifyInstance) {
     const service = row.service || 'The linked app';
     if (row.decision) throw new ApiError(409, 'Conflict', `Already ${row.decision}.`);
     if (!row.scopes.includes(WANTLIST_WRITE)) {
-      throw new ApiError(403, 'Forbidden', `This connection was not granted permission to send decisions to ${service}. Re-approve it in Settings › Connections.`);
+      throw new ApiError(403, 'Forbidden', `This connection was not granted permission to send decisions to ${service}. Re-approve it in Settings › Modules › Music Connections.`);
     }
     // the remote first: only a decision it took is kept here
     const r = await postToLinkedApp(sql, { ...row, id: row.link_id }, 'wantlist-suggestions', `${encodeURIComponent(row.key)}/decision`, { decision }, env.appSecret);

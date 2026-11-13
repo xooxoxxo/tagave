@@ -11,8 +11,9 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { listenLinksEnabled, setListenLinksEnabled } from '@tagave/db';
-import { MODULE_DATA } from './modulePurge.js';
+import { listenLinksEnabled, moduleEnabled, runMigrations, setListenLinksEnabled, setModuleEnabled, setModuleSettings, setTypesafeKey, syncInstalledModules, typesafeKeyHint } from '@tagave/db';
+import { AUTOTAGGER_MODULE, ledgerEntries } from '@tagave/core/facets';
+import { MODULE_DATA, purgeModuleData } from './modulePurge.js';
 
 const url = process.env.TEST_DATABASE_URL;
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
@@ -153,4 +154,95 @@ describe.skipIf(!url || !existsSync(cli))('purge-module listen-links (integratio
     const again = JSON.parse((await run(['purge-module', 'listen-links', '--json'])).stdout.trim()).purged;
     expect(Object.values(again.deleted).every((n) => n === 0)).toBe(true);
   }, 20_000); // three CLI spawns
+});
+
+/**
+ * On a database of its own, migrated in full and synced as a boot does: the
+ * tests switch the module on and empty its whole tables, which on the shared
+ * test database would clash with other packages' suites running at the same
+ * time.
+ */
+describe.skipIf(!url)('purge-module autotagger (scratch db)', () => {
+  let admin: ReturnType<typeof postgres>;
+  let sql: ReturnType<typeof postgres>;
+  const name = `tagave_purgeattest_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const user = randomUUID();
+  const lib = randomUUID();
+  const album = randomUUID();
+
+  beforeAll(async () => {
+    admin = postgres(url!, { max: 1, onnotice: () => undefined });
+    await admin.unsafe(`create database ${name}`);
+    const u = new URL(url!);
+    u.pathname = `/${name}`;
+    await runMigrations(u.toString(), { log: () => undefined });
+    sql = postgres(u.toString(), { max: 1, onnotice: () => undefined });
+    await syncInstalledModules(sql, ledgerEntries());
+    expect(await moduleEnabled(sql, 'autotagger')).toBe(false);
+    await sql`insert into users (id, email, password_hash) values (${user}, ${`purge-at-${user}@t.com`}, 'x')`;
+    await sql`insert into libraries (id, owner_user_id, name) values (${lib}, ${user}, 'Purge autotagger')`;
+    await sql`insert into local_albums (id, library_id, cluster_key, state) values (${album}, ${lib}, ${`k-purge-at-${album}`}, 'needs_review')`;
+  }, 120_000);
+
+  afterAll(async () => {
+    await sql?.end({ timeout: 2 });
+    await admin?.unsafe(`drop database if exists ${name} with (force)`).catch(() => undefined);
+    await admin?.end({ timeout: 2 });
+  });
+
+  it('is built from its manifest: its tables, nothing in libraries.settings', () => {
+    expect(MODULE_DATA['autotagger']).toMatchObject({ tables: [...AUTOTAGGER_MODULE.tables], librarySettingsKeys: [], history: null, onWhenEnv: [] });
+  });
+
+  it('refuses while the module is on, and deletes nothing', async () => {
+    await sql`insert into decider_prices (decider_id, model, per_million_input, currency) values ('jev-refuse', '*', 1.5, 'USD') on conflict do nothing`;
+    await setModuleEnabled(sql, 'autotagger', true);
+    try {
+      await expect(purgeModuleData(sql, 'autotagger', { env: {} })).rejects.toThrow(/still on/);
+      expect(await sql`select 1 from decider_prices where decider_id = 'jev-refuse'`).toHaveLength(1);
+    } finally {
+      await setModuleEnabled(sql, 'autotagger', false);
+      await sql`delete from decider_prices where decider_id = 'jev-refuse'`;
+    }
+  });
+
+  it('off: empties exactly its tables; core batches, match provenance and its ledger row stay', async () => {
+    const release = randomUUID();
+    const rg = randomUUID();
+    await sql`insert into release_groups (id, mbid, title) values (${rg}, ${randomUUID()}, 'Purge autotagger')`;
+    await sql`insert into releases (id, release_group_id, mbid, title) values (${release}, ${rg}, ${randomUUID()}, 'Purge autotagger')`;
+    try {
+      await sql`insert into decider_library_settings (library_id, config) values (${lib}, '{"monthlyCap":10}'::jsonb)`;
+      await setTypesafeKey(sql, lib, 'enc:v1:x', 'abcd');
+      expect(await typesafeKeyHint(sql, lib)).toBe('abcd');
+      await sql`insert into decider_prices (decider_id, model, per_million_input, currency) values ('jev', '*', 1.5, 'USD') on conflict do nothing`;
+      const [run] = await sql`insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population) values (${lib}, 'jev', 'h', 'jev-latest', 'needs_review') returning id`;
+      const [dec] = await sql`insert into decider_decisions (run_id, local_album_id, outcome, band) values (${run!['id']}, ${album}, 'pick', 'high') returning id`;
+      await sql`insert into decider_spot_checks (run_id, decision_id, band) values (${run!['id']}, ${dec!['id']}, 'high')`;
+      const [batch] = await sql`insert into decider_batches (library_id, decider_id, decided_kind, run_id) values (${lib}, 'jev', 'model', ${run!['id']}) returning id`;
+      await sql`insert into decider_batch_items (batch_id, position, local_album_id, release_id, distance, reason) values (${batch!['id']}, 0, ${album}, ${release}, 0.01, 'model accept')`;
+      await sql`insert into album_matches (library_id, local_album_id, release_id, distance, decided_kind, decider_id, batch_id) values (${lib}, ${album}, ${release}, 0.01, 'model', 'jev', ${batch!['id']})`;
+      await setModuleSettings(sql, 'autotagger', { kept: true });
+
+      const purged = await purgeModuleData(sql, 'autotagger', { env: {} });
+      expect(Object.keys(purged.deleted)).toEqual([...MODULE_DATA['autotagger']!.tables]);
+      expect(purged.deleted['decider_library_settings']).toBeGreaterThanOrEqual(1);
+      for (const t of MODULE_DATA['autotagger']!.tables) expect(await sql`select 1 from ${sql(t)} where true`, t).toHaveLength(0);
+      // the TypeSafe key goes with the module's data
+      expect(await typesafeKeyHint(sql, lib)).toBeNull();
+      // core: the batch, its items and the match it made, so an undo still works
+      expect(await sql`select run_id from decider_batches where id = ${batch!['id']}`).toEqual([{ run_id: run!['id'] }]);
+      expect(await sql`select 1 from decider_batch_items where batch_id = ${batch!['id']}`).toHaveLength(1);
+      expect(await sql`select decided_kind, decider_id from album_matches where batch_id = ${batch!['id']}`).toEqual([{ decided_kind: 'model', decider_id: 'jev' }]);
+      // the owner's switch and the module's own ledger settings stay
+      expect(await sql`select enabled, settings from installed_modules where id = 'autotagger'`).toEqual([{ enabled: false, settings: { kept: true } }]);
+      expect(Object.values((await purgeModuleData(sql, 'autotagger', { env: {} })).deleted).every((n) => n === 0)).toBe(true);
+    } finally {
+      await setModuleSettings(sql, 'autotagger', { kept: null });
+      await sql`delete from album_matches where local_album_id = ${album}`;
+      await sql`delete from decider_batches where library_id = ${lib}`;
+      await sql`delete from releases where id = ${release}`;
+      await sql`delete from release_groups where id = ${rg}`;
+    }
+  });
 });

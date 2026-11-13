@@ -13,6 +13,7 @@
  */
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
+import { writeSync } from 'node:fs';
 import type { Logger } from 'pino';
 
 export interface InFlightJob {
@@ -120,9 +121,8 @@ if (!isMainThread && parentPort && (workerData as { role?: string } | null)?.rol
 
   setInterval(() => {
     const silentMs = Date.now() - lastPing;
-    if (silentMs < stallMs) return;
-    if (stalledSince === null) stalledSince = lastPing;
-    // The main loop cannot log right now — that is the point of this thread.
+    if (silentMs < stallMs || stalledSince !== null) return;
+    stalledSince = lastPing;
     const line = {
       level: 50,
       time: Date.now(),
@@ -130,6 +130,8 @@ if (!isMainThread && parentPort && (workerData as { role?: string } | null)?.rol
       silentMs,
       inFlight: lastInFlight.map((j) => ({ queue: j.queue, jobId: j.jobId, label: j.label, runningMs: Date.now() - j.startedAt })),
     };
-    process.stderr.write(JSON.stringify(line) + '\n');
+    // Worker stdio is forwarded by the main thread. Write to the process's
+    // stderr descriptor directly so the warning reaches the log during a stall.
+    writeSync(2, JSON.stringify(line) + '\n');
   }, Math.max(1_000, Math.min(pingMs, stallMs / 2))).unref();
 }

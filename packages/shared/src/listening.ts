@@ -13,7 +13,7 @@ import { z } from 'zod';
 export const scrobbleServiceSchema = z.enum(['lastfm', 'listenbrainz']);
 export type ScrobbleService = z.infer<typeof scrobbleServiceSchema>;
 
-/** Settings › Playback › Scrobbling (owner): the Last.fm application tagave signs scrobbles with. */
+/** Settings › Modules › Player › Scrobbling (owner): the Last.fm application tagave signs scrobbles with. */
 export interface ScrobblingSettingsView {
   lastfm: {
     /** an API key is set (here, or TAGAVE_LASTFM_API_KEY in .env) */
@@ -46,6 +46,8 @@ export interface ScrobbleAccountView {
   lastErrorAt: string | null;
   /** scrobbles waiting to be sent (retrying) */
   pending: number;
+  /** liked songs go as loves (Last.fm track.love, ListenBrainz feedback) */
+  loves: boolean;
 }
 
 /** The person's account on the player server, as far as they may know it (never a password). */

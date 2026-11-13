@@ -32,8 +32,13 @@ import { createScratchDb, migrateAll, migrateUpTo, migrationsBefore } from '../t
 
 const url = process.env.TEST_DATABASE_URL;
 const STEP2 = ['0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql'];
-/** What later steps add on top (step 3, the Books spike: libraries.app and the books app's own chain). */
-const AFTER_STEP2 = ['0072_libraries_app.sql', 'books/0001_books.sql'];
+/** Core migrations after step 2: they apply on the same upgrade. */
+const AFTER_STEP2 = ['0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql', '0078_album_splits.sql', '0079_playlist_collaborators.sql', '0080_album_moves.sql', '0081_naming_and_pool.sql', '0084_similar_artists.sql', '0085_likes.sql', '0086_dj_analysis.sql', '0087_user_prefs_dj.sql', '0089_split_with_plan.sql', '0090_maintenance_tasks.sql', '0091_embed_cover_task.sql', '0092_matching_evidence.sql', '0093_match_provenance.sql', '0094_identity_facet_provenance.sql', '0095_decider_batches.sql', '0096_libraries_app.sql'];
+/** App chains (migrations/apps/<id>/): they follow the core chain (the books app, in development). */
+const APP_CHAINS = ['books/0001_books.sql'];
+/** Module chains (migrations/modules/<id>/): they follow the app chains. */
+const MODULE_CHAINS = ['autotagger/0001_autotagger.sql', 'autotagger/0002_decider_models.sql'];
+const UPGRADE = [...STEP2, ...AFTER_STEP2, ...APP_CHAINS, ...MODULE_CHAINS];
 
 /** A database as 0.15 left it: the ledger in its old shape, migrated to 0059. */
 async function oldInstall(admin: postgres.Sql): Promise<{ url: string; name: string }> {
@@ -123,9 +128,9 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
     await admin?.end({ timeout: 2 });
   });
 
-  it('applies the three step-2 migrations on top of 0059 (and the later steps after them)', () => {
+  it('applies the three step-2 migrations (and the later ones) on top of 0059', () => {
     expect(before.switches).toEqual({ mc: true, 'listen-links': true, playlists: false });
-    expect(applied).toEqual([...STEP2, ...AFTER_STEP2]);
+    expect(applied).toEqual(UPGRADE);
   });
 
   it('every switch reads the same through installed_modules, and through the registry', async () => {
@@ -138,7 +143,10 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
     ]);
     const ctx = moduleContext(await moduleSwitches(sql));
     expect(['mc', 'listen-links', 'playlists'].map((id) => registry.isEnabled(id, ctx))).toEqual([true, true, false]);
-    // a boot's sync changes no switch
+    // a boot's sync adds the rows of the modules 0065 did not know (lidarr 0075 off, similar-artists 0084 on,
+    // dj 0086 off, the autotagger at its default: off) and changes no switch
+    expect(await syncInstalledModules(sql, ledgerEntries())).toEqual(['autotagger', 'dj', 'lidarr', 'similar-artists']);
+    expect(await moduleEnabled(sql, 'autotagger')).toBe(false);
     expect(await syncInstalledModules(sql, ledgerEntries())).toEqual([]);
     expect(await newSwitches(sql)).toEqual(before.switches);
   });
@@ -151,12 +159,12 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
     ]);
   });
 
-  it('every ledger row is the core’s, keyed (module, name)', async () => {
-    const rows = await sql`select module, name from _migrations where module = 'core' order by name`;
-    expect(rows.map((r) => r['name'])).toEqual([...before.ledger, ...STEP2, '0072_libraries_app.sql']);
-    // a later step's app chain records its own rows, (books, <file>)
-    expect([...(await sql`select module, name from _migrations where module <> 'core'`)]).toEqual([{ module: 'books', name: '0001_books.sql' }]);
-    expect(await readLedger(sql)).toEqual([...before.ledger, ...STEP2, ...AFTER_STEP2]);
+  it('every ledger row is keyed (module, name): the core chain’s, then an app’s or a module’s own chain under its id', async () => {
+    const rows = await sql`select module, name from _migrations order by module = 'core' desc, module, name`;
+    expect(rows.filter((r) => r['module'] === 'core').map((r) => r['name'])).toEqual([...before.ledger, ...UPGRADE.filter((f) => !f.includes('/'))]);
+    expect(rows.filter((r) => r['module'] !== 'core').map((r) => `${r['module']}/${r['name']}`)).toEqual([...APP_CHAINS, ...MODULE_CHAINS].sort());
+    // readLedger: the core chain, then every other chain by its id (autotagger before books), not in apply order
+    expect(await readLedger(sql)).toEqual([...before.ledger, ...UPGRADE.filter((f) => !f.includes('/')), ...[...APP_CHAINS, ...MODULE_CHAINS].sort()]);
     const [pk] = await sql`select pg_get_constraintdef(oid) as def from pg_constraint where conrelid = '_migrations'::regclass and contype = 'p'`;
     expect(pk!['def']).toBe('PRIMARY KEY (module, name)');
   });
@@ -288,8 +296,8 @@ describe.skipIf(!!toolsMissing)('a backup taken before step 2 restores and upgra
   it('restores the pre-change dump (old ledger, switches in the settings), and the new app upgrades it to the same state', async () => {
     const dump = await runBackup({ databaseUrl: db.url, outDir: dir, kind: 'manual' });
     expect(dump.tocEntries).toBeGreaterThan(0);
-    // the update: step 2 applies
-    expect(await migrateAll(db.url)).toEqual([...STEP2, ...AFTER_STEP2]);
+    // the update: step 2 applies (later core migrations and module chains follow it)
+    expect(await migrateAll(db.url)).toEqual(UPGRADE);
     const upgraded = await state(db.url);
     expect(upgraded.switches).toEqual({ mc: true, 'listen-links': true, playlists: true });
 
@@ -307,7 +315,7 @@ describe.skipIf(!!toolsMissing)('a backup taken before step 2 restores and upgra
     }
 
     // and the new app upgrades the restored database again, to the same state
-    expect(await migrateAll(db.url)).toEqual([...STEP2, ...AFTER_STEP2]);
+    expect(await migrateAll(db.url)).toEqual(UPGRADE);
     expect(await state(db.url)).toEqual(upgraded);
   }, 180_000);
 });
@@ -332,6 +340,8 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
     db = await createScratchDb(url!, admin);
     await migrateAll(db.url);
     sql = postgres(db.url, { max: 2, onnotice: () => undefined });
+    // as a boot does: a row for every manifest 0065 did not make
+    await syncInstalledModules(sql, ledgerEntries());
     await sql`insert into users (id, email, password_hash) values (${ids.user}, ${`p-${ids.user}@test.com`}, 'x')`;
     await sql`insert into libraries (id, owner_user_id, name) values (${ids.lib}, ${ids.user}, 'Plug')`;
     await sql`insert into release_groups (id, mbid, title) values (${ids.rg}, ${randomUUID()}, 'Linked')`;
@@ -382,7 +392,7 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
   it('every module purge-module knows lists a table before the tables it references (the order it empties them)', async () => {
     const refs = await sql<Array<{ t: string; ref: string }>>`
       select c.conrelid::regclass::text as t, c.confrelid::regclass::text as ref from pg_constraint c where c.contype = 'f'`;
-    expect(Object.keys(MODULE_DATA).sort()).toEqual(['books', 'listen-links', 'player', 'playlists']);
+    expect(Object.keys(MODULE_DATA).sort()).toEqual(['autotagger', 'books', 'dj', 'lidarr', 'listen-links', 'player', 'playlists', 'similar-artists']);
     for (const [id, data] of Object.entries(MODULE_DATA)) {
       const at = new Map(data.tables.map((t, i) => [t, i]));
       for (const r of refs) {

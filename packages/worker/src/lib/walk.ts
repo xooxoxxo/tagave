@@ -20,13 +20,14 @@
  * Database writes are batched: one statement per few hundred files instead
  * of one per file.
  */
+import { insideAny, poolDirsOfRoot } from './naming.js';
 import { access, opendir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, like, lt, or, sql as dsql } from 'drizzle-orm';
 import { files, scanDirs, sidecarFiles } from '@tagave/db';
 import { fileTypeHandler, handlerForName } from '@tagave/core/files';
 import type { WorkerContext } from './context.js';
-import { sidecarKind, storagePath, extOf, relDirname, escapeLike } from './helpers.js';
+import { sidecarKind, storagePath, extOf, relDirname, escapeLike, skipDir } from './helpers.js';
 import { finishWalk, type FinishOptions, type FinishResult } from './scanFinish.js';
 import { walkedHandlers } from './appFiles.js';
 
@@ -87,16 +88,7 @@ const INSERT_BATCH = 500;
 const UPDATE_BATCH = 2000;
 const PROGRESS_EVERY = 5000;
 
-/**
- * Directories that never hold music: dot-dirs, NAS housekeeping (Synology
- * `@eaDir` thumbnail trees were 89,458 of the 161,960 directories under the
- * owner's root — every `@eaDir/<file>/SYNOPHOTO_*.jpg` used to be indexed as
- * a sidecar), recycle bins and snapshots.
- */
-const SKIP_DIRS = new Set(['@eaDir', '#recycle', '#snapshot', '$RECYCLE.BIN', 'System Volume Information', 'lost+found']);
-export function skipDir(name: string): boolean {
-  return name.startsWith('.') || SKIP_DIRS.has(name);
-}
+export { skipDir };
 
 /** Stored paths are NFC; the bytes on disk may be NFD. Find the spelling that opens. */
 async function openableDir(rootPath: string, relDir: string): Promise<string | null> {
@@ -150,6 +142,9 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   // books library walks epub, pdf and cbz. Rows of any other handler are not
   // this walk's to judge: never seen, never missing.
   const walked = opts.handlers ?? (await walkedHandlers(ctx, root.libraryId));
+  // The drop pool (0081) is a folder of the root the scan never walks: its
+  // files reach the library only when they are imported.
+  const poolDirs = await poolDirsOfRoot(ctx, root.id);
   const [present] = (await ctx.sql`select count(*)::int as n from files
                                    where scan_root_id = ${root.id} and status in ('present', 'error')`) as unknown as Array<{ n: number }>;
 
@@ -311,7 +306,7 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     const files: string[] = [];
     for await (const ent of entries) {
       if (ent.isDirectory()) {
-        if (!skipDir(ent.name)) subdirs.push(path.join(dirAbs, ent.name));
+        if (!skipDir(ent.name) && !insideAny(storagePath(relDir ? `${relDir}/${ent.name}` : ent.name), poolDirs)) subdirs.push(path.join(dirAbs, ent.name));
       } else if (ent.isFile()) {
         files.push(ent.name);
       }
@@ -409,7 +404,9 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     // The folder itself is gone. Everything indexed under it is missing —
     // but only when the root is still there (the caller probed it).
     result.subtreeGone = true;
-  } else {
+  } else if (!insideAny(subtree, poolDirs)) {
+    // a folder of the drop pool is not walked even when asked for (Lidarr's
+    // import into the pool sends a scan of it): the pool imports it
     await walkDir(startAbs);
   }
   await flushInserts();

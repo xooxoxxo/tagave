@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tagave · a self-hosted music catalogue</title>
-<meta name="description" content="A self-hosted catalogue that identifies every album in your archive down to the pressing and corrects tags without breaking anything. Free and open source (AGPL-3.0).">
+<title>tagave · Self-hosted music library manager, tagger and player</title>
+<meta name="description" content="tagave identifies every album with MusicBrainz and Discogs, fixes tags you can undo, files folders by your rules and plays everywhere. Free and self-hosted.">
 <link rel="canonical" href="https://tagave.app/">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#F6F8FA" media="(prefers-color-scheme: light)">
@@ -12,14 +12,107 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tagave">
-<meta property="og:title" content="tagave · a self-hosted music catalogue">
-<meta property="og:description" content="Identifies every album in your archive down to the pressing and corrects tags without breaking anything.">
+<meta property="og:title" content="tagave · Self-hosted music library manager, tagger and player">
+<meta property="og:description" content="Knows every album you own down to the pressing, fixes tags you can undo, files each album where it belongs and plays it on every screen at home.">
 <meta property="og:url" content="https://tagave.app/">
 <meta property="og:image" content="https://tagave.app/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="tagave: your library, quietly in order.">
 <meta name="twitter:card" content="summary_large_image">
+
+<script type="application/ld+json">
+[
+ {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "tagave",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Linux, macOS (Docker)",
+  "description": "A self-hosted music library manager, tagger and player. It identifies every album with MusicBrainz and Discogs, fixes tags you can undo, files folders by your naming rules and plays on every screen at home.",
+  "url": "https://tagave.app/",
+  "downloadUrl": "https://github.com/xooxoxxo/tagave",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+  "isAccessibleForFree": true,
+  "offers": {
+   "@type": "Offer",
+   "price": "0",
+   "priceCurrency": "USD"
+  },
+  "image": "https://tagave.app/img/og.png"
+ },
+ {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+   {
+    "@type": "Question",
+    "name": "What is tagave?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "A self-hosted app for the music you own. It identifies every album, fixes tags through plans you preview, files albums by your naming rules and plays them at home and on your phone."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Is it a music player?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Yes, if you want one. Turn on the player and tagave plays in the browser, on your phone and on AirPlay or Chromecast speakers. It comes with Navidrome, so Subsonic apps work too. Happy with Plexamp, Jellyfin or Roon? Keep them. tagave gets the tags under them right."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Will it change my files?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Only when you let it. Your music is mounted read-only unless you install with --music-writable. Tag changes, moves and splits always show a preview first. Each one is journalled and can be undone. No file is ever overwritten. Files you delete, and originals you split, go to a trash first."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Can it download music?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Not by itself, but it works with Lidarr. Ask Lidarr for a missing album from the artist page, and tagave files the download by your naming rules."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Can my family use it?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Yes. Invite people with a one-time link and give each one a role. Everyone gets their own queue, likes, playlists, listening history and scrobbling."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Does it need the cloud or an account?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "No. It runs in Docker on your own machine, and your library and accounts stay there. It looks things up on MusicBrainz, Cover Art Archive, Wikipedia, Wikidata and ListenBrainz, plus Discogs and AcoustID if you add keys. Twice a day it checks GitHub for new tagave releases, sending nothing about you. You can turn that off in Settings › Updates. There is no telemetry."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "What does it cost?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Nothing. It is open source under the GNU AGPL-3.0. The tag writer runs mutagen as a separate process."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Which formats does it handle?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "It reads and writes tags in MP3, FLAC, M4A and ALAC, Ogg, Opus, WAV and AIFF. APE and WavPack are read only for now, and albums from a CUE sheet get album-level fields only."
+    }
+   }
+  ]
+ }
+]
+</script>
 
 <link rel="icon" type="image/svg+xml" href="img/mark.svg">
 <link rel="icon" type="image/png" sizes="48x48" href="img/favicon-48.png">
@@ -418,6 +511,38 @@ footer .links a{color:var(--ink-2);text-decoration:none;font-size:14px}
 footer .links a:hover{color:var(--ink)}
 footer p{margin:0 0 8px;max-width:78ch}
 
+/* ============ landing additions ============ */
+/* the nav's own call to action, beside the theme switch */
+.navlinks .btn.sm{padding:0 18px}
+.navlinks a.btn,.navlinks a.btn:hover{color:var(--b-ink)}
+section.block .wrap > header .headline{text-wrap:balance}
+@media (max-width:420px){.navlinks .hide-xs2{display:none}}
+/* the hero's trust line: three short facts, dotted apart */
+.trust{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 18px;margin:18px auto 0;padding:0;list-style:none;font-size:14px;color:var(--ink-2)}
+.trust li{display:flex;align-items:center;gap:8px}
+.trust li::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--dew)}
+/* highlights: six cards, three a row */
+.fgrid.six{row-gap:56px}
+.fgrid .body + .more{margin-top:12px}
+/* a long list of ticks reads in two columns where there is room */
+@media (min-width:861px){.ticks.cols{grid-template-columns:1fr 1fr;column-gap:28px}}
+/* a stop of the tour without a screenshot: the words alone, a soft panel behind */
+.row.plain .text{padding:40px;border-radius:var(--r-card);background:var(--surface);border:1px solid var(--line);
+  box-shadow:0 24px 48px -36px rgba(var(--shadow-tint),.4)}
+@media (max-width:600px){.row.plain .text{padding:28px 22px}}
+/* made for a home server: three cards */
+.home{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.home > div{padding:32px;border-radius:var(--r-card);background:var(--surface);border:1px solid var(--line)}
+.home h3{font:400 22px/1.3 var(--font-display);margin:0 0 10px}
+.home .ic{width:44px;height:44px;margin-bottom:18px;color:var(--dew)}
+@media (max-width:860px){.home{grid-template-columns:1fr}}
+/* the closing call to action */
+.cta{text-align:center;padding:24px 0}
+.cta .headline{max-width:20ch;margin:0 auto;text-wrap:balance}
+.cta .lede{max-width:46ch;margin:20px auto 0;text-wrap:balance}
+.cta .actions{margin-top:36px}
+.cta .cmd{margin:40px auto 0;max-width:760px}
+
 /* ============ a11y / fallbacks ============ */
 @media (prefers-reduced-motion: reduce){
   html{scroll-behavior:auto}
@@ -470,10 +595,9 @@ footer p{margin:0 0 8px;max-width:78ch}
     <a class="brand" href="./" aria-label="tagave home"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><use href="#tagave-mark"/></svg>tagave</a>
     <div class="navlinks">
       <a class="hide-s" href="#features">Features</a>
-      <a class="hide-s" href="#install">Install</a>
       <a class="hide-s" href="#faq">FAQ</a>
-      <a href="/docs/">Docs</a>
-      <a class="hide-xs" href="https://github.com/xooxoxxo/tagave">GitHub</a>
+      <a class="hide-xs2" href="/docs/">Docs</a>
+      <a class="hide-s" href="https://github.com/xooxoxxo/tagave">GitHub</a>
       <div class="theme-pill" id="theme" role="radiogroup" aria-label="Colour theme">
         <span class="tp-bubble" aria-hidden="true"></span>
         <label class="tp-opt light" title="Light"><input type="radio" name="theme" value="light" aria-label="Light" autocomplete="off">
@@ -481,6 +605,7 @@ footer p{margin:0 0 8px;max-width:78ch}
         <label class="tp-opt dark" title="Dark"><input type="radio" name="theme" value="dark" aria-label="Dark" autocomplete="off">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></svg></label>
       </div>
+      <a class="btn sm" href="#install"><span>Install</span></a>
     </div>
   </nav>
 </div>
@@ -488,18 +613,23 @@ footer p{margin:0 0 8px;max-width:78ch}
 <main id="main">
   <div class="wrap">
     <section class="hero">
-      <span class="label">Self-hosted music catalogue</span>
-      <h1 class="display">Your library,<br><em>quietly</em> in order.</h1>
-      <p class="lede">It identifies every album down to the pressing and corrects its tags, safely.</p>
+      <span class="label">Self-hosted music library</span>
+      <h1 class="display">Your music library,<br><em>quietly</em> in order.</h1>
+      <p class="lede">tagave knows every album you own, down to the pressing. It fixes the tags, files each album where it belongs and plays it on every screen at home.</p>
       <div class="actions">
-        <a class="btn" href="#install"><span>Install tagave</span></a>
-        <a class="btn secondary" href="#tour"><span>See how it works</span></a>
+        <a class="btn" href="#install"><span>Install free</span></a>
+        <a class="btn secondary" href="#features"><span>See what it does</span></a>
       </div>
+      <ul class="trust">
+        <li>Free and open source</li>
+        <li>Runs on your own server</li>
+        <li>No cloud, no tracking</li>
+      </ul>
       <div class="cmd" aria-label="Install command">
         <code id="cmd-hero"><span class="p" aria-hidden="true">$ </span>bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)"</code>
         <button class="btn secondary sm copy" type="button" data-copy="cmd-hero"><span>Copy</span></button>
       </div>
-      <p class="cmd-note">Needs Docker Compose 2.20 or later. Free and open source, AGPL-3.0.</p>
+      <p class="cmd-note">One command on Linux or macOS with Docker Compose 2.20 or later. AGPL-3.0.</p>
     </section>
 
     <div class="showcase">
@@ -511,7 +641,7 @@ footer p{margin:0 0 8px;max-width:78ch}
                    width="1600" height="1000" fetchpriority="high" alt="The album grid sorted by year, with cover art, artist, format, track count and year under each cover.">
             </picture>
           </button>
-        <figcaption>The album grid. Select any screenshot to enlarge it.</figcaption>
+        <figcaption>Your albums, identified and sorted. Select any screenshot to see it full size.</figcaption>
       </figure>
     </div>
   </div>
@@ -519,24 +649,45 @@ footer p{margin:0 0 8px;max-width:78ch}
   <section class="block" id="features">
     <div class="wrap">
       <header>
-        <h2 class="headline">What it does</h2>
+        <span class="label">Highlights</span>
+        <h2 class="headline">Everything your collection needs, in one app</h2>
+        <p class="body">Bring a messy archive of FLAC and MP3 files. tagave sorts it out, keeps it sorted and makes it a joy to play.</p>
       </header>
-      <div class="fgrid">
+      <div class="fgrid six">
         <div>
           <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><circle cx="22" cy="22" r="9"/><circle cx="22" cy="22" r="2.2"/><path d="M22 13v-1.5M31 22h1.5" stroke-linecap="round"/></svg>
-          <h3>Identifies to the pressing</h3>
-          <p class="body">Matches each album against MusicBrainz and Discogs, with acoustic fingerprints when tags are wrong. It finds your edition and its catalogue number.</p>
+          <h3>Knows the exact edition</h3>
+          <p class="body">Every album is matched against MusicBrainz and Discogs, down to the pressing and catalogue number. Acoustic fingerprints help when the tags are wrong.</p>
         </div>
         <div>
           <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><path d="M15 22a7 7 0 1 0 2.2-5.1M15 14v3.5h3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <h3>Reversible tag correction</h3>
-          <p class="body">Changes come as a plan you preview file by file. Every write is journalled and can be reverted. Files are never moved, renamed or converted.</p>
+          <h3>Fixes tags you can undo</h3>
+          <p class="body">Every change comes as a plan you preview, file by file. Nothing is written until you apply it, and any plan can be undone later.</p>
+        </div>
+        <div>
+          <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><path d="M12.5 16.5v12a2 2 0 0 0 2 2h15a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-7l-2-3h-6a2 2 0 0 0-2 2Z" stroke-linejoin="round"/><path d="M18.5 24h7m-2.5-2.5L25.5 24 23 26.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <h3>Files albums where they belong</h3>
+          <p class="body">Set your folder naming rules once. Each album moves into its place, and new downloads dropped into an inbox file themselves.</p>
+        </div>
+        <div>
+          <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><path d="M19 16.5v11l9-5.5Z" stroke-linejoin="round"/><path d="M13 13.5a12 12 0 0 0 0 17M31 13.5a12 12 0 0 1 0 17" stroke-linecap="round"/></svg>
+          <h3>Plays on every screen</h3>
+          <p class="body">Play in the browser, from your phone's home screen or on AirPlay and Chromecast speakers. Music plays in one place, and every device can control it.</p>
         </div>
         <div>
           <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><rect x="13" y="14" width="18" height="16" rx="3"/><path d="M18 14v16M13 22h5" stroke-linecap="round" stroke-dasharray="2 2.5"/></svg>
-          <h3>Gaps and ownership</h3>
-          <p class="body">Lists incomplete albums, duplicates and missing releases by artists you follow. Sync Discogs and your records join the same catalogue.</p>
+          <h3>Finds what is missing</h3>
+          <p class="body">See incomplete albums, duplicates and new releases from artists you follow. Ask Lidarr for a missing album straight from the artist page.</p>
         </div>
+        <div>
+          <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><circle cx="16" cy="20" r="5"/><circle cx="28" cy="20" r="5"/><circle cx="16" cy="20" r="1"/><circle cx="28" cy="20" r="1"/><path d="M14 30h16M21 28v4" stroke-linecap="round"/></svg>
+          <h3>Mixes like a DJ</h3>
+          <p class="body">Turn on DJ and your queue blends itself, with crossfades that land on the beat. Or open two decks and mix it yourself.</p>
+        </div>
+      </div>
+      <div class="install-actions">
+        <a class="btn" href="#install"><span>Install free</span></a>
+        <a class="btn quiet" href="#tour"><span>Take the full tour</span></a>
       </div>
     </div>
   </section>
@@ -544,20 +695,25 @@ footer p{margin:0 0 8px;max-width:78ch}
   <section class="block" id="tour">
     <div class="wrap">
       <header>
-        <h2 class="headline">How it works</h2>
+        <span class="label">A closer look</span>
+        <h2 class="headline">Built for big, real libraries</h2>
+        <p class="body">tagave looks after a library of 27,000 albums every day. These are the parts that make it easy.</p>
       </header>
       <div class="tour">
         <div class="row">
           <div class="text">
             <div class="intro">
-              <span class="label">Album pages</span>
-              <h3 class="headline">Everything about one album</h3>
-              <p class="body">Release facts, the edition you own, critic scores and your own rating and listens, on one page.</p>
+              <span class="label">Identify</span>
+              <h3 class="headline">Know every album you own</h3>
+              <p class="body">tagave reads your folders, groups the files into albums and finds the exact release of each one. Matches it is unsure about wait for you in a review queue.</p>
             </div>
             <ul class="ticks">
-              <li>Scores from MusicBrainz, Discogs and Wikipedia</li>
-              <li>Your rating, review and listens stay yours</li>
-              <li>All editions of the release, one tab away</li>
+              <li>Matched against MusicBrainz and Discogs, with AcoustID fingerprints</li>
+              <li>Your pressing and catalogue number, with every other edition one tab away</li>
+              <li>Unsure matches reviewed from the keyboard, and your choice sticks</li>
+              <li>Critic scores, a Wikipedia summary and up to three clean genres per album</li>
+              <li>Artist pages with a short bio, the full discography and similar artists</li>
+              <li>Cover art from your own files first, then the Cover Art Archive</li>
             </ul>
           </div>
           <figure class="frame">
@@ -574,14 +730,16 @@ footer p{margin:0 0 8px;max-width:78ch}
         <div class="row">
           <div class="text">
             <div class="intro">
-              <span class="label">Tag plans</span>
-              <h3 class="headline">Preview every change</h3>
-              <p class="body">A plan shows each file and field, its value now and the value it would get.</p>
+              <span class="label">Tag</span>
+              <h3 class="headline">Preview every change before it happens</h3>
+              <p class="body">A tag plan shows each file and field, the value it has now and the value it would get. You decide what is written.</p>
             </div>
             <ul class="ticks">
               <li>Nothing is written until you apply</li>
-              <li>Audio is hashed before and after each write</li>
-              <li>Any plan can be reverted from the journal</li>
+              <li>The audio is checked before and after each write, and a mismatch stops the job</li>
+              <li>Any plan can be undone from the journal</li>
+              <li>Lock a field to keep your own value through every fix</li>
+              <li>Reads and writes MP3, FLAC, M4A, ALAC, Ogg, Opus, WAV and AIFF</li>
             </ul>
           </div>
           <figure class="frame">
@@ -598,14 +756,17 @@ footer p{margin:0 0 8px;max-width:78ch}
         <div class="row">
           <div class="text">
             <div class="intro">
-              <span class="label">Compilations</span>
-              <h3 class="headline">Rejoin split compilations</h3>
-              <p class="body">A compilation filed one folder per artist becomes one album again, without moving a file.</p>
+              <span class="label">Organize</span>
+              <h3 class="headline">A tidy folder for every album</h3>
+              <p class="body">Write your folder and file naming rules, or let tagave read them from your library. From then on, everything lands in its place.</p>
             </div>
             <ul class="ticks">
-              <li>Rescans keep it together</li>
-              <li>Split it back at any time</li>
-              <li>Album fields are set in one previewed plan</li>
+              <li>Apply a plan and the album moves to its folder, with its covers, cue sheet and logs</li>
+              <li>Drop new albums into an inbox folder, and confident matches file themselves</li>
+              <li>Move stray songs into the right album, with every new name shown first</li>
+              <li>Split a whole album stored in one FLAC into one lossless file per track</li>
+              <li>Rejoin compilations that were filed one folder per artist</li>
+              <li>No file is ever overwritten, and every move can be undone</li>
             </ul>
           </div>
           <figure class="frame">
@@ -622,14 +783,17 @@ footer p{margin:0 0 8px;max-width:78ch}
         <div class="row">
           <div class="text">
             <div class="intro">
-              <span class="label">Library care</span>
-              <h3 class="headline">See what is missing</h3>
-              <p class="body">Once albums are identified, tagave lists missing tracks, duplicates and releases you do not have yet.</p>
+              <span class="label">Collect</span>
+              <h3 class="headline">See what is missing, then get it</h3>
+              <p class="body">Once your albums are identified, tagave knows what is incomplete, what you have twice and what you do not have yet.</p>
             </div>
             <ul class="ticks">
               <li>Incomplete albums name the missing tracks</li>
-              <li>A dismissed gap stays dismissed</li>
-              <li>Unsure matches wait in a review queue</li>
+              <li>Duplicates listed together, so you can keep the best copy</li>
+              <li>New releases from the artists you follow</li>
+              <li>Ask Lidarr for a missing album from the artist page</li>
+              <li>Play a missing album on your streaming service in one tap</li>
+              <li>Sync your Discogs collection, so vinyl and CDs sit next to your files</li>
             </ul>
           </div>
           <figure class="frame">
@@ -642,6 +806,68 @@ footer p{margin:0 0 8px;max-width:78ch}
           </button>
           </figure>
         </div>
+
+        <div class="row plain">
+          <div class="text">
+            <div class="intro">
+              <span class="label">Listen</span>
+              <h3 class="headline">A player worthy of your library</h3>
+              <p class="body">Turn on the player and tagave becomes your music server. Everyone at home gets their own queue, likes and listening history.</p>
+            </div>
+            <ul class="ticks cols">
+              <li>A queue that follows you from your desk to your phone</li>
+              <li>Installs to your phone's home screen and plays with the screen locked</li>
+              <li>Casts to AirPlay and Chromecast speakers and TVs</li>
+              <li>Start on your phone, then control it from your laptop</li>
+              <li>Playlists you can share and build together</li>
+              <li>Likes for songs, albums and artists, in step with your Subsonic apps</li>
+              <li>Scrobbles to Last.fm and ListenBrainz</li>
+              <li>Colours that follow the cover, and a glow that moves with the music</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="row plain">
+          <div class="text">
+            <div class="intro">
+              <span class="label">DJ</span>
+              <h3 class="headline">Let the party mix itself</h3>
+              <p class="body">The DJ module measures each song's tempo, beats and quiet ends on your server. Then it blends your queue the way a DJ would.</p>
+            </div>
+            <ul class="ticks">
+              <li>Simple mode: crossfades that land on the beat and ease into the next tempo</li>
+              <li>Songs from one album still play without gaps</li>
+              <li>Advanced mode: two decks with waveforms, pitch, sync, filter, EQ and echo</li>
+              <li>Auto mix runs the decks for you</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="home">
+    <div class="wrap">
+      <header>
+        <span class="label">Made for your home server</span>
+        <h2 class="headline">Yours, and it looks after itself</h2>
+      </header>
+      <div class="home">
+        <div>
+          <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><circle cx="18" cy="18" r="3.5"/><circle cx="27" cy="19.5" r="2.8"/><path d="M11.5 29.5c.8-4 3.5-6 6.5-6s5.7 2 6.5 6M24.5 25c.8-.8 1.8-1.2 2.5-1.2 2.2 0 4 1.7 4.6 4.7" stroke-linecap="round"/></svg>
+          <h3>For the whole household</h3>
+          <p class="body">Invite people with a link and give each one a role: owner, editor or listener. Sign in with a password, a passkey or your own login service, such as Authentik or Zitadel.</p>
+        </div>
+        <div>
+          <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><rect x="14.5" y="20" width="15" height="11" rx="2.5"/><path d="M17.5 20v-3a4.5 4.5 0 0 1 9 0v3" stroke-linecap="round"/></svg>
+          <h3>Private by design</h3>
+          <p class="body">Your library and your listening stay on your server. tagave only asks public music databases about your albums, and there is no telemetry.</p>
+        </div>
+        <div>
+          <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><path d="M22 12.5 30 15.5v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10v-6Z" stroke-linejoin="round"/><path d="m18.5 22 2.5 2.5 4.5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <h3>Looks after itself</h3>
+          <p class="body">Updates are signed, take a backup first and roll back on their own if something fails. A music share that drops out is noticed and reconnected.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -649,7 +875,8 @@ footer p{margin:0 0 8px;max-width:78ch}
   <section class="block" id="install">
     <div class="wrap">
       <header>
-        <h2 class="headline">Install</h2>
+        <span class="label">Install</span>
+        <h2 class="headline">Up and running in minutes</h2>
         <p class="body">One command sets everything up in <code>~/tagave</code>. Running it again is safe.</p>
       </header>
       <div class="cmd" aria-label="Install command">
@@ -668,7 +895,7 @@ footer p{margin:0 0 8px;max-width:78ch}
         </li>
         <li>
           <h3>Add your music</h3>
-          <p class="body">Enter <code>/mnt/music</code> as the scan root.</p>
+          <p class="body">Enter <code>/mnt/music</code> as the scan root. Identifying starts right away.</p>
         </li>
       </ol>
       <div class="install-actions">
@@ -683,12 +910,12 @@ footer p{margin:0 0 8px;max-width:78ch}
       <div class="status">
         <span class="dot" aria-hidden="true"></span>
         <div>
-          <h2 class="title" id="status-title">Early software</h2>
-          <p class="body">It runs one real library every day and has one user so far. Read the <a href="/docs/operations/">operations guide</a> before trusting it with anything you cannot re&#8209;rip.</p>
+          <h2 class="title" id="status-title">Early software, used every day</h2>
+          <p class="body">It runs one real library every day. Read the <a href="/docs/operations/">operations guide</a> before you trust it with anything you cannot re&#8209;rip.</p>
           <div class="nums">
             <div>27,000<span>albums</span></div>
             <div>240,000<span>files</span></div>
-            <div>1<span>user</span></div>
+            <div>Daily<span>use</span></div>
           </div>
         </div>
       </div>
@@ -704,27 +931,40 @@ footer p{margin:0 0 8px;max-width:78ch}
         <details>
           <summary>What is tagave?</summary>
           <div class="answer">
-            <p>A catalogue for music you own. It identifies each album, shows what is incomplete or duplicated, and corrects tags through plans you preview.</p>
+            <p>A self-hosted app for the music you own. It identifies every album, fixes tags through plans you preview, files albums by your naming rules and plays them at home and on your phone.</p>
           </div>
         </details>
         <details>
           <summary>Is it a music player?</summary>
           <div class="answer">
-            <p>No. Navidrome, Jellyfin, Plexamp and Roon play your music. tagave gets the tags under them right.</p>
+            <p>Yes, if you want one. Turn on the player and tagave plays in the browser, on your phone and on AirPlay or Chromecast speakers. It comes with Navidrome, so Subsonic apps work too.</p>
+            <p>Happy with Plexamp, Jellyfin or Roon? Keep them. tagave gets the tags under them right.</p>
           </div>
         </details>
         <details>
           <summary>Will it change my files?</summary>
           <div class="answer">
-            <p>Only their tags, and only when you apply a plan you have previewed. Each write is journalled and can be reverted. The audio is hashed before and after, and a mismatch stops the job.</p>
-            <p>Files are never moved, renamed, split, converted or deleted. You can also mount your music read-only.</p>
+            <p>Only when you let it. Your music is mounted read-only unless you install with <code>--music-writable</code>.</p>
+            <p>Tag changes, moves and splits always show a preview first. Each one is journalled and can be undone. No file is ever overwritten. Files you delete, and originals you split, go to a trash first.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Can it download music?</summary>
+          <div class="answer">
+            <p>Not by itself, but it works with Lidarr. Ask Lidarr for a missing album from the artist page, and tagave files the download by your naming rules.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Can my family use it?</summary>
+          <div class="answer">
+            <p>Yes. Invite people with a one-time link and give each one a role. Everyone gets their own queue, likes, playlists, listening history and scrobbling.</p>
           </div>
         </details>
         <details>
           <summary>Does it need the cloud or an account?</summary>
           <div class="answer">
-            <p>No. It runs in Docker on your own machine, and your library and account stay there.</p>
-            <p>It looks things up on MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID if you add keys. Twice a day it checks GitHub for new tagave releases, sending nothing about you; turn that off in Settings › Updates. Nothing else leaves your server, and there is no telemetry.</p>
+            <p>No. It runs in Docker on your own machine, and your library and accounts stay there.</p>
+            <p>It looks things up on MusicBrainz, Cover Art Archive, Wikipedia, Wikidata and ListenBrainz, plus Discogs and AcoustID if you add keys. Twice a day it checks GitHub for new tagave releases, sending nothing about you. You can turn that off in Settings › Updates. There is no telemetry.</p>
           </div>
         </details>
         <details>
@@ -739,6 +979,19 @@ footer p{margin:0 0 8px;max-width:78ch}
             <p>It reads and writes tags in MP3, FLAC, M4A and ALAC, Ogg, Opus, WAV and AIFF. APE and WavPack are read only for now, and albums from a CUE sheet get album-level fields only.</p>
           </div>
         </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="start">
+    <div class="wrap">
+      <div class="cta">
+        <h2 class="headline">Put your music library in order tonight</h2>
+        <p class="lede">One command installs it. Point it at your music, and tagave starts identifying right away.</p>
+        <div class="actions">
+          <a class="btn" href="#install"><span>Install free</span></a>
+          <a class="btn secondary" href="https://github.com/xooxoxxo/tagave"><span>Star on GitHub</span></a>
+        </div>
       </div>
     </div>
   </section>
@@ -820,7 +1073,7 @@ footer p{margin:0 0 8px;max-width:78ch}
   /* Gentle entrance: only what starts below the fold is hidden, and only here, so the page is
      complete without script and with reduced motion. */
   if (!calm && 'IntersectionObserver' in window) {
-    var picks = document.querySelectorAll('.showcase .frame, section.block .wrap > header, .fgrid > div, .row > .text, .row > .frame, #install .cmd, .steps > li, .install-actions, .status, .faq');
+    var picks = document.querySelectorAll('.showcase .frame, section.block .wrap > header, .fgrid > div, .row > .text, .row > .frame, .home > div, #install .cmd, .steps > li, .install-actions, .status, .faq, .cta');
     var io = new IntersectionObserver(function (entries) {
       for (var i = 0; i < entries.length; i++) {
         if (!entries[i].isIntersecting) continue;
@@ -836,7 +1089,7 @@ footer p{margin:0 0 8px;max-width:78ch}
       var el = picks[r];
       if (el.getBoundingClientRect().top < window.innerHeight) continue;
       var sib = Array.prototype.indexOf.call(el.parentNode.children, el);
-      if (/fgrid|steps/.test(el.parentNode.className)) el.style.transitionDelay = (Math.min(sib, 2) * 80) + 'ms';
+      if (/fgrid|steps|home/.test(el.parentNode.className)) el.style.transitionDelay = (Math.min(sib, 2) * 80) + 'ms';
       el.classList.add('rv');
       io.observe(el);
     }
