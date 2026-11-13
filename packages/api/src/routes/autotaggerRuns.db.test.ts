@@ -92,6 +92,8 @@ describe.skipIf(!adminUrl)('autotagger runs and payload preview (integration, sc
   async function ready(): Promise<void> {
     await setAutotaggerEnabled(sql, true);
     await setTypesafeKey(sql, lib, sealSecret('ts-live-0123456789abcdef', TEST_APP_SECRET), 'cdef');
+    // these runs are Jev's (the local decider is the default)
+    await patch(`/api/v1/libraries/${lib}/autotagger/config`, { decider: 'jev' });
     await post(`/api/v1/libraries/${lib}/autotagger/preview/seen`, {});
     await patch(`/api/v1/libraries/${lib}/autotagger/config`, { monthlyCap: 5, currency: 'USD' });
     await put('/api/v1/settings/autotagger/prices', { model: '*', perMillionInput: 1, currency: 'USD' });
@@ -222,6 +224,8 @@ describe.skipIf(!adminUrl)('autotagger runs and payload preview (integration, sc
 
   it('no run before the owner has seen the payload', async () => {
     await setTypesafeKey(sql, lib, sealSecret('ts-live-0123456789abcdef', TEST_APP_SECRET), 'cdef');
+    // these runs are Jev's (the local decider is the default)
+    await patch(`/api/v1/libraries/${lib}/autotagger/config`, { decider: 'jev' });
     const r = await post(runs(), { population: 'needs_review' });
     expect(r.statusCode).toBe(409);
     expect(r.json().detail).toMatch(/payload/i);

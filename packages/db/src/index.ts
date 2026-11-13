@@ -59,6 +59,7 @@ export * from './evidenceStore.js';
 export * from './deciderPopulation.js';
 export * from './deciderSpotChecks.js';
 export * from './deciderModels.js';
+export * from './deciderAcceptBand.js';
 export * from './lidarr.js';
 export * from './musicFolder.js';
 export * from './maintenance.js';

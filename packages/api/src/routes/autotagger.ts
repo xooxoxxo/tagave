@@ -29,6 +29,19 @@
  *   GET    /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks          library.edit: ?band=&verdict=pending&limit=25&offset=0
  *   PUT    /api/v1/libraries/:libraryId/autotagger/spot-checks/:checkId             library.edit: { verdict } → 204
  *
+ * The local decider (the library's default; Jev needs a key):
+ *
+ *   POST   /api/v1/libraries/:libraryId/autotagger/train               system.manage: train the local model on the owner's decisions → 202
+ *   GET    /api/v1/libraries/:libraryId/autotagger/models              library.edit: the stored models, the active one first
+ *
+ * A local run asks nothing outside the machine and costs nothing: it needs
+ * the trained model, not the key, the payload preview, a price or a cap.
+ *
+ * Accepting a band (only through its spot-check gate):
+ *
+ *   GET    /api/v1/libraries/:libraryId/autotagger/runs/:runId/accept-preview?band=  system.manage: what the batch would hold
+ *   POST   /api/v1/libraries/:libraryId/autotagger/runs/:runId/accept               system.manage: { band } → 202 { batchId, albums }
+ *
  * A backtest is a run like any other ({ population: 'backtest' }), with the
  * same checks. Agreement only informs: nothing accepts by it.
  *
@@ -61,15 +74,16 @@ import {
   deciderRunJobWaiting, removeAutotaggerData, staleDeciderRunJobs, waitingDeciderRunJobs, runSpendByCurrency, sendDeciderRun, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint,
   latestBacktestRunId, queueAgreement, typesafeKeyHintOf, type AutotaggerConfig, type LoadedEvidence,
   bandTable, drawSpotChecks, recordVerdict, spotChecks, type SpotCheckRow,
+  BATCH_CANNOT_UNDO, activeModel, bandAcceptPlan, createBatch, drainEstimate, listModels, sendDeciderAccept, sendDeciderTrain, type DeciderModelRow,
 } from '@tagave/db';
 import {
-  NotSendableError, bandGate, hashOf, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
+  LOCAL_DECIDER_ID, NotSendableError, bandGate, hashOf, jevSpecHash, requestForAlbum, requestOptions, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
   type BandId as CoreBandId,
 } from '@tagave/core';
 import {
   AUTOTAGGER_DECIDER_ID, DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, autotaggerKeySchema, autotaggerModuleSchema, deciderLabel, deciderPriceSchema,
-  startRunSchema, BAND_IDS, drawSpotChecksSchema, spotCheckQuerySchema, spotCheckVerdictSchema,
-  type AgreementView, type AutotaggerLibraryView, type AutotaggerModuleView, type BandId, type BandRow, type DeciderPrice, type PayloadPreview, type Population,
+  startRunSchema, BAND_IDS, drawSpotChecksSchema, spotCheckQuerySchema, spotCheckVerdictSchema, acceptBandSchema,
+  type AcceptPreview, type LocalModelMetrics, type LocalModelView, type LocalModelsView, type AgreementView, type AutotaggerLibraryView, type AutotaggerModuleView, type BandId, type BandRow, type DeciderPrice, type PayloadPreview, type Population,
   type RunView, type SpotCheckItem, type SpotCheckVerdictView,
 } from '@tagave/shared';
 import { labelSummary, mediaSummary } from '../lib/releaseSummary.js';
@@ -250,14 +264,14 @@ async function firstPreview(libraryId: string, config: AutotaggerConfig): Promis
 }
 
 interface RunRow {
-  id: string; population: Population; state: string; pause_reason: string | null; message: string | null; decider_version: string | null;
+  id: string; decider_id: string; population: Population; state: string; pause_reason: string | null; message: string | null; decider_version: string | null;
   model_requested: string; seed: number; created_at: string | Date; started_by: string | null;
 }
 
 async function runRows(libraryId: string, runId?: string): Promise<RunRow[]> {
   const one = runId ?? null;
   return orMissing(() => sql()<RunRow[]>`
-    select r.id, r.population, r.state, r.pause_reason, r.message, r.decider_version, r.model_requested, r.seed, r.created_at,
+    select r.id, r.decider_id, r.population, r.state, r.pause_reason, r.message, r.decider_version, r.model_requested, r.seed, r.created_at,
            u.display_name as started_by
       from decider_runs r
       left join users u on u.id = r.started_by_user_id
@@ -285,11 +299,12 @@ async function runViews(libraryId: string, rows: RunRow[]): Promise<RunView[]> {
       : Object.values(o).reduce((a, b) => a + b, 0);
     views.push({
       id: r.id,
+      deciderId: r.decider_id,
       population: r.population,
       state: r.state,
       pauseReason: r.pause_reason,
       message: r.message,
-      modelLabel: deciderLabel(AUTOTAGGER_DECIDER_ID, r.decider_version ?? r.model_requested),
+      modelLabel: deciderLabel(r.decider_id, r.decider_version ?? r.model_requested),
       createdAt: new Date(r.created_at).toISOString(),
       startedBy: r.started_by,
       albums,
@@ -318,7 +333,20 @@ async function runView(libraryId: string, runId: string): Promise<RunView> {
  * each call; and no other run of the library that can still go on. 409
  * naming what is missing.
  */
-async function refuseUnlessReady(tx: Tx, libraryId: string, population: Population, model: string, exceptRun: string | null): Promise<void> {
+async function refuseUnlessReady(
+  tx: Tx, libraryId: string, population: Population, model: string, exceptRun: string | null, deciderId: string = AUTOTAGGER_DECIDER_ID,
+): Promise<void> {
+  // the local decider sends nothing and costs nothing: only one run at a time
+  if (deciderId !== LOCAL_DECIDER_ID) await refuseUnlessPaidReady(tx, libraryId, population, model);
+  const [active] = await tx<Array<{ id: string }>>`
+    select id from decider_runs
+     where library_id = ${libraryId} and state = any(${ACTIVE_STATES}::text[]) and (${exceptRun}::uuid is null or id <> ${exceptRun}::uuid)
+     limit 1`;
+  if (active) throw new ApiError(409, 'Conflict', 'A run is active');
+}
+
+/** A paid decider's needs: the key, the payload seen, a cap and a price in its currency. */
+async function refuseUnlessPaidReady(tx: Tx, libraryId: string, population: Population, model: string): Promise<void> {
   if ((await typesafeKeyHint(tx, libraryId)) === null) throw new ApiError(409, 'Conflict', 'No TypeSafe key');
   const config = await autotaggerConfig(tx, libraryId);
   if (!config.payloadSeenAt) throw new ApiError(409, 'Conflict', 'See the payload first');
@@ -332,11 +360,13 @@ async function refuseUnlessReady(tx: Tx, libraryId: string, population: Populati
       throw new ApiError(409, 'Conflict', `Cap reached: ${verdict.spent.toFixed(4)} of ${verdict.cap} ${config.currency}`);
     }
   }
-  const [active] = await tx<Array<{ id: string }>>`
-    select id from decider_runs
-     where library_id = ${libraryId} and state = any(${ACTIVE_STATES}::text[]) and (${exceptRun}::uuid is null or id <> ${exceptRun}::uuid)
-     limit 1`;
-  if (active) throw new ApiError(409, 'Conflict', 'A run is active');
+}
+
+function modelView(m: DeciderModelRow): LocalModelView {
+  return {
+    id: m.id, version: m.version, createdAt: m.createdAt, active: m.active,
+    counts: m.counts, metrics: m.metrics as LocalModelMetrics,
+  };
 }
 
 /** One start or resume of the library's runs at a time (until the transaction ends). */
@@ -554,7 +584,11 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     await on();
     const parsed = autotaggerConfigPatchSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw badRequest(parsed.error.issues, 'Invalid settings');
-    await whileOn((tx) => setAutotaggerConfig(tx, libraryId, parsed.data, (raw) => autotaggerConfigPatchSchema.parse(raw)));
+    await whileOn(async (tx) => {
+      // Jev sends album data out at a cost: only with a key
+      if (parsed.data.decider === 'jev' && (await typesafeKeyHint(tx, libraryId)) === null) throw new ApiError(409, 'Conflict', 'No TypeSafe key');
+      return setAutotaggerConfig(tx, libraryId, parsed.data, (raw) => autotaggerConfigPatchSchema.parse(raw));
+    });
     return libraryView(request, libraryId);
   });
 
@@ -626,10 +660,19 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     const runId = await whileOn(async (tx) => {
       await lockLibraryRuns(tx, libraryId);
       const config = await autotaggerConfig(tx, libraryId);
-      await refuseUnlessReady(tx, libraryId, population, config.model, null);
+      // the local decider runs the model active now; a later training applies to later runs
+      let deciderId = AUTOTAGGER_DECIDER_ID;
+      let model = config.model;
+      if (config.decider === LOCAL_DECIDER_ID) {
+        const active = await activeModel(tx, libraryId, LOCAL_DECIDER_ID);
+        if (!active) throw new ApiError(409, 'Conflict', 'No trained model');
+        deciderId = LOCAL_DECIDER_ID;
+        model = active.version;
+      }
+      await refuseUnlessReady(tx, libraryId, population, model, null, deciderId);
       const [row] = await tx<Array<{ id: string }>>`
         insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population, started_by_user_id)
-        values (${libraryId}, ${AUTOTAGGER_DECIDER_ID}, ${jevSpecHash()}, ${config.model}, ${population}, ${actor})
+        values (${libraryId}, ${deciderId}, ${jevSpecHash()}, ${model}, ${population}, ${actor})
         returning id`;
       return row!.id;
     });
@@ -726,14 +769,14 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     await on();
     const prior = await whileOn(async (tx) => {
       await lockLibraryRuns(tx, libraryId);
-      const [run] = await tx<Array<{ state: string; population: Population; spec_hash: string; model: string; pause_reason: string | null; message: string | null }>>`
-        select state, population, spec_hash, coalesce(decider_version, model_requested) as model, pause_reason, message
+      const [run] = await tx<Array<{ state: string; decider_id: string; population: Population; spec_hash: string; model: string; pause_reason: string | null; message: string | null }>>`
+        select state, decider_id, population, spec_hash, coalesce(decider_version, model_requested) as model, pause_reason, message
           from decider_runs where id = ${runId} and library_id = ${libraryId} for update`;
       if (!run) throw new ApiError(404, 'Not Found', 'Run not found');
       if (!RESUMABLE_STATES.includes(run.state)) throw new ApiError(409, 'Conflict', `Run is ${run.state}`);
       // the run asks the question it started with; a new run asks the new one
       if (run.spec_hash !== jevSpecHash()) throw new ApiError(409, 'Conflict', 'Question changed');
-      await refuseUnlessReady(tx, libraryId, run.population, run.model, runId);
+      await refuseUnlessReady(tx, libraryId, run.population, run.model, runId, run.decider_id);
       await tx`update decider_runs set state = 'queued', pause_reason = null, message = null, finished_at = null where id = ${runId}`;
       return run;
     });
@@ -768,5 +811,122 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     }
     request.log.info({ event: 'autotagger.run_cancelled', libraryId, runId, userId: request.user?.id ?? null }, 'decider run cancelled');
     return runView(libraryId, runId);
+  });
+  // ---- the local decider ----
+
+  fastify.post('/libraries/:libraryId/autotagger/train', async (request, reply): Promise<{ queued: boolean }> => {
+    sameSite(request);
+    const { libraryId } = request.params as { libraryId: string };
+    await assertLibrary(libraryId);
+    await on();
+    // one training per library at a time: a second request while one waits adds nothing
+    const job = await sendDeciderTrain(await getBoss(), libraryId);
+    request.log.info({ event: 'autotagger.train_requested', libraryId, queued: job !== null, userId: request.user?.id ?? null }, 'local decider training requested');
+    reply.status(202);
+    return { queued: job !== null };
+  });
+
+  fastify.get('/libraries/:libraryId/autotagger/models', async (request): Promise<LocalModelsView> => {
+    const { libraryId } = request.params as { libraryId: string };
+    await assertLibrary(libraryId);
+    const models = (await listModels(sql(), libraryId, 20, LOCAL_DECIDER_ID)).map(modelView);
+    return { active: models.find((m) => m.active) ?? null, models };
+  });
+
+  // ---- accepting a band ----
+
+  /**
+   * A run whose band may be accepted: done, over albums in review (or weak
+   * ones), never a backtest or a measurement. 409 otherwise.
+   */
+  async function acceptableRun(db: postgres.Sql<any> | Tx, libraryId: string, runId: string) {
+    const [run] = await (db as Tx)<Array<{ id: string; state: string; population: Population; decider_id: string; decider_version: string | null }>>`
+      select id, state, population, decider_id, decider_version from decider_runs where id = ${runId} and library_id = ${libraryId}`;
+    if (!run) throw new ApiError(404, 'Not Found', 'Run not found');
+    if (run.population !== 'needs_review' && run.population !== 'weak') throw new ApiError(409, 'Conflict', `A ${run.population} run is never accepted`);
+    if (run.state !== 'done') throw new ApiError(409, 'Conflict', `Run is ${run.state}`);
+    return run;
+  }
+
+  async function bandGateOf(db: postgres.Sql<any> | Tx, libraryId: string, runId: string, band: BandId): Promise<BandRow | null> {
+    const config = await autotaggerConfig(db, libraryId);
+    return (await gatedBands(db, runId, config.maxErrorRate)).find((b) => b.band === band) ?? null;
+  }
+
+  fastify.get('/libraries/:libraryId/autotagger/runs/:runId/accept-preview', async (request): Promise<AcceptPreview> => {
+    const { libraryId, runId } = request.params as { libraryId: string; runId: string };
+    await assertLibrary(libraryId);
+    await runStateOf(libraryId, runId);
+    const parsed = acceptBandSchema.safeParse(request.query ?? {});
+    if (!parsed.success) throw badRequest(parsed.error.issues, 'band: p99, p97, p95 or p90');
+    const { band } = parsed.data;
+    await acceptableRun(sql(), libraryId, runId);
+    const row = await bandGateOf(sql(), libraryId, runId, band);
+    const plan = await bandAcceptPlan(sql(), runId, band);
+    const [links] = await sql()<Array<{ n: number }>>`select count(*)::int as n from mc_links where state = 'active'`;
+    return {
+      band,
+      albums: plan.items.length,
+      excludedWrong: plan.excludedWrong,
+      alreadyAccepted: plan.alreadyAccepted,
+      notPinned: plan.notPinned,
+      gate: { upper: row?.upper ?? 1, allowed: row?.allowed ?? false, stillNeeded: row?.stillNeeded ?? null },
+      cannotUndo: BATCH_CANNOT_UNDO,
+      linkedApps: links?.n ?? 0,
+      drain: await drainEstimate(sql(), libraryId),
+    };
+  });
+
+  fastify.post('/libraries/:libraryId/autotagger/runs/:runId/accept', async (request, reply): Promise<{ batchId: string | null; albums: number }> => {
+    sameSite(request);
+    const { libraryId, runId } = request.params as { libraryId: string; runId: string };
+    await assertLibrary(libraryId);
+    await runStateOf(libraryId, runId);
+    const parsed = acceptBandSchema.safeParse(request.body ?? {});
+    if (!parsed.success) throw badRequest(parsed.error.issues, 'band: p99, p97, p95 or p90');
+    await on();
+    const { band } = parsed.data;
+    const actor = request.user?.id ?? null;
+    const made = await whileOn(async (tx) => {
+      // one accept of a run's band at a time: a second click waits, then finds the albums taken
+      await tx`select pg_advisory_xact_lock(hashtext(${`decider.accept-band:${runId}`}))`;
+      const run = await acceptableRun(tx, libraryId, runId);
+      const gate = await bandGateOf(tx, libraryId, runId, band);
+      if (!gate?.allowed) throw new ApiError(409, 'Conflict', gate ? `Gate closed: ${gate.stillNeeded ?? 'more'} more checks` : 'No picks in this band');
+      const plan = await bandAcceptPlan(tx, runId, band);
+      if (plan.items.length === 0) return { batchId: null, albums: 0 };
+      const version = run.decider_version ?? run.decider_id;
+      const batchId = await createBatch(tx, {
+        libraryId, deciderId: run.decider_id, deciderVersion: run.decider_version, decidedKind: 'model',
+        startedByUserId: actor, runId, band,
+        acceptFrom: run.population === 'weak' ? ['needs_review', 'unidentified'] : ['needs_review'],
+        items: plan.items.map((i) => ({
+          albumId: i.albumId, releaseId: i.releaseId, distance: i.distance, source: i.source, probability: i.probability,
+          evidenceHash: i.evidenceHash, expectLastIdentifyAt: i.lastIdentifyAt,
+          reason: `model accept: ${version}, probability ${(i.probability ?? 0).toFixed(4)}`,
+        })),
+      });
+      await tx`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id, payload)
+               values (${libraryId}, ${actor}, 'autotagger.band_accepted', 'decider_batch', ${batchId},
+                       ${JSON.stringify({ runId, band, albums: plan.items.length })}::text::jsonb)`;
+      return { batchId, albums: plan.items.length };
+    });
+    if (made.batchId) {
+      let queued = false;
+      try {
+        queued = Boolean(await sendDeciderAccept(await getBoss(), made.batchId));
+      } catch (err) {
+        request.log.error({ err, event: 'autotagger.accept_not_queued', libraryId, runId, batchId: made.batchId }, 'band accept not queued');
+      }
+      if (!queued) {
+        // nothing accepted yet: the batch ends failed, its albums free for another accept
+        await sql()`update decider_batches set state = 'failed', message = 'Accept not queued' where id = ${made.batchId} and state = 'queued'`;
+        await sql()`update decider_batch_items set status = 'skipped', skip_reason = 'state' where batch_id = ${made.batchId} and status = 'pending'`;
+        throw new ApiError(503, 'Service Unavailable', 'Accept not queued; retry');
+      }
+    }
+    request.log.info({ event: 'autotagger.band_accepted', libraryId, runId, band, batchId: made.batchId, albums: made.albums, userId: actor }, 'band accept queued');
+    reply.status(202);
+    return made;
   });
 }

@@ -142,6 +142,8 @@ export interface PayloadPreview {
 /** One decider run (Library care › Review › Decide with Jev). */
 export interface RunView {
   id: string;
+  /** 'local' or 'jev' */
+  deciderId: string;
   population: Population;
   state: string;
   pauseReason: string | null;
@@ -248,4 +250,52 @@ export interface SpotCheckItem {
   probability: number | null;
   groupSize: number;
   stale: boolean;
+}
+
+/** What a training of the local decider counted. */
+export interface LocalModelCounts { albums: number; rows: number; owner: number; auto: number; rejections: number }
+
+/** One band of a training's held-out figures (@tagave/core BandMetrics). */
+export interface LocalModelBand {
+  band: string; min: number; decided: number; coverage: number; wrongRelease: number; wrongAlbum: number;
+  errorRate: number | null; errorUpper: number;
+}
+
+/** A training's held-out figures (@tagave/core LocalTrainMetrics); they inform, the spot checks gate. */
+export interface LocalModelMetrics {
+  albums: number; groupedAlbums: number; folds: number; seed: number; cutoff: number; margin: number;
+  bands: LocalModelBand[]; atOrAbove: LocalModelBand[]; undecided: number;
+  topPickRight: { right: number; albums: number; rate: number };
+}
+
+/** One stored model of the local decider; `active` is the one new runs use. */
+export interface LocalModelView {
+  id: string; version: string; createdAt: string; active: boolean; counts: LocalModelCounts; metrics: LocalModelMetrics;
+}
+
+/** The library's local decider models, newest first. */
+export interface LocalModelsView { active: LocalModelView | null; models: LocalModelView[] }
+
+/** Accept one band of a finished run's picks, once its spot-check gate is open. */
+export const acceptBandSchema = z.object({ band: z.enum(BAND_IDS) }).strict();
+
+/**
+ * What accepting a band would do. `albums`: the band's picks that would go
+ * into the batch; `excludedWrong`: picks left out because a spot check
+ * found them wrong or unsure; `alreadyAccepted`: picks already in an
+ * accepted or waiting batch of this run. `cannotUndo`: what an undo cannot
+ * take back. `linkedApps`: Music Connections links that may pull the new
+ * identities.
+ */
+export interface AcceptPreview {
+  band: BandId;
+  albums: number;
+  excludedWrong: number;
+  alreadyAccepted: number;
+  /** picks whose decision is not pinned to the evidence it saw (decided before the album was identified again) */
+  notPinned: number;
+  gate: { upper: number; allowed: boolean; stillNeeded: number | null };
+  cannotUndo: readonly string[];
+  linkedApps: number;
+  drain: { pending: number; perNight: number; nights: number; limit: number };
 }

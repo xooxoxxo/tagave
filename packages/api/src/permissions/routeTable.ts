@@ -208,6 +208,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks/draw': 'library.edit',
   'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId/spot-checks': 'library.edit',
   'PUT /api/v1/libraries/:libraryId/autotagger/spot-checks/:checkId': 'library.edit',
+  // The local decider's stored models (routes/autotagger.ts): read only, counts and held-out figures.
+  'GET /api/v1/libraries/:libraryId/autotagger/models': 'library.edit',
   // Similar artists: follow an artist the library has no row for yet (by MBID), as Follow is library care
   'POST /api/v1/libraries/:libraryId/similar-artists/follow': 'library.edit',
   'GET /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
@@ -309,6 +311,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/libraries/:libraryId/autotagger/runs': 'system.manage',
   'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/resume': 'system.manage',
   'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/cancel': 'system.manage',
+  // Training the local decider and accepting a band of a run's picks (through its spot-check gate) are the owner's.
+  'POST /api/v1/libraries/:libraryId/autotagger/train': 'system.manage',
+  'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId/accept-preview': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/accept': 'system.manage',
   // Settings › Modules › Similar artists (routes/similarArtists.ts): owner, and a fresh step-up to change it.
   'GET /api/v1/settings/similar-artists': 'system.manage',
   'PUT /api/v1/settings/similar-artists': 'system.manage',
