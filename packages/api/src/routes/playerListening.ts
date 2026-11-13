@@ -13,6 +13,7 @@
  *   DELETE /api/v1/me/listening/lastfm                     disconnect
  *   POST   /api/v1/me/listening/listenbrainz               connect with a pasted token (checked first); { services, queued }
  *   DELETE /api/v1/me/listening/listenbrainz               disconnect
+ *   PUT    /api/v1/me/listening/:service/loves             { on }: liked songs go as loves (Last.fm, ListenBrainz)
  *   PUT    /api/v1/me/listening/phone-password             bundled player: a password for phone apps
  *   DELETE /api/v1/me/listening/phone-password             back to a random one
  *   PUT    /api/v1/me/listening/account                    the owner's own server: this person's login there
@@ -26,6 +27,7 @@ import { NavidromeError } from '@tagave/core/player';
 import {
   connectListenbrainzSchema,
   ownPlayerAccountSchema,
+  lovesSettingSchema,
   phonePasswordSchema,
   saveLastfmAppSchema,
   scrobbleServiceSchema,
@@ -51,6 +53,7 @@ import {
   publicOrigin,
   scrobblingSettingsView,
   sealLastfmApp,
+  setSendLoves,
   type LastfmAppSettings,
 } from '../lib/scrobbling.js';
 
@@ -174,7 +177,7 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
     const user = requirePlayer(request);
     const lib = await libraryOf(request);
     const app = await installLastfmApp(getSql(), process.env, lib?.id ?? null);
-    if (!app) throw new ApiError(409, 'Conflict', 'Last.fm is not set up on this server yet; the owner adds an API key in Settings › Playback');
+    if (!app) throw new ApiError(409, 'Conflict', 'Last.fm is not set up on this server yet; the owner adds an API key in Settings › Modules › Player');
     const origin = publicOrigin();
     if (!origin) throw new ApiError(500, 'Internal Server Error', 'PUBLIC_URL is not set');
     const cb = `${origin}/api/v1/me/listening/lastfm/callback?state=${encodeURIComponent(lastfmState(user.id))}`;
@@ -183,7 +186,7 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
 
   // The browser comes back from Last.fm: a page load, so it answers with a redirect to Settings.
   fastify.get('/me/listening/lastfm/callback', permission('self'), async (request: FastifyRequest, reply: FastifyReply) => {
-    const back = (result: string, queued?: number) => reply.redirect(`/settings/listening?lastfm=${result}${queued ? `&queued=${queued}` : ''}`, 303);
+    const back = (result: string, queued?: number) => reply.redirect(`/settings/modules/player?lastfm=${result}${queued ? `&queued=${queued}` : ''}`, 303);
     const user = request.user;
     if (!user) return reply.redirect('/login', 303);
     const { state, token } = request.query as { state?: string; token?: string };
@@ -217,6 +220,16 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
     const sql = getSql();
     const queued = await connectAccount(sql, user.id, 'listenbrainz', name, token);
     return { services: await accountViews(sql, user.id), queued };
+  });
+
+  fastify.put('/me/listening/:service/loves', permission('player.use'), async (request: FastifyRequest) => {
+    const user = requirePlayer(request);
+    const parsed = scrobbleServiceSchema.safeParse((request.params as { service: string }).service);
+    if (!parsed.success) throw new ApiError(404, 'Not Found', 'No such service');
+    const { on } = parse(lovesSettingSchema, request.body);
+    const sql = getSql();
+    if (!(await setSendLoves(sql, user.id, parsed.data, on))) throw new ApiError(409, 'Conflict', 'Connect this service first');
+    return { services: await accountViews(sql, user.id) };
   });
 
   fastify.delete('/me/listening/:service', permission('player.use'), async (request: FastifyRequest) => {

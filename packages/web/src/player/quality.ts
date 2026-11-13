@@ -1,5 +1,5 @@
 /**
- * The per-device quality choice (Settings › Playback): kept in this
+ * The per-device quality choice (Settings › Modules › Player): kept in this
  * browser's localStorage, every access guarded; with storage blocked the
  * choice still applies for this page view. The engine and the settings page
  * read the same snapshot.

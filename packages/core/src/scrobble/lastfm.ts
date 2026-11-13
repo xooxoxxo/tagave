@@ -173,6 +173,16 @@ export async function lastfmScrobbleBatch(app: LastfmApp, sessionKey: string, it
   });
 }
 
+/** A liked song: track.love; unliked: track.unlove (https://www.last.fm/api/show/track.love). */
+export async function lastfmLove(app: LastfmApp, sessionKey: string, track: { artist: string; track: string }, love: boolean, opts: Opts = {}): Promise<SendOutcome> {
+  try {
+    const answer = await call(app, { method: love ? 'track.love' : 'track.unlove', sk: sessionKey, artist: track.artist, track: track.track }, opts);
+    return outcomeOf(answer.status, answer.body) ?? { kind: 'sent' };
+  } catch (err) {
+    return { kind: 'retry', reason: `Last.fm could not be reached (${(err as Error).message})` };
+  }
+}
+
 export async function lastfmNowPlaying(app: LastfmApp, sessionKey: string, track: ScrobbleTrack, opts: Opts = {}): Promise<SendOutcome> {
   try {
     const answer = await call(app, { method: 'track.updateNowPlaying', sk: sessionKey, ...trackParams(track) }, opts);

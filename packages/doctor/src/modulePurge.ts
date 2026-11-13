@@ -21,7 +21,7 @@
  * and ListenBrainz connections are per person, but only the player feeds
  * them, so they belong to the player for now and go with it (they hold the
  * session keys). While a player server of the owner's own is still set up
- * (Settings › Playback) only the bundled player's rows go (server_key
+ * (Settings › Modules › Player) only the bundled player's rows go (server_key
  * 'bundled'), with the rows of libraries that server does not serve; that
  * server's rows, the plays, listens and scrobbles of its libraries and the
  * scrobbling connections stay, so it keeps working. Kept: the listens it wrote into the core `listens` table
@@ -52,7 +52,7 @@ export interface ModuleData {
   onWhenSettings?: (tx: postgres.TransactionSql) => Promise<boolean>;
   /**
    * Another part still uses some of these tables (the player: a server of
-   * the owner's own, Settings › Playback). `libraries` finds the libraries
+   * the owner's own, Settings › Modules › Player). `libraries` finds the libraries
    * it serves; while there are any, each table is emptied only where
    * `where` says ($1: those libraries' ids), a table mapped to null is kept
    * whole, and the settings keys go only in the other libraries. With none
@@ -125,6 +125,8 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
       'player_poll_state',
       'player_queue_state',
       'player_rating_sync',
+      'player_like_sync',
+      'player_loves',
       'player_users',
       'player_retired_accounts',
       'scrobble_accounts',
@@ -150,6 +152,9 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
         // the queue is the person's, whichever server plays it: kept while one still does
         player_queue_state: null,
         player_rating_sync: BUNDLED_OR_UNSERVED,
+        player_like_sync: `server_key = ${BUNDLED}`,
+        // the person's loves go to their own Last.fm and ListenBrainz, whichever server: kept
+        player_loves: null,
         player_users: `server_key = ${BUNDLED}`,
         player_retired_accounts: `server_key = ${BUNDLED}`,
         scrobble_accounts: null,

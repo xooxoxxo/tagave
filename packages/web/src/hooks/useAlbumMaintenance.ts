@@ -4,6 +4,7 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
+import { invalidateAlbumCare } from './useGaps';
 
 export interface RescanResponse {
   queued: Array<{ scanRootId: string; dirPath: string; jobId: string | null }>;
@@ -20,10 +21,9 @@ export interface MergeResponse {
   moved: number;
 }
 
-const invalidateAlbum = (qc: ReturnType<typeof useQueryClient>, libraryId: string | undefined, albumId: string) => {
-  qc.invalidateQueries({ queryKey: ['album', albumId] });
-  qc.invalidateQueries({ queryKey: ['albums', libraryId] });
-  qc.invalidateQueries({ queryKey: ['album-facets'] });
+const invalidateAlbum = (qc: ReturnType<typeof useQueryClient>, libraryId: string | undefined, _albumId: string) => {
+  // every album page: a split or merge back changes two albums
+  void invalidateAlbumCare(qc);
   qc.invalidateQueries({ queryKey: ['jobs', libraryId] });
 };
 
@@ -48,9 +48,6 @@ export function useMergeSplitAlbum(libraryId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (albumId: string) => api.post<MergeResponse>(`/libraries/${libraryId}/albums/${albumId}/merge-back`, {}),
-    onSuccess: (data, albumId) => {
-      invalidateAlbum(qc, libraryId, albumId);
-      qc.invalidateQueries({ queryKey: ['album', data.originalAlbumId] });
-    },
+    onSuccess: (_data, albumId) => invalidateAlbum(qc, libraryId, albumId),
   });
 }

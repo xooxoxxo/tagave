@@ -1,4 +1,23 @@
-/* The disk-space notice: a Banner in the page's content column, above the page. */
+/* The shell's owner notices (disk space, music folder): one quiet line in the
+   page's content column, above the page. No box: the tone's dot and the words,
+   with the link to fix it. The Banner keeps its tinted card everywhere else. */
 .region {
+  display: flex;
   padding: var(--space-md) var(--shell-gutter) 0;
+  color: var(--ink-2);
+}
+.region > * {
+  max-width: 100%;
+  padding: 0 0 0 16px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+}
+.region > *::before {
+  left: 0;
+  top: calc(0.775em - 4px);
+}
+.region a {
+  color: var(--ink);
 }

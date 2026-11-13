@@ -173,16 +173,42 @@ describe('sliding pill: placed exactly on its item and centred', () => {
     });
   });
 
-  it('labels are trimmed to cap height so they centre optically, not by the em box', () => {
-    expect(rule(read('./SegmentedControl.module.css'), '.label')).toMatch(/text-box: trim-both cap alphabetic/);
-    expect(rule(read('./Tabs.module.css'), '.label')).toMatch(/text-box: trim-both cap alphabetic/);
+  it('labels centre on their capitals by a baseline strut, not by the em box or text-box', () => {
+    for (const file of ['./SegmentedControl.module.css', './Tabs.module.css']) {
+      expect(rule(read(file), '.label')).toMatch(/composes: capCentred from '\.\/capCentre\.module\.css'/);
+      expect(read(file)).not.toMatch(/text-box/);
+    }
+    // the strut and the min-height read the same box height
+    expect(rule(read('./SegmentedControl.module.css'), '.option')).toMatch(/--label-box: 40px;[\s\S]*min-height: var\(--label-box\)/);
+    expect(rule(read('./SegmentedControl.module.css'), '.small .option')).toMatch(/--label-box: 34px/);
+    expect(rule(read('./Tabs.module.css'), '.tab')).toMatch(/--label-box: 40px;[\s\S]*min-height: var\(--label-box\)/);
+    const centre = read('./capCentre.module.css');
+    // baseline = half the box + half the cap height, whole pixel by the strut, the fraction by a transform
+    expect(rule(centre, '.capCentred::before')).toMatch(/height: round\(down, \(var\(--label-box\) \+ 1cap\) \/ 2, 1px\)/);
+    expect(centre).toMatch(/translateY\(calc\(\(var\(--label-box\) \+ 1cap\) \/ 2 - round\(down, \(var\(--label-box\) \+ 1cap\) \/ 2, 1px\)\)\)/);
   });
 
-  it('the drop stays inside the track padding, so the gap under the pill reads like the gap above', () => {
-    const filter = /filter:([^;]+);/.exec(rule(read('./SlidingPill.module.css'), '.pill'))?.[1] ?? '';
+  it('the pill’s edge is the same all round: no offset drop, no top highlight, a flat fill', () => {
+    const css = read('./SlidingPill.module.css');
+    const filter = /filter:([^;]+);/.exec(rule(css, '.pill'))?.[1] ?? '';
     const drops = [...filter.matchAll(/drop-shadow\(\s*(-?[\d.]+)(?:px)?\s+(-?[\d.]+)(?:px)?\s+([\d.]+)px/g)];
     expect(drops.length).toBeGreaterThan(0);
-    // offset + blur below the pill never reaches past the track's 4px (3px small) padding
-    for (const [, , y, blur] of drops) expect(Number(y) + Number(blur)).toBeLessThanOrEqual(3);
+    // centred halo, inside the track's 4px (3px small) padding
+    for (const [, x, y, blur] of drops) {
+      expect(Number(x)).toBe(0);
+      expect(Number(y)).toBe(0);
+      expect(Number(blur)).toBeLessThanOrEqual(2);
+    }
+    expect(css).not.toMatch(/clear-hi|linear-gradient/);
+    // caps: a full ring; the band: top and bottom lines of the same width
+    expect(rule(css, '.cap')).toMatch(/box-shadow: inset 0 0 0 1px var\(--glass-edge\)/);
+    expect(rule(css, '.mid')).toMatch(/box-shadow: inset 0 1px 0 var\(--glass-edge\), inset 0 -1px 0 var\(--glass-edge\)/);
+    // the bubble an item paints before the pill is placed matches it
+    for (const [file, sel] of [['./SegmentedControl.module.css', '.selected,\n.selected:hover'], ['./Tabs.module.css', '.active,\n.active:hover']] as const) {
+      const r = rule(read(file), sel);
+      expect(r).toMatch(/background: var\(--surface\)/);
+      expect(r).toMatch(/box-shadow: inset 0 0 0 1px var\(--glass-edge\), 0 0 1px /);
+      expect(r).not.toMatch(/clear-hi|0 1px 2px/);
+    }
   });
 });

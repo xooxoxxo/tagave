@@ -17,7 +17,7 @@
 :global(html[data-app-down]) .dock:not([data-empty]) { z-index: calc(var(--z-backdrop) + 1); }
 
 .bar {
-  /* the equalizer glow (BarGlow) lies under the content, over the fill */
+  /* the equalizer glow (BarGlow) stands on its top edge, under the content */
   position: relative;
   isolation: isolate;
   display: grid;
@@ -84,6 +84,9 @@
   min-width: 0;
 }
 
+/* the playing song's heart, right after its names (Spotify's place) */
+.like { flex: none; display: inline-flex; margin-left: calc(-1 * var(--space-xs)); }
+
 .title,
 .artist {
   min-width: 0;
@@ -120,6 +123,24 @@
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+/* "Casting to …" beside the cast key, on a wide window only */
+.castTo {
+  max-width: 11rem;
+  margin-right: 2px;
+  overflow: hidden;
+  color: var(--dew);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1100px) {
+  .castTo {
+    display: none;
+  }
 }
 
 .ends [aria-pressed="true"] {

@@ -9,7 +9,7 @@ import { MULTI_FILTER_KEYS, type AlbumsQuery, type MultiFilterKey } from '@tagav
 export type AlbumsSearch = AlbumsQuery;
 
 export const ALBUMS_SORTS = ['artist', 'title', 'year', 'added_date', 'rating', 'listened'] as const;
-const SINGLE_KEYS = ['q', 'artist', 'folder', 'root', 'decided', 'review', 'owned'] as const;
+const SINGLE_KEYS = ['q', 'artist', 'folder', 'root', 'decided', 'review', 'owned', 'liked'] as const;
 const MULTI_KEYS = MULTI_FILTER_KEYS;
 
 function toArray(v: unknown): string[] {
@@ -39,7 +39,7 @@ export function parseAlbumsSearch(raw: Record<string, unknown>): AlbumsSearch {
     if (values.length === 0) continue;
     out[k] = k === 'decade'
       ? values.map(Number).filter((n) => Number.isInteger(n) && n >= 1900 && n <= 2100)
-      : values;
+      : k === 'genre' ? values.filter((genre, i) => values.findIndex((v) => v.toLowerCase() === genre.toLowerCase()) === i) : values;
     if ((out[k] as unknown[]).length === 0) delete out[k];
   }
   const sort = raw['sort'];
@@ -70,12 +70,14 @@ export function toggleMulti<K extends MultiFilterKey>(
   value: string | number,
 ): AlbumsSearch[K] | undefined {
   const current = (search[key] ?? []) as Array<string | number>;
-  const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+  const matches = (v: string | number) => key === 'genre' ? String(v).toLowerCase() === String(value).toLowerCase() : v === value;
+  const next = current.some(matches) ? current.filter((v) => !matches(v)) : [...current, value];
   return (next.length ? next : undefined) as AlbumsSearch[K] | undefined;
 }
 
 export function isMultiActive(search: AlbumsSearch, key: MultiFilterKey, value: string | number): boolean {
-  return ((search[key] ?? []) as Array<string | number>).includes(value);
+  return ((search[key] ?? []) as Array<string | number>).some((v) =>
+    key === 'genre' ? String(v).toLowerCase() === String(value).toLowerCase() : v === value);
 }
 
 /** Query string for the API: repeated parameters for multi-value filters. */
@@ -88,6 +90,27 @@ export function apiSearchParams(query: AlbumsQuery, extra: Record<string, string
   }
   for (const [k, v] of Object.entries(extra)) params.set(k, String(v));
   return params;
+}
+
+const CHIP_PREFIX: Record<string, string> = {
+  artist: 'artist', folder: 'folder', state: 'state', decided: 'match', review: 'reviews', label: 'label', owned: 'collection', gap: 'attention',
+};
+const STATE_WORD: Record<string, string> = {
+  matched: 'Matched', needs_review: 'Needs review', unidentified: 'Unidentified', pending: 'Pending', as_is: 'Kept as-is', ignored: 'Ignored',
+};
+
+/**
+ * A filter chip's words. The value alone where it cannot be mistaken for
+ * another filter (a search in quotes, a format, a decade, a genre); the
+ * filter's name first where it could (an artist, a label, a folder).
+ */
+export function chipText(key: string, value: string | number): string {
+  if (key === 'q') return `“${value}”`;
+  if (key === 'liked') return 'Liked';
+  if (key === 'decade') return `${value}s`;
+  if (key === 'format' || key === 'genre') return String(value);
+  const shown = key === 'state' ? STATE_WORD[String(value)] ?? String(value) : String(value);
+  return `${CHIP_PREFIX[key] ?? key}: ${shown}`;
 }
 
 /**

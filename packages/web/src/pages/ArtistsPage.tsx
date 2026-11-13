@@ -7,19 +7,20 @@
  * render as an empty box.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ARTIST_GROUP_ORDER, artistGroupLabel, artistLabel, cleanArtistName } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsInfinite, type ArtistListItem, type ArtistSort } from '../hooks/useArtists';
-import { Button, EmptyState, PageShell, SearchField, Select, SegmentedControl, type SegmentedOption } from '../components/ui';
+import { useLikesOn } from '../hooks/useLikes';
+import { Button, Chip, EmptyState, PageShell } from '../components/ui';
+import { ListToolbar } from '../components/ListToolbar';
 import { ArtistArtwork, IdentityMark } from '../components/ArtistArtwork';
 import {
-  ARTIST_SORT_OPTIONS, artistMeta, readArtistsView, writeArtistsView, yearsLabel, type ArtistsView,
+  ARTIST_SORT_OPTIONS, artistMeta, readArtistsView, writeArtistsView, yearsLabel, type ArtistsSearch, type ArtistsView,
 } from './artistsView';
+import { useEntry, useScrollPlace } from '../utils/listPlace';
 import styles from './ArtistsPage.module.css';
-
-const VIEW_OPTIONS: SegmentedOption<'grid' | 'list'>[] = [{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }];
 
 const MIN_CARD = 150;
 const MIN_CARD_NARROW = 132;
@@ -46,20 +47,34 @@ function ArtistLink({ artist, className, children }: { artist: ArtistListItem; c
 export function ArtistsPage() {
   const { libraryId } = useCurrentLibrary();
   const [view, setViewState] = useState<ArtistsView>(readArtistsView);
-  const [q, setQ] = useState('');
-  const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<ArtistSort>('name');
-  const [group, setGroup] = useState<string | null>(null);
-
-  useEffect(() => {
-    const t = setTimeout(() => setSearch(q.trim()), 200);
-    return () => clearTimeout(t);
-  }, [q]);
+  // the words the header's search narrowed the list to ("In artists"), the
+  // sort and the letter: all in the URL, so Back from an artist returns to them
+  const params = useSearch({ strict: false }) as ArtistsSearch;
+  const search = params.q ?? '';
+  const sort: ArtistSort = params.sort ?? 'name';
+  const group = params.letter ?? null;
+  const liked = params.liked === 'yes';
+  const likesOn = useLikesOn();
+  const navigate = useNavigate();
+  const router = useRouter();
+  const setParams = (patch: Partial<Record<keyof ArtistsSearch, string | undefined>>) => void navigate({
+    to: '/artists',
+    search: ((prev: ArtistsSearch) => {
+      const next: Record<string, unknown> = { ...prev, ...patch };
+      for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+      return next;
+    }) as never,
+    // the letter and the sort are this list's own state: no history step each
+    replace: true,
+  });
+  const clearSearch = () => setParams({ q: undefined });
+  const setSort = (next: ArtistSort) => setParams({ sort: next === 'name' ? undefined : next });
+  const setGroup = (next: string | null) => setParams({ letter: next ?? undefined });
 
   const setView = (next: ArtistsView) => { setViewState(next); writeArtistsView(next); };
 
   const { data, isLoading, isFetching, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useArtistsInfinite(libraryId, { search, sort, group });
+    useArtistsInfinite(libraryId, { search, sort, group, liked });
   const items = data?.pages.flatMap((p) => p.items) ?? [];
   const first = data?.pages[0];
   const total = first?.total ?? items.length;
@@ -70,9 +85,11 @@ export function ArtistsPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const [width, setWidth] = useState(0);
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const attachScroller = useCallback((el: HTMLDivElement | null) => {
     observerRef.current?.disconnect();
     scrollRef.current = el;
+    setScroller(el);
     if (!el) return;
     // the scroller pads its content so focus rings are not clipped
     const measure = () => setWidth(Math.max(0, el.clientWidth - 2 * SCROLL_PAD));
@@ -106,8 +123,16 @@ export function ArtistsPage() {
     if (last.index >= rowCount - 3) void fetchNextPage();
   }, [virtualRows, hasNextPage, isFetchingNextPage, rowCount, fetchNextPage]);
 
-  // a new search, sort or letter starts at the top
-  useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [search, sort, group, view]);
+  // Back from an artist: where the list was left (utils/listPlace.ts)
+  useScrollPlace(scroller, 'artists', useEntry(router.history, '/artists'));
+  // a new search, sort or letter starts at the top (not the first render: that is the place's)
+  const listKey = `${search}|${sort}|${group}|${view}|${liked}`;
+  const shownKey = useRef(listKey);
+  useEffect(() => {
+    if (shownKey.current === listKey) return;
+    shownKey.current = listKey;
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [listKey]);
 
   const onJumpKey = (e: React.KeyboardEvent<HTMLElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
@@ -123,28 +148,19 @@ export function ArtistsPage() {
   const showEmpty = !!first && items.length === 0;
 
   return (
-    <PageShell
-      fill
-      title="Artists"
-      aside={<span aria-live="polite">{countText}{isFetching && !isFetchingNextPage && first ? <span className={styles.updating}> · updating</span> : null}</span>}
-    >
+    <PageShell fill title="Artists">
       <div className={styles.header}>
-        <div className={styles.toolbar}>
-          <SearchField
-            dense
-            className={styles.search}
-            label="Search artists"
-            placeholder="Search artists"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <Select dense className={styles.sort} aria-label="Sort artists" value={sort} onChange={(e) => setSort(e.target.value as ArtistSort)}>
-            {ARTIST_SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </Select>
-          <div className={styles.viewToggle}>
-            <SegmentedControl size="sm" label="View mode" name="view-mode" value={view} onChange={(next) => (next === 'grid' ? setView('grid') : setView('list'))} options={VIEW_OPTIONS} />
+        <ListToolbar
+          count={<>{countText}{isFetching && !isFetchingNextPage && first ? <span className={styles.updating}> · updating</span> : null}</>}
+          sort={{ value: sort, options: ARTIST_SORT_OPTIONS, noun: 'artists', onChange: setSort }}
+          view={{ value: view, onChange: setView }}
+        />
+        {(search || likesOn) && (
+          <div className={styles.chips}>
+            {likesOn && <Chip active={liked} onClick={() => setParams({ liked: liked ? undefined : 'yes' })}>Liked</Chip>}
+            {search && <Chip active aria-pressed={undefined} onClick={clearSearch} aria-label={`Remove “${search}”`}>“{search}” <span aria-hidden="true">✕</span></Chip>}
           </div>
-        </div>
+        )}
         {/* One tab stop: arrow keys, Home and End move between letters. */}
         <nav className={styles.jumpBar} aria-label="Filter by first letter" onKeyDown={onJumpKey}>
           <button type="button" className={styles.jump} aria-pressed={group === null} tabIndex={group === null ? 0 : -1} onClick={() => setGroup(null)}
@@ -170,10 +186,10 @@ export function ArtistsPage() {
       {isLoading && <div className={styles.status} role="status">Loading…</div>}
       {error && <div className={styles.error} role="alert">Couldn’t load artists. <Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div>}
       {showEmpty && <EmptyState
-        title={search || group ? 'No matching artists' : 'No artists yet'}
+        title={search || group || liked ? 'No matching artists' : 'No artists yet'}
       />}
-      {showEmpty && (search || group) && <p className={styles.clear}>
-        <Button variant="secondary" size="sm" onClick={() => { setQ(''); setSearch(''); setGroup(null); }}>Show all</Button>
+      {showEmpty && (search || group || liked) && <p className={styles.clear}>
+        <Button variant="secondary" size="sm" onClick={() => setParams({ q: undefined, letter: undefined, liked: undefined })}>Show all</Button>
       </p>}
 
       {view === 'list' && items.length > 0 && <div className={styles.listHead} aria-hidden="true">

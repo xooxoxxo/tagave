@@ -1,9 +1,10 @@
 import { PgBoss } from 'pg-boss';
 import pino from 'pino';
-import { DECIDER_ACCEPT_EXPIRE_SECONDS, DECIDER_RUN_EXPIRE_SECONDS, failStaleBatches, listMigrationChain, makeDb, pauseStaleRuns } from '@tagave/db';
-import { readBuildInfo, WORKER_QUEUES } from '@tagave/core';
+import { DECIDER_ACCEPT_EXPIRE_SECONDS, DECIDER_RUN_EXPIRE_SECONDS, failStaleBatches, listMigrationChain, maintenanceSender, makeDb, pauseStaleRuns, recoverMaintenanceTasks } from '@tagave/db';
+import { readBuildInfo, WORKER_QUEUES, workedWith } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
+import { LONG_JOB_QUEUES, prepareWorkerQueues } from './lib/queueSetup.js';
 import type { WorkerContext } from './lib/context.js';
 import { isManualRequest, plainFailure, recordIdentifyOutcome } from './lib/identifyRuns.js';
 import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
@@ -20,7 +21,7 @@ import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySwee
 import { enrichReleaseJob, type EnrichReleaseJobData } from './jobs/enrichRelease.js';
 import { enrichSweepJob, type EnrichSweepJobData } from './jobs/enrichSweep.js';
 import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetch.js';
-import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
+import { artFetchTask, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { artThumbJob, artThumbSweepJob, type ArtThumbJobData, type ArtThumbSweepJobData } from './jobs/artThumb.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { filterCountsRefreshJob, type FilterCountsRefreshJobData } from './jobs/filterCountsRefresh.js';
@@ -28,6 +29,11 @@ import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
 import { listenLinksResolveJob, type ListenLinksResolveJobData } from './jobs/listenLinksResolve.js';
+import { similarArtistsFetchJob, type SimilarArtistsFetchJobData } from './jobs/similarArtistsFetch.js';
+import { DJ_PRIORITY, djAnalyzeJob, type DjAnalyzeJobData } from './jobs/djAnalyze.js';
+import { lidarrGetJob, lidarrPollJob, type LidarrGetJobData, type LidarrPollJobData } from './jobs/lidarr.js';
+import { poolScanJob } from './jobs/poolScan.js';
+import type { PoolScanJobData } from '@tagave/shared';
 import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
@@ -44,6 +50,13 @@ import { artistsEnrichJob, type ArtistsEnrichJobData } from './jobs/artistsEnric
 import { artistsRefreshSweepJob, type ArtistsRefreshSweepJobData } from './jobs/artistsRefreshSweep.js';
 import { tagsPreviewJob } from './jobs/tagsPreview.js';
 import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
+import { filesTrashJob, type FilesTrashJobData } from './lib/deletions.js';
+import { filesUpgradeJob, type FilesUpgradeJobData } from './jobs/filesUpgrade.js';
+import { embedCoverJob, type EmbedCoverJobData } from './jobs/embedCover.js';
+import { filesSplitJob } from './jobs/filesSplit.js';
+import type { FilesSplitJobData } from '@tagave/shared';
+import { filesMoveJob } from './jobs/filesMove.js';
+import type { FilesMoveJobData } from '@tagave/shared';
 import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefresh.js';
 import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
@@ -59,97 +72,7 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-/**
- * Queue policies that make singletonKey mean something. 'stately' keeps one
- * job per key per state (one queued behind one active, so a re-request during
- * a run still runs afterwards); 'exclusive' keeps one per key across both
- * (reviews.fetch is enqueued by a polling album page). Not listed on purpose:
- * cluster.dir — scan.parse re-sends a directory as parse batches land and
- * every send must run; collection.* belong to the collection sync session.
- */
-const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
-  'reviews.fetch': 'exclusive',
-  'editions.fetch': 'stately',
-  'enrich.release': 'stately',
-  'enrich.sweep': 'stately',
-  'art.fetch': 'stately',
-  'art.sweep': 'stately',
-  'art.thumb': 'stately',
-  'art.thumbSweep': 'stately',
-  'identify.album': 'stately',
-  'identify.acoustid': 'stately',
-  'roots.validate': 'stately',
-  'scan.root': 'stately',
-  'scan.dir': 'stately',
-  'scan.sweep': 'stately',
-  // Sibling disc folders resolve to one scope; two jobs on it must not interleave.
-  'cluster.dir': 'stately',
-  // enqueued at every boot: at most one queued behind a running one; two runs
-  // at once would still be safe (null check and tags_digest guard in the update)
-  'files.backfillDigest': 'stately',
-  // enqueued at every boot like files.backfillDigest: one queued behind a running one
-  'cluster.backfillLoose': 'stately',
-  'artists.resolve': 'stately',
-  'artists.enrich': 'stately',
-  'artists.refresh': 'stately',
-  'artist.refresh': 'stately',
-  'tags.preview': 'stately',
-  'tags.apply': 'stately',
-  'tags.revert': 'stately',
-  'facets.refresh': 'stately',
-  'fingerprint.album': 'stately',
-  'fingerprint.sweep': 'stately',
-  'acoustid.lookup': 'stately',
-  'tracks.link': 'stately',
-  // one queued per link (singletonKey connections.pull:<link id>) behind the running one
-  'connections.pull': 'stately',
-  // one queued per album or artist (singletonKey listen:rg:<id> / listen:artist:<id>)
-  'listenLinks.resolve': 'stately',
-  // enqueued at every boot and by itself pass after pass: one queued behind a running one
-  'evidence.backfill': 'stately',
-  // one run per batch (singletonKey on the batch id) queued behind a running one
-  'decider.accept': 'stately',
-  // one run per library (singletonKey decider.run:<library id>) queued behind a running one
-  'decider.run': 'stately',
-  // one training per library (singletonKey decider.train:<library id>) queued behind a running one
-  'decider.train': 'stately',
-};
-
 const M1_PLACEHOLDER_QUEUES: string[] = [];
-
-/**
- * pg-boss expires an active job after 15 minutes by default and retries it
- * twice — a walk of the NFS root takes longer, so the first run was retried
- * while still walking and three scans ran at once (2026-09-08). Scans get a
- * day and no retries; scan.sweep re-enqueues on its own schedule.
- */
-const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: number }> = {
-  'scan.root': { expireInSeconds: 23 * 3600, retryLimit: 0 }, // pg-boss asserts < 24 h
-  'scan.dir': { expireInSeconds: 6 * 3600, retryLimit: 0 },
-  // checks every cover without a thumbnail (27,000 after a restore); the
-  // next scheduled or requested sweep picks up whatever a failed one left
-  'art.thumbSweep': { expireInSeconds: 2 * 3600, retryLimit: 0 },
-  // a first run over a whole library; the next boot resumes where it stopped
-  'files.backfillDigest': { expireInSeconds: 3600, retryLimit: 0 },
-  // bounded per run; the next boot sends what is left
-  'cluster.backfillLoose': { expireInSeconds: 3600, retryLimit: 0 },
-  // 200 albums per pass, each pass sending the next; the next boot starts over
-  'evidence.backfill': { expireInSeconds: 3600, retryLimit: 0 },
-  // a batch of thousands of albums, one transaction each; a retry resumes at the first pending item
-  'decider.accept': { expireInSeconds: DECIDER_ACCEPT_EXPIRE_SECONDS, retryLimit: 2 },
-  // a run over a whole library, paid call by call; a retry skips the calls it already paid for
-  'decider.run': { expireInSeconds: DECIDER_RUN_EXPIRE_SECONDS, retryLimit: 3 },
-};
-
-/**
- * Every queue retries with a delay that grows: pg-boss's default is an
- * immediate retry, so during the 2026-10-08 outage collection.sync spent its
- * three tries in four seconds. 1 min, 2 min, 4 min … capped at an hour gives
- * a network blip or a provider restart time to pass. Applied to existing
- * queues on every boot (createQueue does not touch a queue that exists).
- * A job sent with its own retry options (enrich.sweep, identify) keeps them.
- */
-const QUEUE_RETRY_DEFAULTS = { retryDelay: 60, retryBackoff: true, retryDelayMax: 3600 } as const;
 
 /** Provider waits are paced at ~1 req/s and capped at 3 lookups; 5 min is far past any honest run. */
 const IDENTIFY_JOB_TIMEOUT_MS = 5 * 60_000;
@@ -181,27 +104,8 @@ async function main() {
   logger.info({ workerId, version: build.version, sha: build.sha, buildSource: build.source }, 'worker connected');
   const watchdog = startWatchdog(logger);
 
-  // Queues must exist before work() in pg-boss v10+.
-  // One list for the worker and the worker check (@tagave/core).
+  await prepareWorkerQueues(boss, client, M1_PLACEHOLDER_QUEUES);
   const queues = [...WORKER_QUEUES, ...M1_PLACEHOLDER_QUEUES];
-  for (const q of queues) {
-    const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...QUEUE_RETRY_DEFAULTS, ...(LONG_JOB_QUEUES[q] ?? {}) };
-    await boss.createQueue(q, opts);
-    await boss.updateQueue(q, { ...QUEUE_RETRY_DEFAULTS, ...(LONG_JOB_QUEUES[q] ?? {}) });
-  }
-  // The player module's scans: this worker only sends to it after a tag
-  // write; the app works it (it holds the player's credentials).
-  await boss.createQueue('player.scan', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
-  // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
-  // and updateQueue() cannot change the policy of an existing queue — so the
-  // policies are (re)applied here on every boot for queues created before.
-  for (const [name, policy] of Object.entries(QUEUE_POLICIES)) {
-    await client`update pgboss.queue set policy = ${policy} where name = ${name} and policy <> ${policy}`;
-  }
-  for (const [name, o] of Object.entries(LONG_JOB_QUEUES)) {
-    await client`update pgboss.queue set expire_seconds = ${o.expireInSeconds}, retry_limit = ${o.retryLimit}
-                 where name = ${name} and (expire_seconds <> ${o.expireInSeconds} or retry_limit <> ${o.retryLimit})`;
-  }
 
   // TAGAVE_QUEUES=identify.album,identify.sweep,artists.resolve,artists.enrich
   // restricts which queues this process works — lets an identify-only worker
@@ -211,11 +115,28 @@ async function main() {
   const only = queueList ? new Set(queueList.split(',').map((q) => q.trim())) : null;
   const wants = (q: string) => !only || only.has(q);
 
+  // Before any handler claims work: tasks a stopped worker left behind (an
+  // update, a restart) on the queues this worker serves. pg-boss would hold
+  // their jobs 'active' for hours; cut points and cover lookups run again,
+  // a split or Tag Plan waits for the owner's Continue.
+  try {
+    const recovered = await recoverMaintenanceTasks(client, {
+      serves: (queue) => wants(workedWith(queue)),
+      send: maintenanceSender(boss),
+      cancel: (queue, id) => boss.cancel(queue, id),
+    });
+    if (recovered.requeued.length + recovered.interrupted.length + recovered.legacy.length > 0) {
+      logger.info(recovered, 'maintenance tasks a stopped worker left behind recovered');
+    }
+  } catch (err) {
+    logger.warn({ err }, 'could not recover maintenance tasks at start');
+  }
+
   if (wants('scan.root')) {
     await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) {
         logger.info({ jobId: job.id, data: job.data }, 'scan.root start');
-        await scanRootJob(ctx, job.data);
+        await tracked('scan.root', job.id, job.data.scanRootId, () => scanRootJob(ctx, job.data));
       }
     });
 
@@ -377,7 +298,7 @@ async function main() {
       ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale decider run check failed');
     }
   }
-  // Music Connections pulls from linked apps (Settings › Connections), on the
+  // Music Connections pulls from linked apps (Settings › Modules › Music Connections), on the
   // identify worker (spec §4). The tick every 15 minutes queues each due link;
   // Sync now and backoff retries send a link's own job.
   if (wants('identify.album')) {
@@ -395,6 +316,31 @@ async function main() {
       for (const job of jobs) await listenLinksResolveJob(ctx, job.data);
     });
     await boss.schedule('listenLinks.resolve', '40 3 * * *', { sweep: true }, { singletonKey: 'listen:sweep' });
+  }
+  // Similar artists (the similar-artists module), on the identify worker
+  // with the other outside lookups. An artist page sends its artist's job
+  // when the list is missing or a week old; a daily sweep fetches again the
+  // lists that are a week old. Off (Settings › Modules), every run skips.
+  if (wants('identify.album')) {
+    await boss.work<SimilarArtistsFetchJobData>('similarArtists.fetch', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) await similarArtistsFetchJob(ctx, job.data);
+    });
+    await boss.schedule('similarArtists.fetch', '10 4 * * *', { sweep: true }, { singletonKey: 'similar:sweep' });
+  }
+  // Get missing albums through Lidarr (the lidarr module), on the identify
+  // worker: calls to the owner's Lidarr. The poll every 5 minutes asks
+  // nothing while no request is open; a Get sends one soon after.
+  if (wants('identify.album')) {
+    await boss.work<LidarrPollJobData>('lidarr.poll', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) {
+        const out = await lidarrPollJob(ctx, job.data ?? {});
+        if (!('skipped' in out) || out.skipped !== 'nothing open') logger.info({ jobId: job.id, ...out }, 'lidarr.poll');
+      }
+    });
+    await boss.schedule('lidarr.poll', '*/5 * * * *', {}, { singletonKey: 'lidarr.poll' });
+    await boss.work<LidarrGetJobData>('lidarr.get', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) logger.info({ jobId: job.id, artistId: job.data.artistId, ...(await lidarrGetJob(ctx, job.data)) }, 'lidarr.get');
+    });
   }
   if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));
@@ -453,7 +399,7 @@ async function main() {
 
   if (wants('art.fetch')) {
     await boss.work<ArtFetchJobData>('art.fetch', { batchSize: 4 }, async (jobs) => {
-      await Promise.all(jobs.map((job) => artFetchJob(ctx, job.data)));
+      await Promise.all(jobs.map(({ data }) => artFetchTask(ctx, data)));
     });
     // Cover thumbnails are not in backups (0046): rebuild missing ones from
     // the originals on this worker's cache volume. Swept at start (after a
@@ -533,8 +479,11 @@ async function main() {
         await tracksLinkJob(ctx, job.data);
       }
     });
-    // Sweep every 5 minutes to link unlinked albums
+    // Sweep every 5 minutes to link unlinked albums, and once at boot: after
+    // an upgrade that asks for a relink (0077) the work starts right away and
+    // each pass queues the next until nothing is left (jobs/tracksLink.ts).
     await boss.schedule('tracks.link', '*/5 * * * *', { sweep: true }, { singletonKey: 'tracks.link:sweep' });
+    await boss.send('tracks.link', { sweep: true }, { singletonKey: 'tracks.link:sweep' });
   }
 
   // IDN-5 (XO-372): fingerprints on the file worker (needs the mount and fpcalc),
@@ -553,6 +502,19 @@ async function main() {
     // MusicBrainz's "server busy" ceiling, so AcoustID candidates (priority 50)
     // neither starve nor pile up ahead of it
     await boss.schedule('fingerprint.sweep', '*/10 * * * *', {}, { singletonKey: 'fingerprint.sweep' });
+  }
+  // DJ analysis (the dj module), on the file worker beside the fingerprints:
+  // ffmpeg decodes each track once at nice 15, one job at a time. The
+  // hourly sweep sends the next tracks that need it as their own jobs (the
+  // player's asks run ahead of them) and chains the next sweep behind them
+  // while there is more. Off (Settings › Modules), every run skips.
+  if (wants('fingerprint.album')) {
+    await boss.work<DjAnalyzeJobData>('dj.analyze', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) {
+        await tracked('dj.analyze', job.id, job.data?.localTrackId ?? 'sweep', () => djAnalyzeJob(ctx, job.data));
+      }
+    });
+    await boss.schedule('dj.analyze', '23 * * * *', { sweep: true }, { singletonKey: 'dj:sweep', priority: DJ_PRIORITY.sweep });
   }
   if (wants('acoustid.lookup')) {
     await boss.work<AcoustidLookupJobData>('acoustid.lookup', { batchSize: 1 }, async (jobs) => {
@@ -596,6 +558,11 @@ async function main() {
     // every library unless TAGAVE_LIBRARY_ID pins one.
     const gapsLibrary = pinnedLibraryId();
     await boss.schedule('gaps.recompute', '15 3 * * *', gapsLibrary ? { libraryId: gapsLibrary } : {}, {});
+    // At every boot (an update included), the album-level gaps of every
+    // library: puts right what an operation left stale before album changes
+    // rechecked their own gaps (rr85: a merged album still "3 songs missing").
+    await boss.send('gaps.recompute', { ...(gapsLibrary ? { libraryId: gapsLibrary } : {}), albumGapsOnly: true },
+      { singletonKey: 'gaps.recompute:boot' });
   }
 
   if (wants('tags.preview')) {
@@ -615,6 +582,48 @@ async function main() {
         await tagsApplyJob(ctx, job.data);
       }
     });
+    // Deleting (0073): moves into and out of the trash, Empty trash, and the daily
+    // run that deletes what has been in the trash for 30 days
+    await boss.work<FilesTrashJobData>('files.trash', { batchSize: 1 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) results.push(await filesTrashJob(ctx, job.data ?? {}));
+      return results.length === 1 ? results[0] : results;
+    });
+    await boss.schedule('files.trash', '17 4 * * *', { action: 'sweep' }, {});
+    // Whole album in one file (0078): the cut points, then the split itself
+    await boss.work<FilesSplitJobData>('files.split', { batchSize: 1 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, splitId: job.data.splitId, action: job.data.action }, 'files.split start');
+        results.push(await filesSplitJob(ctx, job.data));
+      }
+      return results.length === 1 ? results[0] : results;
+    });
+    await boss.work<FilesUpgradeJobData>('files.upgrade', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await filesUpgradeJob(ctx, job.data);
+    });
+    await boss.work<EmbedCoverJobData>('files.embedCover', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await embedCoverJob(ctx, job.data);
+    });
+    // Move to album (0080): the release search, the plan, the move and its undo
+    await boss.work<FilesMoveJobData>('files.move', { batchSize: 1 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, moveId: job.data.moveId, action: job.data.action }, 'files.move start');
+        results.push(await filesMoveJob(ctx, job.data));
+      }
+      return results.length === 1 ? results[0] : results;
+    });
+    // The drop pool (0081): every two minutes its folder is read, still albums
+    // identified, the confident ones imported (files.move), the rest to Inbox.
+    // On the file worker: it reads and makes folders in the music folder. Its
+    // MusicBrainz calls share identify's 1 req/s through provider_state.
+    await boss.work<PoolScanJobData>('pool.scan', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) results.push(await poolScanJob(ctx, job.data ?? {}));
+      return results.length === 1 ? results[0] : results;
+    });
+    await boss.schedule('pool.scan', '*/2 * * * *', {}, { singletonKey: 'pool.scan' });
   }
 
   if (wants('tags.revert')) {

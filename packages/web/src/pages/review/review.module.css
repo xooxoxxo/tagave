@@ -418,6 +418,14 @@ a.source:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .trackNo { flex: 0 0 1.5rem; text-align: right; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
 .trackTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trackDur { flex: 0 0 auto; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+/* every song's ⋮ (TrackActions): small, shown on the row's hover or focus with a mouse */
+.trackRow:has(.trackMenu) { align-items: center; }
+.trackMenu { flex: none; display: inline-flex; }
+.trackMenu > button { width: 28px; height: 28px; min-height: 0; }
+.trackMenu > button svg { width: 16px; height: 16px; }
+@media (hover: hover) and (pointer: fine) {
+  .trackRow:not(:hover):not(:focus-within) .trackMenu:not(:has([aria-expanded="true"])) { opacity: 0; }
+}
 
 /* ---- actions --------------------------------------------------------------- */
 

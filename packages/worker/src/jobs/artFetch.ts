@@ -3,17 +3,19 @@ import { access, mkdir, writeFile } from 'node:fs/promises';
 import { parseFile } from 'music-metadata';
 import { and, eq, inArray, isNotNull, isNull, sql as dsql } from 'drizzle-orm';
 import {
-  files, images, imageSources, localAlbums, localTracks, releases, scanRoots, sidecarFiles,
+  files, images, imageSources, localAlbums, localTracks, releases, scanRoots, sidecarFiles, type MaintenanceWork,
 } from '@tagave/db';
 import { storeThumb, toThumb } from '../lib/coverThumbs.js';
 import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
+import { runMaintenance } from '../lib/maintenance.js';
 import { relDirname } from '../lib/helpers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
 import { libraryProviderSettings, getProviders, discogsCall } from '../lib/providers.js';
 
 export interface ArtFetchJobData {
   localAlbumId: string;
+  maintenance?: MaintenanceWork;
   /**
    * The album has its images row but the original is gone from the cache
    * (art.thumbSweep): fetch the art again into the standard path and update
@@ -69,17 +71,34 @@ async function openVariant(p: string): Promise<string | null> {
 }
 
 /**
+ * art.fetch as the worker runs it: a lookup the owner asked for from the
+ * album page (a maintenance task) under its claim, any other straight away.
+ */
+export async function artFetchTask(ctx: WorkerContext, data: ArtFetchJobData): Promise<void> {
+  if (!data.maintenance) {
+    await artFetchJob(ctx, data);
+    return;
+  }
+  await runMaintenance(ctx, data.maintenance, async (task) => {
+    await task.update({ stage: 'Looking for cover art' });
+    const result = await artFetchJob(ctx, data, task.current);
+    if (result === 'failed') return { state: 'failed', stage: 'Cover art lookup failed', error: 'A cover source could not be read.' };
+    return { state: 'done', stage: result === 'found' ? 'Cover art found' : 'No cover art found' };
+  });
+}
+
+/**
  * ENR-2 resolution order: embedded artwork -> sidecar image in the album
  * folder -> Cover Art Archive (matched albums only). First hit wins.
  */
-export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Promise<void> {
+export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, checkClaim?: () => Promise<unknown>): Promise<'found' | 'none' | 'failed'> {
   const albumRows = await ctx.db
     .select()
     .from(localAlbums)
     .where(eq(localAlbums.id, data.localAlbumId))
     .limit(1);
   const album = albumRows[0];
-  if (!album) return;
+  if (!album) return 'none';
 
   const existing = await ctx.db
     .select({ id: images.id, origin: images.origin, imageSourceId: images.imageSourceId, licenseNote: images.licenseNote })
@@ -89,20 +108,20 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
   if (data.refresh && existing[0]?.origin === 'owner') {
     // the owner's own cover: never replaced by one found elsewhere
     ctx.logger.debug({ album: album.titleGuess }, 'art.fetch refresh: the owner\'s cover is left as it is');
-    return;
+    return 'found';
   }
   const refreshId = data.refresh ? existing[0]?.id : undefined;
   if (existing.length > 0 && !refreshId) {
     // the art is already here: a noCover flag left from before it landed is stale
     await settleCoverGap(ctx, album.libraryId, album.id);
-    return;
+    return 'found';
   }
 
   const tracks = await ctx.db
     .select({ audioFileId: localTracks.audioFileId })
     .from(localTracks)
     .where(eq(localTracks.localAlbumId, album.id));
-  if (tracks.length === 0) return;
+  if (tracks.length === 0) return 'none';
   const fileRows = await ctx.db
     .select({
       id: files.id,
@@ -125,6 +144,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
   let audioFileId: string | null = null;
   let sidecarFileId: string | null = null;
   let imageSourceId: string | null = null;
+  let providerFailed = false;
 
   // 0. a refresh of a provider cover: the same image again, from where it came
   const prior = refreshId ? existing[0] : undefined;
@@ -136,7 +156,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
         .where(eq(imageSources.id, prior.imageSourceId))
         .limit(1);
       if (src?.url) {
-        const resp = await fetch(src.url, { headers: { 'User-Agent': CAA_UA }, redirect: 'follow' });
+        const resp = await fetch(src.url, { headers: { 'User-Agent': CAA_UA }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
         if (resp.ok) {
           source = Buffer.from(await resp.arrayBuffer());
           origin = 'provider';
@@ -216,6 +236,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
         const resp = await fetch(`https://coverartarchive.org/release/${mbid}/front-500`, {
           headers: { 'User-Agent': CAA_UA },
           redirect: 'follow',
+          signal: AbortSignal.timeout(20_000),
         });
         if (resp.ok) {
           source = Buffer.from(await resp.arrayBuffer());
@@ -223,8 +244,8 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
           license = 'Cover Art Archive — display only, do not redistribute';
           imageSourceId = await upsertImageSource(ctx, album.releaseId, 'caa',
             `https://coverartarchive.org/release/${mbid}/front-500`, license);
-        }
-      } catch { /* leave flagged */ }
+        } else if (resp.status !== 404) providerFailed = true;
+      } catch { providerFailed = true; }
     }
   }
 
@@ -248,7 +269,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
       if (row?.sourceUrl) {
         let url: string | null = row.sourceUrl;
         for (let attempt = 1; attempt <= 2 && url && !source; attempt++) {
-          const resp = await fetch(url, { headers: { 'User-Agent': CAA_UA } });
+          const resp = await fetch(url, { headers: { 'User-Agent': CAA_UA }, signal: AbortSignal.timeout(20_000) });
           if (resp.ok) {
             source = Buffer.from(await resp.arrayBuffer());
             origin = 'provider';
@@ -256,6 +277,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
             imageSourceId = row.id;
             break;
           }
+          if (resp.status !== 404 && resp.status !== 410) providerFailed = true;
           url = null;
           if (attempt === 1 && [403, 404, 410].includes(resp.status)) {
             const settings = await libraryProviderSettings(ctx, album.libraryId);
@@ -280,6 +302,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
         }
       }
     } catch (err) {
+      providerFailed = true;
       ctx.logger.debug({ album: album.titleGuess, err: (err as Error).message }, 'discogs image fetch failed');
     }
   }
@@ -298,7 +321,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
       return;
     }
     ctx.logger.debug({ album: album.titleGuess }, 'no cover art found (quality flag material)');
-    return;
+    return providerFailed ? 'failed' : 'none';
   }
 
   let thumb: Buffer, width: number, height: number;
@@ -306,10 +329,11 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
     ({ thumb, width, height } = await toThumb(source));
   } catch (err) {
     ctx.logger.warn({ album: album.titleGuess, err: (err as Error).message }, 'artwork unreadable');
-    return;
+    return 'failed';
   }
 
   const dir = path.join(CACHE_ROOT, 'covers', album.libraryId);
+  await checkClaim?.();
   await mkdir(dir, { recursive: true });
   const localPath = path.join(dir, `${album.id}.jpg`);
   await writeFile(localPath, source);
@@ -325,7 +349,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
       await storeThumb(tx, refreshId, thumb);
     });
     await settleCoverGap(ctx, album.libraryId, album.id);
-    return;
+    return 'found';
   }
   await ctx.db.transaction(async (tx) => {
     const inserted = await tx
@@ -353,6 +377,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
   });
 
   await settleCoverGap(ctx, album.libraryId, album.id);
+  return 'found';
 }
 
 /**

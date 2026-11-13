@@ -4,10 +4,15 @@
  * instead of a fixed "queued" sentence that never went away.
  */
 import { sql } from 'drizzle-orm';
-import { getDb } from '../db.js';
+import { latestMaintenanceTask } from '@tagave/db';
+import { workerServesQueue } from '@tagave/core';
+import type { MaintenanceTaskView } from '@tagave/shared';
+import { getDb, getSql } from '../db.js';
+import { liveMaintenanceQueues, maintenanceView } from './maintenance.js';
 
 export interface ArtFetchView {
-  state: 'queued' | 'running' | 'done' | 'failed';
+  state: 'queued' | 'running' | 'done' | 'failed' | 'interrupted' | 'unavailable';
+  task?: MaintenanceTaskView;
   /** when the last lookup ended (done or failed); null while it is live */
   finishedAt: string | null;
 }
@@ -32,7 +37,15 @@ export function artFetchViewOf(row: { state: string; completed_on: Date | string
 }
 
 /** The album's latest art.fetch job, as a view. */
-export async function artFetchState(albumId: string): Promise<ArtFetchView | null> {
+export async function artFetchState(albumId: string, libraryId: string): Promise<ArtFetchView | null> {
+  const row = await latestMaintenanceTask(getSql(), libraryId, 'cover', albumId);
+  if (row) {
+    const task = maintenanceView(row, await liveMaintenanceQueues());
+    if (task.state === 'waiting' || task.state === 'running') {
+      return { state: task.workerAvailable ? task.state === 'waiting' ? 'queued' : 'running' : 'unavailable', finishedAt: null, task };
+    }
+    return { state: task.state === 'done' ? 'done' : task.state === 'interrupted' ? 'interrupted' : 'failed', finishedAt: task.updatedAt, task };
+  }
   let rows: Array<{ state: string; completed_on: Date | string | null }>;
   try {
     rows = (await getDb().execute(sql`
@@ -44,5 +57,9 @@ export async function artFetchState(albumId: string): Promise<ArtFetchView | nul
   } catch {
     return null; // no job queue schema yet (a fresh install before the worker started)
   }
-  return artFetchViewOf(rows[0]);
+  const view = artFetchViewOf(rows[0]);
+  if ((view?.state === 'queued' || view?.state === 'running') && !workerServesQueue(await liveMaintenanceQueues(), 'art.fetch')) {
+    return { state: 'unavailable', finishedAt: null };
+  }
+  return view;
 }

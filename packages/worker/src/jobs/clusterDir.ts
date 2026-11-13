@@ -1,7 +1,8 @@
 import type postgres from 'postgres';
 import { readFile, access } from 'node:fs/promises';
-import { and, eq, inArray, like, or } from 'drizzle-orm';
+import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
+import { albumsChanged } from '../lib/albumCare.js';
 import { scopeHoldState } from '../lib/clusterHold.js';
 import { albumKeyLock, files, clusterOverrides, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
@@ -188,6 +189,8 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       or(eq(files.status, 'present'), eq(files.status, 'error')),
       // only files music groups (its manifest's handlers): a book in an album folder is not a track
       inArray(files.handler, [...MUSIC_HANDLERS]),
+      sql`not exists (select 1 from file_deletions fd where fd.file_id = ${files.id}
+        and (fd.state = 'holding' or fd.trash_rel_path like '.tagave-trash/upgrade-%'))`,
       pathFilter,
     ));
 
@@ -215,6 +218,14 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     ctx.logger.info({ scope }, 'cluster.dir: folder held until its new files are checked for moves');
     return;
   }
+
+  // Library care (rr85): every album this run touches gets its gaps
+  // rechecked at the end — the albums the files sit on now, the ones they
+  // land on, the ones removed.
+  const touchedAlbums = new Set(((await ctx.sql`
+    select distinct local_album_id::text as id from local_tracks
+     where audio_file_id = any(${inScope.map((f) => f.id)}::uuid[]) and local_album_id is not null`) as unknown as Array<{ id: string }>)
+    .map((r) => r.id));
 
   /**
    * Disc number per file (spec: cue sheet > tag disk.no > disc subfolder >
@@ -525,6 +536,7 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
         returning id::text as id, (xmax = 0) as inserted`;
       if (!row) throw new Error('local_albums upsert returned no row');
       if (row['inserted'] === true) created = true;
+      touchedAlbums.add(row['id'] as string);
       await replaceTracks(ctx, row['id'] as string, g.files, discs, tx);
     }));
   }
@@ -555,6 +567,14 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   // Identify jobs queued for the albums just removed would only find them gone.
   // Best effort: a job that slips through stops quietly on its own.
   const removedIds = [...reaped, ...superseded].map((r) => r.id);
+  for (const id of [...pinnedAlbums, ...removedIds]) touchedAlbums.add(id);
+  // The set-based gaps now (the gaps of removed albums resolve). The quality
+  // check is queued only when an album past identification changed: a rescan
+  // or a re-cluster after an operation. A first scan's pending albums, folder
+  // by folder, are left to scan.root's library-wide check at its end.
+  const decided = touchedAlbums.size > 0 && ((await ctx.sql`
+    select 1 from local_albums where id = any(${[...touchedAlbums]}::uuid[]) and state <> 'pending' limit 1`) as unknown as unknown[]).length > 0;
+  await albumsChanged(ctx, data.libraryId, [...touchedAlbums], { queue: decided });
   if (removedIds.length > 0) {
     try {
       await cancelQueuedIdentify(ctx, removedIds);

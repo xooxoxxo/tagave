@@ -5,6 +5,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ManualTagValues } from '@tagave/shared';
 import { api } from '../services/api';
+import { invalidateAlbumCare } from './useGaps';
 import { dropFromAlbumSelection } from '../pages/albumSelection';
 
 export type EditScope =
@@ -64,8 +65,7 @@ export function useMergeAlbums(libraryId: string | undefined) {
       for (const id of data.mergedAlbumIds) qc.removeQueries({ queryKey: ['album', id] });
       // The merged-away albums are gone: a selection waiting on the album list must not keep them.
       dropFromAlbumSelection(data.mergedAlbumIds.filter((id) => id !== data.albumId));
-      qc.invalidateQueries({ queryKey: ['albums'] });
-      qc.invalidateQueries({ queryKey: ['album-facets'] });
+      void invalidateAlbumCare(qc);
       qc.invalidateQueries({ queryKey: ['artists'] });
     },
   });
@@ -76,10 +76,8 @@ export function useUnmergeAlbum(libraryId: string | undefined) {
   return useMutation({
     mutationFn: (albumId: string) =>
       api.post<{ albumId: string; files: number; folders: number }>(`/libraries/${libraryId}/albums/${albumId}/unmerge`, {}),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['album', data.albumId] });
-      qc.invalidateQueries({ queryKey: ['albums'] });
-      qc.invalidateQueries({ queryKey: ['album-facets'] });
+    onSuccess: () => {
+      void invalidateAlbumCare(qc);
       qc.invalidateQueries({ queryKey: ['artists'] });
     },
   });

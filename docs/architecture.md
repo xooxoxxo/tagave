@@ -63,7 +63,7 @@ Facet changes go into one change log, `facet_changes`, written by statement-leve
 Music Connections is the module that links tagave to other music apps (review-gatherer, for example) over the open `music-connections/1` protocol. Both directions use pull feeds, and each person links their own account:
 
 - **As a provider**, tagave serves its manifest at `/.well-known/music-connections` and the feeds `/mc/v1/ratings`, `collection`, `listens` and `identity`, all read from `facet_changes`. Its own OAuth 2.0 server lives at `/api/v1/connect/*`.
-- **As a client**, Settings › Connections links to another app. The `connections.pull` job reads `critic-scores`, `identity` and `wantlist-suggestions` from it every 15 minutes, using `pull()` from the vendored `packages/music-connections`. What it reads lands in `mc_critic_scores`, `mc_identity` and `mc_wantlist_suggestions`.
+- **As a client**, Settings › Modules › Music Connections links to another app. The `connections.pull` job reads `critic-scores`, `identity` and `wantlist-suggestions` from it every 15 minutes, using `pull()` from the vendored `packages/music-connections`. What it reads lands in `mc_critic_scores`, `mc_identity` and `mc_wantlist_suggestions`.
 
 Each direction is its own link, and the app that will read starts it. `docs/security.md` covers the auth rules, and `docs/operations.md` covers the settings and the end-to-end test.
 

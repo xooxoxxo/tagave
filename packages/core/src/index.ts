@@ -207,12 +207,23 @@ export {
   hashDffStream,
 } from './audio/streamHash.js';
 
+// Whole album in one file: cut points, file names, the written tracks' check (0078)
+export {
+  expectedBoundariesMs, msToSample, frameSamplesOf, frameRms, sustained, refineCut, confidenceOf, windowAround,
+  safeNamePart, trackFileName, planSplit, verifySplit, FRAME_MS, MIN_DIP_DB, SURE_DIP_DB,
+} from './audio/splitImage.js';
+export type { RefinedCut, RefineInput, PlanInput, PlanTrackInput, WrittenTrack } from './audio/splitImage.js';
+
+// Move to album: the names a moved file and a new album folder take (0080)
+export { DEFAULT_NAMING, namingOf, folderNaming, describeNaming, movedFileName, newAlbumDir } from './audio/moveNaming.js';
+export type { NamingPattern, NameInput } from './audio/moveNaming.js';
+
 // Physical collection: format lines and one-click album suggestions
 export { physicalFormatLabel, discogsArtistName, matchTitle, scoreSuggestion, rankPhysicalSuggestions } from './collection/index.js';
 export type { PhysicalRecordInfo, LibraryAlbumCandidate, RankedSuggestion } from './collection/index.js';
 
 // Worker queues and the work each serves
-export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, unservedWork } from './queues.js';
+export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, MUSIC_FOLDER_QUEUES, MAINTENANCE_QUEUES, unservedWork, workedWith, workerServesQueue } from './queues.js';
 
 // Artists list ordering (api live list, worker artist_list rebuild)
 export {
@@ -242,3 +253,15 @@ export type {
 
 // Spot-check statistics: the one-sided Clopper–Pearson bound and the per-band gate
 export { clopperPearsonUpper, minCleanChecks, checksStillNeeded, bandGate, type BandGate } from './stats/clopperPearson.js';
+// Naming rules (vault "tagave - Naming Rules and Drop Pool"): where a file belongs, from its tags
+export {
+  NAMING_VARIABLES, DEFAULT_NAMING_RULES, DEFAULT_FOLDER_TEMPLATE, DEFAULT_FILE_TEMPLATE, DEFAULT_SPECIAL_RULES, DEFAULT_LEAVE_ALONE,
+  SEGMENT_MAX_BYTES, PATH_MAX_BYTES, INITIAL_NUMERIC, INITIAL_OTHER, DETECT_MIN_SHARE,
+  initialOf, templateProblem, rulesProblems, safeSegment, capPath, folderRuleFor, ruleDir, ruleFileName, rulePath,
+  isLeftAlone, samePath, namingValuesOf, detectNaming, albumPaths,
+} from './naming/rules.js';
+export type {
+  NamingRules, NamingValues, NamingVariable, SpecialRule, SpecialWhen, RulePath, RuleName, NamingSample, Detected, AlbumFileInput, AlbumPaths,
+} from './naming/rules.js';
+export { currentFieldsFrom } from './naming/currentFields.js';
+export type { CanonicalValue } from './naming/currentFields.js';

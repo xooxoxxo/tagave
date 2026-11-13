@@ -42,12 +42,27 @@ export class SafeFileWriter {
     tagSet: TagSet,
     opts?: WriteOptions
   ): Promise<WriteResult> {
+    return this.writeVerified(
+      filePath,
+      (temp) => this.tagWriter.write(temp, tagSet, opts),
+      (temp) => this.verifyFields(temp, tagSet),
+    );
+  }
+
+  async writeVerified(
+    filePath: string,
+    write: (temp: string) => Promise<void>,
+    verify: (temp: string) => Promise<WriteResult>,
+    beforePublish?: () => Promise<void>,
+  ): Promise<WriteResult> {
     const dir = path.dirname(filePath);
     const filename = path.basename(filePath);
     const tempFilename = `.tagave-tmp-${randomUUID()}${path.extname(filename)}`;
     const tempFilePath = path.join(dir, tempFilename);
 
     try {
+      const original = await fs.lstat(filePath, { bigint: true });
+      if (!original.isFile()) return { error: 'Expected a regular audio file', code: 'source_changed' };
       // 0. Compute audio-stream hash of original file
       let hashBefore: string;
       try {
@@ -69,7 +84,7 @@ export class SafeFileWriter {
 
       // 3. Write tags to temp copy via sidecar
       try {
-        await this.tagWriter.write(tempFilePath, tagSet, opts);
+        await write(tempFilePath);
       } catch (writeError) {
         await this.cleanup(tempFilePath);
         const message = writeError instanceof Error ? writeError.message : String(writeError);
@@ -78,7 +93,7 @@ export class SafeFileWriter {
 
       // 4. Re-read temp file with music-metadata and verify intended fields
       try {
-        const reparseResult = await this.verifyFields(tempFilePath, tagSet);
+        const reparseResult = await verify(tempFilePath);
         if (reparseResult.error) {
           await this.cleanup(tempFilePath);
           return reparseResult;
@@ -107,6 +122,12 @@ export class SafeFileWriter {
 
       // 6. Atomic rename - replace original with temp
       try {
+        await beforePublish?.();
+        const current = await fs.lstat(filePath, { bigint: true });
+        if (current.dev !== original.dev || current.ino !== original.ino || current.size !== original.size ||
+            current.ctimeNs !== original.ctimeNs || current.mtimeNs !== original.mtimeNs) {
+          throw new Error('Audio file changed while its tags were being written');
+        }
         await fs.rename(tempFilePath, filePath);
       } catch (renameError) {
         await this.cleanup(tempFilePath);

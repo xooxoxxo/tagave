@@ -7,6 +7,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type postgres from 'postgres';
 import { INVITE_TTL_DAYS, type InvitePurpose, type InviteView, type Role, type UserView } from '@tagave/shared';
+import { hasLocalWayIn, refuseOidcRejoin, waysIn } from '@tagave/auth';
 import { ApiError } from '../middleware/errorHandler.js';
 import { toRole } from '../middleware/auth.js';
 
@@ -39,6 +40,8 @@ interface UserRow {
   last_seen_at: Date | null;
   two_factor: boolean;
   passkeys: number;
+  oidc: boolean;
+  password: boolean;
 }
 
 function toUserView(row: UserRow, selfId: string): UserView {
@@ -52,6 +55,8 @@ function toUserView(row: UserRow, selfId: string): UserView {
     lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
     twoFactor: row.two_factor,
     passkeys: row.passkeys,
+    oidc: row.oidc,
+    password: row.password,
     isSelf: row.id === selfId,
   };
 }
@@ -86,7 +91,9 @@ export async function listUsers(sql: postgres.Sql, selfId: string): Promise<{ us
     select u.id, u.display_name, u.email, u.role, u.created_at, u.disabled_at, u.removed_at,
            (select greatest(max(s.updated_at), max(s.created_at)) from auth_sessions s where s.user_id = u.id) as last_seen_at,
            (u.two_factor_enabled and exists (select 1 from auth_two_factors t where t.user_id = u.id and t.verified is not false)) as two_factor,
-           (select count(*)::int from auth_passkeys p where p.user_id = u.id) as passkeys
+           (select count(*)::int from auth_passkeys p where p.user_id = u.id) as passkeys,
+           exists (select 1 from auth_accounts a where a.user_id = u.id and a.provider_id = 'oidc') as oidc,
+           exists (select 1 from auth_accounts a where a.user_id = u.id and a.provider_id = 'credential' and a.password is not null) as password
       from users u
      order by (u.removed_at is not null), (u.role = 'owner') desc, lower(coalesce(u.display_name, u.email))`;
   const invites = await sql<InviteRow[]>`
@@ -116,6 +123,8 @@ async function loadUser(tx: postgres.TransactionSql | postgres.Sql, userId: stri
   if (!row) throw new ApiError(404, 'Not Found', 'No such person on this tagave');
   return row;
 }
+
+export const OWNER_NEEDS_LOCAL = 'An owner needs a password or a passkey. Send them a set-password link first.';
 
 const LAST_OWNER = 'tagave needs at least one owner who can sign in. Make someone else an owner first.';
 
@@ -192,6 +201,10 @@ export async function changeUser(
     if (losesOwner && (await activeOwnerCount(tx, userId)) === 0) {
       throw new ApiError(409, 'Conflict', LAST_OWNER);
     }
+    // an owner keeps a way in that does not depend on the login service
+    if (change.role === 'owner' && user.role !== 'owner' && !hasLocalWayIn(await waysIn(tx as unknown as postgres.Sql, userId))) {
+      throw new ApiError(409, 'Conflict', OWNER_NEEDS_LOCAL);
+    }
     if (change.role !== undefined) {
       await tx`update users set role = ${change.role}, updated_at = now() where id = ${userId}`;
     }
@@ -229,6 +242,8 @@ export async function removeUser(sql: postgres.Sql, actorId: string, userId: str
     await tx`update field_locks set created_by = ${actorId} where created_by = ${userId}`;
     await tx`update cluster_overrides set created_by = ${actorId} where created_by = ${userId}`;
     await revokeLinksMadeBy(tx, userId);
+    // their login-service identity does not come back by "Anyone can join"
+    await refuseOidcRejoin(tx, userId);
     if (data === 'delete') {
       // their bundled-player account goes with the row (cascade); the people
       // sync locks it on the server from here, so phone apps lose it too

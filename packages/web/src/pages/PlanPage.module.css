@@ -8,6 +8,13 @@
 .back { color: var(--ink-2); text-decoration: none; font-size: var(--font-size-sm); }
 .back:hover { color: var(--ink); }
 .headerActions { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.loader { min-height: 12rem; display: grid; place-content: center; justify-items: center; gap: var(--space-sm); color: var(--ink-2); }
+.loaderGlyph { width: 9rem; height: 6rem; }
+.previewLoader { display: flex; gap: var(--space-md); align-items: center; }
+.previewGlyph { width: 4rem; height: 3rem; flex: none; }
+@media (forced-colors: active) {
+  .loaderGlyph, .previewGlyph { display: none; }
+}
 /* Delete on a plan that is kept: faint, still pressable (it says why). */
 .keptDelete.keptDelete { --b-ink: var(--ink-3); cursor: help; }
 .keptNote { margin: 0; font-size: var(--font-size-sm); color: var(--ink-2); }
@@ -119,7 +126,7 @@
   display: grid;
   /* every row is its own grid, so every track is fixed except the path:
      "12 changes" and "No changes" line up down the list */
-  grid-template-columns: 1.25rem 6.5rem minmax(0, 1fr) 7rem;
+  grid-template-columns: 1.25rem 6.5rem minmax(0, 1fr) 16rem 7rem;
   align-items: center;
   gap: var(--space-md);
   width: 100%;
@@ -146,6 +153,18 @@
 .pathDir { display: block; font-size: var(--font-size-xs); color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pathFile { display: block; font-size: var(--font-size-sm); color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fileError { display: block; font-size: var(--font-size-xs); color: var(--error); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The release track the preview paired the file with: "1 · Clouds · 98%" */
+.pair {
+  display: flex; align-items: baseline; gap: 0.375rem; min-width: 0;
+  font-size: var(--font-size-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.pair > * + *::before { content: '·'; margin-right: 0.375rem; color: var(--text-tertiary); }
+.pairPos { flex: none; color: var(--text-tertiary); }
+.pairTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pairPct { flex: none; }
+/* below LOW_MATCH_CONFIDENCE: worth a look, not an error */
+.pairLow .pairPct { color: var(--warning); }
 
 .fileFields { display: flex; align-items: center; gap: var(--space-xs); justify-content: flex-end; min-width: 0; overflow: hidden; }
 .nChanges { font-size: var(--font-size-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -174,7 +193,7 @@ so the change reads at a glance. */
 .title { display: block; min-width: 0; overflow-wrap: break-word; }
 /* A long plan name drops from the headline size to a smaller display size. */
 .titleLong { font-size: clamp(1.5rem, 1.1rem + 1.2vw, 2rem); line-height: 1.15; }
-@media (max-width: 640px) { .input { min-width: 0; width: 100%; } .fileRow { grid-template-columns: 1rem 4rem minmax(0, 1fr); } .fileFields { grid-column: 3; justify-content: flex-start; } }
+@media (max-width: 640px) { .input { min-width: 0; width: 100%; } .fileRow { grid-template-columns: 1rem 4rem minmax(0, 1fr); } .fileFields { grid-column: 3; justify-content: flex-start; } .pair { grid-column: 3; } .pair:empty { display: none; } .fileRow { row-gap: var(--space-xs); } }
 
 /* On a phone the four columns do not fit (Field and Why alone take the
    width), so each change becomes a small block: the field on top, then
@@ -220,3 +239,19 @@ so the change reads at a glance. */
 .detailsList dt { color: var(--ink-3); }
 .detailsList dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .detailsSummary::before { transition: none; } }
+
+/* Organize files (0081): Off | On, the move counts, and each file's new path */
+.organize { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); }
+.organizeLabel { color: var(--ink-2); font: 500 13px / 1.2 var(--font-body); }
+.moveStats { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-lg); margin: 0; font-size: var(--font-size-sm); }
+.moveStats > div { display: flex; gap: var(--space-sm); }
+.moveStats dt { color: var(--ink-3); }
+.moveStats dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.movePath {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-sm);
+  margin: 0; padding: 0 var(--space-md) var(--space-sm) calc(1.25rem + 2 * var(--space-md));
+  font-size: var(--font-size-xs); color: var(--ink-3);
+}
+.movePathLabel { flex: none; }
+.movePathValue { min-width: 0; color: var(--ink-2); font-family: var(--font-mono); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .movePath { padding-left: var(--space-md); } }

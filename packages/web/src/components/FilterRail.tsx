@@ -19,13 +19,15 @@ interface FilterRailProps {
   /** Toggle one value of a multi-select dimension. */
   onToggle: (key: MultiFilterKey, value: string | number) => void;
   /** Replace a single-select dimension (undefined clears it). */
-  onSet: (key: 'decided' | 'review' | 'owned', value: string | undefined) => void;
+  onSet: (key: 'decided' | 'review' | 'owned' | 'liked', value: string | undefined) => void;
   onClear: () => void;
   onApplyView: (view: SavedView) => void;
   onSaveView: () => void;
   onDeleteView: (id: string) => void;
   /** Maintenance: offer the curation filters (identification, needs attention, match kind) */
   curation?: boolean;
+  /** beside the list (a desktop), or the body of the phone's filter sheet */
+  variant?: 'rail' | 'sheet';
 }
 
 const STATE_LABEL: Record<string, string> = {
@@ -35,6 +37,7 @@ const FORMAT_LABEL: Record<string, string> = { lossless: 'Lossless', lossy: 'Los
 const REVIEW_LABEL: Record<string, string> = { reviewed: 'Reviewed', unreviewed: 'Unreviewed', rated: 'Rated', listened: 'Listened' };
 const GAP_LABEL: Record<string, string> = { incomplete_album: 'Incomplete', duplicate: 'Duplicate', quality: 'Quality flags', none: 'No open issues' };
 const OWNED_LABEL: Record<string, string> = { both: 'Also on physical', digital: 'Digital only' };
+const LIKED_LABEL: Record<string, string> = { yes: 'Liked' };
 const DECIDED_LABEL: Record<string, string> = {
   auto_strong: 'Auto (strong)', chip_rule: 'Auto (chip rule)', first_candidate: 'Auto (first candidate)', by_me: 'Accepted by me', manual_mbid: 'Manual MBID', model: 'Auto (model)',
 };
@@ -128,7 +131,7 @@ function SingleOptions({ items, labels, current, onPick, hideZero = true }: {
   );
 }
 
-export function FilterRail({ query, facets, savedViews, activeCount, onToggle, onSet, onClear, onApplyView, onSaveView, onDeleteView, curation = true }: FilterRailProps) {
+export function FilterRail({ query, facets, savedViews, activeCount, onToggle, onSet, onClear, onApplyView, onSaveView, onDeleteView, curation = true, variant = 'rail' }: FilterRailProps) {
   const [genreQuery, setGenreQuery] = useState('');
   const [labelQuery, setLabelQuery] = useState('');
   const genres = facets?.genres.filter((g) => !genreQuery || g.value.toLowerCase().includes(genreQuery.toLowerCase()));
@@ -138,11 +141,11 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
   const len = (key: MultiFilterKey) => (query[key]?.length ?? 0);
 
   return (
-    <aside className={styles.rail}>
-      <div className={styles.railHead}>
-        <span className={styles.total}>{facets ? plural(facets.total, 'album') : '…'}</span>
+    <aside className={variant === 'sheet' ? styles.railSheet : styles.rail}>
+      {(variant === 'sheet' || activeCount > 0) && <div className={styles.railHead}>
+        {variant === 'sheet' && <span className={styles.total}>{facets ? plural(facets.total, 'album') : '…'}</span>}
         {activeCount > 0 && <Button variant="quiet" size="sm" onClick={onClear}>Clear {activeCount}</Button>}
-      </div>
+      </div>}
 
       <Section title="Saved views">
         {savedViews && savedViews.length > 0 ? savedViews.map((v) => (
@@ -158,6 +161,11 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
         </Button>
       </Section>
 
+      {facets?.liked && (
+        <Section title="Likes">
+          <SingleOptions items={facets.liked} labels={LIKED_LABEL} current={query.liked} onPick={(v) => onSet('liked', v)} hideZero={false} />
+        </Section>
+      )}
       {curation && (
         <Section title="Identification" count={len('state')}>
           <MultiOptions items={facets?.states} labels={STATE_LABEL} isActive={active('state')} onToggle={on('state')} />

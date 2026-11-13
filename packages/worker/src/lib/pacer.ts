@@ -8,7 +8,7 @@ import type { Sql } from './context.js';
 
 /** provider_state rows. Discogs has ONE budget whether or not a token is
  * used (token → per-token, else per-IP; all our processes share both). */
-export type ProviderName = 'musicbrainz' | 'discogs' | 'wikidata' | 'caa' | 'critiquebrainz' | 'wikipedia' | 'acoustid' | 'itunes';
+export type ProviderName = 'musicbrainz' | 'discogs' | 'wikidata' | 'caa' | 'critiquebrainz' | 'wikipedia' | 'acoustid' | 'itunes' | 'listenbrainz' | 'lastfm';
 
 /** Request intervals in ms (spec §10.2.1 headroom under each limit). */
 export const PROVIDER_INTERVALS = {
@@ -20,6 +20,8 @@ export const PROVIDER_INTERVALS = {
   wikipedia: 1000,      // Action API: serial requests, maxlag=5
   acoustid: 340,        // 3 req/s (IDN-5)
   itunes: 4000,         // Apple's keyless lookup allows about 20 a minute: 15 (Listen elsewhere)
+  listenbrainz: 1000,   // ListenBrainz: "never more than ONE call per second" (Similar artists)
+  lastfm: 1000,         // Last.fm asks for no more than 5 a second; one is plenty (Similar artists)
 } as const;
 
 /**

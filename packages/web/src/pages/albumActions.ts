@@ -20,22 +20,24 @@ import type { MenuItem } from '../components/ui';
 export type AlbumActionId = 'shuffle' | 'play' | 'like' | 'playlist' | 'share' | 'radio';
 
 /**
- * The action row: Shuffle | Play | (like). Like is planned, so its slot is
- * space: nothing drawn, but it keeps Play on the row's centre line on a
- * phone until an action ships into it.
+ * The action row: Shuffle | Play | Like (the album's heart, 0085). A slot
+ * with nothing in it is space: nothing drawn, but it keeps Play on the
+ * row's centre line on a phone.
  */
 export const SLOTS: readonly AlbumActionId[] = ['shuffle', 'play', 'like'];
 
 /**
- * Actions that exist in the app. Like, add to playlist, share and radio are
+ * Actions that exist in the app. Add to playlist, share and radio are
  * planned; they get an icon in their slot once they ship.
  */
-export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuffle', 'play']);
+export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuffle', 'play', 'like']);
 
 /** What this person can do on this album right now. */
 export interface AlbumActionContext {
   /** a player module is installed and the role may use it (player.use): Play and Shuffle show */
   player: boolean;
+  /** the person may like albums here (the heart is given) */
+  like?: boolean;
   /** the actions that exist (tests and stories can pass the planned set) */
   shipped?: ReadonlySet<AlbumActionId>;
 }
@@ -55,7 +57,7 @@ export function actionAvailable(id: AlbumActionId, ctx: AlbumActionContext): boo
     case 'shuffle':
     case 'playlist':
     case 'radio': return ctx.player;
-    case 'like':
+    case 'like': return ctx.like === true;
     case 'share': return true;
   }
 }
@@ -66,10 +68,10 @@ export interface RowSlot {
   filled: boolean;
 }
 
-/** The action row's slots, or null when there is no Play (no player: no row). */
+/** The action row's slots, or null when nothing is in them (no player and no heart: no row). */
 export function rowSlots(list: readonly AlbumActionId[], ctx: AlbumActionContext): RowSlot[] | null {
   const all = list.map((id) => ({ id, filled: actionAvailable(id, ctx) }));
-  return all.some((s) => s.id === 'play' && s.filled) ? all : null;
+  return all.some((s) => s.filled) ? all : null;
 }
 
 /** Play's state. */
@@ -93,7 +95,7 @@ export const playLabel = (mode: AlbumPlayState['mode']) => (mode === 'pause' ? '
 
 /* ---------------- the ⋮ menu ---------------- */
 
-export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance' | 'next' | 'queue' | 'playlist';
+export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance' | 'next' | 'queue' | 'playlist' | 'trash' | 'tag';
 
 export interface AlbumMenuAction {
   key: string;
@@ -104,6 +106,8 @@ export interface AlbumMenuAction {
   disabled?: boolean | undefined;
   /** a hairline above it (a new group of tools) */
   separated?: boolean | undefined;
+  /** a destructive action (the delete item) */
+  tone?: 'danger' | undefined;
   onSelect: () => void;
 }
 
@@ -132,6 +136,9 @@ export interface AlbumMenuInput {
   /** the album info drawer (About, reviews) */
   onInfo: () => void;
   tools?: readonly AlbumMenuAction[] | undefined;
+  upgrade?: AlbumMenuAction | null;
+  artwork?: AlbumMenuAction | null;
+  customize?: () => void;
   onToggleMaintenance: () => void;
   /** Listen elsewhere (the listen-links module): links, in the person's order */
   listen?: readonly ListenLinkView[] | undefined;
@@ -139,6 +146,10 @@ export interface AlbumMenuInput {
   queue?: { next: () => void; end: () => void } | null | undefined;
   /** Add to playlist… (the playlists module) */
   addToPlaylist?: (() => void) | null | undefined;
+  /** Tag… (library care): the Tag sheet, a new plan with the defaults */
+  tag?: (() => void) | null | undefined;
+  /** the owner's one delete item, in the library's mode ("Mark for deletion" or "Move to trash"): the last Maintenance tool */
+  remove?: { label: string; onSelect: () => void } | null | undefined;
 }
 
 /**
@@ -163,13 +174,21 @@ export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
       { key: 'queue', label: 'Add to queue', icon: 'queue' as const, onSelect: i.queue.end },
     ] : []),
     ...(i.addToPlaylist ? [{ key: 'playlist', label: 'Add to playlist…', icon: 'playlist' as const, onSelect: i.addToPlaylist }] : []),
+    ...(i.canCare && i.tag ? [{ key: 'tag', label: 'Tag…', icon: 'tag' as const, onSelect: i.tag }] : []),
+    ...(i.canCare && i.upgrade ? [i.upgrade] : []),
+    ...(i.artwork ? [i.artwork] : []),
+    ...(i.customize ? [{ key: 'customize', label: 'Customize album header', icon: 'tool' as const, onSelect: i.customize }] : []),
     { key: 'info', label: 'Album info', hint: 'Details and reviews', icon: 'info', onSelect: i.onInfo },
     ...(one ? [] : i.artists.map(artist)),
   ];
   return {
     tiles,
     rows,
-    tools: i.canCare && i.maintenance ? [...(i.tools ?? [])] : [],
+    // Delete only in Maintenance (owner, 2026-11-04)
+    tools: i.canCare && i.maintenance ? [
+      ...(i.tools ?? []),
+      ...(i.remove ? [{ key: 'delete', label: i.remove.label, icon: 'trash' as const, tone: 'danger' as const, separated: true, onSelect: i.remove.onSelect }] : []),
+    ] : [],
     maintenance: i.canCare ? { on: i.maintenance, onToggle: i.onToggleMaintenance } : null,
     ...(i.listen && i.listen.length > 0 ? { listen: [...i.listen] } : {}),
   };
@@ -183,7 +202,7 @@ export const maintenanceLabel = (on: boolean) => (on ? 'Turn off Maintenance' : 
 /** The same menu as a desktop dropdown's items, in the drawer's order. */
 export function albumMenuItems(m: AlbumMenuModel): MenuItem[] {
   const item = (a: AlbumMenuAction): MenuItem => ({
-    key: a.key, label: a.label, onSelect: a.onSelect,
+    key: a.key, label: a.label, onSelect: a.onSelect, ...(a.tone ? { tone: a.tone } : {}),
     ...(a.hint ? { hint: a.hint } : {}), ...(a.disabled ? { disabled: true } : {}), ...(a.separated ? { separated: true } : {}),
   });
   const tools = m.tools.map((t, n) => ({ ...item(t), separated: n === 0 || !!t.separated }));

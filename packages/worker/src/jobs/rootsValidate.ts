@@ -85,6 +85,48 @@ export async function probeRoot(rootPath: string, writableIntent: boolean): Prom
   return { status: 'ok', message: msg, probeWritable };
 }
 
+/** Where compose mounts the music in the file worker (deploy/compose.yml). */
+export const MUSIC_MOUNT = '/mnt/music';
+
+/**
+ * Where a scan root is on the computer that holds the music, for the Marked
+ * list's delete command (0073 scan_roots.host_path). Compose passes the host
+ * folder it mounts at /mnt/music as TAGAVE_MUSIC_HOST_DIR (filled from
+ * MUSIC_DIR, which the installer always writes), so a root at or under the
+ * mount maps onto it. Outside a container the root's path is the host's
+ * path. Otherwise (a container without the variable, a root mounted some
+ * other way) it is not known: null.
+ */
+export function hostPathFor(
+  rootPath: string,
+  env: { hostDir?: string | undefined; mount?: string | undefined; inContainer: boolean },
+): string | null {
+  const mount = (env.mount || MUSIC_MOUNT).replace(/\/+$/, '');
+  const hostDir = env.hostDir?.trim().replace(/\/+$/, '');
+  const root = rootPath.replace(/\/+$/, '') || '/';
+  if (hostDir && hostDir.startsWith('/') && (root === mount || root.startsWith(mount + '/'))) {
+    return hostDir + root.slice(mount.length);
+  }
+  return env.inContainer ? null : root;
+}
+
+let containerCache: boolean | null = null;
+async function inContainer(): Promise<boolean> {
+  if (containerCache === null) {
+    containerCache = await access('/.dockerenv').then(() => true, () => false);
+  }
+  return containerCache;
+}
+
+/** hostPathFor with this process's environment. */
+export async function hostPathHere(rootPath: string): Promise<string | null> {
+  return hostPathFor(rootPath, {
+    hostDir: process.env['TAGAVE_MUSIC_HOST_DIR'],
+    mount: process.env['TAGAVE_MUSIC_MOUNT'],
+    inContainer: await inContainer(),
+  });
+}
+
 /**
  * spec LIB-1: Validate scan roots by probing on the worker host.
  * Roots probe stat → classification → update validation columns.
@@ -116,6 +158,7 @@ export async function rootsValidateJob(ctx: WorkerContext, data: RootsValidateJo
         validationMessage,
         validatedAt: new Date(),
         probeWritable,
+        hostPath: await hostPathHere(root.path),
       })
       .where(eq(scanRoots.id, root.id));
 

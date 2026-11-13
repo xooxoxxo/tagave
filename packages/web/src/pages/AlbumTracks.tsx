@@ -11,6 +11,11 @@
  * touch, tapping the title plays from that track (a long press still opens
  * the file facts). The track playing now is marked in dew. Without it the
  * list renders exactly as before.
+ *
+ * In Maintenance the owner's rows carry a checkbox (`pick`): the songs to
+ * move to another album or delete. On touch, holding a row picks it (the
+ * row's "⋯" still opens the file facts), and once a song is picked a tap
+ * picks or unpicks the others.
  */
 import { useRef, useState, type ReactNode } from 'react';
 import { Collapse, IconButton, MoreIcon, PlayIcon } from '../components/ui';
@@ -59,9 +64,14 @@ export interface AlbumTracksProps {
   player?: { currentTrackId: string | null; onPlay: (trackId: string) => void } | null;
   /** a track's ⋮ (Play next, Add to queue, Add to playlist), outside Maintenance */
   trackMenu?: ((track: DetailTrack) => ReactNode) | null | undefined;
+  /** each track's heart (LikeKey): on hover or focus where there is a mouse, always once liked */
+  trackLike?: ((track: DetailTrack) => ReactNode) | null | undefined;
+  /** Maintenance, the owner: the songs picked (Move to album, Delete) */
+  pick?: { selected: ReadonlySet<string>; onToggle: (id: string) => void } | null | undefined;
 }
 
-export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null, trackMenu = null }: AlbumTracksProps) {
+export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null, trackMenu = null, trackLike = null, pick = null }: AlbumTracksProps) {
+  const picking = maintenance && !!pick;
   const [openFile, setOpenFile] = useState<string | null>(null);
   const press = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   // touch: a tap on the title plays from there, unless that touch was a long press
@@ -77,11 +87,16 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
   const groups = trackEntries(tracks, maintenance ? missingTracks : []);
   const multiDisc = (discCount ?? 1) > 1 || groups.length > 1;
 
-  const startPress = (e: React.PointerEvent, id: string) => {
+  const startPress = (e: React.PointerEvent, id: string, pickable: boolean) => {
     lastPointer.current = e.pointerType;
     longPressed.current = false;
     if (e.pointerType !== 'touch') return;
-    const timer = setTimeout(() => { press.current = null; longPressed.current = true; toggle(id); }, 480);
+    // Maintenance: a hold picks the song; elsewhere it opens the file facts
+    const timer = setTimeout(() => {
+      press.current = null;
+      longPressed.current = true;
+      if (pickable) pick!.onToggle(id); else toggle(id);
+    }, 480);
     press.current = { id, timer };
   };
   const endPress = () => {
@@ -99,6 +114,7 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
               if (e.kind === 'missing') {
                 return (
                   <li key={e.key} className={styles.item}><div className={`${styles.row} ${styles.missing}`}>
+                    {picking && <span className={styles.pick} aria-hidden="true" />}
                     <span className={styles.lead}>{e.no}</span>
                     <span className={styles.main}>
                       <span className={styles.title}>{e.missing.title}</span>
@@ -122,12 +138,24 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                   <div
                     className={`${styles.row} ${fileError && maintenance ? styles.error : ''} ${open ? styles.rowOpen : ''} ${now ? styles.playing : ''}`}
                     title={file ? `${file}\n${t.file.relPath}` : t.file.relPath}
-                    onPointerDown={(ev) => startPress(ev, t.id)}
+                    onPointerDown={(ev) => startPress(ev, t.id, picking)}
                     onPointerUp={endPress}
                     onPointerLeave={endPress}
                     onPointerCancel={endPress}
                     onContextMenu={(ev) => { if (press.current || open) ev.preventDefault(); }}
+                    data-picked={picking && pick!.selected.has(t.id) ? '' : undefined}
                   >
+                    {picking && (
+                      <span className={styles.pick}>
+                        <input
+                          type="checkbox"
+                          className={styles.pickBox}
+                          aria-label={`Select ${name}`}
+                          checked={pick!.selected.has(t.id)}
+                          onChange={() => pick!.onToggle(t.id)}
+                        />
+                      </span>
+                    )}
                     {player ? (
                       <span className={`${styles.lead} ${styles.leadPlayable}`}>
                         <span className={styles.leadNo}>{t.trackNo ?? '–'}</span>
@@ -140,7 +168,12 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                     )}
                     <span
                       className={styles.main}
-                      onClick={player ? () => { if (lastPointer.current === 'touch' && !longPressed.current) player.onPlay(t.id); } : undefined}
+                      onClick={player || picking ? () => {
+                        if (lastPointer.current !== 'touch' || longPressed.current) return;
+                        // picking on touch: a tap picks or unpicks
+                        if (picking && pick!.selected.size > 0) pick!.onToggle(t.id);
+                        else player?.onPlay(t.id);
+                      } : undefined}
                     >
                       <span className={styles.title}>
                         {now && <span className={styles.srOnly}>Now playing: </span>}
@@ -160,7 +193,7 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                       {!maintenance && file && !uniform && <span className={styles.srOnly}>, {qualityLine(t)}</span>}
                     </span>
                     <span className={styles.len}>{dur(t.durationMs)}</span>
-                    {!maintenance && trackMenu && <span className={styles.rowMenu}>{trackMenu(t)}</span>}
+                    {!maintenance && (trackMenu || trackLike) && <span className={styles.rowMenu}>{trackLike?.(t)}{trackMenu?.(t)}</span>}
                     {maintenance && (
                       <IconButton
                         label={open ? `Hide file details for ${t.title ?? 'this track'}` : `File details for ${t.title ?? 'this track'}`}

@@ -2,7 +2,437 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.15.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.15.0)
+## [v0.30.2](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.2)
+
+**Patch release (0.30.0 → 0.30.2).** The auto-hide sidebar opens between the top bar and the player bar, and the Drop pool sees folder changes at once. 0.30.1 was tagged but never published; this release carries its changes.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+
+### Fixed
+
+- **Auto-hide sidebar:** it opens between the page's top bar and the player bar, so both stay whole. Pointing at either bar no longer opens it. ([77e4ad0](https://github.com/xooxoxxo/tagave/commit/77e4ad0))
+- **Pin shortcut removed:** ⌘\ / Ctrl+\ is gone, since password managers use it. The Pin button stays. ([77e4ad0](https://github.com/xooxoxxo/tagave/commit/77e4ad0))
+- **Drop pool folders:** adding, editing or removing a library folder updates the Drop pool's folder choices without a reload. ([dca0447](https://github.com/xooxoxxo/tagave/commit/dca0447))
+
+**All changes:** [v0.30.0...v0.30.2](https://github.com/xooxoxxo/tagave/compare/v0.30.0...v0.30.2)
+
+## [v0.30.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.1) (2026-11-13)
+
+**Patch release (0.30.0 → 0.30.1).** The auto-hide sidebar opens between the top bar and the player bar, and the Drop pool sees folder changes at once.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+
+### Fixed
+
+- **Auto-hide sidebar:** it opens between the page's top bar and the player bar, so both stay whole. Pointing at either bar no longer opens it. ([77e4ad0](https://github.com/xooxoxxo/tagave/commit/77e4ad0))
+- **Pin shortcut removed:** ⌘\ / Ctrl+\ is gone, since password managers use it. The Pin button stays. ([77e4ad0](https://github.com/xooxoxxo/tagave/commit/77e4ad0))
+- **Drop pool folders:** adding, editing or removing a library folder updates the Drop pool's folder choices without a reload. ([dca0447](https://github.com/xooxoxxo/tagave/commit/dca0447))
+
+**All changes:** [v0.30.0...v0.30.1](https://github.com/xooxoxxo/tagave/compare/v0.30.0...v0.30.1)
+
+## [v0.30.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.0) (2026-11-11)
+
+**Minor release (0.29 → 0.30).** An auto-hide sidebar for the desktop that slides in when you reach for it.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release. The sidebar stays always visible until you choose Auto-hide.
+
+### New
+
+- **Settings › Appearance › Sidebar: Always | Auto-hide.** With Auto-hide on a desktop, the sidebar is hidden and the page uses the whole width; a faint accent mark sits on the left edge. Rest the pointer where the sidebar lives and it slides over the page; it leaves when the pointer does. The page doesn't move, and its own left-edge controls keep working. Tab into it to show it, Escape to hide it. Pin (or ⌘\ / Ctrl+\) keeps it in place, and the pin is remembered. Phones, tablets and touch screens keep their usual navigation. ([ab5d293](https://github.com/xooxoxxo/tagave/commit/ab5d293), [43f4f02](https://github.com/xooxoxxo/tagave/commit/43f4f02), [7376335](https://github.com/xooxoxxo/tagave/commit/7376335), [89224b5](https://github.com/xooxoxxo/tagave/commit/89224b5))
+
+**All changes:** [v0.29.1...v0.30.0](https://github.com/xooxoxxo/tagave/compare/v0.29.1...v0.30.0)
+
+## [v0.29.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.29.1) (2026-11-10)
+
+**Patch release (0.29.0 → 0.29.1).** Splits, split-first tagging and cover lookups run again, and the album page, sidebar and notices look the way they did in 0.27.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+- **Albums stuck at "Finding cut points" or "Cover art lookup queued…" recover by themselves** when the file worker starts after the update: their analysis or lookup is queued again. A split, Tag plan apply or Empty Trash that a stopped worker cut off shows as interrupted, with Continue.
+
+### Fixed
+
+- **Splits, split-first tagging and cover lookups no longer hang.** Every maintenance job was sent with the same empty key on queues that allow one waiting and one running job per key, so a second album's cut points were refused and a job left by a stopped worker blocked the rest for hours. Each job now has its own key, and a test fails if one goes out without it. ([01bb417](https://github.com/xooxoxxo/tagave/commit/01bb417), [8724014](https://github.com/xooxoxxo/tagave/commit/8724014), [1bb1574](https://github.com/xooxoxxo/tagave/commit/1bb1574))
+- **The album header is plain text again:** "Jazz · 1984", the title, the artist, then "5 tracks · 45 min · FLAC 16-bit/44.1 kHz", with no boxes or labels. ([6b0e179](https://github.com/xooxoxxo/tagave/commit/6b0e179))
+- **The desktop sidebar is always there again**, with no edge tab. On phones the desktop sidebar no longer draws inside album and artist pages. ([a7d34ab](https://github.com/xooxoxxo/tagave/commit/a7d34ab))
+- **The disk and music folder notices are one plain line**, such as "Disk 90% full · 10.6 GB free · Storage". Settings › Storage keeps the full text. ([b3b36ac](https://github.com/xooxoxxo/tagave/commit/b3b36ac), [1602dad](https://github.com/xooxoxxo/tagave/commit/1602dad))
+- **The Maintenance inspector scrolls only when it must:** the wheel over it scrolls the page again, and long issue labels wrap with the action on the first line. ([bebc833](https://github.com/xooxoxxo/tagave/commit/bebc833))
+- **Backups and Physical collection lose their explanatory sentences,** and "Tagave" is "tagave" again. ([234e537](https://github.com/xooxoxxo/tagave/commit/234e537))
+
+**All changes:** [v0.29.0...v0.29.1](https://github.com/xooxoxxo/tagave/compare/v0.29.0...v0.29.1)
+
+## [v0.29.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.29.0) (2026-11-09)
+
+**Minor release (0.28 → 0.29).** Set a backup cadence, listen from an exact split point, and make the album view your own.
+
+### New
+
+- **Backup schedules.** Choose Nightly, Daily, Weekly, or Off. Open the schedule from Storage. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Split review.** Hear the source from a proposed cut, adjust it, and check progress after closing the drawer. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Embedded artwork.** Use a local cover image from Maintenance when tag writes are enabled. Tagave checks the audio before replacing the file. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Album widgets and waves.** Choose where details appear and enable cover-coloured waves below short albums. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+
+### Fixed
+
+- **Album browsing.** Keep the artist link when opening a tag-matched album from that artist, group genre filters across letter case, and show ownership and formats more clearly. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Playback and FLAC upgrades.** Show a request reference for playback failures and explain which Lidarr profile blocks an upgrade before it starts. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+- **Navigation and Tag Plans.** Reveal the desktop sidebar at the left edge. See which Tag Plan step is running and how many files it has processed. [Changes](https://github.com/xooxoxxo/tagave/commit/7e062220)
+
+[Compare v0.28.0 and v0.29.0](https://github.com/xooxoxxo/tagave/compare/v0.28.0...v0.29.0)
+
+## [v0.28.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.28.0) (2026-11-08)
+
+**Minor release (0.27 → 0.28).** File maintenance can recover after a worker interruption, and owned albums can upgrade to FLAC through Lidarr.
+
+**Requires attention:** If your file worker is stalled with an old Empty Trash request queued, stop the old workers before updating with the installer. Keep old workers stopped if the update fails.
+
+### Before you update
+
+- Tagave backs up the database before it adds task tracking. Old Empty Trash requests have no saved file list, so the new worker skips them. [Changes](https://github.com/xooxoxxo/tagave/commit/24574ad6)
+
+### New
+
+- **Upgrade to FLAC** downloads through Lidarr and verifies the edition before replacing the album. It needs a mapped drop pool and a FLAC-only profile. The original stays recoverable. [Changes](https://github.com/xooxoxxo/tagave/commit/24574ad6)
+- **Empty Trash** shows the confirmed selection and progress. Cancel stops before the next file. [Changes](https://github.com/xooxoxxo/tagave/commit/24574ad6)
+
+### Fixed
+
+- **File worker stalls.** Bound a DJ tempo loop and report file worker health separately. Split and cover lookups show when the worker is unavailable. [Changes](https://github.com/xooxoxxo/tagave/commit/24574ad6)
+- **Album splits** verify and save their staged tracks before moving the original. You can continue after an interruption from the Split sheet or Tag Plan. [Changes](https://github.com/xooxoxxo/tagave/commit/24574ad6)
+- **Desktop sidebar and Lidarr.** Keep the account row visible in short windows. Eligible missing album cards now show Get from Lidarr. [Changes](https://github.com/xooxoxxo/tagave/commit/24574ad6)
+
+[Compare v0.27.0 and v0.28.0](https://github.com/xooxoxxo/tagave/compare/v0.27.0...v0.28.0)
+
+## [v0.27.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.27.0) (2026-11-05)
+
+**Minor release (0.26 → 0.27).** The drop pool works on installs with two workers, and Lidarr links up to it by itself.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+- **If you turned the drop pool on before:** its folder was made in the wrong worker and never on your music share. Within two minutes of the update tagave makes it on the share, and Settings › Library › Drop pool reads "Ready".
+
+### New
+
+- **Lidarr uses the drop pool by itself.** With the pool on, Settings › Modules › Lidarr has Use the drop pool (On): tagave adds the pool folder to Lidarr as a root folder and picks it, with your quality and metadata profiles. ([af76c5e](https://github.com/xooxoxxo/tagave/commit/af76c5e), [8841508](https://github.com/xooxoxxo/tagave/commit/8841508))
+- **Path mapping.** "Lidarr sees the music folder as" maps the path inside Lidarr's container to tagave's music folder, the same idea as the arr apps' remote path mappings. ([af76c5e](https://github.com/xooxoxxo/tagave/commit/af76c5e))
+- **A reach line.** "Lidarr can write here", "Lidarr can't see this folder: mount the music share into Lidarr's container at …" with the exact path, or "Lidarr can see it but can't write". It checks again every minute until Lidarr can write, and your old root folder stays picked until then. ([af76c5e](https://github.com/xooxoxxo/tagave/commit/af76c5e))
+
+### Fixed
+
+- **The drop pool runs where the music is.** Its scan ran on the identify worker, which has no music folder, so the pool folder was made inside that container and stayed empty. It now runs on the file worker, and a test fails if a job that touches the music folder is ever routed elsewhere. ([9d99472](https://github.com/xooxoxxo/tagave/commit/9d99472))
+- **No pool folder where the music folder isn't.** The pool makes its folder only where the library's files are; otherwise Drop pool reads "Can't reach the music folder" or "Folder missing". ([9765329](https://github.com/xooxoxxo/tagave/commit/9765329))
+
+### Known limits
+
+- **Lidarr's container still needs the music share mounted**; tagave can't change another app's container. The reach line names the path to mount.
+
+**All changes:** [v0.26.0...v0.27.0](https://github.com/xooxoxxo/tagave/compare/v0.26.0...v0.27.0)
+
+## [v0.26.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.26.0) (2026-11-05)
+
+**Minor release (0.25 → 0.26).** Tag an album in one step, a one-file FLAC splits as part of tagging, Maintenance becomes an inspector, and Library care keeps up with every change.
+
+### Before you update
+
+- **Going back to 0.25 means a restore.** This update changes the database (migration 0089). The updater takes a backup first and restores it on its own if the update fails; to return to 0.25 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.26.0/docs/operations.md).
+- **Library care checks itself again after the update.** When the worker starts, it rechecks every album's missing tracks and duplicates, so albums left stale before (such as an album you treated as one) put themselves right.
+
+### New
+
+- **Tag in one step.** Tag opens one sheet that already holds a new plan, the matched release and your saved tag settings. Preview takes you straight to the plan. Release, Fields, Paths, Name and the plan to add to sit in rows you open only to change them. With no match, the sheet offers Pick a release. ([2e1aca3](https://github.com/xooxoxxo/tagave/commit/2e1aca3))
+- **A one-file album splits as part of tagging.** When one FLAC holds a whole album, the sheet says so ("One file holds the whole album. Tagging splits it into 11 tracks first.") with Split first Off/On. Apply splits the file, then tags the new tracks with the plan's values. Low-confidence cuts are shown for you to check first, and Revert puts the original file back. Only the owner can apply, resume or revert a plan that splits. ([7355558](https://github.com/xooxoxxo/tagave/commit/7355558), [8043a65](https://github.com/xooxoxxo/tagave/commit/8043a65), [1ce1bfd](https://github.com/xooxoxxo/tagave/commit/1ce1bfd), [5949006](https://github.com/xooxoxxo/tagave/commit/5949006), [f5f88b9](https://github.com/xooxoxxo/tagave/commit/f5f88b9))
+- **Maintenance is an inspector.** On a desktop, a sidebar beside the album holds its state, To fix with a progress meter, the songs you picked, the tools (Tag…, Move songs…, Match to a release, Rescan folder) and the sections. Issues open in place and tick off when fixed. Below 1024 px it is one "To fix" row that opens a sheet, with a floating bar while you pick songs. ([a4f11b2](https://github.com/xooxoxxo/tagave/commit/a4f11b2), [4b3b927](https://github.com/xooxoxxo/tagave/commit/4b3b927), [ff5e91a](https://github.com/xooxoxxo/tagave/commit/ff5e91a))
+
+### Fixed
+
+- **Library care keeps up.** Treat as one album, split back, moves, splits, deletions, rescans, tag plans and review decisions now recheck the albums they touched at once, and the page refreshes by itself. Before, an album you completed could show tracks missing until the next night. ([b96ce4e](https://github.com/xooxoxxo/tagave/commit/b96ce4e), [36ee5f4](https://github.com/xooxoxxo/tagave/commit/36ee5f4), [76c94e0](https://github.com/xooxoxxo/tagave/commit/76c94e0), [bf1d0e7](https://github.com/xooxoxxo/tagave/commit/bf1d0e7), [995399a](https://github.com/xooxoxxo/tagave/commit/995399a))
+
+### Known limits
+
+- **A FLAC with a cue sheet inside it** is recognised as one file but not split yet.
+
+### For self-hosters
+
+- **Migrations:** 0089 (a tag plan's split).
+
+**All changes:** [v0.25.0...v0.26.0](https://github.com/xooxoxxo/tagave/compare/v0.25.0...v0.26.0)
+
+## [v0.25.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.25.0) (2026-11-05)
+
+**Minor release (0.24 → 0.25).** An equalizer glow that flows with the music, a clearer "Playing on" strip that opens your devices, and a new tagave.app.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+
+### New
+
+- **A new tagave.app.** The six highlights come first, then a section for each area: identify, tag, organize, collect, listen and DJ. The questions are updated for the player, file moves and Lidarr. ([e7c008b](https://github.com/xooxoxxo/tagave/commit/e7c008b))
+
+### Fixed
+
+- **The equalizer glow flows.** It is one soft wash of light that swells with the music, never separate bars. The light drifts slowly, so it keeps moving on a held note. ([41f23b9](https://github.com/xooxoxxo/tagave/commit/41f23b9))
+- **"Playing on …" sits above the player bar.** It is a thin band in the accent colour, with its text centred, and the bar keeps its height. Select it to open your devices. ([41f23b9](https://github.com/xooxoxxo/tagave/commit/41f23b9))
+
+**All changes:** [v0.24.0...v0.25.0](https://github.com/xooxoxxo/tagave/compare/v0.24.0...v0.25.0)
+
+## [v0.24.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.24.0) (2026-11-05)
+
+**Minor release (0.23 → 0.24).** A DJ add-on: Simple mode mixes your queue by itself, Advanced mode gives you two decks to mix.
+
+### Before you update
+
+- **Going back to 0.23 means a restore.** This update changes the database (migrations 0086 and 0087). The updater takes a backup first and restores it on its own if the update fails; to return to 0.23 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.24.0/docs/operations.md).
+- **DJ is off until you turn it on** in Settings › Modules › DJ. Off, the player works exactly as before.
+
+### New
+
+- **DJ module.** Once on, tagave measures each song's tempo, first beat, silent start and end, and waveform in the background, one at a time, songs in a queue first. Nothing leaves your server; a re-tag doesn't measure again. ([e4f8392](https://github.com/xooxoxxo/tagave/commit/e4f8392), [e4ee5dd](https://github.com/xooxoxxo/tagave/commit/e4ee5dd), [926f2f5](https://github.com/xooxoxxo/tagave/commit/926f2f5), [cb2d001](https://github.com/xooxoxxo/tagave/commit/cb2d001))
+- **Simple mode: the queue mixes itself.** Per person in Settings › Modules › DJ: Crossfade Off / Fixed / Auto, Length, Beat-aligned and Gapless albums. Auto fades where the music ends and brings the next song in where it starts; Beat-aligned lands the fade on the beat and starts the next song at the current tempo, easing back to its own over 8 bars. Songs of one album keep playing gapless. A "Mix" chip shows in the bar during a fade. ([b4f5954](https://github.com/xooxoxxo/tagave/commit/b4f5954), [cc39766](https://github.com/xooxoxxo/tagave/commit/cc39766), [ce811b5](https://github.com/xooxoxxo/tagave/commit/ce811b5), [0c5edbf](https://github.com/xooxoxxo/tagave/commit/0c5edbf))
+- **Advanced mode: two decks.** The DJ key in Now playing (or `/dj` in ⌘K) opens two decks with a waveform, BPM, Play, Cue, Pitch and Sync, a Filter, a 3-band EQ with kills and Echo on each, and a crossfader. The next song loads into the free deck by itself, and Auto mix does the transitions for you. What you hear is your Now playing, scrobbles included; leaving the view hands the playing song back to the player. ([5d1f659](https://github.com/xooxoxxo/tagave/commit/5d1f659), [ac89017](https://github.com/xooxoxxo/tagave/commit/ac89017), [0fdb1f5](https://github.com/xooxoxxo/tagave/commit/0fdb1f5), [a5c8fee](https://github.com/xooxoxxo/tagave/commit/a5c8fee))
+
+### Known limits
+
+- **Not in the home-screen app on iPhone or iPad,** where mixing would stop music playing in the background; it says "Not on this device".
+- **Not while casting** or while another of your devices plays: the device that plays decides.
+
+### For self-hosters
+
+- **Migrations:** 0086 (DJ track analysis), 0087 (DJ settings per person).
+- **The files worker** measures songs with ffmpeg at low priority, one at a time, while the DJ module is on.
+
+**All changes:** [v0.23.0...v0.24.0](https://github.com/xooxoxxo/tagave/compare/v0.23.0...v0.24.0)
+
+## [v0.23.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.23.0) (2026-11-04)
+
+**Minor release (0.22 → 0.23).** Like songs, albums and artists, with Liked songs and Liked filters, kept in step with your player's stars.
+
+### Before you update
+
+- **Going back to 0.22 means a restore.** This update changes the database (migration 0085). The updater takes a backup first and restores it on its own if the update fails; to return to 0.22 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.23.0/docs/operations.md).
+- **Your player's stars become likes.** With the player module on and your own player account, the first sync brings the songs, albums and artists you starred in Subsonic apps in as likes, and your likes go out as stars. Tracks your reviews marked as favourites are starred already, so they arrive as liked songs too.
+
+### New
+
+- **Likes.** A heart on the player bar, Now playing, song rows, every song menu, the album header, album cards and the artist header. Albums are liked as the release, so every edition shows as liked; liked songs survive a rescan, Move to album and Split. ([dad4e81](https://github.com/xooxoxxo/tagave/commit/dad4e81), [115ad55](https://github.com/xooxoxxo/tagave/commit/115ad55), [227b31f](https://github.com/xooxoxxo/tagave/commit/227b31f))
+- **Liked songs:** in the sidebar, the phone menu and first on Playlists, newest first, with Play and Shuffle. ([115ad55](https://github.com/xooxoxxo/tagave/commit/115ad55))
+- **Liked filter** on Albums and Artists, working with every other filter and saved views; liked results carry a small heart in ⌘K. ([115ad55](https://github.com/xooxoxxo/tagave/commit/115ad55))
+- **Stars and loves.** Likes and your player's stars stay in step both ways (the newer change wins), so Subsonic apps show the same hearts. A liked song is sent as a love to Last.fm and ListenBrainz; Settings › Modules › Player › Loves turns that off per account. ([dad4e81](https://github.com/xooxoxxo/tagave/commit/dad4e81))
+
+### Improved
+
+- **Turning a module off** asks with an Off | On "Delete its data" and a "Kept · …" or "Deleted · …" line; the key turns red only when it will delete. ([5c34823](https://github.com/xooxoxxo/tagave/commit/5c34823))
+- **Settings › Updates** says "Updating" while an update settles and "Older build" after, instead of "lagging". ([267f027](https://github.com/xooxoxxo/tagave/commit/267f027))
+- **The selected pill** of switches and tabs has the same edge all round. ([e7a78ef](https://github.com/xooxoxxo/tagave/commit/e7a78ef))
+
+### For self-hosters
+
+- **Migrations:** 0085 (likes).
+- **Outside services:** with a scrobbling account linked, a liked or unliked song is sent as a love to Last.fm (`track.love`) and as feedback to ListenBrainz.
+
+**All changes:** [v0.22.0...v0.23.0](https://github.com/xooxoxxo/tagave/compare/v0.22.0...v0.23.0)
+
+## [v0.22.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.22.0) (2026-11-04)
+
+**Minor release (0.21 → 0.22).** Albums land where your naming rules say, a drop pool brings downloads in, music plays in one place across your devices, ⌘K learns scopes and commands, and artist pages show similar artists.
+
+### Before you update
+
+- **Going back to 0.21 means a restore.** This update changes the database (migrations 0081 and 0084). The updater takes a backup first and restores it on its own if the update fails; to return to 0.21 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.22.0/docs/operations.md).
+- **The page search is a ⌘K chip.** Type `@artist`, `@album` or `@song` to narrow, or `/` for commands.
+
+### New
+
+- **Naming rules.** Settings › Library › Naming holds a folder and a file template, read from your library the first time (for example `{initial}/{albumartist}/[{year} - ]{album}` and `[{disc}-][{track:02} - ]{title}`), with rows for soundtracks and compilations and a Leave alone list (by default folders starting with `#`, and `_duplicates`). A tag plan shows each file's new path; Apply writes the tags, then moves the album and its covers, cue and logs, never over a file. Reverting the plan undoes the move. Library care › Organize lists albums in the wrong folder or with the wrong names. ([3f25e0c](https://github.com/xooxoxxo/tagave/commit/3f25e0c), [a7b24ab](https://github.com/xooxoxxo/tagave/commit/a7b24ab), [1d7ff55](https://github.com/xooxoxxo/tagave/commit/1d7ff55), [03472b3](https://github.com/xooxoxxo/tagave/commit/03472b3), [4373751](https://github.com/xooxoxxo/tagave/commit/4373751), [95b0bb9](https://github.com/xooxoxxo/tagave/commit/95b0bb9), [f76a2c0](https://github.com/xooxoxxo/tagave/commit/f76a2c0))
+- **Drop pool.** Turn it on in Settings › Library and drop album folders into it (by default `_Inbox` in your music folder). Once a folder has stopped changing for 2 minutes, tagave identifies it: a confident match is tagged and moved to its rule path; anything else waits in Library care › Inbox with Accept, Pick release… and Skip. An album you already have asks Replace, Keep both or Skip. Lidarr can download into the pool. ([03472b3](https://github.com/xooxoxxo/tagave/commit/03472b3), [4c4ce4c](https://github.com/xooxoxxo/tagave/commit/4c4ce4c))
+- **Play in one place.** Pressing play on one of your devices quiets the others, which show "Playing on <device>" and control it: play, pause, skip, seek and volume. The Devices key moves playback to another device or brings it here. Strictly per person. ([84832c8](https://github.com/xooxoxxo/tagave/commit/84832c8), [8775eda](https://github.com/xooxoxxo/tagave/commit/8775eda), [43d92da](https://github.com/xooxoxxo/tagave/commit/43d92da))
+- **Similar artists** on the artist page, from ListenBrainz (and Last.fm when a key is set): those in your library first, to open and play; the rest with Listen elsewhere and Follow. Only artist MusicBrainz ids leave your server; Settings › Modules turns it off. ([0d738f7](https://github.com/xooxoxxo/tagave/commit/0d738f7), [3cbdd16](https://github.com/xooxoxxo/tagave/commit/3cbdd16), [4ba410d](https://github.com/xooxoxxo/tagave/commit/4ba410d), [a6751da](https://github.com/xooxoxxo/tagave/commit/a6751da))
+
+### Improved
+
+- **⌘K:** `@artist`, `@album`, `@song`, `@playlist` and `@label` narrow the results to one kind as a chip; `/play`, `/queue`, `/shuffle`, `/go` and `/theme` act on the highlighted result. ([0ecbdc4](https://github.com/xooxoxxo/tagave/commit/0ecbdc4), [0d4016f](https://github.com/xooxoxxo/tagave/commit/0d4016f))
+- **Back keeps your place:** scroll, letter, sort, filters and view on Albums, Artists, an artist's albums and Playlists. ([847183f](https://github.com/xooxoxxo/tagave/commit/847183f))
+- **Deleting the album or playlist you're on** goes back to where you came from; Undo still works. ([2dac7d2](https://github.com/xooxoxxo/tagave/commit/2dac7d2))
+- **Artist page:** a three-line bio up top; other names, dates and links move to About, below the albums. ([cd3c0e8](https://github.com/xooxoxxo/tagave/commit/cd3c0e8))
+
+### Fixed
+
+- **Cast links** accept only the exact spelling of their signature. ([0f8aa2b](https://github.com/xooxoxxo/tagave/commit/0f8aa2b))
+
+### For self-hosters
+
+- **Migrations:** 0081 (move kinds, plan paths, drop pool), 0084 (similar artists).
+- **Outside services:** similar artists asks ListenBrainz (and Last.fm with your key) by artist MusicBrainz id, about once a second at most, refreshed weekly.
+- **A drop pool on its own mount** needs a compose change; see the docs.
+
+**All changes:** [v0.21.0...v0.22.0](https://github.com/xooxoxxo/tagave/compare/v0.21.0...v0.22.0)
+
+## [v0.21.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.21.0) (2026-11-04)
+
+**Minor release (0.20 → 0.21).** Collaborative playlists, casting to speakers and TVs, moving songs into the right album's folder, splitting a whole album that sits in one FLAC, and a new equalizer glow.
+
+### Before you update
+
+- **Going back to 0.20 means a restore.** This update changes the database (migrations 0078, 0079 and 0080). The updater takes a backup first and restores it on its own if the update fails; to return to 0.20 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.21.0/docs/operations.md).
+- **Delete moves to Maintenance.** Song and album Delete no longer show in everyday menus; turn on Maintenance on an album to delete.
+- **Casting to a Chromecast needs `PUBLIC_URL` on https with a publicly trusted certificate**; AirPlay also plays from plain http. See [Cast to a speaker or TV](https://github.com/xooxoxxo/tagave/blob/v0.21.0/docs/install.md).
+
+### New
+
+- **Move songs to another album.** In an album's Maintenance, select songs and Move to album…: pick an album in your library or a release you don't have yet. The preview pairs each song with its track on the target (with a match %), shows its new name in the target's folder and its tag changes. Move writes the tags, then moves the files without ever overwriting; a folder left empty goes to the trash. Undo puts back names and tags, right away or later from Library care › Moved. Needs a music folder tagave may write to. ([a30541d](https://github.com/xooxoxxo/tagave/commit/a30541d), [379dbc3](https://github.com/xooxoxxo/tagave/commit/379dbc3), [1f9993e](https://github.com/xooxoxxo/tagave/commit/1f9993e), [833939f](https://github.com/xooxoxxo/tagave/commit/833939f), [ec6f05e](https://github.com/xooxoxxo/tagave/commit/ec6f05e), [882b308](https://github.com/xooxoxxo/tagave/commit/882b308))
+- **Collaborative playlists.** A playlist's ⋮ › Collaborators turns people on or off. Collaborators play, add and reorder, and remove what they added; the owner keeps rename, delete and who collaborates. Each song shows who added it, and shared playlists carry a small people mark. ([b467eed](https://github.com/xooxoxxo/tagave/commit/b467eed), [73b0bcf](https://github.com/xooxoxxo/tagave/commit/73b0bcf), [f6c7ad0](https://github.com/xooxoxxo/tagave/commit/f6c7ad0))
+- **Cast to speakers and TVs.** One cast key in the player: AirPlay in Safari, Chromecast from Chrome on a computer or Android. Play, pause, seek, volume and the queue carry on from the bar; the TV shows title, artist and cover. ([ff6b144](https://github.com/xooxoxxo/tagave/commit/ff6b144), [b8d76d1](https://github.com/xooxoxxo/tagave/commit/b8d76d1))
+- **Split a whole album in one file.** A FLAC holding a whole album without a cue sheet shows as "Whole album in one file" in Library care › Attention and on its album page. Split finds the cut between each track (track lengths from the release, moved to the nearest quiet gap, each rated High, Medium or Low), then writes one tagged FLAC per track, losslessly, and checks every sample is accounted for before the original goes to the trash (Restore puts it back). ([d1dd44a](https://github.com/xooxoxxo/tagave/commit/d1dd44a), [3d9c76a](https://github.com/xooxoxxo/tagave/commit/3d9c76a), [7998b86](https://github.com/xooxoxxo/tagave/commit/7998b86), [d73a451](https://github.com/xooxoxxo/tagave/commit/d73a451), [97cff36](https://github.com/xooxoxxo/tagave/commit/97cff36), [1edb0d3](https://github.com/xooxoxxo/tagave/commit/1edb0d3))
+
+### Improved
+
+- **The equalizer glow is a live spectrum.** 32 columns, bass to treble, rise above the player bar's edge in the album's colour, from the right side on a desktop and across the mini bar on a phone. It goes fully dark when paused, stopped or casting. ([a6d042a](https://github.com/xooxoxxo/tagave/commit/a6d042a), [3a6d81e](https://github.com/xooxoxxo/tagave/commit/3a6d81e))
+- **One song menu everywhere:** Play next, Add to queue, Add to playlist, Go to album and Go to artist on album tracklists, playlists, Now playing, the queue, history, search results and Library care's track lists. ([4c74cc7](https://github.com/xooxoxxo/tagave/commit/4c74cc7), [7bc766a](https://github.com/xooxoxxo/tagave/commit/7bc766a))
+- **Delete only in Maintenance:** select songs to delete them, all of them to delete the album, with Undo; album cards and Duplicates show Delete only in Maintenance. ([7bc766a](https://github.com/xooxoxxo/tagave/commit/7bc766a))
+
+### Fixed
+
+- **Switch and tab labels sit in the middle.** The small ones (Light/Dark/Auto, Grid/List) sat about half a pixel low, and every label sat about a pixel high in browsers without text trimming. ([54a60f2](https://github.com/xooxoxxo/tagave/commit/54a60f2))
+
+### For self-hosters
+
+- **Migrations:** 0078 (album splits), 0079 (playlist collaborators), 0080 (album moves).
+- **The worker image now includes `flac`** (about 0.5 MB), used to split albums.
+- **Cast links:** a cast device fetches a signed link to one track (and its cover), valid for 6 hours and bound to the person; tokens never appear in logs.
+
+**All changes:** [v0.20.0...v0.21.0](https://github.com/xooxoxxo/tagave/compare/v0.20.0...v0.21.0)
+
+## [v0.20.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.20.0) (2026-11-04)
+
+**Minor release (0.19 → 0.20).** Every module's settings in one place, and a music folder that drops out is noticed and reconnected.
+
+### Before you update
+
+- **Nothing to do.** No database changes. Old settings links (Connections, Listen elsewhere, Playback, Listening) redirect to their new pages.
+
+### New
+
+- **A music folder that didn't mount is reconnected.** When a scan finds the music folder empty because its network share didn't mount (for example after a reboot), the updater starts that folder's own `/etc/fstab` mount and restarts tagave's music containers, at most once every 10 minutes. It never unmounts or edits anything. Turn it off with `TAGAVE_MUSIC_SELF_HEAL=0` in `.env`. See [A music folder that did not mount](https://github.com/xooxoxxo/tagave/blob/v0.20.0/docs/operations.md). ([9490611](https://github.com/xooxoxxo/tagave/commit/9490611), [fa1c0b3](https://github.com/xooxoxxo/tagave/commit/fa1c0b3))
+- **"Music folder unreachable"** shows to the owner on every page while a music folder can't be read, and "Reconnecting music folder" while it is being fixed. Nothing is marked missing meanwhile. ([9875119](https://github.com/xooxoxxo/tagave/commit/9875119))
+
+### Improved
+
+- **Settings › Modules holds every module's settings.** One row per module (Player, Lidarr, Listen elsewhere, Music Connections, Playlists) with On/Off; each opens one page with its switch and all its settings. Playback, Listening, Listen elsewhere and Connections leave the sidebar. Members see Modules under Account, with the modules that have something for them. ([fb140e7](https://github.com/xooxoxxo/tagave/commit/fb140e7), [71984ce](https://github.com/xooxoxxo/tagave/commit/71984ce), [efa4599](https://github.com/xooxoxxo/tagave/commit/efa4599))
+
+### For self-hosters
+
+- **Settings in `.env.example`:** added `TAGAVE_MUSIC_SELF_HEAL` (on unless set to `0`).
+- **The updater may start one helper container** (`tagave-music-heal`, its own image, `--privileged --pid=host`) to start the music folder's mount on the host; it runs only for the folder in `MUSIC_DIR` and only when that folder is an `/etc/fstab` mount.
+
+**All changes:** [v0.19.0...v0.20.0](https://github.com/xooxoxxo/tagave/compare/v0.19.0...v0.20.0)
+
+## [v0.19.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.19.0) (2026-11-04)
+
+**Minor release (0.18 → 0.19).** Tag plans pair every file with the right release track again, and phones get a compact layout with one search.
+
+### Before you update
+
+- **Going back to 0.18 means a restore.** This update changes the database (migration 0077). The updater takes a backup first and restores it on its own if the update fails; to return to 0.18 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.19.0/docs/operations.md).
+- **Previewed tag plans go back to draft.** Their previews may pair files with the wrong release tracks; opening a plan previews it again with the repaired pairing.
+
+### Fixed
+
+- **Files paired with the wrong release track.** When an album's files were stored out of track order, each file's track link landed on another file, so a tag plan could write another song's title, track number and recording id. Links now land on the file they were worked out for, and the update relinks every album in the background. A paused plan's unwritten files are skipped. Files an earlier plan already wrote keep their tags; a new plan on that album shows the corrections. ([47f9efe](https://github.com/xooxoxxo/tagave/commit/47f9efe), [d75ac8e](https://github.com/xooxoxxo/tagave/commit/d75ac8e), [c167083](https://github.com/xooxoxxo/tagave/commit/c167083))
+- **Files that aren't on the release are left out of tag plans** ("Not on this release"), instead of getting that album's tags. A weak match only counts when the file's track number agrees. ([f98d420](https://github.com/xooxoxxo/tagave/commit/f98d420), [c167083](https://github.com/xooxoxxo/tagave/commit/c167083))
+- **Missing-album cards keep their spacing** when Lidarr is off or no main service is picked. ([089e2ee](https://github.com/xooxoxxo/tagave/commit/089e2ee))
+
+### Improved
+
+- **Tag plans show each file's release track and match**, e.g. `1 · Clouds · 100%`; a weak match shows in amber. ([9f917b2](https://github.com/xooxoxxo/tagave/commit/9f917b2), [269c656](https://github.com/xooxoxxo/tagave/commit/269c656))
+- **One search.** The search field on Albums and Artists is gone; the header search shows "In albums" (or "In artists") first, and Enter narrows the list, shown as a chip. ([c55af2a](https://github.com/xooxoxxo/tagave/commit/c55af2a))
+- **List toolbar:** the count, then Sort, Filter (with how many are on) and Grid/List keys in one row. Filters open as a bottom sheet on phones; chips show only while a filter is on. ([97a8f83](https://github.com/xooxoxxo/tagave/commit/97a8f83))
+- **Compact phones.** Albums start about 140px higher; no empty band above the player bar; the menu is a full-height sheet; the artist header is tighter; album checkboxes show only while selecting (hold an album to start). ([04aa93e](https://github.com/xooxoxxo/tagave/commit/04aa93e), [1617306](https://github.com/xooxoxxo/tagave/commit/1617306), [033cd8e](https://github.com/xooxoxxo/tagave/commit/033cd8e))
+
+### For self-hosters
+
+- **Migrations:** 0077 (relink tracks; plan items carry their pairing).
+
+**All changes:** [v0.18.0...v0.19.0](https://github.com/xooxoxxo/tagave/compare/v0.18.0...v0.19.0)
+
+## [v0.18.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.18.0) (2026-11-03)
+
+**Minor release (0.17 → 0.18).** Get missing albums through Lidarr, and play what is still missing on your own streaming service.
+
+### Before you update
+
+- **Going back to 0.17 means a restore.** This update changes the database (migrations 0075–0076). The updater takes a backup first and restores it on its own if the update fails; to return to 0.17 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.18.0/docs/operations.md).
+
+### New
+
+- **Get missing albums through Lidarr.** Turn on Lidarr in Settings › Modules, then connect it in Settings › Connections › Lidarr (address, API key, Test, then root folder and profiles). On an artist page, a missing album's ⋮ menu has Get, and the "Not in your library" heading has Get all missing. Lidarr monitors and searches only that album, never the whole discography. Each album shows Wanted, Downloading, Importing or Not found; when Lidarr imports it, tagave scans that folder at once and the album joins your library. Library care › Getting lists open requests with Retry and Cancel; Cancel stops the search and never deletes files. Owner only. See [Get missing albums](https://github.com/xooxoxxo/tagave/blob/v0.18.0/docs/install.md). ([db09110](https://github.com/xooxoxxo/tagave/commit/db09110), [c6d1b16](https://github.com/xooxoxxo/tagave/commit/c6d1b16))
+- **Play missing albums on your service.** Settings › Listen elsewhere › Missing albums picks one service; missing albums and missing playlist songs then get a ▶ key that opens them there. ([1f29ac9](https://github.com/xooxoxxo/tagave/commit/1f29ac9), [2d83ca0](https://github.com/xooxoxxo/tagave/commit/2d83ca0))
+
+### For self-hosters
+
+- **Migrations:** 0075 (Lidarr requests), 0076 (primary listen service).
+- **Lidarr's root folder must be one of tagave's scan roots** (the same folder, mounted in both), or tagave can't pick up what Lidarr imports; Settings › Connections › Lidarr warns when it isn't.
+
+**All changes:** [v0.17.0...v0.18.0](https://github.com/xooxoxxo/tagave/compare/v0.17.0...v0.18.0)
+
+## [v0.17.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.17.0) (2026-11-02)
+
+**Minor release (0.16 → 0.17).** Delete songs and albums, by marking them or moving them to a trash, and sign in with your own login service, such as Zitadel.
+
+### Before you update
+
+- **Going back to 0.16 means a restore.** This update changes the database (migrations 0073 and 0074). The updater takes a backup first and restores it on its own if the update fails; to return to 0.16 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.17.0/docs/operations.md).
+- **Split installs** (a files worker on another machine): update that worker too, so it learns where your music folder is on that machine.
+
+### New
+
+- **Delete songs and albums.** Settings › Library › Deleting picks one mode, and every ⋯ menu shows only that one: on a song, an album, an album card, and each copy in an album's Duplicates. An Undo shows for 5 seconds first. ([e7a8384](https://github.com/xooxoxxo/tagave/commit/e7a8384), [918395f](https://github.com/xooxoxxo/tagave/commit/918395f))
+  - **Mark** (any install): the song or album leaves the library, search and the player at once; your music files are not touched. Library care › Deleting lists what is marked, with Unmark and a command that deletes exactly those files on your server.
+  - **Trash** (music folders tagave may write to): the files move to a hidden `.tagave-trash` folder in the music folder, which the player skips. Restore puts them back; Empty trash deletes them, and trash older than 30 days empties itself.
+  - Plays, ratings and matches stay until the files are really gone, so Unmark and Restore lose nothing.
+- **Sign in with your login service.** Zitadel, Authentik, Authelia, Keycloak, Pocket ID or any OpenID Connect service: set it up in Settings › Users › Sign-in service and a "Sign in with …" button joins password and passkey. People link it from Account; new people come by invite, or join on their own if you allow it, optionally only from one group. The owner always keeps a password or passkey, and an authenticator app still asks for its code. See [Sign in with your login service](https://github.com/xooxoxxo/tagave/blob/v0.17.0/docs/security.md). ([1bb941d](https://github.com/xooxoxxo/tagave/commit/1bb941d), [8970e87](https://github.com/xooxoxxo/tagave/commit/8970e87), [9ff99ac](https://github.com/xooxoxxo/tagave/commit/9ff99ac), [26db84c](https://github.com/xooxoxxo/tagave/commit/26db84c), [feff76f](https://github.com/xooxoxxo/tagave/commit/feff76f), [8d6f7e1](https://github.com/xooxoxxo/tagave/commit/8d6f7e1))
+
+### Improved
+
+- **Removing the last passkey** of an account with no password is refused unless another way in remains; an owner's last passkey can't be removed.
+
+### For self-hosters
+
+- **Migrations:** 0073 (file deletions), 0074 (login service sign-in).
+- **Compose:** the files worker now gets `TAGAVE_MUSIC_HOST_DIR: ${MUSIC_DIR}`, so the delete command shows paths as they are on your server. The updater brings the new compose file; if you keep your own compose file, add that line to the files worker.
+
+**All changes:** [v0.16.0...v0.17.0](https://github.com/xooxoxxo/tagave/compare/v0.16.0...v0.17.0)
+
+## [v0.16.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.16.0) (2026-11-02)
+
+**Minor release (0.15 → 0.16).** Settings, Library care and Tag changes move under your account, and the physical collection shows one row per record with an Undo for removals.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+
+### New
+
+- **Settings, Library care and Tag changes are under your account.** They open from the compartment above your account at the sidebar's foot, after Account and Listening; the phone menu and the tablet bar follow. A dot on the account shows when something inside is waiting, like open Library care tasks or a new version. ([c1c0a90](https://github.com/xooxoxxo/tagave/commit/c1c0a90))
+- **One row per record in the physical collection.** Copies of one release are a single row marked "2 copies"; each row shows its media ("2×CD", "Vinyl") and a drive icon when the album is also on disk. The views are All, Unmapped and Duplicates (only while there are any). "I own both" and "Remove one copy" are in the row's ⋯ menu. ([1b17b61](https://github.com/xooxoxxo/tagave/commit/1b17b61))
+- **Undo instead of Removed.** Removing a record takes it off the list with an Undo for 5 seconds; after that it is removed from your Discogs collection too. Leaving the page sooner removes it right away. ([1b17b61](https://github.com/xooxoxxo/tagave/commit/1b17b61))
+
+### Fixed
+
+- The Settings header no longer draws a line across the page as you scroll. ([a816216](https://github.com/xooxoxxo/tagave/commit/a816216))
+- The physical collection lost the empty space above its views. ([78e70c7](https://github.com/xooxoxxo/tagave/commit/78e70c7))
+- Deleting a module's data checks, inside the same transaction, that the module is still off, so turning it back on mid-delete can't leave half its data. ([a68384d](https://github.com/xooxoxxo/tagave/commit/a68384d))
+
+**All changes:** [v0.15.0...v0.16.0](https://github.com/xooxoxxo/tagave/compare/v0.15.0...v0.16.0)
+
+## [v0.15.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.15.0) (2026-10-27)
 
 **Minor release (0.14 → 0.15).** Moving or renaming music no longer loses anything, colour themes, a player bar that stays on the desktop, and the groundwork for apps beyond music.
 

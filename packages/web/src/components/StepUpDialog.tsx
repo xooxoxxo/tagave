@@ -13,23 +13,28 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type { StepUpMethod } from '@tagave/shared';
 import { Button, TextField } from './ui';
 import { PASSKEY_TIMEOUT_MS, stepUpErrorMessage, stepUpWithPasskey, stepUpWithPassword, stepUpWithTotp } from '../services/stepUp';
+import { stepUpWithOidc } from '../services/oidc';
 import styles from './StepUpDialog.module.css';
 
-const LABEL: Record<StepUpMethod, string> = {
+const label = (m: StepUpMethod, service: string): string => ({
   passkey: 'Use a passkey or security key',
   totp: 'Use the authenticator app',
+  oidc: `Use ${service}`,
   password: 'Use your password',
-};
+})[m];
 
 export interface StepUpDialogProps {
   /** What the confirmation is for, e.g. "Update to 0.8.0". */
   action: string;
   methods: StepUpMethod[];
+  /** The login service's name, for the `oidc` method. */
+  oidcName?: string | null | undefined;
   onDone: () => void;
   onCancel: () => void;
 }
 
-export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialogProps) {
+export function StepUpDialog({ action, methods, oidcName, onDone, onCancel }: StepUpDialogProps) {
+  const service = oidcName || 'your login service';
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [method, setMethod] = useState<StepUpMethod | undefined>(methods[0]);
@@ -86,6 +91,7 @@ export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialog
       : undefined;
     try {
       if (method === 'passkey') await stepUpWithPasskey(ctrl.signal);
+      else if (method === 'oidc') await stepUpWithOidc(ctrl.signal);
       else if (method === 'totp') await stepUpWithTotp(value, ctrl.signal);
       else await stepUpWithPassword(value, ctrl.signal);
       if (pending.current !== ctrl) return;
@@ -127,6 +133,7 @@ export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialog
             {busy ? 'Waiting for your passkey or security key…' : 'Your browser asks for the passkey or security key, with its PIN or fingerprint.'}
           </p>
         )}
+        {method === 'oidc' && busy && <p className={styles.message} role="status">Waiting for {service}…</p>}
         {method === 'totp' && (
           <TextField
             label="Code from your authenticator app"
@@ -153,15 +160,15 @@ export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialog
         {others.length > 0 && (
           <div className={styles.switch}>
             {others.map((m) => (
-              <Button key={m} type="button" size="sm" variant="quiet" onClick={() => pick(m)}>{LABEL[m]}</Button>
+              <Button key={m} type="button" size="sm" variant="quiet" onClick={() => pick(m)}>{label(m, service)}</Button>
             ))}
           </div>
         )}
         <div className={styles.actions}>
           <Button type="button" variant="secondary" onClick={cancel}>Cancel</Button>
           {method && (
-            <Button type="submit" variant="primary" loading={busy} disabled={busy || (method !== 'passkey' && value.trim() === '')}>
-              {method === 'passkey' ? 'Use passkey' : 'Confirm'}
+            <Button type="submit" variant="primary" loading={busy} disabled={busy || (method !== 'passkey' && method !== 'oidc' && value.trim() === '')}>
+              {method === 'passkey' ? 'Use passkey' : method === 'oidc' ? `Continue with ${service}` : 'Confirm'}
             </Button>
           )}
         </div>

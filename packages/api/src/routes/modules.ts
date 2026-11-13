@@ -53,7 +53,7 @@ export const PLAYER_WITHOUT_CATALOGUE: Omit<ModuleStatus, 'state' | 'available' 
   estimate: { memoryMb: 512, diskMb: 260 },
   keepsOnRemoval: "Navidrome's database (its plays, stars and users) in the player-data volume, the player's library, play counts and Last.fm and ListenBrainz connections in tagave, and its password and key in .env",
   appData: {
-    removes: "Deletes Navidrome's database and, in tagave, the player's library, play counts and connected Last.fm and ListenBrainz accounts. A server of your own in Settings › Playback keeps its data and the accounts.",
+    removes: "Deletes Navidrome's database and, in tagave, the player's library, play counts and connected Last.fm and ListenBrainz accounts. A server of your own in Settings › Modules › Player keeps its data and the accounts.",
     keeps: 'Your listens stay.',
     history: 'Also delete the listens the player recorded. Listens you added yourself stay.',
   },

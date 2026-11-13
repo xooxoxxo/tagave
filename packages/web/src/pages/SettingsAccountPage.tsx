@@ -1,7 +1,7 @@
 /**
  * Settings › Account: the signed-in person's name (changed through Better
  * Auth's update-user, which cannot touch the role), their email address and
- * what their role lets them do here.
+ * what their role lets them do here, and their link to the login service.
  */
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,6 +9,7 @@ import { ROLE_LABELS } from '@tagave/shared';
 import { Badge, Banner, Button, TextField } from '../components/ui';
 import { AUTH_QUERY_KEY, useMe } from '../hooks/useAuth';
 import { authClient } from '../services/authClient';
+import { OidcLinkSection } from '../components/users/OidcLinkSection';
 import styles from './SettingsSecurityPage.module.css';
 
 export function SettingsAccountPage() {
@@ -62,6 +63,8 @@ export function SettingsAccountPage() {
         <h3 id="account-role" className={styles.title}>Role</h3>
         <p className={styles.hint}><Badge tone={user.role === 'owner' ? 'accent' : user.role === 'editor' ? 'info' : 'neutral'}>{ROLE_LABELS[user.role]}</Badge></p>
       </section>
+
+      <OidcLinkSection />
     </div>
   );
 }

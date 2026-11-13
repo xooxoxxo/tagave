@@ -15,10 +15,10 @@
 
 import postgres from 'postgres';
 import { openSecret, sealSecret, isSealed } from '@tagave/core';
-import { resealTwoFactorSecrets, twoFactorOpensWithOld } from '@tagave/auth';
+import { resealOidcSecret, resealTwoFactorSecrets, twoFactorOpensWithOld } from '@tagave/auth';
 import { tagaveEnv } from '@tagave/shared/env';
 
-/** Provider secrets kept sealed in libraries.settings (playerPassword: Settings › Playback, bring your own server). */
+/** Provider secrets kept sealed in libraries.settings (playerPassword: Settings › Modules › Player, bring your own server). */
 export const SEALED_LIBRARY_KEYS = ['discogsToken', 'acoustidKey', 'playerPassword'] as const;
 
 /** Music Connections' sealed columns: [table, key column, sealed column]. */
@@ -258,6 +258,11 @@ export async function resealCredentials(databaseUrl: string): Promise<void> {
         `Authenticator apps: ${twoFactor.resealed} re-encrypted, ${twoFactor.alreadyCurrent} already on the new secret.`,
       );
     }
+
+    // The login service's client secret (Settings › Users): refuses, changing
+    // nothing, if it opens with neither APP_SECRET.
+    const oidc = await resealOidcSecret(sql, oldSecret, newSecret);
+    if (oidc !== 'none') console.log(`Login service client secret: ${oidc === 'resealed' ? 're-encrypted' : 'already on the new secret'}.`);
 
     // Music Connections links (one transaction). A value neither secret opens
     // is a warning, never a stop: the steps after this one still run.

@@ -9,6 +9,7 @@ import { getDb, getSql } from '../db.js';
 import { getBoss as getSharedBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { mediaSummary } from '../lib/releaseSummary.js';
+import { albumsChanged } from '../lib/albumCare.js';
 
 /** Label, format and catalogue number of an edition, each null when the data has none. */
 export function editionDetails(labels: unknown, media: unknown): { labelName: string | null; format: string | null; catalogNumber: string | null } {
@@ -204,6 +205,7 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
       decidedByUserId: request.user!.id, fromStates: null,
     }));
     if (!res.ok) throw new ApiError(409, 'Conflict', res.reason === 'release_gone' ? 'That edition is no longer stored. Identify the album again.' : 'The album changed meanwhile. Reload.');
+    await albumsChanged(album.libraryId, [albumId], request.log);
     const boss = await getBoss();
     await boss.send('enrich.release', { releaseId: cand.releaseId }, { singletonKey: `enrich:${cand.releaseId}` });
     // the cover, as Fetch art does (its local art first; a cover already stored stays)
@@ -224,11 +226,12 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
   fastify.post('/albums/:albumId/as-is', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { albumId } = request.params as { albumId: string };
-    await loadAlbumForUser(request.user.id, albumId);
+    const album = await loadAlbumForUser(request.user.id, albumId);
     await getDb()
       .update(localAlbums)
       .set({ state: 'as_is', updatedAt: new Date() })
       .where(eq(localAlbums.id, albumId));
+    await albumsChanged(album.libraryId, [albumId], request.log);
     reply.send({ ok: true, state: 'as_is' });
   });
 
@@ -236,11 +239,12 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
   fastify.post('/albums/:albumId/ignore', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { albumId } = request.params as { albumId: string };
-    await loadAlbumForUser(request.user.id, albumId);
+    const album = await loadAlbumForUser(request.user.id, albumId);
     await getDb()
       .update(localAlbums)
       .set({ state: 'ignored', updatedAt: new Date() })
       .where(eq(localAlbums.id, albumId));
+    await albumsChanged(album.libraryId, [albumId], request.log);
     reply.send({ ok: true, state: 'ignored' });
   });
 

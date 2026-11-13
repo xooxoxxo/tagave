@@ -93,7 +93,7 @@ describe('Maintenance lives where it changes something', () => {
     // the album flow draws its own header: no app bar over it, no phone bar above it
     const frame = css('../components/Layout.module.css');
     expect(rule(frame, '.main:has([data-album-flow]) > .appBar')).toMatch(/display:\s*none/);
-    expect(frame).toMatch(/@media \(max-width: 720px\) \{\s*\.container:has\(\[data-album-flow\]\) > \.nav \{ display: none; \}/);
+    expect(frame).toMatch(/@media \(max-width: 720px\) \{\s*\.container:has\(\[data-album-flow\]\) \.nav \{ display: none; \}/);
   });
 
   it('Shift+M still switches it anywhere', () => {

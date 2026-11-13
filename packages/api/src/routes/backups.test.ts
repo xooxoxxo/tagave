@@ -12,7 +12,7 @@ import type { PgBoss } from 'pg-boss';
 import type { SessionUser } from '@tagave/shared/auth';
 import type { BackupsStatus } from '@tagave/shared';
 import { errorHandler } from '../middleware/errorHandler.js';
-import { BackupService, applyBackupSchedule, nightlyCron } from '../lib/backupService.js';
+import { BackupService, applyBackupSchedule, backupCron } from '../lib/backupService.js';
 import { createBackupRoutes, restoreCommand } from './backups.js';
 
 const owner: SessionUser = { id: 'u1', email: 'o@example.com', displayName: 'Owner', role: 'owner', createdAt: new Date().toISOString() };
@@ -128,6 +128,13 @@ describe('backup routes', () => {
     expect(onSettingsChanged).toHaveBeenCalledTimes(1);
   });
 
+  it('persists a weekly schedule with its chosen day and hour', async () => {
+    const weekly = { enabled: true, frequency: 'weekly', weekday: 5, hour: 20, keepDaily: 7, keepWeekly: 4 };
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/backups/settings', payload: { ...weekly, weekday: 7 } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/backups/settings', payload: weekly })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/backups' })).json<BackupsStatus>().settings).toMatchObject(weekly);
+  });
+
   it('keeps 1 to 50 before-update backups and 1 to 100 manual ones, or all manual ones', async () => {
     const base = { enabled: false, hour: 1, keepDaily: 14, keepWeekly: 8 };
     for (const bad of [{ keepPreUpdate: 0 }, { keepPreUpdate: 51 }, { keepManual: 0 }, { keepManual: 101 }, { keepManual: 'all' }]) {
@@ -181,11 +188,19 @@ describe('applyBackupSchedule', () => {
   it('schedules the chosen hour in the container time zone, or removes the schedule', async () => {
     const boss = { schedule: vi.fn(async () => undefined), unschedule: vi.fn(async () => undefined) };
     const service = new BackupService({ databaseUrl: 'postgres://unused/db', env: { BACKUP_DIR: '/nonexistent', TZ: 'Europe/Amsterdam' } });
-    await applyBackupSchedule(boss as unknown as PgBoss, service, { enabled: true, hour: 4, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 3, keepManual: null });
-    expect(boss.schedule).toHaveBeenCalledWith('backup.nightly', '0 4 * * *', {}, expect.objectContaining({ tz: 'Europe/Amsterdam' }));
-    await applyBackupSchedule(boss as unknown as PgBoss, service, { enabled: false, hour: 4, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 3, keepManual: null });
+    const legacy = { enabled: true, hour: 4, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 3, keepManual: null };
+    const timezone = expect.objectContaining({ tz: 'Europe/Amsterdam' });
+    await applyBackupSchedule(boss as unknown as PgBoss, service, legacy);
+    await applyBackupSchedule(boss as unknown as PgBoss, service, { ...legacy, frequency: 'weekly', weekday: 5 });
+    await applyBackupSchedule(boss as unknown as PgBoss, service, { ...legacy, frequency: 'nightly' });
+    expect(boss.schedule.mock.calls).toEqual([
+      ['backup.nightly', '0 4 * * *', { cron: '0 4 * * *' }, timezone],
+      ['backup.nightly', '0 4 * * 5', { cron: '0 4 * * 5' }, timezone],
+      ['backup.nightly', '0 3 * * *', { cron: '0 3 * * *' }, timezone],
+    ]);
+    await applyBackupSchedule(boss as unknown as PgBoss, service, { ...legacy, enabled: false });
     expect(boss.unschedule).toHaveBeenCalledWith('backup.nightly');
-    expect(nightlyCron({ enabled: true, hour: 23, keepDaily: 1, keepWeekly: 0, keepPreUpdate: 3, keepManual: null })).toBe('0 23 * * *');
+    expect(backupCron({ enabled: true, hour: 23, keepDaily: 1, keepWeekly: 0, keepPreUpdate: 3, keepManual: null })).toBe('0 23 * * *');
   });
 
   it('falls back to the cache folder and says it is not dedicated', () => {

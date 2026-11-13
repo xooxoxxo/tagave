@@ -5,6 +5,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AlbumSummary, AlbumsQuery, BulkAlbumsRequest, BulkAlbumsResult } from '@tagave/shared';
 import { api } from '../services/api';
+import { invalidateAlbumCare } from './useGaps';
 import { apiSearchParams } from '../pages/albumsSearch';
 
 export const GRID_PAGE_SIZE = 100;
@@ -36,8 +37,7 @@ export function useBulkAlbums(libraryId: string | undefined) {
     mutationFn: (body: BulkAlbumsRequest) =>
       api.post<BulkAlbumsResult>(`/libraries/${libraryId}/albums/bulk`, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['albums'] });
-      queryClient.invalidateQueries({ queryKey: ['album-facets'] });
+      void invalidateAlbumCare(queryClient);
       queryClient.invalidateQueries({ queryKey: ['library-stats'] });
       queryClient.invalidateQueries({ queryKey: ['identify-stats'] });
     },

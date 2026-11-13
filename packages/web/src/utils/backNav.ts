@@ -40,3 +40,15 @@ export function backAction(pathname: string, canGoBack: boolean): BackAction | n
   if (!parent) return null;
   return canGoBack ? { kind: 'history' } : { kind: 'navigate', to: parent };
 }
+
+/**
+ * Deleting the thing being looked at (an album from its page, a playlist):
+ * one step up the path the person took — Back to the artist page or the
+ * filtered, scrolled list they came from, which then keeps its place
+ * (utils/listPlace.ts). Opened cold, with no in-app history to step back
+ * through, the fallback opens instead (the album's artist, else Albums).
+ * Undo lives on the toast, outside the page, so it still works after.
+ */
+export function afterDelete(canGoBack: boolean, fallback: string): BackAction {
+  return canGoBack ? { kind: 'history' } : { kind: 'navigate', to: fallback };
+}

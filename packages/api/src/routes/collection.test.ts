@@ -256,6 +256,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('physical collection (db)', () =
       const [row] = await db.select().from(collectionItems).where(eq(collectionItems.id, newer));
       expect(row?.pushState).toBe('removing');
     });
+
+    it('the page’s list (view=active) holds every record still in the collection: not one on its way out, not one gone from Discogs', async () => {
+      const { older, newer } = await seedTwins();
+      const goneId = randomUUID();
+      const [src] = await db.select().from(collectionSources).where(eq(collectionSources.libraryId, libraryId));
+      await db.insert(collectionItems).values({
+        id: goneId, libraryId, collectionSourceId: src!.id, discogsReleaseId: discogsId + 8, mappingState: 'unmapped', pushState: 'synced', removedAt: new Date(),
+        basicInfo: { title: 'Gone', artists: ['Someone'] },
+      });
+      const list = async () => ((await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/collection?view=active` })).json() as { items: Array<{ id: string; copies: number }> }).items;
+      const before = await list();
+      expect(before.map((i) => i.id).sort()).toEqual([older, newer].sort());
+      expect(before.every((i) => i.copies === 2)).toBe(true);
+      await app.inject({ method: 'DELETE', url: `/api/v1/collection-items/${newer}` });
+      const after = await list();
+      expect(after.map((i) => i.id)).toEqual([older]);
+      expect(after[0]?.copies).toBe(1);
+    });
   });
 
   it('deletes a copy that never reached Discogs outright (Undo before the push)', async () => {

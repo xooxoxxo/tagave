@@ -21,11 +21,15 @@ type ItemRow = typeof collectionItems.$inferSelect;
 
 /**
  * The views of the Physical collection page (spec GAP-3):
+ *   active        every record in the collection: not gone from Discogs and
+ *                 not on its way out (the page's default list; each row says
+ *                 whether its album is on disk)
  *   both          a record whose album is also on disk
  *   physical_only a record tagave knows, or the owner said is not in the
  *                 library, with no album on disk
  *   unmapped      a record tagave cannot place yet
- *   removed       gone from Discogs
+ *   removed       gone from Discogs (no longer shown on the page; kept so a
+ *                 sync can tell what left)
  *   duplicates    extra copies of a Discogs release already in the collection
  * "On disk" is the album the owner linked (local_album_id) or any album of
  * the same release group.
@@ -60,6 +64,7 @@ const HAS_TWIN = sql`(not ${LEAVING} and exists (
               then not twin.extra_copy else not ${collectionItems.extraCopy} end))`;
 
 export const VIEW_WHERE: Record<string, SQL> = {
+  active: sql`${ACTIVE} and ${collectionItems.pushState} is distinct from 'removing'`,
   both: sql`${ACTIVE} and ${HAS_LOCAL}`,
   physical_only: sql`${ACTIVE} and ${collectionItems.mappingState} != 'unmapped' and not ${HAS_LOCAL}`,
   unmapped: sql`${ACTIVE} and ${collectionItems.mappingState} = 'unmapped' and not ${HAS_LOCAL}`,

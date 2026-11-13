@@ -21,12 +21,16 @@ export function lastSeenText(iso: string | null): string {
   return iso ? `Seen ${day(iso)}` : 'Never signed in';
 }
 
-/** How the person signs in, in a few words. */
-export function signInText(u: Pick<UserView, 'twoFactor' | 'passkeys'>): string {
+/** How the person signs in, in a few words; `service`: the login service's name. */
+export function signInText(u: Pick<UserView, 'twoFactor' | 'passkeys'> & Partial<Pick<UserView, 'password' | 'oidc'>>, service = 'Login service'): string {
   const parts: string[] = [];
+  if (u.password ?? true) parts.push('Password');
+  if (u.oidc) parts.push(service);
   if (u.passkeys > 0) parts.push(u.passkeys === 1 ? '1 passkey' : `${u.passkeys} passkeys`);
   if (u.twoFactor) parts.push('authenticator');
-  return parts.length ? `Password, ${parts.join(', ')}` : 'Password';
+  if (parts.length === 0) return 'No way to sign in';
+  const [first, ...rest] = parts;
+  return [first!.charAt(0).toUpperCase() + first!.slice(1), ...rest].join(', ');
 }
 
 export function RoleBadge({ role }: { role: Role }) {
@@ -44,11 +48,13 @@ export interface UserRowProps {
   user: UserView;
   actions: UserRowActions;
   busy?: boolean;
+  /** The login service's name, for people linked to it. */
+  service?: string | undefined;
   /** Under the row: the set-password panel, a link, an error. */
   children?: ReactNode;
 }
 
-export function UserRow({ user, actions, busy = false, children }: UserRowProps) {
+export function UserRow({ user, actions, busy = false, service, children }: UserRowProps) {
   const selectId = useId();
   const removed = user.status === 'removed';
   const menu: MenuItem[] = removed
@@ -72,7 +78,7 @@ export function UserRow({ user, actions, busy = false, children }: UserRowProps)
         </div>
         {!removed && <div className={styles.email}>{user.email}</div>}
         <div className={styles.meta}>
-          {removed ? 'Account closed; their data is kept' : <>{signInText(user)} · {lastSeenText(user.lastSeenAt)}</>}
+          {removed ? 'Account closed; their data is kept' : <>{signInText(user, service)} · {lastSeenText(user.lastSeenAt)}</>}
         </div>
       </div>
       <div className={styles.controls}>

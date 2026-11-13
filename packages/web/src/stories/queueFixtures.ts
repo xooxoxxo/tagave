@@ -37,21 +37,40 @@ export const HISTORY: PlayHistoryEntry[] = [
 ];
 
 export const PLAYLISTS: PlaylistSummary[] = [
-  { id: 'p1', name: 'Late night', tracks: 12, durationMs: 4_380_000, covers: [COVERS.kob, COVERS.chet, COVERS.timeOut, COVERS.debby], updatedAt: '2026-10-26T20:00:00Z' },
-  { id: 'p2', name: 'Sunday morning', tracks: 4, durationMs: 1_290_000, covers: [COVERS.debby, COVERS.chet, COVERS.timeOut, COVERS.kob], updatedAt: '2026-10-25T20:00:00Z' },
-  { id: 'p3', name: 'Piano trios', tracks: 2, durationMs: 711_000, covers: [COVERS.debby], updatedAt: '2026-10-20T20:00:00Z' },
-  { id: 'p4', name: 'Ballads', tracks: 0, durationMs: 0, covers: [], updatedAt: '2026-10-10T20:00:00Z' },
+  { id: 'p1', name: 'Late night', tracks: 12, durationMs: 4_380_000, covers: [COVERS.kob, COVERS.chet, COVERS.timeOut, COVERS.debby], updatedAt: '2026-10-26T20:00:00Z', mine: true, collaborative: false },
+  { id: 'p2', name: 'Sunday morning', tracks: 4, durationMs: 1_290_000, covers: [COVERS.debby, COVERS.chet, COVERS.timeOut, COVERS.kob], updatedAt: '2026-10-25T20:00:00Z', mine: false, collaborative: true },
+  { id: 'p3', name: 'Piano trios', tracks: 2, durationMs: 711_000, covers: [COVERS.debby], updatedAt: '2026-10-20T20:00:00Z', mine: true, collaborative: true },
+  { id: 'p4', name: 'Ballads', tracks: 0, durationMs: 0, covers: [], updatedAt: '2026-10-10T20:00:00Z', mine: true, collaborative: false },
 ];
+
+export const OLIVE = { id: 'u-olive', name: 'Olive' };
+export const ANNA = { id: 'u-anna', name: 'Anna' };
+export const BEN = { id: 'u-ben', name: 'Ben' };
 
 export const PLAYLIST: PlaylistView = {
   ...PLAYLISTS[0]!,
+  owner: OLIVE,
+  collaborators: [],
   tracks: 5,
   durationMs: 1_632_000,
   items: [
-    { id: 'i1', localTrackId: 'l1', albumId: 'album-kob', title: 'Blue in Green', artist: 'Miles Davis', album: 'Kind of Blue', coverUrl: COVERS.kob, durationMs: 337_000 },
-    { id: 'i2', localTrackId: 'l2', albumId: 'album-chet', title: 'Alone Together', artist: 'Chet Baker', album: 'Chet', coverUrl: COVERS.chet, durationMs: 413_000 },
-    { id: 'i3', localTrackId: 'l3', albumId: 'album-timeOut', title: 'Take Five', artist: 'The Dave Brubeck Quartet', album: 'Time Out', coverUrl: COVERS.timeOut, durationMs: 324_000 },
-    { id: 'i4', localTrackId: null, albumId: null, title: 'Gone Soon', artist: 'Someone', album: 'Elsewhere', coverUrl: null, durationMs: 262_000 },
-    { id: 'i5', localTrackId: 'l5', albumId: 'album-debby', title: 'My Foolish Heart', artist: 'Bill Evans Trio', album: 'Waltz for Debby', coverUrl: COVERS.debby, durationMs: 296_000 },
+    { id: 'i1', localTrackId: 'l1', albumId: 'album-kob', title: 'Blue in Green', artist: 'Miles Davis', album: 'Kind of Blue', coverUrl: COVERS.kob, durationMs: 337_000, elsewhere: null, addedBy: OLIVE, removable: true, artistLink: null },
+    { id: 'i2', localTrackId: 'l2', albumId: 'album-chet', title: 'Alone Together', artist: 'Chet Baker', album: 'Chet', coverUrl: COVERS.chet, durationMs: 413_000, elsewhere: null, addedBy: OLIVE, removable: true, artistLink: null },
+    { id: 'i3', localTrackId: 'l3', albumId: 'album-timeOut', title: 'Take Five', artist: 'The Dave Brubeck Quartet', album: 'Time Out', coverUrl: COVERS.timeOut, durationMs: 324_000, elsewhere: null, addedBy: OLIVE, removable: true, artistLink: null },
+    { id: 'i4', localTrackId: null, albumId: null, title: 'Gone Soon', artist: 'Someone', album: 'Elsewhere', coverUrl: null, durationMs: 262_000, elsewhere: { platform: 'qobuz', name: 'Qobuz', url: 'https://play.qobuz.com/search?q=Someone%20Gone%20Soon', kind: 'search' }, addedBy: OLIVE, removable: true, artistLink: null },
+    { id: 'i5', localTrackId: 'l5', albumId: 'album-debby', title: 'My Foolish Heart', artist: 'Bill Evans Trio', album: 'Waltz for Debby', coverUrl: COVERS.debby, durationMs: 296_000, elsewhere: null, addedBy: OLIVE, removable: true, artistLink: null },
   ],
 };
+
+/** The same list shared: Olive's, Anna and Ben add to it; seen by Anna (she takes out only what she added). */
+export const PLAYLIST_SHARED: PlaylistView = {
+  ...PLAYLIST,
+  collaborative: true,
+  collaborators: [ANNA, BEN],
+  items: PLAYLIST.items.map((it, n) => {
+    const by = [OLIVE, ANNA, BEN, OLIVE, ANNA][n]!;
+    return { ...it, addedBy: by, removable: by === ANNA };
+  }),
+};
+
+export const PLAYLIST_SHARED_OWNER: PlaylistView = { ...PLAYLIST_SHARED, items: PLAYLIST_SHARED.items.map((it) => ({ ...it, removable: true })) };

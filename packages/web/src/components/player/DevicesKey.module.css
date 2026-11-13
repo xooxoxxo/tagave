@@ -1,0 +1,86 @@
+/* The device key and the strip (DevicesKey.tsx). The key is an embossed
+   icon like the other keys, in the player's accent (the play key's colour)
+   while another device plays or this one casts. */
+.key {
+  flex: none;
+}
+
+.on,
+.on:hover:not(:disabled) {
+  color: var(--dew);
+}
+
+/* The strip: a thin band of the accent standing on the bar's top edge. It
+   sits over the page, so the bar keeps its height; a solid fill, not the
+   bar's glass, so it reads at a glance that the music is elsewhere. */
+.stand {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  display: flex;
+}
+
+.stripAnchor {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.strip {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 22px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 var(--page-pad, 24px);
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: var(--dew);
+  color: var(--on-accent);
+  font: 600 0.75rem / 1 var(--font-body);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease-out, ease-out);
+}
+
+.strip:hover {
+  background: color-mix(in srgb, var(--dew) 86%, var(--ink));
+}
+
+.stripText {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.strip:focus {
+  outline: none;
+}
+
+.strip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -3px;
+}
+
+.rename {
+  display: grid;
+  gap: var(--space-md, 12px);
+  padding: var(--space-md, 12px) var(--space-lg, 16px) var(--space-lg, 16px);
+}
+
+@media (forced-colors: active) {
+  .on {
+    color: Highlight;
+  }
+  .strip {
+    border-top: 1px solid Highlight;
+    background: Canvas;
+    color: Highlight;
+  }
+}

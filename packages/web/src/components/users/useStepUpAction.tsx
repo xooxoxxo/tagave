@@ -14,6 +14,7 @@ import { getStepUp } from '../../services/stepUp';
 interface Pending {
   action: string;
   methods: StepUpMethod[];
+  oidcName: string | null;
   done: () => void;
   cancel: () => void;
 }
@@ -33,7 +34,7 @@ export function useStepUpAction(): { run: <T>(action: string, fn: () => Promise<
       if (!isStepUpRequired(err)) throw err;
       const status = await getStepUp();
       const confirmed = await new Promise<boolean>((resolve) => {
-        setPending({ action, methods: status.methods, done: () => resolve(true), cancel: () => resolve(false) });
+        setPending({ action, methods: status.methods, oidcName: status.oidcName ?? null, done: () => resolve(true), cancel: () => resolve(false) });
       });
       setPending(null);
       return confirmed ? fn() : undefined;
@@ -41,7 +42,7 @@ export function useStepUpAction(): { run: <T>(action: string, fn: () => Promise<
   }, []);
 
   const dialog = pending ? (
-    <StepUpDialog action={pending.action} methods={pending.methods} onDone={pending.done} onCancel={pending.cancel} />
+    <StepUpDialog action={pending.action} methods={pending.methods} oidcName={pending.oidcName} onDone={pending.done} onCancel={pending.cancel} />
   ) : null;
   return { run, dialog };
 }

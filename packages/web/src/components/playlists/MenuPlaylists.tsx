@@ -8,6 +8,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { EmbossIconButton, PlusIcon } from '../ui';
 import { usePlaylists, usePlaylistsOn } from '../../hooks/usePlaylists';
 import { PlaylistCover } from './PlaylistCover';
+import { CollabMark } from './People';
 import styles from './MenuPlaylists.module.css';
 
 export function MenuPlaylists({ activeId }: { activeId?: string | null | undefined }) {
@@ -26,7 +27,7 @@ export function MenuPlaylists({ activeId }: { activeId?: string | null | undefin
           <li key={p.id}>
             <Link to="/playlists/$playlistId" params={{ playlistId: p.id }} className={styles.item} data-active={p.id === activeId || undefined}>
               <PlaylistCover covers={p.covers} name={p.name} className={styles.cover} />
-              <span className={styles.name} dir="auto">{p.name}</span>
+              <span className={styles.nameLine}><span className={styles.name} dir="auto">{p.name}</span>{p.collaborative && <CollabMark />}</span>
             </Link>
           </li>
         ))}

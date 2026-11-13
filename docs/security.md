@@ -72,15 +72,16 @@ An install can have several accounts. Everyone signed in sees the same libraries
 | Library care: scans, identify and matching, review queue, gaps, field locks, bulk edits, following artists, physical collection upkeep | | yes | yes |
 | Tag changes (plans, apply, revert), tag preferences, genre mapping, follow rules, Background activity | | yes | yes |
 | Music folders, Integrations (provider keys), Playback server, System status, Storage, Backups, Updates, Setup checklist | | | yes |
+| Lidarr: Get, Get all missing, Retry, Cancel, its settings | | | yes |
 | Settings › Users: invite, change roles, reset sign-in, turn off, remove | | | yes |
 
 - **Per-person data stays per person.** Ratings, reviews, listens, clippings and saved grid views are stored against the account that made them; nobody else can read or change them. Library-level things (albums, tags, tag changes, follows) are shared.
 - **Every API route declares what it needs.** The server checks it before reading the request: anonymous callers get 401, a role without the permission gets 403 "Not available for your account". A route with no declaration refuses everyone, and a test fails CI over it. A second test signs in as each role and calls every route.
-- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app and passkeys). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › Users.
+- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app, passkeys and the login service's callback). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › Users.
 - **At least one owner.** The last owner who can sign in cannot be demoted, turned off or removed.
 - **Invite and set-password links** are one-time, expire after 7 days and are stored only as a SHA-256 hash; the owner copies the link (no email is sent). A set-password link signs the person out everywhere and can also remove their passkeys and authenticator app (a lost device). Opening links is rate limited per address.
 - **Turning sign-in off** ends every session at once and refuses new sign-ins (password, passkey or code) until the owner turns it back on. **Removing** someone either keeps their ratings, reviews and listens (the account is closed, its email freed, its sign-in methods deleted) or deletes them with the account. Libraries and tag changes they created pass to the owner removing them.
-- **Inviting, changing a role, resetting sign-in and removing** ask the owner to confirm it is them (a passkey, the authenticator app, or the password on an account with neither) unless they signed in within five minutes.
+- **Inviting, changing a role, resetting sign-in and removing** ask the owner to confirm it is them (a passkey, the authenticator app, the login service, or the password on an account with no passkey or authenticator) unless they signed in within five minutes.
 
 ## Passkeys and security keys
 
@@ -105,6 +106,32 @@ Settings › Security › **Authenticator app** turns on a second step after the
 
 On the code page, **Don't ask for a code on this device for 30 days** remembers that browser. Settings › Security › **Trusted devices** lists every remembered browser (browser, last use, expiry) and forgets any of them. Turning the authenticator off or changing your password forgets them all.
 
+## Sign in with your login service
+
+Any OpenID Connect login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID) can add a **Sign in with …** button. Set it up in Settings › Users › **Sign-in service**; each person links from Settings › **Account**. The redirect URI:
+
+```
+https://music.example.com/api/auth/callback/oidc
+```
+
+### Zitadel
+
+- Project › **New application**, type **Web**, method **Code** (or **PKCE** with no secret).
+- Redirect URI: as above. An `http://` URI needs **Development mode**.
+- Issuer: your Zitadel address, e.g. `https://auth.example.com`.
+- Group limit: a project role, with **Assert Roles on Authentication** and **User roles inside ID Token** on; enter its key as the group.
+
+### Who can sign in
+
+- Only an account linked from Account; a matching email never links.
+- New people by invite, or with **Anyone can join** on (as listeners, only from the group when one is set). Someone removed cannot rejoin.
+- An authenticator app still asks for its code; a set-password link unlinks the service.
+- Owners keep a password or passkey. Unlinking the last way in, or deleting the last passkey without a password, is refused.
+- Linking and unlinking ask for a fresh confirmation. A failed sign-in never says why.
+- State, PKCE, nonce, issuer and the id_token signature are checked; the service's tokens are not kept. The client secret is encrypted with `APP_SECRET`.
+- Confirming through the service needs its `auth_time` (Dex sends none), and only without a passkey or authenticator.
+- Changing the issuer unlinks everyone.
+
 ## Backup security
 
 **Database backups** include encrypted credential material (safe without `APP_SECRET`) and everything else in the catalog, including account email addresses and password hashes. The app writes one every night to the backups folder (`/backups` in the app container); only the owner can list, download or delete them in Settings › Backups. Treat copies you make like the database itself. Copy them off the host with:
@@ -124,7 +151,8 @@ See [operations](operations.md#backups) for the schedule, retention and restorin
 tagave has no telemetry. The server makes outbound requests only to:
 
 - the metadata services it uses: MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID when you add keys for them;
-- the apps you link in Settings › Connections (Music Connections), and only those: tagave pulls from them, and sends them a decision when you accept or dismiss one of their wantlist suggestions;
+- ListenBrainz, and Last.fm when you have a Last.fm API key, for [similar artists](install.md#similar-artists): an artist's MusicBrainz ID only;
+- the apps you link in Settings › Modules › Music Connections, and only those: tagave pulls from them, and sends them a decision when you accept or dismiss one of their wantlist suggestions;
 - the GitHub releases list of the official repository, once every 12 hours, to learn about new versions. It is a plain GET with a fixed `User-Agent: tagave-update-check` and no version, id or library data. Turn it off under Settings › Updates, or for the whole server with `TAGAVE_UPDATE_FEED=off` (see [Updates](install.md#updates)).
 
 ## The in-app updater
@@ -184,15 +212,19 @@ The player is an optional service (compose profile `player`): an unmodified [Nav
 
 **What it can read.** Your music folder, mounted read-only (always, even with `--music-writable`), and its own `player-data` volume. Nothing else: not the tagave database, not `.env`, not the Docker socket.
 
-**Credentials.** The installer generates Navidrome's admin password and its encryption key (`TAGAVE_PLAYER_PASSWORD`, `TAGAVE_PLAYER_ENCRYPTION_KEY`, 32 random bytes each) and writes them only to `.env`, mode 600. The compose file passes the password to Navidrome and to the app, and to no other service; the workers never get it. Navidrome refuses to start without both values, because a Navidrome with no admin lets whoever reaches its port first create one. The browser never gets the password: it plays through tagave. tagave signs each request to Navidrome with Subsonic token auth, `md5(password + salt)` with a new random salt per request, so the password itself does not cross the network. For a server of your own (Settings › Playback), tagave keeps the password sealed with `APP_SECRET` in the database, like the other provider secrets.
+**Credentials.** The installer generates Navidrome's admin password and its encryption key (`TAGAVE_PLAYER_PASSWORD`, `TAGAVE_PLAYER_ENCRYPTION_KEY`, 32 random bytes each) and writes them only to `.env`, mode 600. The compose file passes the password to Navidrome and to the app, and to no other service; the workers never get it. Navidrome refuses to start without both values, because a Navidrome with no admin lets whoever reaches its port first create one. The browser never gets the password: it plays through tagave. tagave signs each request to Navidrome with Subsonic token auth, `md5(password + salt)` with a new random salt per request, so the password itself does not cross the network. For a server of your own (Settings › Modules › Player), tagave keeps the password sealed with `APP_SECRET` in the database, like the other provider secrets.
 
-**People's accounts.** tagave makes one Navidrome user per tagave person (not an admin) through Navidrome's user API, signed in as the admin. Its password is 24 random bytes, sealed with `APP_SECRET` in `player_users`, and never shown or logged. A person may replace it with their own password for phone apps (Settings › Listening, at least 12 characters); tagave stores that one sealed the same way and never shows it again. Disabling or closing a tagave account locks its Navidrome user (a new random password nobody knows), so phone apps signed in as that person stop working. On a server of your own, a person's own login there is stored the same way.
+**People's accounts.** tagave makes one Navidrome user per tagave person (not an admin) through Navidrome's user API, signed in as the admin. Its password is 24 random bytes, sealed with `APP_SECRET` in `player_users`, and never shown or logged. A person may replace it with their own password for phone apps (Settings › Modules › Player, at least 12 characters); tagave stores that one sealed the same way and never shows it again. Disabling or closing a tagave account locks its Navidrome user (a new random password nobody knows), so phone apps signed in as that person stop working. On a server of your own, a person's own login there is stored the same way.
 
-**Scrobbling secrets.** The owner's Last.fm API key and shared secret (Settings › Playback › Scrobbling) are sealed with `APP_SECRET` in the library settings; `TAGAVE_LASTFM_API_KEY` / `TAGAVE_LASTFM_SECRET` in `.env` work too and reach only the app. Each person's Last.fm session key (from Last.fm's web sign-in, which never shows tagave their Last.fm password) and ListenBrainz token are sealed in `scrobble_accounts`, one row per person; nobody else, the owner included, can read or use them through tagave. The Last.fm sign-in carries a short-lived value signed with `APP_SECRET` that names the person who started it, so a returning browser cannot attach someone else's Last.fm. Losing `APP_SECRET` means everyone connects again. tagave keeps each person's plays (`player_plays`) and album listens; deleting a person with their data deletes those. Navidrome's own Last.fm and ListenBrainz scrobbling is off in the compose file: only tagave sends plays out, to the accounts each person connected.
+**Scrobbling secrets.** The owner's Last.fm API key and shared secret (Settings › Modules › Player › Scrobbling) are sealed with `APP_SECRET` in the library settings; `TAGAVE_LASTFM_API_KEY` / `TAGAVE_LASTFM_SECRET` in `.env` work too and reach only the app. Each person's Last.fm session key (from Last.fm's web sign-in, which never shows tagave their Last.fm password) and ListenBrainz token are sealed in `scrobble_accounts`, one row per person; nobody else, the owner included, can read or use them through tagave. The Last.fm sign-in carries a short-lived value signed with `APP_SECRET` that names the person who started it, so a returning browser cannot attach someone else's Last.fm. Losing `APP_SECRET` means everyone connects again. tagave keeps each person's plays (`player_plays`) and album listens; deleting a person with their data deletes those. Navidrome's own Last.fm and ListenBrainz scrobbling is off in the compose file: only tagave sends plays out, to the accounts each person connected.
+
+**Lidarr.** The API key (Settings › Modules › Lidarr) is sealed with `APP_SECRET` in the module's own settings, sent only in the `X-Api-Key` header from the app and the identify worker, and never shown, logged or sent to the browser. The address must be http or https; calls time out after 10 seconds, follow no redirect, read at most 2 MB, and every answer is checked field by field before use. A failure is told in a few fixed words (Can't reach, Not Lidarr, Wrong API key, Timed out); nothing the other address sent is shown or logged, so Test cannot be used to read other services on your network. The saved key goes only to the saved address; Test is limited to 10 a minute. Connect, disconnect, Get and Cancel go to the audit log.
 
 **Network.** Navidrome's port (4533 by default, `TAGAVE_PLAYER_PORT`) is published on this computer's network, like tagave's own port, so phone apps at home can reach it. Phone apps log in with their own Navidrome user. To use them away from home, reach the port through a VPN (WireGuard, Tailscale) or put it behind your HTTPS reverse proxy. Never forward it from your router: it would answer the whole internet, over plain http. On Linux, Docker publishes ports past ufw and firewalld, so a firewall rule does not close it. Public share links, Navidrome's Jellyfin API and its anonymous usage reports (the insights collector) are turned off in the compose file.
 
 **The stream proxy.** The browser streams through tagave, never from Navidrome directly. Every stream needs a tagave session. Each user can hold only a few streams at once (`TAGAVE_PLAYER_MAX_STREAMS`, 4 by default), with a cap for the whole server, and a request to Navidrome that does not answer or stops sending in time is cut off.
+
+**Cast links.** A cast device (Chromecast, AirPlay) fetches the music without your browser's session, from a link `POST /api/v1/player/cast-url` makes (see [Cast to a speaker or TV](install.md#cast-to-a-speaker-or-tv)). Each link carries a token signed with `APP_SECRET` (HMAC-SHA256, truncated to 128 bits) that names one track, or one album's cover, and the person who asked, and expires after 6 hours. `/api/v1/player/cast/:token` and `/api/v1/player/cast-cover/:token` take no session: the token is the whole credential, and changing any part of it breaks the signature. Every request checks the person again, so a link stops working when its account is turned off or closed; rotating `APP_SECRET` ends every link. The audio streams as the person's own Navidrome user and counts toward their stream limit. Each person can make 60 links a minute. Tokens are cut from the request log and the error log, like invite links. Cast links are not written to the audit log: a listener makes one for every track, which would bury the entries that matter, and the link names nothing a play event does not already record.
 
 **Your responsibility.** tagave streams files you already have, to you and your household. It ships no music and fetches none. A public share link makes files downloadable by anyone who has the link, which can amount to distribution in many jurisdictions. That is why sharing is off.
 

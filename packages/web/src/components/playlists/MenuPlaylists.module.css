@@ -27,4 +27,5 @@
 .item:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .item[data-active] { background: var(--dew-tint); color: var(--chip-on-ink); font-weight: 600; }
 .cover { width: 36px; border-radius: var(--r-kbd); box-shadow: none; }
-.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nameLine { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

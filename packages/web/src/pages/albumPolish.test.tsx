@@ -21,9 +21,10 @@ describe('tab strips and segmented controls', () => {
     expect(rule(css, '.tab:focus-visible')).toMatch(/outline: 2px solid var\(--ring\)/);
   });
 
-  it('the album page uses the shared Tabs strip', () => {
+  it('the album page has no tab strip: its sections are picked in the Maintenance inspector (2026-11-05)', () => {
     const tsx = readFileSync(new URL('./AlbumDetailPage.tsx', import.meta.url), 'utf8');
-    expect(tsx).toMatch(/<Tabs\s+label="Album sections"/);
+    expect(tsx).not.toMatch(/<Tabs\b/);
+    expect(tsx).toMatch(/sections: \{ value: tab, onChange: \(next\) => openSection\(next\)/);
     expect(tsx).not.toMatch(/styles\.tabActive/);
   });
 });
@@ -149,16 +150,17 @@ describe('album page wiring', () => {
     const tabs = renderToStaticMarkup(<Tabs items={[{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]} value="b" panelId="p" />);
     expect(tabs).toContain(`id="${tabIdFor('p', 'b')}"`);
     expect(tabs).toMatch(/aria-controls="p"/);
+    // the album's sections are no tab strip any more: the shown section is a labelled region
     const tsx = readFileSync(new URL('./AlbumDetailPage.tsx', import.meta.url), 'utf8');
-    expect(tsx).toMatch(/panelId=\{TAB_PANEL_ID\}/);
-    expect(tsx).toMatch(/id=\{TAB_PANEL_ID\} role="tabpanel" aria-labelledby=\{tabIdFor\(TAB_PANEL_ID, tab\)\}/);
+    expect(tsx).toMatch(/id=\{SECTION_PANEL_ID\} role="region" aria-label=\{SECTION_LABEL\[tab\]\}/);
   });
 
-  it('the Maintenance line: state and provider links; its tools are in ⋮ (2026-10-16 evening)', () => {
+  it('the inspector\'s State: the state and provider links; every tool stays in ⋮ too (2026-11-05)', () => {
     const tsx = readFileSync(new URL('./AlbumDetailPage.tsx', import.meta.url), 'utf8');
-    const line = tsx.slice(tsx.indexOf('<div className={styles.statusLine}>'), tsx.indexOf('{/* a passing status'));
-    expect(line.indexOf('Master ↗')).toBeGreaterThan(-1);
-    expect(line).not.toMatch(/<Menu\b/);
+    const state = tsx.slice(tsx.indexOf('const inspectorState: InspectorStateModel'), tsx.indexOf('const inspectorTools'));
+    expect(state).toMatch(/label: 'MusicBrainz'/);
+    expect(state).toMatch(/label: 'Master'/);
+    expect(state).not.toMatch(/<Menu\b/);
     expect(tsx).toMatch(/albumMenu\(\{[\s\S]*?\btools,/);
   });
 

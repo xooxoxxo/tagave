@@ -131,7 +131,7 @@
 /* ---- phone: the mini bar ---- */
 .mini {
   position: relative;
-  /* the equalizer glow (BarGlow) lies under the content, over the fill */
+  /* the equalizer glow (BarGlow) stands on its top edge, under the content */
   isolation: isolate;
   display: flex;
   align-items: center;
@@ -177,6 +177,12 @@
 .miniTitle { font: 600 15px / 1.25 var(--font-body); }
 .miniArtist { font: 400 13px / 1.25 var(--font-body); color: var(--ink-2); }
 .miniError { color: var(--danger); }
+.miniCast { color: var(--dew); }
+
+/* casting: "Casting to …" in the player's accent, and the cast key */
+.castLine { margin: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px / 1.3 var(--font-body); color: var(--dew); }
+.devices { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin: -6px 0; padding: 0 0 0 4px; }
+.devicesKeys { display: flex; align-items: center; gap: 4px; flex: none; }
 .miniKey { flex: none; }
 .miniKey .spinner { width: 20px; height: 20px; border-width: 2px; }
 .srOnly { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

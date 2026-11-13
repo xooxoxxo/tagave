@@ -12,6 +12,7 @@ import { useSetupRequired } from '../hooks/useSystem';
 import { signInErrorMessage } from './loginErrors';
 import { afterSignIn } from './connectReturn';
 import { Button } from '../components/ui';
+import { startOidcSignIn, useOidcButton } from '../services/oidc';
 import styles from './LoginPage.module.css';
 
 export function LoginPage() {
@@ -20,6 +21,21 @@ export function LoginPage() {
   const loginMutation = useLogin();
   const [passkeyPending, setPasskeyPending] = useState(false);
   const [passkeyError, setPasskeyError] = useState<AuthClientError | null>(null);
+  const oidc = useOidcButton();
+  const oidcName = oidc.data?.name ?? null;
+  const [oidcPending, setOidcPending] = useState(false);
+  // the service sent the browser back without a sign-in (every reason looks the same)
+  const [oidcFailed, setOidcFailed] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('oidc') === 'failed');
+  const oidcSignIn = async () => {
+    setOidcPending(true);
+    setOidcFailed(false);
+    try {
+      await startOidcSignIn();
+    } catch {
+      setOidcPending(false);
+      setOidcFailed(true);
+    }
+  };
 
   const passkeyDone = async () => {
     await queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
@@ -163,12 +179,34 @@ export function LoginPage() {
               {signInErrorMessage(passkeyError)}
             </div>
           )}
+          {oidcName && (
+            <Button
+              type="button"
+              variant="secondary"
+              className={styles.submitBtn}
+              onClick={() => void oidcSignIn()}
+              loading={oidcPending}
+              disabled={loginMutation.isPending}
+            >
+              Sign in with {oidcName}
+            </Button>
+          )}
+          {oidcFailed && (
+            <div className={styles.serverError} role="alert">
+              {oidcSignInFailedText(oidcName)}
+            </div>
+          )}
         </form>
 
         <SetupLink setupRequired={setupRequired.data} />
       </div>
     </div>
   );
+}
+
+/** The one message for a login-service sign-in that did not work, whatever the reason. */
+export function oidcSignInFailedText(name: string | null): string {
+  return `Couldn’t sign in with ${name ?? 'your login service'}.`;
 }
 
 /** The way to first-run setup, only while the server says no owner exists. */

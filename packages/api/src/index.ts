@@ -13,7 +13,8 @@ import { startUpdateChecks } from './routes/updates.js';
 import { startPlayerScanWorker } from './lib/player.js';
 import { startPlayerPeopleWorker } from './lib/playerSync.js';
 import { getSql } from './db.js';
-import { BackupService, startBackupScheduler } from './lib/backupService.js';
+import { BackupService, backupCron, startBackupScheduler } from './lib/backupService.js';
+import { startMaintenanceQueue } from './lib/maintenance.js';
 import { getBoss, setBossLogger } from './boss.js';
 import { initAuth } from './middleware/auth.js';
 import { registerApiRoutes } from './app.js';
@@ -138,6 +139,9 @@ try {
   db = await initDb(databaseUrl);
   const authHandle = createAuth({ env: authEnv, databaseUrl });
   initAuth(authHandle);
+  // Sign in with your login service (Settings › Users): built from the database, bounded wait
+  const oidc = await authHandle.reload();
+  if (oidc.configured) logger.info({ active: oidc.active }, `Sign in with ${oidc.name}: ${oidc.active ? 'ready' : 'the issuer did not answer; retried on use'}`);
   // Rollback-and-return: users written by 0.6.x get their credential account.
   const healed = await ensureCredentialAccounts(authHandle.sql);
   if (healed > 0) logger.info(`Created the sign-in account for ${healed} user(s) written by an older version`);
@@ -169,7 +173,7 @@ try {
   process.exit(1);
 }
 
-// Database backups: nightly schedule + Settings › Backups (the app image
+// Database backups: automatic schedule + Settings › Backups (the app image
 // ships pg_dump and mounts the backups folder).
 const backupService = new BackupService({ databaseUrl });
 
@@ -215,6 +219,7 @@ const start = async () => {
     const host = process.env.HOST || '0.0.0.0';
 
     await app.listen({ port, host });
+    startMaintenanceQueue(app.log);
     // Release feed: checked in the background at most every 12 hours.
     startUpdateChecks(app.log);
     logger.info(`Server running at http://${host}:${port}`);
@@ -224,9 +229,9 @@ const start = async () => {
     try {
       await startBackupScheduler(await getBoss(), backupService, logger);
       const s = await backupService.settings();
-      logger.info({ dir: backupService.dir, enabled: s.enabled, hour: s.hour, tz: backupService.timeZone }, 'backup schedule applied');
+      logger.info({ dir: backupService.dir, cron: s.enabled ? backupCron(s) : null, tz: backupService.timeZone }, 'backup schedule applied');
     } catch (err) {
-      logger.error({ err }, 'could not start the nightly backup schedule');
+      logger.error({ err }, 'could not start the backup schedule');
     }
     // The player module's scans: the API works this queue itself, so the
     // player credentials never leave the app.

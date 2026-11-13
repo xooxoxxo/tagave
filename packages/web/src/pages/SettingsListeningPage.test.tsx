@@ -1,5 +1,5 @@
 /**
- * Settings › Listening: what each state offers, and that it never shows a
+ * Settings › Modules › Player: what each state offers, and that it never shows a
  * secret.
  */
 import { describe, expect, it } from 'vitest';
@@ -14,8 +14,8 @@ const base: ListeningView = {
   account: { kind: 'bundled', username: 'anna', phonePassword: false, serverScrobbles: false, state: 'active', lastError: null },
   lastfmAvailable: true,
   services: [
-    { service: 'lastfm', connected: false, accountName: null, connectedAt: null, lastOkAt: null, lastError: null, lastErrorAt: null, pending: 0 },
-    { service: 'listenbrainz', connected: false, accountName: null, connectedAt: null, lastOkAt: null, lastError: null, lastErrorAt: null, pending: 0 },
+    { service: 'lastfm', connected: false, accountName: null, connectedAt: null, lastOkAt: null, lastError: null, lastErrorAt: null, pending: 0, loves: true },
+    { service: 'listenbrainz', connected: false, accountName: null, connectedAt: null, lastOkAt: null, lastError: null, lastErrorAt: null, pending: 0, loves: true },
   ],
   lastPollAt: null,
   pollError: null,

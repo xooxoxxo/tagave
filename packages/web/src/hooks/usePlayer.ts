@@ -1,6 +1,6 @@
 /**
  * The opt-in player module: is a player installed and answering for this
- * library (every Play control hangs on it), Settings › Playback, and the
+ * library (every Play control hangs on it), Settings › Modules › Player, and the
  * per-device quality choice kept in this browser.
  */
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';

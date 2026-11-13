@@ -3,25 +3,45 @@
  * AccountCompartment at the sidebar's foot, a page, and the player bar's
  * row under it. Like PlayerBar, it tells the page how tall the bar is
  * (--player-bar-h on <html>), so the account row shares the bar's top edge.
- * Static: no router state, no queries.
+ * Static: no router state, no queries. `sidebar` picks Settings ›
+ * Appearance › Sidebar; with Auto-hide the frame runs the app's own
+ * behaviour (sidebarPeek.ts), the pin included.
  */
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import { PEEK_QUERY, sidebarMode, useSidebarPeek } from '../components/sidebarPeek';
+import { PeekMark, SidebarPin } from '../components/SidebarPin';
 import { BrandMark } from '../components/BrandMark';
 import { AccountCompartment } from '../components/AccountCompartment';
 import layout from '../components/Layout.module.css';
 import bar from '../components/PlayerBar.module.css';
 
 const noop = () => undefined;
+const careLinks = [
+  { key: 'settings', label: 'Settings', onSelect: noop },
+  { key: 'work', label: 'Library care', onSelect: noop },
+  { key: 'plans', label: 'Tag changes', onSelect: noop },
+];
 
-export function DesktopFrame({ children, dock, accountGlow, empty = false, compartmentOpen = false }: {
+export function DesktopFrame({ children, dock, empty = false, compartmentOpen = false, sidebar: pref = 'always', pinned: startPinned = false, revealed = false }: {
   children: ReactNode;
   dock: ReactNode;
-  /** the equalizer glow's piece under the account row */
-  accountGlow?: ReactNode;
   empty?: boolean;
   compartmentOpen?: boolean;
+  sidebar?: 'always' | 'autoHide';
+  /** Auto-hide: pinned to begin with */
+  pinned?: boolean;
+  /** Auto-hide: shown to begin with (as after the pointer came in) */
+  revealed?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const [pinned, setPinned] = useState(startPinned);
+  const sidebar = sidebarMode({ sidebarAutoHide: pref === 'autoHide', sidebarPinned: pinned }, useMediaQuery(PEEK_QUERY));
+  const peekOn = sidebar !== 'always';
+  const peek = useSidebarPeek(navRef, peekOn, sidebar === 'pinned', useCallback(() => mainRef.current?.focus({ preventScroll: true }), []), revealed);
+  const togglePin = useCallback(() => setPinned((p) => !p), []);
   useLayoutEffect(() => {
     const root = document.documentElement;
     const node = ref.current;
@@ -37,12 +57,12 @@ export function DesktopFrame({ children, dock, accountGlow, empty = false, compa
       root.style.removeProperty('--player-bar-h');
     };
   }, []);
-  const link = (label: string, active = false, group?: string) => (
-    <a href="#" onClick={(e) => e.preventDefault()} className={active ? layout.navLinkActive : layout.navLink} data-group={group}>{label}</a>
+  const link = (label: string, active = false) => (
+    <a href="#" onClick={(e) => e.preventDefault()} className={active ? layout.navLinkActive : layout.navLink}>{label}</a>
   );
   return (
-    <div className={layout.container}>
-      <aside className={layout.nav}>
+    <div className={layout.container} data-sidebar={peekOn ? sidebar : undefined} data-peek-shown={sidebar === 'peek' && peek.shown ? '' : undefined}>
+      <aside ref={navRef} className={layout.nav}>
         <div className={layout.brandRow}>
           <a href="#" className={layout.brand} aria-label="tagave" onClick={(e) => e.preventDefault()}>
             <BrandMark className={layout.brandMark} />
@@ -61,17 +81,16 @@ export function DesktopFrame({ children, dock, accountGlow, empty = false, compa
             {link('Albums', true)}
             {link('Artists')}
             {link('Physical collection')}
-            {link('Library care', false, 'manage')}
-            {link('Tag changes')}
-            {link('Settings')}
           </nav>
+          {peekOn && <SidebarPin pinned={sidebar === 'pinned'} onToggle={togglePin} />}
           <div className={layout.account} data-account-row="">
-            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} glow={accountGlow} />
+            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} links={careLinks} />
           </div>
         </div>
       </aside>
+      {sidebar === 'peek' && <PeekMark />}
       <div className={layout.contentArea}>
-        <main id="main-content" tabIndex={-1} className={layout.main}>
+        <main id="main-content" ref={mainRef} tabIndex={-1} className={layout.main}>
           <div className={layout.page}>{children}</div>
         </main>
         <div ref={ref} className={bar.dock} data-player-bar="" data-empty={empty ? '' : undefined}>{dock}</div>

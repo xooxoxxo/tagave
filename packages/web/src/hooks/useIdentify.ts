@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { JobsListResponse } from '@tagave/shared';
 import { api } from '../services/api';
 import { subscribeJobEvents } from '../services/jobStream';
+import { invalidateAlbumCare } from './useGaps';
 
 export interface IdentifyStatsResponse {
   total: number;
@@ -201,6 +202,11 @@ interface JobProgressEvent {
   progress: { done: number; total: number; etaS?: number; message?: string };
 }
 
+/** A Library care check finished (gaps.recompute, scoped to changed albums or the whole library). */
+export function isCareCheckDone(type: string, event: { type?: string; jobType?: string }): boolean {
+  return event.jobType === 'gaps.recompute' && (type === 'job.completed' || event.type === 'job.completed');
+}
+
 /**
  * Mount SSE listener for job events and queue changes.
  * One stream per library for the whole browser (services/jobStream: the
@@ -214,6 +220,12 @@ export function useJobEvents(libraryId: string | undefined) {
     if (!libraryId) return;
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let careTimer: ReturnType<typeof setTimeout> | null = null;
+    // debounced like the rest: an identify sweep sends one event per album
+    const careChanged = () => {
+      if (careTimer) clearTimeout(careTimer);
+      careTimer = setTimeout(() => { void invalidateAlbumCare(queryClient); }, 1500);
+    };
 
     const invalidate = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -229,6 +241,20 @@ export function useJobEvents(libraryId: string | undefined) {
 
     const unsubscribe = subscribeJobEvents(libraryId, (type, data) => {
       try {
+        if (type === 'maintenance.changed') {
+          const event = JSON.parse(data) as { libraryId: string; subjectId: string | null; kind: string };
+          if (event.libraryId !== libraryId) return;
+          void queryClient.invalidateQueries({ queryKey: ['maintenance-tasks', libraryId] });
+          if (event.subjectId) void queryClient.invalidateQueries({ queryKey: ['album', event.subjectId] });
+          if (event.kind === 'split') {
+            void queryClient.invalidateQueries({ queryKey: ['album-split', libraryId] });
+            void queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId] });
+          }
+          if (event.kind === 'empty-trash') void queryClient.invalidateQueries({ queryKey: ['deletions'] });
+          if (event.kind === 'flac-upgrade') void queryClient.invalidateQueries({ queryKey: ['flac-upgrade', libraryId] });
+          if (event.kind === 'embed-cover') void queryClient.invalidateQueries({ queryKey: ['embed-cover', libraryId] });
+          return;
+        }
         const event = JSON.parse(data) as QueueChangedEvent | JobProgressEvent;
         if (event.libraryId !== libraryId) return;
         // the album page shows its pending request; refresh just that album
@@ -236,6 +262,10 @@ export function useJobEvents(libraryId: string | undefined) {
           const albumId = (event as QueueChangedEvent).localAlbumId;
           if (albumId) queryClient.invalidateQueries({ queryKey: ['album', albumId] });
         }
+        // Library care (rr85): a match changes what is incomplete or a
+        // duplicate, and every album-changing job ends with a scoped
+        // gaps.recompute, whose completion carries the quality flags
+        if (type === 'queue.changed' || isCareCheckDone(type, event)) careChanged();
         invalidate();
       } catch {
         // ignore parse errors
@@ -245,6 +275,7 @@ export function useJobEvents(libraryId: string | undefined) {
     return () => {
       unsubscribe();
       if (debounceTimer) clearTimeout(debounceTimer);
+      if (careTimer) clearTimeout(careTimer);
     };
   }, [libraryId, queryClient]);
 }

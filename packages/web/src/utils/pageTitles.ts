@@ -9,6 +9,7 @@ export const pageTitles = {
   '/artists': 'Artists',
   '/collection': 'Physical collection',
   '/playlists': 'Playlists',
+  '/liked': 'Liked songs',
   '/work': 'Library care',
   '/plans': 'Tag changes',
   '/settings': 'Settings',

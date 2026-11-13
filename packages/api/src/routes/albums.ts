@@ -1,12 +1,13 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, or, isNotNull, sql, inArray, desc, type SQLWrapper } from 'drizzle-orm';
 import {
-  albumMatches, files, canonicalTracks, gaps, images, libraries, localAlbums,
+  albumMatches, artists as canonicalArtists, files, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
-  releaseGroupArtists, fieldLocks, auditLog,
+  releaseGroupArtists, fieldLocks, auditLog, albumLiveSql, albumDeletedSql, fileDeletedSql, trackLiveSql,
+  saveMaintenanceTask, restartMaintenanceTask, latestMaintenanceTask,
 } from '@tagave/db';
 import { normalizeGenreMap, effectiveGenres, physicalFormatLabel } from '@tagave/core';
-import { getDb } from '../db.js';
+import { getDb, getSql } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob, identifyRequestView, identifyRequestStates, recordCancelled } from '../lib/identifyRequests.js';
 import { parseMatchInput, pinnedJobData } from '../lib/matchInput.js';
@@ -18,6 +19,8 @@ import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
 import { scanRoots as scanRootRows, files as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
+import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
+import { albumsChanged } from '../lib/albumCare.js';
 import { containsPattern, textMatches } from '../lib/textMatch.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
@@ -63,7 +66,8 @@ export function albumQueryParts(
   const anyOf = (parts: ReturnType<typeof sql>[]) => sql`(${sql.join(parts, sql` or `)})`;
   const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : undefined);
 
-  const conds = [eq(localAlbums.libraryId, libraryId)];
+  // an album whose every track is deleted (Mark or Trash, 0073) is out of the library
+  const conds = [eq(localAlbums.libraryId, libraryId), sql.raw(albumLiveSql('local_albums.id'))];
   const search = str(q['q']) ?? str(q['search']);
   const artist = str(q['artist']);
   // Unresolved artists are listed by their shown name (numbering stripped,
@@ -104,12 +108,17 @@ export function albumQueryParts(
   };
   const reviewClause = str(q['review']) ? REVIEW_CLAUSES[str(q['review'])!] : undefined;
   if (reviewClause) conds.push(reviewClause);
+  // Liked (0085): the person liked its release group, or the album itself before it was identified
+  const likedSql = sql`exists (select 1 from likes lk where lk.user_id = ${userId} and lk.kind = 'album'
+    and (lk.release_group_id = ${localAlbums.releaseGroupId} or lk.local_album_id = ${localAlbums.id}
+      or (${localAlbums.releaseGroupId} is null and lk.release_group_id = (select r.release_group_id from releases r where r.id = ${localAlbums.releaseId}))))`;
+  if (str(q['liked']) === 'yes') conds.push(likedSql);
 
   const genres = arr(q['genre']);
   if (genres.length) {
     // `in (a, b)` (not `= a or = b`) lets the planner probe idx_entity_tags_entity_id
     // once per album; a null release id simply matches nothing.
-    conds.push(sql`exists (select 1 from entity_tags et where et.tag in ${inList(genres)} and et.kind in ('genre', 'style')
+    conds.push(sql`exists (select 1 from entity_tags et where lower(et.tag) in ${inList(genres.map((genre) => genre.toLowerCase()))} and et.kind in ('genre', 'style')
       and et.entity_id in (${localAlbums.releaseGroupId}, ${localAlbums.releaseId}))`);
   }
   const decades = arr(q['decade']).map((d) => parseInt(d, 10)).filter(Number.isFinite);
@@ -153,7 +162,7 @@ export function albumQueryParts(
     rating: sql`${ownRatingSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
     listened: sql`${lastListenSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
   };
-  return { conds, orderings, REVIEW_CLAUSES, ownedSql, openGap };
+  return { conds, orderings, REVIEW_CLAUSES, ownedSql, openGap, likedSql };
 }
 
 /**
@@ -218,7 +227,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       return reply.send(body);
     }
     reply.header('x-tagave-facets', 'live');
-    const { conds, REVIEW_CLAUSES, ownedSql, openGap } = albumQueryParts(libraryId, userId, rawQuery);
+    const { conds, REVIEW_CLAUSES, ownedSql, openGap, likedSql } = albumQueryParts(libraryId, userId, rawQuery);
     const where = and(...conds)!;
     // A dimension's own filter is dropped from its own counts, so a checked
     // box still shows what its siblings would add (standard faceted search).
@@ -241,6 +250,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
                count(*) filter (where ${REVIEW_CLAUSES['reviewed']})::int as reviewed,
                count(*) filter (where ${REVIEW_CLAUSES['rated']})::int as rated,
                count(*) filter (where ${REVIEW_CLAUSES['listened']})::int as listened,
+               count(*) filter (where ${likedSql})::int as liked,
                count(*) filter (where not ${openGap(sql``)})::int as no_gap,
                ${sql.join(Object.entries(DECIDED_CLAUSES).map(([k, c]) => sql`count(*) filter (where ${decidedExists(c)})::int as ${sql.raw(`decided_${k}`)}`), sql`, `)}
         from local_albums where ${where}`),
@@ -263,9 +273,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       // tag garbage produces years like 1000 or 1720; the rail only offers plausible decades
       rows(sql`select (year_guess / 10) * 10 as decade, count(*)::int as n from local_albums where ${wDecade} and year_guess between 1900 and 2100 group by 1 order by 1`),
       rows(sql`
-        select et.tag, count(distinct local_albums.id)::int as n from local_albums
+        select lower(et.tag) as tag, coalesce(min(et.tag) filter (where et.tag <> lower(et.tag) and et.tag <> upper(et.tag)), min(et.tag)) as label,
+               count(distinct local_albums.id)::int as n from local_albums
         join entity_tags et on et.kind in ('genre', 'style') and et.entity_id in (local_albums.release_group_id, local_albums.release_id)
-        where ${wGenre} group by et.tag order by n desc, et.tag limit 60`),
+        where ${wGenre} group by lower(et.tag) order by n desc, lower(et.tag) limit 60`),
       rows(sql`
         select l->>'name' as name, count(*)::int as n from local_albums
         join releases r on r.id = local_albums.release_id
@@ -286,7 +297,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       formats: facet(formats, 'k'),
       containers: facet(containers, 'f'),
       decades: facet(decades, 'decade', (d) => `${d}s`),
-      genres: facet(genres, 'tag'),
+      genres: genres.map((row) => ({ value: String(row['tag']), label: String(row['label']), count: Number(row['n']) })),
       labels: facet(labels, 'name'),
       review: [
         { value: 'reviewed', count: n('reviewed') }, { value: 'unreviewed', count: total - n('reviewed') },
@@ -295,6 +306,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       gaps: [...facet(gapRows, 'kind'), { value: 'none', count: Number(gapNone?.['n'] ?? 0) }],
       owned: [{ value: 'both', count: n('owned_both') }, { value: 'digital', count: total - n('owned_both') }],
       decided: Object.keys(DECIDED_CLAUSES).map((k) => ({ value: k, count: n(`decided_${k}`) })),
+      liked: [{ value: 'yes', count: n('liked') }],
     };
     storeFilterCountsCache(cacheKey, libraryId, body);
     reply.header('x-tagave-cache', 'miss');
@@ -406,10 +418,13 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         // lossless / lossy / mixed badge per album from the files themselves (m4a can be either)
         const losslessRows = albums.length
           ? ((await db.execute(sql`
-              select lt.local_album_id, bool_and(coalesce(af.lossless, false)) as all_lossless, bool_or(coalesce(af.lossless, false)) as any_lossless
+              select lt.local_album_id, bool_and(coalesce(af.lossless, false)) filter (where not t.deleted) as all_lossless,
+                     bool_or(coalesce(af.lossless, false)) filter (where not t.deleted) as any_lossless,
+                     count(*) filter (where t.deleted)::int as deleted_tracks
               from local_tracks lt join files af on af.id = lt.audio_file_id
+              cross join lateral (select ${sql.raw(fileDeletedSql('af.id'))} as deleted) t
               where lt.local_album_id in ${sql`(${sql.join(albums.map((a) => sql`${a.id}`), sql`, `)})`}
-              group by lt.local_album_id`)) as unknown as { local_album_id: string; all_lossless: boolean; any_lossless: boolean }[])
+              group by lt.local_album_id`)) as unknown as { local_album_id: string; all_lossless: boolean; any_lossless: boolean; deleted_tracks: number }[])
           : [];
         const losslessOf = new Map(losslessRows.map((r) => [r.local_album_id, r]));
         return albums.map((album) => ({
@@ -423,7 +438,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         isLossless: losslessOf.get(album.id)?.all_lossless ?? false,
         isMixed: (losslessOf.get(album.id)?.any_lossless ?? false) && !(losslessOf.get(album.id)?.all_lossless ?? false),
         state: album.state,
-        trackCount: album.trackCount ?? 0,
+        // deleted songs (0073) no longer count
+        trackCount: Math.max(0, (album.trackCount ?? 0) - (losslessOf.get(album.id)?.deleted_tracks ?? 0)),
         canonicalTrackCount: (album.releaseId && canonCount.get(album.releaseId)) || null,
         needsAttention: flagged.has(album.id) || (!!album.releaseGroupId && flagged.has(album.releaseGroupId)),
         matchKind: matchKind.get(album.id) ?? null,
@@ -483,6 +499,18 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         // Invariant: this should never happen since we checked albums.length > 0 above
         throw new ApiError(404, 'Not Found', 'Album not found');
       }
+      // Deleted songs (Mark or Trash, 0073) are out of the album; an album
+      // with all of them deleted is out of the library until Unmark / Restore.
+      const [gone] = (await db.execute(sql`
+        select ${sql.raw(albumDeletedSql(`'${album.id}'::uuid`))} as album,
+               count(*)::int as tracks, coalesce(sum(lt.duration_ms), 0)::int as ms
+          from local_tracks lt
+         where lt.local_album_id = ${album.id} and ${sql.raw(fileDeletedSql('lt.audio_file_id'))}`)) as unknown as Array<{ album: boolean; tracks: number; ms: number }>;
+      if (gone?.album) throw new ApiError(404, 'Not Found', 'Album not found');
+      if (gone && gone.tracks > 0) {
+        album.trackCount = Math.max(0, (album.trackCount ?? 0) - gone.tracks);
+        album.totalDurationMs = Math.max(0, (album.totalDurationMs ?? 0) - gone.ms);
+      }
 
       // Everything below depends only on the album row: run the independent
       // lookups together instead of ~24 awaits in a row (audit 2026-10-10:
@@ -512,7 +540,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         })
         .from(localTracks)
         .innerJoin(files, eq(files.id, localTracks.audioFileId))
-        .where(eq(localTracks.localAlbumId, albumId));
+        .where(and(eq(localTracks.localAlbumId, albumId), sql.raw(trackLiveSql('files.id'))));
 
       const releaseP = (async () => {
         let release: Record<string, unknown> | null = null;
@@ -818,6 +846,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             .where(and(
               eq(localAlbums.releaseGroupId, album.releaseGroupId),
               sql`${localAlbums.id} != ${albumId}`,
+              sql.raw(albumLiveSql('local_albums.id')),
             ))
         : Promise.resolve([]);
 
@@ -845,8 +874,13 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           // artists from release_group_artists and the release group's tags, together
           const [artistRows, rgTagRows] = await Promise.all([
             db
-              .select()
+              .select({
+                artistId: releaseGroupArtists.artistId,
+                creditedName: sql<string>`coalesce(nullif(${releaseGroupArtists.creditedName}, ''), ${canonicalArtists.name})`,
+                position: releaseGroupArtists.position,
+              })
               .from(releaseGroupArtists)
+              .innerJoin(canonicalArtists, eq(releaseGroupArtists.artistId, canonicalArtists.id))
               .where(eq(releaseGroupArtists.releaseGroupId, album.releaseGroupId))
               .orderBy(releaseGroupArtists.position),
             db
@@ -862,7 +896,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
           artists = artistRows.map((row) => ({
             id: row.artistId,
-            name: row.creditedName ?? '',
+            name: row.creditedName,
             position: row.position,
           }));
 
@@ -908,7 +942,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         // Compilations: an album built by "Treat as one album" can be split
         // back; albums that look like more pieces of this one are offered.
         findMergeCandidates(db, { libraryId: album.libraryId, albumId: album.id, limit: 200 }),
-        artFetchState(album.id),
+        artFetchState(album.id, album.libraryId),
         albumFolders(db, album.id, album.dirPaths ?? [], lib[0]?.settings),
       ]);
 
@@ -1072,17 +1106,50 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
       const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
-      const db = getDb();
-      const lib = await db
-        .select()
-        .from(libraries)
-        .where(eq(libraries.id, libraryId));
-      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-      const boss = await getBoss();
-      const jobId = await boss.send('art.fetch', { localAlbumId: albumId }, { singletonKey: `art:${albumId}` });
-      reply.status(202).send({ ok: true, jobId: jobId ?? null, artFetch: await artFetchState(albumId) });
+      const [album] = await getDb().select({ id: localAlbums.id }).from(localAlbums)
+        .where(and(eq(localAlbums.id, albumId), eq(localAlbums.libraryId, libraryId))).limit(1);
+      if (!album) throw new ApiError(404, 'Not Found', 'Album not found');
+      const task = await saveMaintenanceTask(getSql(), {
+        libraryId, kind: 'cover', scope: albumId, subjectId: albumId, queue: 'art.fetch',
+        input: { localAlbumId: albumId }, stage: 'Waiting to look for cover art',
+      });
+      const queued = task.state === 'failed' || task.state === 'interrupted'
+        ? await restartMaintenanceTask(getSql(), libraryId, task.id, task.attempt)
+        : task;
+      await dispatchMaintenance(task.id, request.log);
+      reply.status(202).send({ ok: true, jobId: queued?.attempt_id ?? null, artFetch: await artFetchState(albumId, libraryId) });
     }
   );
+
+  const coverEmbedPath = '/libraries/:libraryId/albums/:albumId/embed-cover';
+  const coverOwner = { config: { permission: 'system.manage' as const } };
+  type CoverParams = { libraryId: string; albumId: string };
+  fastify.get<{ Params: CoverParams }>(coverEmbedPath, coverOwner, async ({ params: { libraryId, albumId } }) => {
+    const task = await latestMaintenanceTask(getSql(), libraryId, 'embed-cover', albumId);
+    return { task: task ? maintenanceView(task, await liveMaintenanceQueues()) : null };
+  });
+
+  fastify.post<{ Params: CoverParams }>(coverEmbedPath, coverOwner, async (request, reply) => {
+    const { libraryId, albumId } = request.params;
+    const sql = getSql();
+    const [album] = await sql<{ enabled: boolean | null }[]>`
+      select libraries.settings->'tagWritesEnabled' = 'true'::jsonb as enabled
+        from libraries join local_albums a on a.library_id = libraries.id
+       where libraries.id = ${libraryId} and a.id = ${albumId}`;
+    if (!album) throw new ApiError(404, 'Not Found', 'Album not found');
+    if (!album.enabled) throw new ApiError(403, 'Forbidden', 'Enable tag writes in Tag preferences to embed artwork.');
+    const rows = await sql<{ id: string }[]>`
+      select distinct f.id from local_tracks t join files f on f.id = t.audio_file_id
+       where t.local_album_id = ${albumId} and f.library_id = ${libraryId}
+         and not exists (select 1 from file_deletions d where d.file_id = f.id)`;
+    if (rows.length === 0) throw new ApiError(409, 'Conflict', 'There are no music files to update.');
+    const task = await saveMaintenanceTask(sql, {
+      libraryId, kind: 'embed-cover', scope: albumId, subjectId: albumId, queue: 'files.embedCover',
+      input: { albumId, fileIds: rows.map(({ id }) => id) }, stage: 'Cover embedding queued',
+    });
+    await dispatchMaintenance(task.id, request.log);
+    return reply.status(202).send({ task: maintenanceView(task, await liveMaintenanceQueues()) });
+  });
 
   // IDN-6 manual entry: paste a MusicBrainz release / release-group URL or id,
   // or a Discogs release / master URL or id. A release matches outright; a
@@ -1522,6 +1589,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const albums = await db
         .select()
         .from(localAlbums)
+        .where(sql.raw(albumLiveSql('local_albums.id')))
         .limit(parseInt(limit, 10));
 
       const filtered = albums.filter(
@@ -1632,6 +1700,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
     const result = await splitAlbumByFormat(db, { libraryId, albumId, userId: request.user.id, keep }).catch(splitFailure);
     await recluster(libraryId, result.dirs);
+    await albumsChanged(libraryId, [albumId, result.newAlbumId], request.log);
     // the new album is pending; identify it now rather than at the sweep's pace
     const boss = await getBoss();
     await boss.send('identify.album', { localAlbumId: result.newAlbumId },
@@ -1653,6 +1722,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     await cancelQueuedIdentifyFor(await getBoss(), [albumId]).catch((err: Error) =>
       request.log.warn({ err: err.message }, 'could not cancel identify jobs of the merged-back album'));
     await recluster(libraryId, result.dirs);
+    await albumsChanged(libraryId, [result.originalAlbumId, albumId], request.log);
     bustFilterCountsCache(libraryId);
     await markFilterCountsDirty(db, libraryId);
     reply.send({ originalAlbumId: result.originalAlbumId, moved: result.fileIds.length });
@@ -1687,6 +1757,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       await boss.send('identify.album', { localAlbumId: result.albumId },
         { singletonKey: IDENTIFY_SINGLETON(result.albumId), priority: IDENTIFY_PRIORITY.manual });
     }
+    await albumsChanged(libraryId, [result.albumId, ...result.mergedAlbumIds], request.log);
     bustFilterCountsCache(libraryId);
     await markFilterCountsDirty(db, libraryId);
     reply.send({ albumId: result.albumId, mergedAlbumIds: result.mergedAlbumIds, files: result.fileIds.length, identifyQueued: result.needsIdentify });
@@ -1700,6 +1771,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     const db = getDb();
     const result = await unmergeAlbum(db, { libraryId, albumId }).catch(mergeFailure);
     await recluster(libraryId, result.dirs);
+    await albumsChanged(libraryId, [result.albumId, ...result.restoredAlbumIds], request.log);
     bustFilterCountsCache(libraryId);
     await markFilterCountsDirty(db, libraryId);
     reply.send({ albumId: result.albumId, files: result.fileIds.length, folders: result.dirs.length, restoredAlbumIds: result.restoredAlbumIds });

@@ -4,7 +4,7 @@
  * › Modules row. Off (or unknown): nothing is asked for.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { PlayHistoryEntry, PlaylistImportResult, PlaylistSummary, PlaylistView, PlaylistsModuleView } from '@tagave/shared';
+import type { PlayHistoryEntry, PlaylistCollaboratorChoice, PlaylistImportResult, PlaylistSummary, PlaylistView, PlaylistsModuleView } from '@tagave/shared';
 import { api } from '../services/api';
 import { facetsKey, useModuleOn } from './useFacets';
 import { useCan } from './usePermissions';
@@ -88,6 +88,32 @@ export function useDeletePlaylist() {
     mutationFn: (id: string) => api.delete(`/me/playlists/${encodeURIComponent(id)}`),
     onSuccess: (_r, id) => {
       client.removeQueries({ queryKey: playlistKey(id) });
+      void client.invalidateQueries({ queryKey: playlistsKey, exact: true });
+    },
+  });
+}
+
+/** The owner's Collaborators sheet: the install's other people, each on or off. */
+export const playlistCollaboratorsKey = (id: string) => ['playlists', 'collaborators', id] as const;
+
+export function usePlaylistCollaborators(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: playlistCollaboratorsKey(id),
+    queryFn: async () => (await api.get<{ people: PlaylistCollaboratorChoice[] }>(`/me/playlists/${encodeURIComponent(id)}/collaborators`)).people,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useSetCollaborator(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, on }: { userId: string; on: boolean }) =>
+      api.put<{ people: PlaylistCollaboratorChoice[] }>(`/me/playlists/${encodeURIComponent(id)}/collaborators/${encodeURIComponent(userId)}`, { on }),
+    onSuccess: (r) => {
+      client.setQueryData(playlistCollaboratorsKey(id), r.people);
+      // the header's people and the lists' collaborative mark
+      void client.invalidateQueries({ queryKey: playlistKey(id) });
       void client.invalidateQueries({ queryKey: playlistsKey, exact: true });
     },
   });

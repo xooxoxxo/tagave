@@ -31,7 +31,8 @@ describe('album flow: scroll progress', () => {
 
   it('the lines shrink gradually and reach header size exactly as the title meets the header', () => {
     const half = flowState(dockAt / 2, geo);
-    expect(half.artistScale).toBeCloseTo((1 + A_HDR / A_REST) / 2, 5);
+    expect(flowState(dockAt / 8, geo).artistScale).toBe(1);
+    expect(half.artistScale).toBeGreaterThan((1 + A_HDR / A_REST) / 2);
     expect(half.docked).toBe(false);
     const just = flowState(dockAt - 1, geo);
     expect(just.docked).toBe(false);

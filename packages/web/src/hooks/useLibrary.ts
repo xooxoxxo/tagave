@@ -7,6 +7,7 @@ import type { AlbumSummary } from '@tagave/shared';
 import { api } from '../services/api';
 import { LibraryState, LocalAlbum, ScanRootWithStatus, PaginatedResponse } from '../types/index';
 import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings, CreateScanRootRequest } from '@tagave/shared';
+import { dropPoolKey } from './useNaming';
 
 const LIBRARY_QUERY_KEY = ['library'];
 const LIBRARIES_QUERY_KEY = ['libraries'];
@@ -89,13 +90,16 @@ export function useAlbum(libraryId: string | undefined, albumId: string | undefi
   });
 }
 
+export const scanRootsKey = (libraryId: string | undefined) => [...SCAN_ROOTS_QUERY_KEY, libraryId];
+
+export function fetchScanRoots(libraryId: string): Promise<ScanRootWithStatus[]> {
+  return api.get<{ data: ScanRootWithStatus[] }>(`/libraries/${libraryId}/scan-roots`).then((r) => r.data);
+}
+
 export function useScanRoots(libraryId: string | undefined) {
   return useQuery({
-    queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId],
-    queryFn: () =>
-      api
-        .get<{ data: ScanRootWithStatus[] }>(`/libraries/${libraryId}/scan-roots`)
-        .then((r) => r.data),
+    queryKey: scanRootsKey(libraryId),
+    queryFn: () => fetchScanRoots(libraryId!),
     enabled: !!libraryId,
     staleTime: 1000 * 30, // 30 seconds
     refetchInterval: (query) => {
@@ -115,6 +119,7 @@ export function useCreateScanRoot(libraryId: string | undefined) {
       api.post<ScanRoot>(`/libraries/${libraryId}/scan-roots`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
+      void queryClient.invalidateQueries({ queryKey: dropPoolKey(libraryId) });
     },
   });
 }
@@ -128,6 +133,7 @@ export function useUpdateScanRoot(libraryId: string | undefined) {
       api.patch<ScanRoot>(`/libraries/${libraryId}/scan-roots/${rootId}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
+      void queryClient.invalidateQueries({ queryKey: dropPoolKey(libraryId) });
     },
   });
 }
@@ -138,6 +144,7 @@ export function useDeleteScanRoot(libraryId: string | undefined) {
     mutationFn: (rootId: string) => api.delete(`/libraries/${libraryId}/scan-roots/${rootId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
+      void queryClient.invalidateQueries({ queryKey: dropPoolKey(libraryId) });
     },
   });
 }
@@ -280,7 +287,7 @@ export function useClearAnyEdition(libraryId: string | undefined) {
 const COLLECTION_QUERY_KEY = ['collection'];
 
 interface CollectionFilters {
-  view?: 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates' | 'all';
+  view?: 'active' | 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates' | 'all';
   folder?: string;
   q?: string;
   limit?: number;
@@ -487,6 +494,21 @@ export function useRemoveCollectionItem(libraryId: string | undefined) {
     mutationFn: (itemId: string) => api.delete(`/collection-items/${itemId}`),
     onSuccess: invalidate,
   });
+}
+
+/**
+ * Remove a record for real, once its Undo window is over (pages/collectionRemoval):
+ * resolves after the collection has refetched without it. `keepalive` lets
+ * the request outlive a closing tab.
+ */
+export function useCommitCollectionRemoval(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidatePhysical(libraryId);
+  return async (itemId: string, { keepalive }: { keepalive: boolean }) => {
+    await api.delete(`/collection-items/${itemId}`, keepalive ? { keepalive } : undefined);
+    invalidate();
+    await queryClient.refetchQueries({ queryKey: COLLECTION_QUERY_KEY, type: 'active' });
+  };
 }
 
 /** "I own both": the copies of a Discogs release are all real, none is a duplicate. */

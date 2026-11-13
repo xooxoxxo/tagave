@@ -1,21 +1,25 @@
 /**
  * The artist page, name first (the default; approved prototype direction B).
  *
- * A band with the name large, its kind, country and years above it and what
- * else it goes by under it; then two columns: a quiet column of facts that
- * is also the page's section navigation (it stays in view while the page
- * scrolls, and marks the section being read), and the sections themselves —
- * Biography, In your library, Not in your library (and Skipped, in
- * Maintenance). On one column (≤900px) the facts sit under the band and the
- * sections are a row that sticks under the header.
+ * A band with the name large, its kind and country above it, the biography
+ * folded to about three lines under it (More, Less) and Follow; then two
+ * columns: a quiet column (what you own) that is also the page's section
+ * navigation (it stays in view while the page scrolls, and marks the
+ * section being read), and the sections themselves — In your library, Not
+ * in your library (and Skipped, in Maintenance), Similar artists, then About: the trivia
+ * (kind, years, other names, the biography's source, links). On one column
+ * (≤900px) the facts sit under the band and the sections are a row that
+ * sticks under the header.
  */
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import type { ArtistDetail } from '../hooks';
 import { artistLabel } from '@tagave/shared';
-import { AlbumGrid, Bar, Biography, DetailsNote, FollowButton, ProviderLinks, SkeletonGrid, detailsWhen } from './ArtistParts';
+import { AlbumGrid, ArtistAbout, Bar, DetailsNote, FollowButton, ShortBio, SkeletonGrid, detailsWhen } from './ArtistParts';
+import { LikeKey } from '../components/LikeKey';
 import { Button } from '../components/ui';
-import { kickerLine, ownedLine, SECTION_IDS, type ArtistShelves, type DetailsState, type PageSection } from './artistPageView';
-import { shownAliases } from './artistAliases';
+import { kindLine, ownedLine, SECTION_IDS, type ArtistShelves, type DetailsState, type PageSection } from './artistPageView';
+import { MissingHeadingMenu } from '../components/LidarrControls';
+import { SimilarArtistsView, similarCount, type SimilarArtistsViewProps } from './SimilarArtists';
 import styles from './ArtistPage.module.css';
 
 export interface ArtistLayoutProps {
@@ -33,6 +37,8 @@ export interface ArtistLayoutProps {
   reopening: boolean;
   /** Following an artist is library care: hidden for a listener. */
   canFollow: boolean;
+  /** Similar artists (the similar-artists module), when the section shows */
+  similar?: SimilarArtistsViewProps | null;
 }
 
 export interface NameFirstProps extends ArtistLayoutProps {
@@ -72,10 +78,11 @@ function SectionLinks({ sections, active, goTo, className, label, followActive =
   </nav>;
 }
 
-function Section({ id, title, count, children, className }: { id: string; title: string; count?: number; children: ReactNode; className?: string | undefined }) {
+function Section({ id, title, count, children, className, action }: { id: string; title: string; count?: number; children: ReactNode; className?: string | undefined; action?: ReactNode }) {
   const headingId = `${id}-h`;
+  const h2 = <h2 id={headingId} tabIndex={-1} className={styles.h2}>{title}{count !== undefined && <small>{count}</small>}</h2>;
   return <section id={id} className={`${styles.section} ${className ?? ''}`} aria-labelledby={headingId}>
-    <h2 id={headingId} tabIndex={-1} className={styles.h2}>{title}{count !== undefined && <small>{count}</small>}</h2>
+    {action ? <div className={styles.headRow}>{h2}{action}</div> : h2}
     {children}
   </section>;
 }
@@ -84,24 +91,22 @@ export function ArtistNameFirst(p: NameFirstProps) {
   const { artist, shelves: s, details, maintenance } = p;
   const name = artistLabel(artist.name);
   const fetching = details === 'fetching';
-  const kicker = fetching ? '' : kickerLine(artist);
-  const sub: ReactNode[] = [];
-  if (artist.disambiguation) sub.push(<span key="d">{artist.disambiguation}</span>);
-  const aliases = shownAliases(artist.name, artist.aliases);
-  if (aliases.length) sub.push(<span key="a">Also known as <em>{aliases.join(', ')}</em></span>);
-  const facts: Array<[string, string, boolean?]> = [['Owned', ownedLine(artist.owned)]];
-  if (details === 'done' && !artist.bio) facts.push(['Biography', 'None on Wikipedia', true]);
+  const kicker = fetching ? '' : kindLine(artist);
+  const facts: Array<[string, string]> = [['Owned', ownedLine(artist.owned)]];
   const showNav = p.sections.length > 1;
+  const about = p.sections.some((x) => x.id === SECTION_IDS.about);
+  const similarN = p.similar ? similarCount(p.similar.view) : 0;
 
   return <div className={styles.B}>
     <section className={styles.band} aria-label="Artist">
       <div className={styles.bandText}>
         <p className={styles.kicker}>{kicker}</p>
         <h1 ref={p.nameRef} className={styles.bName} dir="auto">{name}</h1>
-        {sub.length > 0 && <p className={styles.sub}>{sub.map((x, i) => <span key={i}>{i > 0 && '. '}{x}</span>)}</p>}
+        {artist.bio && <ShortBio bio={artist.bio} className={styles.bandBio} />}
         <DetailsNote state={details} maintenance={maintenance} onRetry={p.enrich.run} retrying={p.enrich.pending} />
         <div className={styles.bandActs}>
           {p.canFollow && <FollowButton followed={artist.followed} pending={p.follow.pending} onToggle={p.follow.toggle} />}
+          <LikeKey kind="artist" id={artist.id} />
         </div>
       </div>
     </section>
@@ -111,12 +116,11 @@ export function ArtistNameFirst(p: NameFirstProps) {
     <div className={styles.cols}>
       <aside className={styles.rail} aria-label={`About ${name}`}>
         <dl className={styles.facts}>
-          {facts.map(([k, v, none]) => <div key={k} className={styles.row}><dt>{k}</dt><dd className={none ? styles.none : undefined}>{v}</dd></div>)}
+          {facts.map(([k, v]) => <div key={k} className={styles.row}><dt>{k}</dt><dd>{v}</dd></div>)}
         </dl>
         {showNav && <SectionLinks className={styles.toc} sections={p.sections} active={p.active} goTo={p.goTo} label="Sections" />}
         {maintenance && <div className={styles.railMaint}>
           <p className={styles.label}>Maintenance</p>
-          <div className={styles.chips}><ProviderLinks links={artist.links} /></div>
           <div className={styles.maintBtns}>
             {artist.canEnrich && <Button variant="secondary" size="sm" onClick={p.enrich.run} loading={p.enrich.pending} disabled={fetching}>Refresh details</Button>}
             {artist.followed && <Button variant="secondary" size="sm" onClick={p.onReleaseTypes}>Release types</Button>}
@@ -126,16 +130,15 @@ export function ArtistNameFirst(p: NameFirstProps) {
       </aside>
 
       <div className={styles.mainCol}>
-        {artist.bio && <Section id={SECTION_IDS.bio} title="Biography" className={styles.bio}>
-          <Biography bio={artist.bio} headingId={`${SECTION_IDS.bio}-h`} />
-        </Section>}
         {s.owned.length > 0
-          ? <Section id={SECTION_IDS.owned} title="In your library" count={s.owned.length}><AlbumGrid albums={s.owned} /></Section>
+          ? <Section id={SECTION_IDS.owned} title="In your library" count={s.owned.length}><AlbumGrid albums={s.owned} artistOrigin={artist} /></Section>
           : <Section id={SECTION_IDS.owned} title="In your library"><p className={styles.empty}>Nothing in your library</p></Section>}
-        {s.missing.length > 0 && <Section id={SECTION_IDS.missing} title="Not in your library" count={s.missing.length}><AlbumGrid albums={s.missing} /></Section>}
+        {s.missing.length > 0 && <Section id={SECTION_IDS.missing} title="Not in your library" count={s.missing.length} action={<MissingHeadingMenu />}><AlbumGrid albums={s.missing} /></Section>}
         {maintenance && s.skipped.length > 0 && <Section id={SECTION_IDS.skipped} title="Skipped" count={s.skipped.length}>
           <AlbumGrid albums={s.skipped} onReopen={p.onReopen} reopening={p.reopening} />
         </Section>}
+        {p.similar && <Section id={SECTION_IDS.similar} title="Similar artists" {...(similarN > 0 ? { count: similarN } : {})}><SimilarArtistsView {...p.similar} /></Section>}
+        {about && <Section id={SECTION_IDS.about} title="About"><ArtistAbout artist={artist} details={details} /></Section>}
         <div ref={p.endRef} className={styles.end} aria-hidden="true" />
       </div>
     </div>

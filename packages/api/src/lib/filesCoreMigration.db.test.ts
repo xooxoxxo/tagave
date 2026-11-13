@@ -144,7 +144,11 @@ describe.skipIf(!url)('0058 files core migration (upgrade from 0057 with data)',
   it('keeps every foreign key to the file rows, now pointing at files', async () => {
     const fks = await sql`select conrelid::regclass::text as t, conname from pg_constraint where confrelid = 'files'::regclass order by 1`;
     expect(fks).toEqual([
+      // 0078: a split keeps its record when the source's row goes
+      { t: 'album_splits', conname: 'album_splits_file_id_fkey' },
       { t: 'cluster_overrides', conname: 'cluster_overrides_audio_file_id_fkey' },
+      // 0073: a deleted song's deletion row goes with its file
+      { t: 'file_deletions', conname: 'file_deletions_file_id_fkey' },
       { t: 'images', conname: 'images_audio_file_id_fkey' },
       { t: 'local_tracks', conname: 'local_tracks_audio_file_id_fkey' },
       { t: 'tag_plan_items', conname: 'tag_plan_items_audio_file_id_fkey' },

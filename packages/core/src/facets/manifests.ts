@@ -3,7 +3,7 @@
  * §2.6, manifest v2). Music is the one app. Library, collection and reviews
  * are built-in parts of it: always on, their tables stay where they are,
  * each provides its facets through a thin adapter. The player, Music
- * Connections, Listen elsewhere and playlists are modules that work with
+ * Connections, Listen elsewhere, playlists and similar artists are modules that work with
  * music: off means their jobs skip, their UI hides and their facets are
  * unavailable, and their data stays.
  *
@@ -81,7 +81,7 @@ export const PLAYER_MODULE = defineModule({
   jobs: ['player.scan'],
   prefix: 'player_',
   tables: [
-    'player_links', 'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_queue_state', 'player_rating_sync',
+    'player_links', 'player_events', 'player_like_sync', 'player_listens', 'player_loves', 'player_plays', 'player_poll_state', 'player_queue_state', 'player_rating_sync',
     'player_retired_accounts', 'player_scan_requests', 'player_scrobbles', 'player_song_counts', 'player_track_map', 'player_users',
     'scrobble_accounts',
   ],
@@ -136,6 +136,25 @@ export const LISTEN_LINKS_MODULE = defineModule({
 });
 
 /**
+ * Similar artists: on an artist page, the artists ListenBrainz finds
+ * similar (and Last.fm, when the install has a Last.fm API key), those in
+ * the library first. Off: the fetch job skips and the section hides; the
+ * data stays until "Delete its data" (api › routes/similarArtists.ts).
+ */
+export const SIMILAR_ARTISTS_MODULE = defineModule({
+  id: 'similar-artists',
+  version: '1.0.0',
+  compatibleWith: MUSIC_1,
+  provides: [],
+  consumes: [],
+  jobs: ['similarArtists.fetch'],
+  prefix: 'similar_',
+  tables: ['similar_artists', 'similar_artist_checks'],
+  // on from the start: it sends artist MBIDs only, to MetaBrainz, as identification does
+  defaultEnabled: true,
+});
+
+/**
  * Playlists: each person's private lists of tracks (0056). Off: the
  * Playlists page and "Add to playlist" hide; the data stays until "Delete
  * its data" (api › routes/playlists.ts). On from the start.
@@ -147,7 +166,7 @@ export const PLAYLISTS_MODULE = defineModule({
   provides: [],
   consumes: [],
   prefix: 'playlist',
-  tables: ['playlist_items', 'playlists'],
+  tables: ['playlist_collaborators', 'playlist_items', 'playlists'],
   // it reaches nothing outside tagave, so an install has it from the start
   defaultEnabled: true,
 });
@@ -174,8 +193,51 @@ export const AUTOTAGGER_MODULE = defineModule({
   defaultEnabled: false,
 });
 
+/**
+ * Get missing albums through Lidarr (vault "tagave - Get Missing Albums",
+ * part B): a missing album's Get asks the owner's Lidarr for it, a poll
+ * follows it until tagave's scan finds it. Off: the jobs skip and Get
+ * hides; the requests stay until "Delete its data" (api › routes/lidarr.ts).
+ * The connection (address, sealed key, root folder, profiles) is its own
+ * setting (installed_modules.settings), which stays with the switch.
+ */
+export const LIDARR_MODULE = defineModule({
+  id: 'lidarr',
+  version: '1.0.0',
+  compatibleWith: MUSIC_1,
+  provides: [],
+  consumes: [],
+  jobs: ['lidarr.poll', 'lidarr.get'],
+  prefix: 'lidarr_',
+  tables: ['lidarr_requests'],
+  settingsKeys: ['url', 'apiKey', 'rootFolderPath', 'qualityProfileId', 'metadataProfileId', 'version', 'qualityProfileName', 'metadataProfileName'],
+  // off until the owner turns it on: it asks a server of theirs to download
+  defaultEnabled: false,
+});
+
+/**
+ * DJ (vault "tagave - DJ Module"): crossfades, tempo transitions and a
+ * two-deck view in the player, from each track's tempo, first beat, trim
+ * points and waveform, which the worker measures from the file (dj.analyze,
+ * 0086). Off: the job skips, the player is exactly the player without it,
+ * the /me/dj routes answer 404; the data stays until "Delete its data"
+ * (api › routes/dj.ts). Its settings are the ledger row's settings.
+ */
+export const DJ_MODULE = defineModule({
+  id: 'dj',
+  version: '1.0.0',
+  compatibleWith: MUSIC_1,
+  provides: [],
+  consumes: [],
+  jobs: ['dj.analyze'],
+  prefix: 'dj_',
+  tables: ['dj_track_analysis'],
+  // off until the owner turns it on: it reads every file once, which takes a while
+  defaultEnabled: false,
+});
+
 export const MODULES: readonly ModuleManifest[] = [
-  LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE, AUTOTAGGER_MODULE,
+  LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE, LIDARR_MODULE, SIMILAR_ARTISTS_MODULE, DJ_MODULE, AUTOTAGGER_MODULE,
 ];
 
 /** A ledger row (installed_modules) for every app and in-process module: what a boot syncs. */

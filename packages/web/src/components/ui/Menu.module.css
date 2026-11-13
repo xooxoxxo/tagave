@@ -81,6 +81,9 @@
   display: block;
 }
 
+.choice { position: relative; padding-right: 40px; }
+.tick { position: absolute; top: 50%; right: 12px; width: 18px; height: 18px; margin-top: -9px; color: var(--dew); }
+
 .itemHint {
   display: block;
   font-size: 12px;

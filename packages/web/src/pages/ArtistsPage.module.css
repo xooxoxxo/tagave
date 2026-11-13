@@ -4,24 +4,11 @@
   flex-direction: column;
   gap: var(--space-md);
 }
+@media (max-width: 720px) { .header { gap: var(--space-xs); } }
 
 .updating { color: var(--ink-3); }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-}
-
-.search { flex: 1 1 220px; max-width: 360px; }
-.sort { flex: none; width: auto; }
-
-/* Grid / List: the shared segmented control, pushed to the row's end. */
-.viewToggle {
-  display: flex;
-  margin-left: auto;
-}
+.chips { display: flex; gap: var(--space-xs); }
 
 /* A–Z: one quiet line of letters; scrolls sideways on a phone. */
 .jumpBar {
@@ -74,8 +61,8 @@
   scrollbar-gutter: stable;
   contain: layout style paint;
   /* room for a focus ring on the edge cards (SCROLL_PAD in the page) */
-  padding: 4px;
-  margin: -4px;
+  padding: 4px 4px var(--space-md);
+  margin: -4px -4px 0;
 }
 
 .canvas { position: relative; width: 100%; }
@@ -160,8 +147,6 @@
 .secondary { color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
 @media (max-width: 640px) {
-  .viewToggle { margin-left: 0; }
-  .search { max-width: none; flex-basis: 100%; }
   .listHead,
   .row { grid-template-columns: 36px minmax(0, 1fr) 3.25rem 5.5rem; gap: var(--space-md); padding: 0 var(--space-xs); }
   .listHead > :nth-child(4),

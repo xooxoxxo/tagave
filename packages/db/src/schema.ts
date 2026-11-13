@@ -8,6 +8,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  real,
   primaryKey,
   smallint,
   text,
@@ -234,6 +235,32 @@ export const jobRuns = pgTable(
   })
 );
 
+export const maintenanceTasks = pgTable('maintenance_tasks', {
+  id: uuid().primaryKey().defaultRandom(),
+  libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+  kind: text().notNull().$type<'cover' | 'embed-cover' | 'split' | 'empty-trash' | 'flac-upgrade'>(),
+  scopeKey: text('scope_key').notNull(),
+  subjectId: uuid('subject_id'),
+  queue: text().notNull(),
+  input: jsonb().notNull().$type<Record<string, unknown>>(),
+  state: text().notNull().$type<'waiting' | 'running' | 'interrupted' | 'review' | 'done' | 'failed' | 'cancelled'>(),
+  stage: text().notNull(),
+  progress: jsonb().$type<{ done: number; total: number }>(),
+  error: text(),
+  checkpoint: jsonb().$type<Record<string, unknown>>(),
+  attemptId: uuid('attempt_id').notNull().defaultRandom(),
+  attempt: integer().notNull().default(1),
+  history: jsonb().notNull().default([]),
+  dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+  cancelRequested: boolean('cancel_requested').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('maintenance_tasks_open_scope').on(t.libraryId, t.kind, t.scopeKey).where(sql`state not in ('done', 'cancelled')`),
+  index('maintenance_tasks_activity').on(t.libraryId, t.updatedAt.desc()),
+  index('maintenance_tasks_outbox').on(t.updatedAt).where(sql`state in ('waiting', 'running')`),
+]);
+
 // Observed layer (per library)
 
 export const scanRoots = pgTable(
@@ -254,6 +281,8 @@ export const scanRoots = pgTable(
     validationMessage: varchar('validation_message'),
     validatedAt: timestamp('validated_at', { withTimezone: true }),
     probeWritable: boolean('probe_writable'),
+    /** 0073: the root on the computer that holds the music (the file worker's TAGAVE_MUSIC_HOST_DIR); null when unknown */
+    hostPath: text('host_path'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -1150,6 +1179,14 @@ export const tagPlanItems = pgTable(
     sizeAfter: integer('size_after'),
     mtimeAfter: integer('mtime_after'),
     appliedAt: timestamp('applied_at', { withTimezone: true }),
+    // 0077: the release track the file was paired with at preview, and the
+    // pairing's distance (local_tracks.match_distance). No FK, see 0077.
+    canonicalTrackId: uuid('canonical_track_id'),
+    matchDistance: numeric('match_distance', { precision: 5, scale: 4 }),
+    // 0081 adds path_before, path_after, path_state. They are read and
+    // written with SQL, not declared here: three more columns tipped the
+    // schema's types past what the compiler infers (callbacks of sql.begin
+    // across the API lost their types).
   },
   (table) => ({
     planIdx: index('idx_tag_plan_items_plan').on(table.tagPlanId),
@@ -2043,13 +2080,67 @@ export const listenPrefs = pgTable('listen_prefs', {
   userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   platforms: text().array().notNull().default(sql`'{}'`),
   updatedAt: tstz('updated_at').notNull().defaultNow(),
+  /** "Play on …" (0076): one of `platforms`, or null */
+  primaryPlatform: text('primary_platform'),
 });
 
+// Similar artists, the similar-artists module (0084): each artist's similar
+// artists (ListenBrainz, and Last.fm with the install's key) and when they
+// were fetched. Its own tables; no core table references them. Written by
+// worker › jobs/similarArtistsFetch.ts and api › routes/similarArtists.ts.
+export const similarArtists = pgTable(
+  'similar_artists',
+  {
+    artistId: uuid('artist_id').notNull().references(() => artists.id, { onDelete: 'cascade' }),
+    position: integer().notNull(),
+    similarMbid: uuid('similar_mbid'),
+    name: text().notNull(),
+    comment: text(),
+    score: real().notNull(),
+    sources: text().array().notNull(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.artistId, table.position] }), mbidIdx: index('idx_similar_artists_mbid').on(table.similarMbid) })
+);
+
+export const similarArtistChecks = pgTable('similar_artist_checks', {
+  artistId: uuid('artist_id').primaryKey().references(() => artists.id, { onDelete: 'cascade' }),
+  fetchedAt: tstz('fetched_at').notNull().defaultNow(),
+  sources: text().array().notNull().default(sql`'{}'`),
+  found: integer().notNull().default(0),
+  error: text(),
+});
+
+// DJ, the dj module (0086): each track's tempo, first beat, trim points and
+// waveform peaks, keyed to its audio (audio_hash) so a re-tag keeps them.
+// Its own table; no core table references it. Written by worker ›
+// jobs/djAnalyze.ts, read by api › routes/dj.ts.
+export const djTrackAnalysis = pgTable(
+  'dj_track_analysis',
+  {
+    localTrackId: uuid('local_track_id').primaryKey().references(() => localTracks.id, { onDelete: 'cascade' }),
+    audioHash: varchar('audio_hash', { length: 64 }),
+    fileSizeBytes: bigint('file_size_bytes', { mode: 'number' }),
+    fileMtime: bigint('file_mtime', { mode: 'number' }),
+    durationMs: integer('duration_ms'),
+    bpm: numeric({ precision: 7, scale: 3 }),
+    bpmConfidence: real('bpm_confidence'),
+    firstBeatMs: integer('first_beat_ms'),
+    trimStartMs: integer('trim_start_ms'),
+    trimEndMs: integer('trim_end_ms'),
+    peaks: customType<{ data: Buffer }>({ dataType: () => 'bytea' })('peaks'),
+    analyzedAt: tstz('analyzed_at').notNull().defaultNow(),
+    error: text(),
+  },
+  (table) => ({ hashIdx: index('idx_dj_track_analysis_hash').on(table.audioHash) })
+);
+
 // Each person's own preferences that follow them between devices (0059):
-// the colour theme of Settings › Appearance. Written by api › routes/userPrefs.ts.
+// the colour theme of Settings › Appearance, and the DJ module's Simple mode
+// (0087). Written by api › routes/userPrefs.ts.
 export const userPrefs = pgTable('user_prefs', {
   userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   theme: jsonb(),
+  dj: jsonb(),
   updatedAt: tstz('updated_at').notNull().defaultNow(),
 });
 
@@ -2098,8 +2189,21 @@ export const playlistItems = pgTable(
     album: text(),
     durationMs: integer('duration_ms'),
     addedAt: tstz('added_at').notNull().defaultNow(),
+    // who put it there (0079); null once that account is deleted
+    addedBy: uuid('added_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (table) => ({ orderIdx: index('idx_playlist_items_order').on(table.playlistId, table.position) })
+);
+
+// Collaborative playlists (0079): who may change a list besides its owner.
+export const playlistCollaborators = pgTable(
+  'playlist_collaborators',
+  {
+    playlistId: uuid('playlist_id').notNull().references(() => playlists.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    addedAt: tstz('added_at').notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.playlistId, table.userId] }), userIdx: index('idx_playlist_collaborators_user').on(table.userId) })
 );
 
 // The module ledger (0065): which apps and modules this install has, and
@@ -2279,5 +2383,95 @@ export const deciderModels = pgTable(
   (table) => ({
     oneActive: uniqueIndex('decider_models_one_active').on(table.libraryId, table.decider).where(sql`active`),
     libraryIdx: index('idx_decider_models_library').on(table.libraryId, table.decider, table.createdAt.desc()),
+// Deleting songs and albums (0073): one row per file the owner deleted from
+// tagave, marked (they delete it themselves) or moved to the root's trash
+// folder by the file worker. While the row exists the file's tracks are out
+// of the library; everything attached to them stays until the file row goes.
+export const fileDeletions = pgTable(
+  'file_deletions',
+  {
+    fileId: uuid('file_id').primaryKey().references(() => files.id, { onDelete: 'cascade' }),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    scanRootId: uuid('scan_root_id').notNull().references(() => scanRoots.id, { onDelete: 'cascade' }),
+    /** mark | trash */
+    kind: text().notNull(),
+    /** marked (mark) · moving | trashed | restoring (trash) */
+    purgeTaskId: uuid('purge_task_id').references(() => maintenanceTasks.id, { onDelete: 'set null' }),
+    state: text().notNull(),
+    relPath: text('rel_path').notNull(),
+    trashRelPath: text('trash_rel_path'),
+    trashMount: text('trash_mount'),
+    error: text(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    trashedAt: tstz('trashed_at'),
+  },
+  (table) => ({
+    libraryIdx: index('idx_file_deletions_library').on(table.libraryId, table.kind),
+    kindCheck: check('file_deletions_kind_check', sql`kind in ('mark', 'trash')`),
+    stateCheck: check('file_deletions_state_check', sql`state in ('marked', 'moving', 'trashed', 'restoring', 'purged', 'holding')`),
+    kindStateCheck: check('file_deletions_kind_state', sql`(kind = 'mark') = (state = 'marked')`),
+  })
+);
+
+// Get missing albums through Lidarr (0075, the lidarr module): one row per
+// missing album the owner asked Lidarr for, followed by lidarr.poll until
+// tagave's scan finds the album.
+export const lidarrRequests = pgTable(
+  'lidarr_requests',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    releaseGroupId: uuid('release_group_id').notNull().references(() => releaseGroups.id, { onDelete: 'cascade' }),
+    /** wanted | downloading | imported | done | not_found */
+    state: text().notNull().default('wanted'),
+    progress: smallint(),
+    lidarrAlbumId: integer('lidarr_album_id'),
+    lidarrArtistId: integer('lidarr_artist_id'),
+    lidarrPath: text('lidarr_path'),
+    outsideRoots: boolean('outside_roots').notNull().default(false),
+    scanRequestedAt: tstz('scan_requested_at'),
+    lastError: text('last_error'),
+    requestedBy: uuid('requested_by').references(() => users.id, { onDelete: 'set null' }),
+    requestedAt: tstz('requested_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+    doneAt: tstz('done_at'),
+  },
+  (table) => ({
+    once: unique('lidarr_requests_library_id_release_group_id_key').on(table.libraryId, table.releaseGroupId),
+    openIdx: index('idx_lidarr_requests_open').on(table.libraryId, table.state),
+    stateCheck: check('lidarr_requests_state_check', sql`state in ('wanted', 'downloading', 'imported', 'done', 'not_found')`),
+  })
+);
+
+// Whole album in one file (0078): one row per split the owner asked for. The
+// file worker (files.split) finds the cut points (plan), then writes one FLAC
+// per track and moves the source into the root's trash.
+export const albumSplits = pgTable(
+  'album_splits',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'set null' }),
+    fileId: uuid('file_id').references(() => files.id, { onDelete: 'set null' }),
+    releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'set null' }),
+    /** analyzing | ready | splitting | done | failed | undone (0089: a plan's revert) */
+    state: text().notNull(),
+    /** SplitPlan (@tagave/shared) */
+    plan: jsonb(),
+    writeCheckpoint: jsonb('write_checkpoint'),
+    /** relative paths of the files the split wrote */
+    outputs: text().array(),
+    error: text(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+    finishedAt: tstz('finished_at'),
+    /** 0089: the tag plan that asked for the split (null for the album page's Split) */
+    tagPlanId: uuid('tag_plan_id').references(() => tagPlans.id, { onDelete: 'set null' }),
+  },
+  (table) => ({
+    albumIdx: index('idx_album_splits_album').on(table.localAlbumId, table.createdAt),
+    stateCheck: check('album_splits_state_check', sql`state in ('analyzing', 'ready', 'splitting', 'done', 'failed', 'undone')`),
   })
 );

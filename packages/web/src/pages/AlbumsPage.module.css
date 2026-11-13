@@ -5,35 +5,14 @@
   gap: var(--space-sm);
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-}
-
-.searchInput { flex: 1 1 220px; max-width: 400px; }
-
-.select { flex-shrink: 0; }
-
-.countInfo {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Grid / List: the shared segmented control, pushed to the row's end. */
-.viewToggle {
-  display: flex;
-  margin-left: auto;
-}
-
 .chips {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-xs);
   align-items: center;
 }
+.chip { flex: none; white-space: nowrap; }
+.clearChips { flex: none; }
 
 .bulkBar {
   display: flex;
@@ -93,7 +72,20 @@
   overflow-x: hidden;
   position: relative;
   padding-right: var(--space-sm);
+  /* the last row clears the player bar (the shell leaves no band under the list) */
+  padding-bottom: var(--space-md);
   contain: layout style paint;
+  container-type: inline-size;
+}
+
+/* A list beside the filter rail can be narrow at a desktop width too: the
+   quiet columns give way before the title and artist would (they had
+   squeezed both to nothing at 1280px with the rail open). */
+@container (max-width: 860px) {
+  .listState, .listBadges { display: none; }
+}
+@container (max-width: 560px) {
+  .listYear, .listTracks, :is(.listRow, .listRowSelected) > :is(.formatTag, .formatLossless, .formatMixed) { display: none; }
 }
 
 .virtualCanvas {
@@ -123,9 +115,13 @@
   user-select: none;
 }
 
-.albumCard:hover,
-.albumCardSelected:hover {
-  border-color: var(--accent);
+/* hover is a pointer's: on a touch screen a :hover sticks to the card a
+   finger last scrolled from, and painted it as a white card */
+@media (hover: hover) {
+  .albumCard:hover,
+  .albumCardSelected:hover {
+    border-color: var(--accent);
+  }
 }
 
 .albumCard:focus-visible,
@@ -152,7 +148,9 @@
 
 /* The checkbox: a 24px box inside a 40px hit area in the cover's corner, so
    it is easy to hit without opening the album. Hidden until the card is
-   hovered or focused, then always shown once anything is selected. */
+   hovered or focused from the keyboard, then always shown once anything is
+   selected. On a touch screen it shows only then: holding an album selects
+   it (useLongPress), and a tap toggles while any are selected. */
 .cardCheck,
 .cardCheckOn {
   position: absolute;
@@ -217,18 +215,45 @@
 }
 
 .cardCheckOn,
-.albumCard:hover .cardCheck,
-.albumCard:focus-within .cardCheck,
+.albumCard:has(:focus-visible) .cardCheck,
+.albumCard:focus-visible .cardCheck,
 [data-selecting] .cardCheck {
   opacity: 1;
 }
+@media (hover: hover) {
+  .albumCard:hover .cardCheck { opacity: 1; }
+}
+/* hidden, it takes no tap either (a tap on the cover corner opens the album) */
+.cardCheck { pointer-events: none; }
+.cardCheckOn,
+[data-selecting] .cardCheck,
+.albumCard:has(:focus-visible) .cardCheck,
+.albumCard:focus-visible .cardCheck { pointer-events: auto; }
+@media (hover: hover) {
+  .albumCard:hover .cardCheck { pointer-events: auto; }
+}
 
-.albumInfo {
+.albumInfo,
+.albumInfoMore {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
   min-height: 0;
 }
+
+/* the ⋮ (Like or Unlike; the owner's Delete in Maintenance): at the end of the title line on a card,
+   at the end of a list row; on a card it shows on hover or focus, always on touch */
+.albumInfoMore { position: relative; }
+.albumInfoMore > .albumTitle { padding-right: 28px; }
+.more { flex: none; display: inline-flex; }
+.albumInfoMore > .more { position: absolute; top: -12px; right: -14px; opacity: 0; transition: opacity var(--transition-fast); }
+.albumCard:focus-within .more,
+.albumCardSelected:focus-within .more { opacity: 1; }
+@media (hover: hover) {
+  .albumCard:hover .more,
+  .albumCardSelected:hover .more { opacity: 1; }
+}
+@media (hover: none) { .albumInfoMore > .more { opacity: 1; } }
 
 /* Fixed height keeps every card the same size, which is what lets the
    virtualizer use one row height without measuring each card. */
@@ -333,9 +358,11 @@
   user-select: none;
 }
 
-.listRow:hover,
-.listRowSelected:hover {
-  background: var(--bg-hover);
+@media (hover: hover) {
+  .listRow:hover,
+  .listRowSelected:hover {
+    background: var(--bg-hover);
+  }
 }
 
 .listRowSelected {
@@ -449,6 +476,13 @@
   color: var(--warning);
 }
 
+:is(.listRow, .listRowSelected) > :is(.formatTag, .formatLossless, .formatMixed) {
+  width: 3.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Inside a card the format tag is inline text, not a list column. */
 .albumStats .formatTag,
 .albumStats .formatLossless,
@@ -496,18 +530,41 @@
 
 .header { gap: .85rem; }
 .albumCard, .albumCardSelected { background: transparent; border-color: transparent; border-radius: var(--r-card); }
-.albumCard:hover { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-card); }
+@media (hover: hover) {
+  .albumCard:hover { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-card); }
+}
 .albumCardSelected { background: var(--dew-tint); border-color: var(--dew); }
 .albumCover { border-radius: var(--r-cover); }
 .listBadges, .incomplete { color: var(--warning); }
+/* A phone: the toolbar, the chips and the list sit close (the filters are a
+   sheet over the list, AlbumsFilterSheet); the chips are one row that
+   scrolls sideways, Clear at its end, instead of wrapping into a block. */
+@media (max-width: 720px) {
+  .header { gap: .5rem; }
+  .chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: -4px calc(-1 * var(--shell-gutter));
+    padding: 4px var(--shell-gutter);
+  }
+  .chips::-webkit-scrollbar { display: none; }
+}
+/* phone width: the cards' own padding comes out of the column's gutter, so
+   the covers line up with the toolbar's count */
+@media (max-width: 600px) {
+  .gridContainer { margin-inline: -8px; padding-right: 0; }
+}
 @media (max-width: 640px) {
-  .body { position: relative; }
-  .body > aside { position: absolute; inset: 0 auto 0 0; z-index: 5; width: min(280px, 85vw); background: var(--surface); border-radius: 0 var(--r-card) var(--r-card) 0; box-shadow: 12px 0 24px rgba(var(--shadow-tint), .12); }
   /* on a phone the actions wrap onto as many lines as they need: all visible */
   .bulkBar { padding: .6rem .75rem; gap: var(--space-xs) var(--space-sm); }
-  .listState, .listYear, .listTracks, .listBadges, .listRow > .formatTag, .listRow > .formatLossless, .listRow > .formatMixed { display: none; }
+  .listState, .listYear, .listTracks, .listBadges, :is(.listRow, .listRowSelected) > :is(.formatTag, .formatLossless, .formatMixed) { display: none; }
 }
-@media (hover: none) { .cardCheck { opacity: 1; } }
+/* a finger: the list's checkboxes too only while albums are selected */
+@media (hover: none) {
+  .gridContainer:not([data-selecting]) .rowCheck { display: none; }
+  .albumCard, .albumCardSelected, .listRow, .listRowSelected { -webkit-touch-callout: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .albumCard,
   .albumCardSelected,

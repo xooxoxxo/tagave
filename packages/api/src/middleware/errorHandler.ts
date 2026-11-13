@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import type { ProblemDetails } from '@tagave/shared/problem';
 import { PROBLEM_TYPES, createProblemDetails } from '@tagave/shared/problem';
 import { databaseUnreachable } from '../lib/databaseUnreachable.js';
+import { redactUrl } from '../lib/logRedact.js';
 
 export class ApiError extends Error {
   constructor(
@@ -34,7 +35,8 @@ export async function errorHandler(fastify: FastifyInstance) {
       {
         err: error,
         statusCode: (error as any).statusCode || 500,
-        url: request.url,
+        // a link token (invite, cast) never reaches the log (lib/logRedact.ts)
+        url: redactUrl(request.url),
         method: request.method,
         requestId,
       },

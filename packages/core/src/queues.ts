@@ -12,7 +12,8 @@ export const WORKER_QUEUES = [
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
-  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve',
+  'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve', 'similarArtists.fetch', 'files.trash', 'files.split', 'files.upgrade', 'files.move', 'files.embedCover', 'lidarr.poll', 'lidarr.get', 'pool.scan',
+  'dj.analyze',
 ] as const;
 
 /**
@@ -34,6 +35,15 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'connections.pull': 'identify.album',
   // Listen elsewhere's link lookups: MusicBrainz shares identify's 1 req/s budget
   'listenLinks.resolve': 'identify.album',
+  // Similar artists: ListenBrainz (and Last.fm) by artist MBID, outside work like the one above
+  'similarArtists.fetch': 'identify.album',
+  // Lidarr (Get missing albums): calls to the owner's Lidarr, outside work like the two above
+  'lidarr.poll': 'identify.album',
+  'lidarr.get': 'identify.album',
+  // the drop pool: reads, makes and imports from the pool folder, so it runs where the music folder is mounted,
+  // with the tag writer. Its MusicBrainz and AcoustID calls keep identify's pace from any worker: the pacer and
+  // the response cache live in the database (provider_state, provider_cache), shared by every process.
+  'pool.scan': 'tags.apply',
   // a release the owner pasted on Review matches: fetched and scored like identify's
   'edition.add': 'identify.album',
   // matching evidence for albums identified before it was kept: database-only,
@@ -52,7 +62,50 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'files.backfillDigest': 'scan.parse',
   // folders of loose files from before untagged files formed albums: rides with the clusterer
   'cluster.backfillLoose': 'cluster.dir',
+  // Deleting: moves into and out of the trash folder; rides with the tag writer, the other job that writes the music folder
+  'files.trash': 'tags.apply',
+  // Whole album in one file: one FLAC per track, the source into the trash; with the tag writer too
+  'files.split': 'tags.apply',
+  'files.upgrade': 'tags.apply',
+  'files.embedCover': 'tags.apply',
+  // Move to album: tags written and files moved into another album's folder; with the tag writer too
+  'files.move': 'tags.apply',
+  // DJ analysis: ffmpeg decodes each file once; on the file worker, with the fingerprints (the other decode of every file)
+  'dj.analyze': 'fingerprint.album',
 };
+
+/**
+ * Queues whose jobs read or write the music folder (a scan root's files).
+ * Each must be worked by the file worker, the one worker that mounts the
+ * music folder: in TAGAVE_QUEUES there, or riding with a queue that is.
+ * A job like that on the identify worker sees an empty or missing folder,
+ * and anything it makes lands on that container's own disk (pool.scan in
+ * 0.26.0). packages/worker/src/deployQueues.test.ts holds every compose
+ * file and every handler in the worker to this list.
+ */
+export const MUSIC_FOLDER_QUEUES: readonly string[] = [
+  'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir',
+  'art.fetch', 'fingerprint.album', 'fingerprint.sweep', 'dj.analyze',
+  'tags.preview', 'tags.apply', 'tags.revert', 'files.trash', 'files.split', 'files.upgrade', 'files.move', 'files.embedCover', 'pool.scan',
+];
+
+/**
+ * Queues the app dispatches maintenance tasks to (0090 maintenance_tasks):
+ * the owner's cover lookups, cover embeds, splits and split-first Tag Plans,
+ * Empty Trash and FLAC upgrades. Each attempt is its own pg-boss job; the
+ * task's scope, not a queue policy, keeps two attempts from running at once.
+ */
+export const MAINTENANCE_QUEUES = ['art.fetch', 'files.embedCover', 'files.split', 'files.trash', 'files.upgrade', 'tags.apply'] as const;
+
+/** The queue whose worker works this one: itself, or the queue it rides with. */
+export function workedWith(queue: string): string {
+  return QUEUES_RIDING_WITH[queue] ?? queue;
+}
+
+/** Heartbeats from older builds may name the gate instead of its dependent queue. */
+export function workerServesQueue(queues: readonly string[], queue: string): boolean {
+  return queues.includes('*') || queues.includes(queue) || queues.includes(workedWith(queue));
+}
 
 /** The names TAGAVE_QUEUES chooses from: each needs some live worker. */
 export const GATED_QUEUES: readonly string[] = WORKER_QUEUES.filter((q) => !(q in QUEUES_RIDING_WITH));

@@ -15,6 +15,8 @@ export interface MenuItem {
   tone?: 'danger';
   /** a hairline above this item, starting a new group */
   separated?: boolean;
+  /** one of a set of choices (a sort): the chosen one carries a tick */
+  checked?: boolean;
 }
 
 export interface MenuProps {
@@ -35,6 +37,8 @@ export interface MenuProps {
   triggerClassName?: string;
   /** extra props for that plain trigger (pointer handlers for a press feel) */
   triggerProps?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'onKeyDown' | 'className' | 'type'>;
+  /** where the list lines up with a wide trigger: its right edge (the default) or its middle */
+  align?: 'end' | 'centre';
 }
 
 export function MoreIcon() {
@@ -53,7 +57,7 @@ export function MoreIcon() {
  * and closes when the page scrolls under it. It renders into <body>, so no
  * stacking context on the page can cover it.
  */
-export function Menu({ label, items, heading, icon, size, className, triggerClassName, triggerProps }: MenuProps) {
+export function Menu({ label, items, heading, icon, size, className, triggerClassName, triggerProps, align = 'end' }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   // phones: a sheet from the bottom edge, like a music app's track menu
@@ -82,18 +86,24 @@ export function Menu({ label, items, heading, icon, size, className, triggerClas
     const h = m.offsetHeight;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const left = Math.min(Math.max(8, t.right - w), vw - w - 8);
+    const left = Math.min(Math.max(8, align === 'centre' ? t.left + t.width / 2 - w / 2 : t.right - w), vw - w - 8);
     const below = t.bottom + 6;
     const top = below + h > vh - 8 && t.top - 6 - h > 8 ? t.top - 6 - h : below;
     setPos({ top, left });
-  }, []);
+  }, [align]);
 
   useLayoutEffect(() => {
-    if (!open) return;
-    place();
-    const first = list.current?.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])');
-    first?.focus({ preventScroll: true });
+    if (open) place();
   }, [open, place]);
+  // focus moves in once the list is placed: until then it is hidden and refuses focus
+  const placed = pos !== null;
+  useLayoutEffect(() => {
+    if (!open || !placed) return;
+    // a set of choices opens on the chosen one
+    const first = list.current?.querySelector<HTMLElement>('[aria-checked="true"]:not([aria-disabled="true"])')
+      ?? list.current?.querySelector<HTMLElement>('[role^="menuitem"]:not([aria-disabled="true"])');
+    first?.focus({ preventScroll: true });
+  }, [open, placed]);
 
   useEffect(() => {
     if (!open) return;
@@ -118,7 +128,7 @@ export function Menu({ label, items, heading, icon, size, className, triggerClas
   }, [open, close]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const els = [...(list.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])') ?? [])];
+    const els = [...(list.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([aria-disabled="true"])') ?? [])];
     const i = els.indexOf(document.activeElement as HTMLElement);
     const go = (n: number) => { e.preventDefault(); els[(n + els.length) % els.length]?.focus(); };
     if (e.key === 'ArrowDown') go(i + 1);
@@ -188,11 +198,12 @@ export function Menu({ label, items, heading, icon, size, className, triggerClas
         >
           {heading && <div className={styles.heading} role="presentation">{heading}</div>}
           {items.map((item) => {
-            const cls = [styles.item, item.tone === 'danger' ? styles.danger : '', item.separated ? styles.separated : ''].filter(Boolean).join(' ');
+            const cls = [styles.item, item.tone === 'danger' ? styles.danger : '', item.separated ? styles.separated : '', item.checked !== undefined ? styles.choice : ''].filter(Boolean).join(' ');
             const body = (
               <>
                 <span className={styles.itemLabel}>{item.label}</span>
                 {item.hint && <span className={styles.itemHint}>{item.hint}</span>}
+                {item.checked && <svg className={styles.tick} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>}
               </>
             );
             return item.href ? (
@@ -203,7 +214,8 @@ export function Menu({ label, items, heading, icon, size, className, triggerClas
               <button
                 key={item.key}
                 type="button"
-                role="menuitem"
+                role={item.checked !== undefined ? 'menuitemradio' : 'menuitem'}
+                aria-checked={item.checked}
                 tabIndex={-1}
                 className={cls}
                 aria-disabled={item.disabled || undefined}

@@ -1,48 +1,64 @@
-import { Input, Select } from '../components/ui/FormControl';
-import { Button, Chip, confirmDialog, CoverArt, PageShell, SegmentedControl, type SegmentedOption } from '../components/ui';
+import { Button, Chip, confirmDialog, CoverArt, KebabIcon, Menu, PageShell, embossClassName, type MenuItem } from '../components/ui';
+import { useLikeSets, useLikesOn, useToggleLike } from '../hooks/useLikes';
+import { useDeleteAction, useHiddenDeletions } from './deleteAction';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
  * library, filter rail with facet counts, multi-select filters, bulk actions
  * on a selection (§14.2). Every filter, the sort and the view mode live in
  * the URL so a view is bookmarkable; saved views store that same query.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AlbumSummary, BulkAlbumAction, BulkAlbumsResult, MultiFilterKey, SavedView } from '@tagave/shared';
 import { useCan, useCurrentLibrary, useAlbumFilterCounts, useSavedViews, useCreateSavedView, useDeleteSavedView } from '../hooks';
 import { useAlbumsInfinite, useBulkAlbums } from '../hooks/useAlbumsGrid';
 import { FilterRail } from '../components/FilterRail';
+import { ListToolbar, type SortOption } from '../components/ListToolbar';
+import { PHONE_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
+import { useLongPress } from '../hooks/useLongPress';
 import { BulkTagEditor } from '../components/BulkTagEditor';
 import { useMergeAlbums } from '../hooks/useCompilations';
-import { activeFilterCount, albumsQueryOf, hasCurationFilters, toggleMulti, withoutCurationFilters, type AlbumsSearch } from './albumsSearch';
+import { activeFilterCount, albumsQueryOf, chipText, hasCurationFilters, toggleMulti, withoutCurationFilters, type AlbumsSearch } from './albumsSearch';
 import {
-  albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds, rememberScroll, selectionSize,
+  albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds, selectionSize,
   setAlbumListMemory, toggled, useAlbumListMemory, withIds,
 } from './albumSelection';
-import { PlanWizard } from '../components/PlanWizard';
+import { TagSheet } from '../components/TagSheet';
+import { useAlbumDrawer } from './AlbumMenu';
 import { useMaintenance } from '../maintenance';
 import { plural } from '../utils/qualityFlags';
+import { useEntry, useScrollPlace } from '../utils/listPlace';
 import styles from './AlbumsPage.module.css';
 
-const VIEW_OPTIONS: SegmentedOption<'grid' | 'list'>[] = [{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }];
+// a phone's filters: a sheet, loaded the first time it opens
+const AlbumsFilterSheet = lazy(() => import('./AlbumsFilterSheet'));
+
+type AlbumsSort = NonNullable<AlbumsSearch['sort']>;
+const SORT_OPTIONS: SortOption<AlbumsSort>[] = [
+  { value: 'artist', label: 'Artist A–Z' },
+  { value: 'title', label: 'Title A–Z' },
+  { value: 'year', label: 'Year, newest' },
+  { value: 'added_date', label: 'Recently added' },
+  { value: 'rating', label: 'Your rating' },
+  { value: 'listened', label: 'Last listened' },
+];
 
 const MIN_CARD = 200;
 const GRID_GAP = 24;
 /** Card chrome around the square cover: padding, gap, title (2 lines), artist, stats. */
 const CARD_CHROME = 106;
+const CARD_PAD = 16;
+/** A phone's grid: tighter cards and gaps (no hover card to make room for), the same text. */
+const GRID_GAP_NARROW = 4;
+const CARD_CHROME_NARROW = 96;
+const CARD_PAD_NARROW = 8;
 const LIST_ROW = 46;
 /** The API caps one bulk call at 1000 ids. */
 const BULK_ID_CHUNK = 1000;
-/** A scroll restore that has not landed by then stops where it is. */
-const RESTORE_GIVE_UP_MS = 8000;
 
 const STATE_LABEL: Record<string, string> = {
   matched: 'Matched', needs_review: 'Needs review', unidentified: 'Unidentified', pending: 'Pending', as_is: 'Kept as-is', ignored: 'Ignored',
-};
-const CHIP_LABEL: Record<string, string> = {
-  q: 'search', artist: 'artist', folder: 'folder', state: 'state', decided: 'match', review: 'reviews', genre: 'genre', decade: 'decade',
-  format: 'format', label: 'label', owned: 'collection', gap: 'attention',
 };
 /** How a match was decided, in words (Maintenance only); the title says more. */
 const KIND_TAG: Record<string, { text: string; title: string }> = {
@@ -68,21 +84,21 @@ export function AlbumsPage() {
   // selecting albums is for bulk library care: a listener just opens them
   const canCare = useCan('library.edit');
   const navigate = useNavigate();
+  const router = useRouter();
   const search = useSearch({ strict: false }) as AlbumsSearch;
   const { libraryId } = useCurrentLibrary();
   const query = albumsQueryOf(search);
   const sort = search.sort ?? 'artist';
   const view = search.view ?? 'grid';
   const activeCount = activeFilterCount(search);
-
-  // Search box: local echo, URL after a short pause.
-  const [q, setQ] = useState(search.q ?? '');
+  // the phone: filters in a sheet over the list; wider: a rail beside it
+  const phone = useMediaQuery(PHONE_QUERY);
 
   type SearchPatch = { [K in keyof AlbumsSearch]?: AlbumsSearch[K] | undefined };
   /**
    * Every change of this list's filters, search or sort comes through here. A
    * different list starts a new selection, so with albums selected it asks
-   * first; Stay keeps the list (and puts the search box back) as it was.
+   * first; Stay keeps the list as it was.
    * Clearing before navigating lets AlbumSelectionGuard pass it without asking again.
    */
   const goToList = useCallback(async (next: AlbumsSearch) => {
@@ -95,7 +111,7 @@ export function AlbumsPage() {
         confirmLabel: 'Change and clear',
         cancelLabel: 'Stay',
       });
-      if (!ok) { setQ(search.q ?? ''); return; }
+      if (!ok) return;
       clearAlbumSelection();
     }
     void navigate({ to: '/albums', search: next as never });
@@ -117,14 +133,6 @@ export function AlbumsPage() {
     void navigate({ to: '/albums', search: withoutCurationFilters(search) as never, replace: true });
   }, [maintenance, search, navigate]);
 
-  useEffect(() => { setQ(search.q ?? ''); }, [search.q]);
-  useEffect(() => {
-    if ((search.q ?? '') === q.trim()) return;
-    const t = setTimeout(() => setSearch({ q: q.trim() || undefined }), 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
-
   const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useAlbumsInfinite(libraryId, query, sort);
   const { data: facets } = useAlbumFilterCounts(libraryId, query);
   const { data: savedViews } = useSavedViews(libraryId);
@@ -132,9 +140,33 @@ export function AlbumsPage() {
   const deleteView = useDeleteSavedView(libraryId);
   const bulk = useBulkAlbums(libraryId);
   const [railOpen, setRailOpen] = useState(false);
+  // the sheet stays mounted once opened, so it can slide away when closed
+  const [sheetUsed, setSheetUsed] = useState(false);
+  const filterKey = useRef<HTMLButtonElement>(null);
 
-  const items = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
-  const total = facets?.total ?? items.length;
+  // the owner's one delete item on each card and row, in Maintenance only; an album waiting out its Undo is left out
+  const del = useDeleteAction(libraryId);
+  const hiddenDel = useHiddenDeletions();
+  const allItems = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
+  const items = useMemo(() => allItems.filter((a) => !hiddenDel.album(a.id)), [allItems, hiddenDel]);
+  // each card's and row's ⋯: Like or Unlike; the owner's Delete in Maintenance
+  const likesOn = useLikesOn();
+  const likes = useLikeSets();
+  const toggleLike = useToggleLike();
+  const albumMore = (album: AlbumSummary) => {
+    const liked = likes.albums.has(album.id);
+    const items: MenuItem[] = [
+      ...(likesOn ? [{ key: 'like', label: liked ? 'Unlike' : 'Like', onSelect: () => toggleLike.mutate({ kind: 'album', id: album.id, like: !liked }) }] : []),
+      ...(del && maintenance ? [{ key: 'delete', label: del.label, tone: 'danger' as const, separated: likesOn, onSelect: () => del.album(album.id, album.title) }] : []),
+    ];
+    return items.length > 0 && (
+      <span className={styles.more} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <Menu label={`More for ${album.title}`} items={items} triggerClassName={embossClassName('page')} icon={<KebabIcon />} />
+      </span>
+    );
+  };
+  // an album waiting out its Undo leaves the count at once too
+  const total = Math.max(0, (facets?.total ?? allItems.length) - (allItems.length - items.length));
 
   /* ---- selection (§14.2: checkbox, ⌘-click, shift-range, select-all-matching) ----
      Lives in a store outside the page (albumSelection.ts) so it survives a trip
@@ -183,6 +215,8 @@ export function AlbumsPage() {
   const pick = (id: string, index: number, shift: boolean) => {
     if (shift) selectRange(index); else toggleOne(id);
   };
+  // a finger: hold an album to select it; while any are selected, a tap toggles
+  const press = useLongPress();
 
   /* ---- compilations: set album values for the selection, or treat it as one album ---- */
   const [editingIds, setEditingIds] = useState<string[] | null>(null);
@@ -231,9 +265,11 @@ export function AlbumsPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const [gridWidth, setGridWidth] = useState(0);
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const attachScroller = useCallback((el: HTMLDivElement | null) => {
     observerRef.current?.disconnect();
     scrollRef.current = el;
+    setScroller(el);
     if (!el) return;
     const measure = () => setGridWidth(el.clientWidth);
     measure();
@@ -243,10 +279,13 @@ export function AlbumsPage() {
   }, []);
   useEffect(() => () => observerRef.current?.disconnect(), []);
 
-  const minCard = gridWidth < 600 ? 140 : MIN_CARD;
-  const cols = Math.max(1, Math.floor((gridWidth + GRID_GAP) / (minCard + GRID_GAP))) || 1;
-  const cardWidth = cols > 0 && gridWidth > 0 ? Math.floor((gridWidth - (cols - 1) * GRID_GAP) / cols) : MIN_CARD;
-  const rowHeight = view === 'list' ? LIST_ROW : cardWidth + CARD_CHROME + GRID_GAP;
+  const narrow = gridWidth > 0 && gridWidth < 600;
+  const minCard = narrow ? 140 : MIN_CARD;
+  const gap = narrow ? GRID_GAP_NARROW : GRID_GAP;
+  const cardPad = narrow ? CARD_PAD_NARROW : CARD_PAD;
+  const cols = Math.max(1, Math.floor((gridWidth + gap) / (minCard + gap))) || 1;
+  const cardWidth = cols > 0 && gridWidth > 0 ? Math.floor((gridWidth - (cols - 1) * gap) / cols) : MIN_CARD;
+  const rowHeight = view === 'list' ? LIST_ROW : cardWidth + (narrow ? CARD_CHROME_NARROW : CARD_CHROME) + gap;
   const rowCount = view === 'list' ? items.length : Math.ceil(items.length / cols);
 
   const virtualizer = useVirtualizer({
@@ -266,46 +305,12 @@ export function AlbumsPage() {
 
   useEffect(() => { virtualizer.measure(); }, [rowHeight, virtualizer]);
 
-  /* ---- scroll: remembered per list, restored on the way back from an album ---- */
-  const restoreTo = useRef<number | null>(null);
-  const restoreKey = useRef<string | null>(null);
-  const restoreStarted = useRef(0);
-  if (restoreKey.current !== queryKey) {
-    // First render for this list: pick up where it was left, if it was this list.
-    restoreKey.current = queryKey;
-    const m = getAlbumListMemory();
-    restoreTo.current = m.queryKey === queryKey && m.scrollTop > 0 ? m.scrollTop : null;
-    restoreStarted.current = Date.now();
-  }
-  const totalSize = virtualizer.getTotalSize();
-  useEffect(() => {
-    const el = scrollRef.current;
-    const target = restoreTo.current;
-    if (target == null) return;
-    // A failed page load or a restore that drags on gives up where it is, so
-    // scrolling is remembered again from here on.
-    if (error || Date.now() - restoreStarted.current > RESTORE_GIVE_UP_MS) { restoreTo.current = null; return; }
-    if (!el || items.length === 0) return;
-    el.scrollTop = target;
-    // Reached it, or nothing more to load: done. Otherwise the scroll to the
-    // bottom pulls the next page and this runs again with a taller canvas.
-    if (Math.abs(el.scrollTop - target) < 2 || (!hasNextPage && !isFetchingNextPage)) restoreTo.current = null;
-  }, [totalSize, items.length, hasNextPage, isFetchingNextPage, error]);
-  // The give-up time also applies when nothing rerenders (a page load that hangs).
-  useEffect(() => {
-    if (restoreTo.current == null) return;
-    const t = setTimeout(() => { restoreTo.current = null; }, RESTORE_GIVE_UP_MS);
-    return () => clearTimeout(t);
-  }, [queryKey]);
-  const onGridScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (restoreTo.current != null) return;
-    rememberScroll(queryKey, e.currentTarget.scrollTop);
-  }, [queryKey]);
-  // The owner scrolling (wheel, touch, the scrollbar, the keyboard) takes over
-  // from a restore still in progress.
-  const stopRestore = useCallback(() => { restoreTo.current = null; }, []);
+  /* ---- scroll: back where the list was left, per history entry (utils/listPlace.ts) ---- */
+  // (another filter or sort is a new entry: it starts at the top)
+  useScrollPlace(scroller, 'albums', useEntry(router.history, '/albums'), { resetOnEnter: true });
 
   const [planIds, setPlanIds] = useState<string[] | null>(null);
+  const tagDrawer = useAlbumDrawer();
   const labelsFor = (ids: string[]) => {
     const want = new Set(ids);
     return Object.fromEntries(items.filter((it) => want.has(it.id)).map((it) => [it.id, `${it.artistCredit} – ${it.title}`]));
@@ -322,6 +327,8 @@ export function AlbumsPage() {
     createView.mutate({ name: name.trim(), query: albumsQueryOf(search) });
   };
   const onCardActivate = (e: React.MouseEvent, album: AlbumSummary, index: number) => {
+    if (press.consumeClick()) return;
+    if (canCare && selectionCount > 0 && press.wasTouch()) { toggleOne(album.id); return; }
     if (canCare && (e.metaKey || e.ctrlKey)) { toggleOne(album.id); return; }
     if (canCare && e.shiftKey) { selectRange(index); return; }
     open(album.id);
@@ -346,58 +353,51 @@ export function AlbumsPage() {
   const chips = (Object.entries(query) as Array<[keyof typeof query, unknown]>)
     .filter(([k, v]) => v !== undefined && v !== '' && k !== 'sort' && k !== 'view' && k !== 'root')
     .flatMap(([k, v]) => {
-      const label = CHIP_LABEL[k] ?? k;
       if (Array.isArray(v)) {
         return v.map((item) => ({
           key: `${k}:${item}`,
-          text: `${label}: ${k === 'state' ? STATE_LABEL[String(item)] ?? item : k === 'decade' ? `${item}s` : item}`,
+          text: chipText(k, k === 'genre'
+            ? facets?.genres.find((g) => g.value === String(item).toLowerCase())?.label ?? String(item)
+            : item as string | number),
           clear: () => setSearch({ [k]: toggleMulti(search, k as MultiFilterKey, item as string | number) } as SearchPatch),
         }));
       }
       // the scan root only narrows a folder filter: it goes with it, unseen
-      return [{ key: String(k), text: `${label}: ${v}`, clear: () => setSearch((k === 'folder' ? { folder: undefined, root: undefined } : { [k]: undefined }) as SearchPatch) }];
+      return [{ key: String(k), text: chipText(k, String(v)), clear: () => setSearch((k === 'folder' ? { folder: undefined, root: undefined } : { [k]: undefined }) as SearchPatch) }];
     });
+  const railProps = {
+    query,
+    facets,
+    savedViews,
+    activeCount,
+    onToggle: (key: MultiFilterKey, value: string | number) => setSearch({ [key]: toggleMulti(search, key, value) } as SearchPatch),
+    onSet: (key: 'decided' | 'review' | 'owned' | 'liked', value: string | undefined) => setSearch({ [key]: value } as SearchPatch),
+    onClear: clearAll,
+    onApplyView: applyView,
+    onSaveView: saveView,
+    curation: maintenance,
+    onDeleteView: async (id: string) => { if (await confirmDialog({ title: 'Delete this saved view?', message: 'The albums are not affected.', confirmLabel: 'Delete', tone: 'danger' })) deleteView.mutate(id); },
+  };
 
   const showEmpty = !isLoading && !error && items.length === 0;
 
   return (
     <PageShell fill title="Albums">
       <div className={styles.header}>
-        <div className={styles.toolbar}>
+        <ListToolbar
+          count={facets ? plural(total, 'album') : ''}
+          sort={{ value: sort, options: SORT_OPTIONS, noun: 'albums', onChange: (next) => setSearch({ sort: next }) }}
+          filter={{ active: activeCount, open: railOpen, onToggle: () => { setSheetUsed(true); setRailOpen((o) => !o); }, ref: filterKey }}
+          view={{ value: view, onChange: (next) => setSearch({ view: next === 'grid' ? undefined : 'list' }) }}
+        />
 
-          <Button variant="secondary" onClick={() => setRailOpen((o) => !o)} aria-expanded={railOpen}>
-            {railOpen ? 'Hide filters' : `Filters${activeCount ? ` (${activeCount})` : ''}`}
-          </Button>
-          <Input
-            type="text"
-            className={styles.searchInput}
-            placeholder="Search albums, artists…"
-            aria-label="Search albums and artists"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <Select className={styles.select} value={sort} onChange={(e) => setSearch({ sort: e.target.value as AlbumsSearch['sort'] })} aria-label="Sort albums">
-            <option value="artist">Artist A–Z</option>
-            <option value="title">Title A–Z</option>
-            <option value="year">Year, newest</option>
-            <option value="added_date">Recently added</option>
-            <option value="rating">Your rating</option>
-            <option value="listened">Last listened</option>
-          </Select>
-          <span className={styles.countInfo}>
-            {facets ? plural(total, 'album') : ''}
-          </span>
-          <div className={styles.viewToggle}>
-            <SegmentedControl size="sm" label="View mode" name="view-mode" value={view} onChange={(next) => (next === 'grid' ? setSearch({ view: undefined }) : setSearch({ view: 'list' }))} options={VIEW_OPTIONS} />
-          </div>
-        </div>
-
+        {/* only while something narrows the list: one row, scrolling sideways on a phone */}
         {chips.length > 0 && (
           <div className={styles.chips}>
             {chips.map((c) => (
-              <Chip key={c.key} active aria-pressed={undefined} onClick={c.clear} title="Remove filter">{c.text} <span aria-hidden="true">✕</span></Chip>
+              <Chip key={c.key} active aria-pressed={undefined} onClick={c.clear} aria-label={`Remove ${c.text}`} className={styles.chip}>{c.text} <span aria-hidden="true">✕</span></Chip>
             ))}
-            <Button variant="quiet" size="sm" onClick={clearAll}>Clear all</Button>
+            <Button variant="quiet" size="sm" className={styles.clearChips} onClick={clearAll}>Clear</Button>
           </div>
         )}
 
@@ -458,11 +458,13 @@ export function AlbumsPage() {
         )}
         {/* Once the selection is in the plan it is dropped, so moving on to the plan page does not ask. */}
         {planIds && libraryId && (
-          <PlanWizard
+          <TagSheet
+            open
+            onOpenChange={(open) => { if (!open) setPlanIds(null); }}
             libraryId={libraryId}
-            initialScope={{ albumIds: planIds, albumLabels: labelsFor(planIds) }}
+            albums={{ ids: planIds, labels: labelsFor(planIds) }}
+            side={tagDrawer ? 'bottom' : 'right'}
             onDone={clearSelection}
-            onClose={() => setPlanIds(null)}
           />
         )}
         {bulkResult && !bulk.isPending && (
@@ -478,20 +480,11 @@ export function AlbumsPage() {
       </div>
 
       <div className={styles.body}>
-        {railOpen && (
-          <FilterRail
-            query={query}
-            facets={facets}
-            savedViews={savedViews}
-            activeCount={activeCount}
-            onToggle={(key, value) => setSearch({ [key]: toggleMulti(search, key, value) } as SearchPatch)}
-            onSet={(key, value) => setSearch({ [key]: value } as SearchPatch)}
-            onClear={clearAll}
-            onApplyView={applyView}
-            onSaveView={saveView}
-            curation={maintenance}
-            onDeleteView={async (id) => { if (await confirmDialog({ title: 'Delete this saved view?', message: 'The albums are not affected.', confirmLabel: 'Delete', tone: 'danger' })) deleteView.mutate(id); }}
-          />
+        {railOpen && !phone && <FilterRail {...railProps} />}
+        {phone && sheetUsed && (
+          <Suspense fallback={null}>
+            <AlbumsFilterSheet {...railProps} open={railOpen} onOpenChange={setRailOpen} returnFocus={filterKey} />
+          </Suspense>
         )}
 
         <div className={styles.main}>
@@ -505,7 +498,7 @@ export function AlbumsPage() {
             </div>
           )}
 
-          <div className={styles.gridContainer} ref={attachScroller} data-selecting={selectionCount > 0 ? '' : undefined} onScroll={onGridScroll} onWheel={stopRestore} onTouchStart={stopRestore} onPointerDown={stopRestore} onKeyDown={stopRestore}>
+          <div className={styles.gridContainer} ref={attachScroller} data-selecting={selectionCount > 0 ? '' : undefined}>
             {items.length > 0 && (gridWidth > 0 || view === 'list') && (
               <div className={styles.virtualCanvas} style={{ height: virtualizer.getTotalSize() }}>
                 {virtualRows.map((row) => {
@@ -527,6 +520,7 @@ export function AlbumsPage() {
                         tabIndex={0}
                         aria-label={album.title}
                         onKeyDown={(e) => onItemKey(e, album, row.index)}
+                        {...(canCare ? press.bind(() => toggleOne(album.id)) : {})}
                       >
                         {canCare && <label className={styles.rowCheck} onClick={onCheckClick}>
                           <input
@@ -546,8 +540,9 @@ export function AlbumsPage() {
                             ? <span className={styles.incomplete}>{album.trackCount}/{album.canonicalTrackCount}</span>
                             : album.trackCount}
                         </span>
-                        <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}>
-                          {formatLabel(album)}
+                        <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}
+                          title={album.isLossless ? `Lossless${album.formats.length === 1 ? ` · ${album.formats[0]!.toUpperCase()}` : ''}` : formatLabel(album)}>
+                          {album.isLossless ? (album.formats.length === 1 ? album.formats[0]!.toUpperCase() : 'LL') : formatLabel(album)}
                         </span>
                         <span className={styles.listState}>{maintenance || album.state === 'needs_review' ? STATE_LABEL[album.state] ?? album.state : ''}</span>
                         <span className={styles.listBadges}>
@@ -555,12 +550,13 @@ export function AlbumsPage() {
                           {album.ownRating != null && <span title="Your rating">★ {album.ownRating}</span>}
                           {album.hasReview && <span title="Reviewed">✎</span>}
                         </span>
+                        {albumMore(album)}
                       </div>
                     );
                   }
                   const rowItems = items.slice(row.index * cols, row.index * cols + cols);
                   return (
-                    <div key={row.key} className={styles.gridRow} style={{ ...style, gap: GRID_GAP }}>
+                    <div key={row.key} className={styles.gridRow} style={{ ...style, gap }}>
                       {rowItems.map((album, i) => {
                         const index = row.index * cols + i;
                         const selectedCard = isSelected(album.id);
@@ -568,14 +564,15 @@ export function AlbumsPage() {
                           <div
                             key={album.id}
                             className={selectedCard ? styles.albumCardSelected : styles.albumCard}
-                            style={{ width: cardWidth }}
+                            style={narrow ? { width: cardWidth, padding: cardPad, gap: 10 } : { width: cardWidth }}
                             onClick={(e) => onCardActivate(e, album, index)}
                             role="button"
                             tabIndex={0}
                             aria-label={`${album.title}, ${album.artistCredit}`}
                             onKeyDown={(e) => onItemKey(e, album, index)}
+                            {...(canCare ? press.bind(() => toggleOne(album.id)) : {})}
                           >
-                            <div className={styles.albumCover} style={{ height: cardWidth - 32 }}>
+                            <div className={styles.albumCover} style={{ height: cardWidth - 2 * cardPad }}>
                               {canCare && <label className={selectedCard ? styles.cardCheckOn : styles.cardCheck} onClick={onCheckClick}>
                                 <input
                                   type="checkbox"
@@ -595,7 +592,8 @@ export function AlbumsPage() {
                               )}
                               <CoverArt src={album.coverUrl} title={album.title} fill />
                             </div>
-                            <div className={styles.albumInfo}>
+                            <div className={del || likesOn ? styles.albumInfoMore : styles.albumInfo}>
+                              {albumMore(album)}
                               <h3 className={styles.albumTitle} dir="auto">{album.title}</h3>
                               <p className={styles.albumArtist} dir="auto">{album.artistCredit}</p>
                               <p className={styles.albumStats}>

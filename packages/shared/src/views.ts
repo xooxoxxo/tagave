@@ -36,6 +36,7 @@ export const albumsQuerySchema = z.object({
   label: multi(z.string().max(255), 20),
   owned: z.enum(['both', 'digital']).optional().describe("'both' = also in the physical collection"),
   gap: multi(albumGapFilterSchema, 4),
+  liked: z.enum(['yes']).optional().describe("'yes' = only the albums the person liked"),
   view: z.enum(['grid', 'list']).optional(),
 }).strict();
 
@@ -57,6 +58,8 @@ export const albumFilterCountsSchema = z.object({
   gaps: z.array(facetCountSchema),
   owned: z.array(facetCountSchema),
   decided: z.array(facetCountSchema),
+  /** the person's liked albums among these ('yes') */
+  liked: z.array(facetCountSchema).optional(),
 }).strict();
 
 export type AlbumFilterCounts = z.infer<typeof albumFilterCountsSchema>;
