@@ -1,8 +1,8 @@
 /**
- * 0069: provenance columns, backfilled from the reason each writer used.
+ * 0093: provenance columns, backfilled from the reason each writer used.
  * The Music Connections trigger of 0048 does not compare the new columns,
  * so the backfill logs no album.identity change.
- * 0070: the trigger then compares the decision's kind and probability too;
+ * 0094: the trigger then compares the decision's kind and probability too;
  * applying it logs nothing, and a later change of either logs the album.
  */
 import { randomUUID } from 'node:crypto';
@@ -12,7 +12,7 @@ import { createScratchDb, migrateAll, migrateUpTo } from '../testkit/authApp.js'
 
 const url = process.env.TEST_DATABASE_URL;
 
-describe.skipIf(!url)('0069 match provenance (upgrade with data)', () => {
+describe.skipIf(!url)('0093 match provenance (upgrade with data)', () => {
   let admin: postgres.Sql; let db: { url: string; name: string }; let sql: postgres.Sql;
   const user = randomUUID(); const lib = randomUUID(); const rg = randomUUID(); const rel = randomUUID();
   const rows: Record<string, { reason: string; status: string; by: string }> = {
@@ -32,7 +32,7 @@ describe.skipIf(!url)('0069 match provenance (upgrade with data)', () => {
   beforeAll(async () => {
     admin = postgres(url!, { max: 1, onnotice: () => undefined });
     db = await createScratchDb(url!, admin);
-    await migrateUpTo(db.url, '0069');
+    await migrateUpTo(db.url, '0093');
     sql = postgres(db.url, { max: 2, onnotice: () => undefined });
     await sql`insert into users (id, email, display_name, password_hash) values (${user}, ${'p-' + user + '@test.com'}, 'P', 'x')`;
     await sql`insert into libraries (id, owner_user_id, name, settings) values (${lib}, ${user}, 'P', '{}')`;
@@ -45,7 +45,7 @@ describe.skipIf(!url)('0069 match provenance (upgrade with data)', () => {
                 values (${lib}, ${id}, ${rel}, 0.0100, ${rows[k]!.status}, ${rows[k]!.by}, ${rows[k]!.reason})`;
     }
     identityRowsBefore = (await sql`select count(*)::int as n from facet_changes where facet = 'album.identity@1'`)[0]!['n'] as number;
-    await migrateUpTo(db.url, '0070'); // 0069 only
+    await migrateUpTo(db.url, '0094'); // 0093 only
   }, 120_000);
 
   afterAll(async () => {
@@ -90,7 +90,7 @@ describe.skipIf(!url)('0069 match provenance (upgrade with data)', () => {
   const identityRows = async (key?: string) =>
     (await sql`select count(*)::int as n from facet_changes where facet = 'album.identity@1' and (${key ?? null}::text is null or key = ${key ?? null})`)[0]!['n'] as number;
 
-  it('applying 0070 logs nothing by itself', async () => {
+  it('applying 0094 logs nothing by itself', async () => {
     const before = await identityRows();
     await migrateAll(db.url);
     const after = await identityRows();

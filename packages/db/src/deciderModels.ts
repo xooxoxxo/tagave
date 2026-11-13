@@ -100,6 +100,19 @@ export async function activeModel<M = unknown, X = unknown>(
   }, null);
 }
 
+/** The library's model of `decider` with this version (active or not); null when there is none or the table is missing. */
+export async function modelByVersion<M = unknown, X = unknown>(
+  sql: Sql | Tx, libraryId: string, version: string, decider: string = DEFAULT_DECIDER,
+): Promise<DeciderModelRow<M, X> | null> {
+  return orMissing(async () => {
+    const [r] = await sql<RawRow[]>`
+      select id, library_id, decider, version, features_schema_hash, model, data_hash, counts, metrics, active, created_at
+        from decider_models where library_id = ${libraryId} and decider = ${decider} and version = ${version}
+       order by active desc, created_at desc, id desc limit 1`;
+    return r ? rowOf<M, X>(r) : null;
+  }, null);
+}
+
 const isTx = (sql: Sql | Tx): sql is Tx => typeof (sql as Tx).savepoint === 'function';
 
 async function storeIn<M, X>(tx: Tx, row: NewDeciderModel<M, X>): Promise<DeciderModelRow<M, X>> {

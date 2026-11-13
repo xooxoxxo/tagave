@@ -1,7 +1,7 @@
 -- album_matches → album.identity: also when who decided (decided_by and its
 -- kind) or the decision's probability changes (a model accept, its undo, or
 -- a person endorsing it), since Music Connections sends them as provenance
--- and confidence. Applied after 0069's backfill, so filling those columns
+-- and confidence. Applied after 0093's backfill, so filling those columns
 -- for history logged nothing.
 create or replace function facet_trg_album_matches() returns trigger language plpgsql as $$
 declare l uuid[]; k text[];

@@ -407,7 +407,7 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
     const entries = [...ledgerEntries(), { id: 'decider', kind: 'in-process' as const, version: '1.0.0', defaultEnabled: true }];
     await sql`insert into _migrations (module, name) values ('decider', '0001_decider.sql'), ('decider', '0002_more.sql')`;
     try {
-      expect(await syncInstalledModules(sql, entries)).toEqual(['decider', 'dj', 'lidarr', 'similar-artists']);
+      expect(await syncInstalledModules(sql, entries)).toEqual(['decider']);
       expect((await listInstalledModules(sql)).find((m) => m.id === 'decider')).toMatchObject({ kind: 'in-process', version: '1.0.0', enabled: true, schemaVersion: '0002_more.sql', settings: {} });
       // the owner turns it off; a later boot (a newer version) keeps that
       await setModuleEnabled(sql, 'decider', false);

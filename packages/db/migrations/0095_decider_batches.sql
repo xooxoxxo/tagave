@@ -4,7 +4,7 @@
 -- run, run_id in the module's decider_runs, no foreign key: the module can be
 -- removed and its batches stay undoable). local_album_id has no foreign key
 -- either, so an album merged away meanwhile is reported, not lost.
--- album_matches.batch_id (0069) points here without a foreign key too.
+-- album_matches.batch_id (0093) points here without a foreign key too.
 -- Additive: older versions ignore both tables.
 create table if not exists decider_batches (
   id uuid primary key default gen_random_uuid(),

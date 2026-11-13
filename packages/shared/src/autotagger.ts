@@ -7,6 +7,8 @@
 import { z } from 'zod';
 
 export interface AutotaggerConfig {
+  /** which decider a new run uses: the local model trained on the owner's decisions (default), or Jev (needs a key) */
+  decider: DeciderChoice;
   /** the model the decider asks for; the dated model it answers with is pinned per run */
   model: string;
   /** spend cap per calendar month, in `currency`; null: no cap */
@@ -25,7 +27,12 @@ export interface AutotaggerConfig {
   payloadSeenBy: string | null;
 }
 
+/** The deciders a library can run: 'local' (free, on this machine) or 'jev' (TypeSafe's, paid, needs a key). */
+export const DECIDER_CHOICES = ['local', 'jev'] as const;
+export type DeciderChoice = (typeof DECIDER_CHOICES)[number];
+
 export const DEFAULT_AUTOTAGGER_CONFIG: AutotaggerConfig = {
+  decider: 'local',
   model: 'jev-latest',
   monthlyCap: null,
   currency: 'USD',
@@ -41,6 +48,7 @@ const CURRENCY_RE = /^[A-Z]{3}$/;
 /** What the owner may change; unknown keys are refused. */
 export const autotaggerConfigPatchSchema = z
   .object({
+    decider: z.enum(DECIDER_CHOICES),
     model: z.string().regex(MODEL_RE),
     monthlyCap: z.number().min(0).max(100_000).nullable(),
     currency: z.string().regex(CURRENCY_RE),

@@ -1,5 +1,5 @@
 /**
- * Accept batches (0071): one decider_batches row per set of albums accepted
+ * Accept batches (0095): one decider_batches row per set of albums accepted
  * at once (the owner's auto-accept rules, or a decider run), and one
  * decider_batch_items row per album with what the accept found before it
  * (prior_*), so the whole batch can be undone.

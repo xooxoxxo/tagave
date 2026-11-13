@@ -19,3 +19,5 @@ export {
   TrainingRefused, numericBreakdown, localDeciderGroups, trainingRows, assignFolds, trainingDataHash, trainLocalModel,
 } from './localTrain.js';
 export type { TrainingAlbum, TrainingRow, TrainingCounts, BandMetrics, LocalTrainMetrics, TrainOptions, TrainResult, TrainingRefusal } from './localTrain.js';
+export { LOCAL_DECIDER_ID, localDecider } from './localDecider.js';
+export type { LocalPayload } from './localDecider.js';

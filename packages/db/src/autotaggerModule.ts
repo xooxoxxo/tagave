@@ -33,6 +33,8 @@ export const AUTOTAGGER_TABLES = [
 
 /** The module's settings for one library (@tagave/shared AutotaggerConfig). */
 export interface AutotaggerConfig {
+  /** which decider a new run uses: the local model (default) or Jev (needs a key) */
+  decider: 'local' | 'jev';
   model: string;
   monthlyCap: number | null;
   currency: string;
@@ -43,6 +45,7 @@ export interface AutotaggerConfig {
 }
 
 export const DEFAULT_AUTOTAGGER_CONFIG: Readonly<AutotaggerConfig> = Object.freeze({
+  decider: 'local',
   model: 'jev-latest',
   monthlyCap: null,
   currency: 'USD',
@@ -53,7 +56,7 @@ export const DEFAULT_AUTOTAGGER_CONFIG: Readonly<AutotaggerConfig> = Object.free
 });
 
 /** What the owner may change (@tagave/shared AutotaggerConfigPatch). */
-export type AutotaggerConfigPatch = { [K in 'model' | 'monthlyCap' | 'currency' | 'maxErrorRate' | 'maxRequestBytes']?: AutotaggerConfig[K] | undefined };
+export type AutotaggerConfigPatch = { [K in 'decider' | 'model' | 'monthlyCap' | 'currency' | 'maxErrorRate' | 'maxRequestBytes']?: AutotaggerConfig[K] | undefined };
 
 const CONFIG_KEYS = Object.keys(DEFAULT_AUTOTAGGER_CONFIG) as Array<keyof AutotaggerConfig>;
 

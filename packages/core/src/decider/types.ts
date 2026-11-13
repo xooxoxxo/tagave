@@ -59,6 +59,13 @@ export interface Decider {
   id: string;
   specHash: string;
   /**
+   * 'paid' (the default): album data leaves the machine and calls cost money,
+   * so a run needs the key, the payload seen, a price and the monthly cap.
+   * 'free': nothing leaves the machine and nothing is billed (the local
+   * decider), so a run needs none of them.
+   */
+  billing?: 'free' | 'paid';
+  /**
    * The request for one album, from its sendable candidates. Throws
    * NotSendableError when the album may not be sent as it is.
    */

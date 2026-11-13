@@ -17,6 +17,11 @@
  * answer after a server error or a timeout may still have been billed: it is
  * kept as possibly billed, at its estimate, so the cap counts it.
  *
+ * A free decider (the local model, decider_id 'local') sends nothing and
+ * costs nothing: its run needs no key, payload preview, price or cap, only
+ * the module on and the stored model the run names (model_requested is the
+ * model's version; a run whose model is gone pauses: no_model).
+ *
  * A measure run (a measurement on a copy of the library) skips the module
  * switch and the monthly cap and answers to its own price and spend limit
  * instead; it writes decisions and calls only, never matches or batches.
@@ -39,11 +44,11 @@
  * either way the run carries on.
  */
 import {
-  JEV_SPEC, NotSendableError, decideFromProbabilities, evidenceHash, hashOf, jevSpecHash, pickEdition, requestOptions, rulesFromStored,
-  type Decider, type DeciderAnswer, type DeciderRequest, type EvidenceCandidate, type TracklistGroup,
+  JEV_SPEC, LOCAL_DECIDER_ID, NotSendableError, decideFromProbabilities, evidenceHash, hashOf, jevSpecHash, localDecider, pickEdition, requestOptions,
+  rulesFromStored, type Decider, type LocalModel, type DeciderAnswer, type DeciderRequest, type EvidenceCandidate, type TracklistGroup,
 } from '@tagave/core';
 import {
-  autotaggerConfig, autotaggerEnabled, checkBudget, costOf, deciderRunSingletonKey, fetchAutoAcceptRulesRow, pauseStaleRuns, priceFor,
+  autotaggerConfig, autotaggerEnabled, checkBudget, costOf, deciderRunSingletonKey, fetchAutoAcceptRulesRow, modelByVersion, pauseStaleRuns, priceFor,
   tokensPerByte, type Price,
 } from '@tagave/db';
 import type { Population } from '@tagave/shared';
@@ -116,7 +121,7 @@ export interface RunSummary { state: 'done' | 'paused' | 'cancelled' | 'running'
 
 type PauseReason =
   | 'spec_changed' | 'module_off' | 'no_key' | 'no_cap' | 'no_price' | 'currency_mismatch' | 'cap_reached' | 'key_refused' | 'model_changed'
-  | 'stopped' | 'payload_not_seen';
+  | 'stopped' | 'payload_not_seen' | 'no_model';
 
 interface RunRow {
   id: string; library_id: string; decider_id: string; population: Population; state: string; model_requested: string;
@@ -211,17 +216,36 @@ async function runLocked(ctx: WorkerContext, data: DeciderRunJobData, deps: RunD
   // a measurement runs on a copy of the library and answers to its own limits, not the module switch
   const measuring = run.population === 'measure';
   if (!measuring && !(await autotaggerEnabled(ctx.sql))) return pause('module_off', 'autotagger off');
-  const apiKey = deps.apiKey ?? (await libraryTypesafeKey(ctx, run.library_id));
-  if (!apiKey) return pause('no_key', 'no TypeSafe key');
+  // The local decider runs the model the run was started with (model_requested
+  // is its version): nothing leaves the machine and nothing is billed, so it
+  // needs no key, payload preview, price or cap. Every other decider is paid.
+  let decider: Decider;
+  if (deps.decider) {
+    decider = deps.decider;
+  } else if (run.decider_id === LOCAL_DECIDER_ID) {
+    const stored = await modelByVersion<LocalModel>(ctx.sql, run.library_id, run.model_requested, LOCAL_DECIDER_ID);
+    if (!stored) return pause('no_model', 'no trained model');
+    decider = localDecider(stored.model, stored.version);
+  } else {
+    const apiKey = deps.apiKey ?? (await libraryTypesafeKey(ctx, run.library_id));
+    if (!apiKey) return pause('no_key', 'no TypeSafe key');
+    decider = jevDecider({ apiKey, baseUrl: typesafeBaseUrl(), maxRetries: RUN_MAX_RETRIES });
+  }
+  const paid = (decider.billing ?? 'paid') === 'paid';
+  if (paid && deps.decider) {
+    const apiKey = deps.apiKey ?? (await libraryTypesafeKey(ctx, run.library_id));
+    if (!apiKey) return pause('no_key', 'no TypeSafe key');
+  }
   const config = await autotaggerConfig(ctx.sql, run.library_id);
-  // nothing goes out before the owner has seen what goes out (the api checks it too)
-  // (a measurement the owner confirmed from the preview may go on without that record)
-  if (!config.payloadSeenAt && !(measuring && deps.payloadApproved === true)) return pause('payload_not_seen', 'payload not seen');
-  // the measurement enforces its own spend limit; every other run needs the owner's cap
-  if (config.monthlyCap === null && !measuring) return pause('no_cap', 'no monthly cap');
-  // a measurement has its own limit instead of the monthly cap, and never runs without one
-  if (measuring && (deps.maxSpend === undefined || !Number.isFinite(deps.maxSpend) || deps.maxSpend < 0)) return pause('no_cap', 'no measurement limit');
-  const decider = deps.decider ?? jevDecider({ apiKey, baseUrl: typesafeBaseUrl(), maxRetries: RUN_MAX_RETRIES });
+  if (paid) {
+    // nothing goes out before the owner has seen what goes out (the api checks it too)
+    // (a measurement the owner confirmed from the preview may go on without that record)
+    if (!config.payloadSeenAt && !(measuring && deps.payloadApproved === true)) return pause('payload_not_seen', 'payload not seen');
+    // the measurement enforces its own spend limit; every other run needs the owner's cap
+    if (config.monthlyCap === null && !measuring) return pause('no_cap', 'no monthly cap');
+    // a measurement has its own limit instead of the monthly cap, and never runs without one
+    if (measuring && (deps.maxSpend === undefined || !Number.isFinite(deps.maxSpend) || deps.maxSpend < 0)) return pause('no_cap', 'no measurement limit');
+  }
   const rules = rulesFromStored(await fetchAutoAcceptRulesRow(ctx.db, run.library_id));
   const started = await ctx.sql`
     update decider_runs set state = 'running', pause_reason = null, message = null, started_at = coalesce(started_at, now())
@@ -261,6 +285,7 @@ interface Loop {
 
 async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop): Promise<RunSummary> {
   const { decider, config, rules, summary, pause, progress, prog, outOfTime } = l;
+  const paid = (decider.billing ?? 'paid') === 'paid';
   let version = run.decider_version;
   // A new run has no pinned model yet. The model the library's last finished
   // run with the same request pinned lets its stored answers be reused, so a
@@ -384,6 +409,11 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     if (found) {
       summary.reused += 1;
       call = { id: found.id, answers: answersOf(found.answers) };
+    } else if (!paid) {
+      // a free decider: no price, no cap, nothing billed
+      const stopped = await stoppedMeanwhile();
+      if (stopped) return stopped;
+      answer = await decider.ask({ album: ev.album, groups: sent, payload }, { model });
     } else {
       // a measurement's price is its own, whatever currency the library counts in
       const price = measuring ? (deps.price ?? (await priceFor(ctx.sql, decider.id, model))) : await priceFor(ctx.sql, decider.id, model);
@@ -463,7 +493,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
       if (changed) return;
       await decide(tx, { id: row!.id, answers: answersOf(row!.answers) }, groups, labels, cands, rules, record);
     });
-    summary.billed += 1;
+    if (paid) summary.billed += 1;
     if (measuring) runSpent += Math.round(costOf(a.inputTokens, p) * 1e6);
     if (changed) return pause('model_changed', `model changed: ${a.model}`);
     if (!version) version = a.model;

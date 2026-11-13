@@ -1,5 +1,5 @@
 /**
- * 0068: a database just before it, with tracks and albums is upgraded; title and
+ * 0092: a database just before it, with tracks and albums is upgraded; title and
  * year sources are backfilled only when the file tags carry the value.
  */
 import { randomUUID } from 'node:crypto';
@@ -11,7 +11,7 @@ import { createScratchDb, migrateAll, migrateUpTo } from '../testkit/authApp.js'
 
 const url = process.env.TEST_DATABASE_URL;
 
-describe.skipIf(!url)('0068 matching evidence (upgrade with data)', () => {
+describe.skipIf(!url)('0092 matching evidence (upgrade with data)', () => {
   let admin: postgres.Sql; let db: { url: string; name: string } | undefined; let sql: postgres.Sql;
   const ids = {
     user: randomUUID(), lib: randomUUID(), root: randomUUID(), tagged: randomUUID(), named: randomUUID(),
@@ -27,7 +27,7 @@ describe.skipIf(!url)('0068 matching evidence (upgrade with data)', () => {
   beforeAll(async () => {
     admin = postgres(url!, { max: 1, onnotice: () => undefined });
     db = await createScratchDb(url!, admin);
-    await migrateUpTo(db.url, '0068');
+    await migrateUpTo(db.url, '0092');
     sql = postgres(db.url, { max: 2, onnotice: () => undefined });
     await sql`insert into users (id, email, display_name, password_hash) values (${ids.user}, ${'e-' + ids.user + '@test.com'}, 'E', 'x')`;
     await sql`insert into libraries (id, owner_user_id, name, settings) values (${ids.lib}, ${ids.user}, 'E', '{}')`;
@@ -81,7 +81,7 @@ describe.skipIf(!url)('0068 matching evidence (upgrade with data)', () => {
     ]);
   });
 
-  it('the drizzle schema has every column of the tables 0068 changed', async () => {
+  it('the drizzle schema has every column of the tables 0092 changed', async () => {
     const tables = { match_candidates: matchCandidates, local_tracks: localTracks, local_albums: localAlbums, album_evidence: albumEvidence };
     for (const [name, table] of Object.entries(tables)) {
       const inDb = (await sql<Array<{ c: string }>>`select column_name as c from information_schema.columns where table_name = ${name}`).map((r) => r.c).sort();

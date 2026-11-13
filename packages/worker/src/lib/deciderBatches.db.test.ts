@@ -1,5 +1,5 @@
 /**
- * Accept batches and their per-album snapshots (0071), against a real
+ * Accept batches and their per-album snapshots (0095), against a real
  * database: creating a batch with its items, reading them back in order,
  * the counts, the state stamps, and what deleting a library or an album does.
  */
@@ -186,7 +186,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
     await expect(client`update decider_batch_items set status = 'skipped', skip_reason = 'bored' where batch_id = ${id} and local_album_id = ${a}`).rejects.toThrow(/decider_batch_items_skip_reason_check/);
   });
 
-  it('the drizzle schema has every column 0071 made', async () => {
+  it('the drizzle schema has every column 0095 made', async () => {
     const tables = { decider_batches: deciderBatches, decider_batch_items: deciderBatchItems };
     for (const [name, table] of Object.entries(tables)) {
       const inDb = (await client`select column_name as c from information_schema.columns where table_schema = 'public' and table_name = ${name}`).map((r: { c: string }) => r.c).sort();
