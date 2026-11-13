@@ -6,7 +6,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { PgBoss } from 'pg-boss';
 import { provenanceLine } from '@tagave/shared';
 
 vi.mock('../boss.js', () => ({
@@ -36,11 +35,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: model match kind (
     const { initDb } = await import('../db.js');
     const made = await initDb(process.env.TEST_DATABASE_URL!);
     client = made.client;
-    // the album detail reads pg-boss's job table (pending identifies): a fresh database has it once pg-boss has started there
-    const boss = new PgBoss(process.env.TEST_DATABASE_URL!);
-    boss.on('error', () => undefined);
-    await boss.start();
-    await boss.stop({ graceful: false }).catch(() => undefined);
+    // pg-boss's job table as the suites on the shared test database stand it in (never a real pg-boss here:
+    // its queue table would refuse the other suites' rows)
+    await client`do $$ begin
+      if not exists (select 1 from pg_namespace where nspname = 'pgboss') then create schema pgboss; end if;
+    end $$`;
+    await client`create table if not exists pgboss.job (
+      id uuid, name text, state text, priority int, singleton_key text, data jsonb)`;
+    await client`alter table pgboss.job add column if not exists created_on timestamptz, add column if not exists started_on timestamptz,
+      add column if not exists completed_on timestamptz, add column if not exists output jsonb`;
     await client`insert into users (id, email, password_hash) values
       (${userId}, ${`ad-${userId}@test.com`}, 'x'), (${otherUserId}, ${`ad-${otherUserId}@test.com`}, 'x')`;
     await client`insert into libraries (id, name, owner_user_id, settings) values (${lib}, 'Decided', ${userId}, '{}')`;

@@ -7,7 +7,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
-import { PgBoss } from 'pg-boss';
 import { createBatch, getBatch, libraries, releaseGroups, users, makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { enrichSweepJob } from './enrichSweep.js';
@@ -28,12 +27,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('enrich.sweep (db)', () => {
     db = made.db;
     client = made.client;
     ctx = { db: made.db, sql: made.client, boss: { send } as any, logger: pino({ level: 'silent' }) };
-    // the stale-batch check reads pg-boss's job table: a fresh database has it once pg-boss has started there
-    const boss = new PgBoss(process.env.TEST_DATABASE_URL!);
-    boss.on('error', () => undefined);
-    await boss.start();
-    await boss.createQueue('decider.accept');
-    await boss.stop({ graceful: false }).catch(() => undefined);
+    // pg-boss's job table as the suites on the shared test database stand it in (never a real pg-boss here:
+    // its queue table would refuse the other suites' rows)
+    await client`do $$ begin
+      if not exists (select 1 from pg_namespace where nspname = 'pgboss') then create schema pgboss; end if;
+    end $$`;
+    await client`create table if not exists pgboss.job (
+      id uuid, name text, state text, priority int, singleton_key text, data jsonb)`;
+    await client`alter table pgboss.job add column if not exists created_on timestamptz, add column if not exists started_on timestamptz,
+      add column if not exists completed_on timestamptz, add column if not exists output jsonb`;
     await db.insert(users).values({ id: owner, email: `es-${owner}@test.com`, passwordHash: 'x' });
     await db.insert(libraries).values({ id: lib, name: 'EnrichSweep', ownerUserId: owner, settings: {} });
     await db.insert(releaseGroups).values({ id: rgId, mbid: randomUUID(), title: 'Sweep', artistCredit: ['Sweep Artist'] });
