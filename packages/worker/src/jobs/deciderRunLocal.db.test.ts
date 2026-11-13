@@ -3,6 +3,8 @@
  * scores every tracklist group with the library's stored model, records its
  * picks, and needs no key, payload preview, price or cap (nothing leaves the
  * machine, nothing is billed). A run whose model is gone pauses (no_model).
+ * The whole local flow ends with its p99 band accepted as one model batch
+ * and undone again.
  *
  * On a scratch database: the run needs the module switched on, and the
  * shared test database's switch belongs to every suite running at once.
@@ -11,13 +13,14 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import pino from 'pino';
-import { makeDb, runMigrations, setAutotaggerEnabled, storeModel, syncInstalledModules } from '@tagave/db';
+import { bandAcceptPlan, createBatch, makeDb, requestUndo, runMigrations, setAutotaggerEnabled, storeModel, syncInstalledModules } from '@tagave/db';
 import {
   LOCAL_FEATURE_NAMES, buildAlbumEvidence, buildCandidateEvidence, featuresSchemaHash, jevSpecHash, modelVersion, type LocalModel,
 } from '@tagave/core';
 import { ledgerEntries } from '@tagave/core/facets';
 import type { WorkerContext } from '../lib/context.js';
 import { upsertAlbumEvidence } from '../lib/evidenceStore.js';
+import { deciderAcceptJob } from './deciderAccept.js';
 import { deciderRunJob } from './deciderRun.js';
 
 /** Sure of the closest candidate alone: the score falls steeply with the distance. */
@@ -149,5 +152,30 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run, local decider (scr
     } finally {
       await setAutotaggerEnabled(client, true);
     }
+  });
+  it('the whole flow: a local run, its p99 band accepted as one model batch, and undone', async () => {
+    const run = await newRun(version);
+    expect(await deciderRunJob(ctx, { runId: run })).toMatchObject({ state: 'done' });
+    const plan = await bandAcceptPlan(client, run, 'p99');
+    expect(plan).toMatchObject({ excludedWrong: 0, alreadyAccepted: 0, notPinned: 0 });
+    expect(plan.items.map((i) => i.albumId)).toEqual([sure]);
+    const batchId = await createBatch(client, {
+      libraryId: lib, deciderId: 'local', deciderVersion: version, decidedKind: 'model', startedByUserId: owner, runId: run, band: 'p99',
+      items: plan.items.map((i) => ({
+        albumId: i.albumId, releaseId: i.releaseId, distance: i.distance, source: i.source, probability: i.probability,
+        evidenceHash: i.evidenceHash, expectLastIdentifyAt: i.lastIdentifyAt, reason: `model accept: ${version}`,
+      })),
+    });
+    expect(await deciderAcceptJob(ctx, { batchId })).toMatchObject({ accepted: 1 });
+    const [m] = await client`select status, decided_by, decided_kind, decider_id, decider_version, batch_id::text as batch_id, release_id::text as release_id
+                               from album_matches where local_album_id = ${sure} and status in ('auto', 'confirmed')`;
+    expect(m).toEqual({ status: 'auto', decided_by: 'system', decided_kind: 'model', decider_id: 'local', decider_version: version, batch_id: batchId, release_id: sureRelease });
+    expect((await client`select state from local_albums where id = ${sure}`)[0].state).toBe('matched');
+
+    expect(await requestUndo(client, batchId, owner)).toBe(true);
+    expect(await deciderAcceptJob(ctx, { batchId, mode: 'undo' })).toMatchObject({ undone: 1 });
+    expect((await client`select state from local_albums where id = ${sure}`)[0].state).toBe('needs_review');
+    expect(await client`select 1 from album_matches where local_album_id = ${sure} and status in ('auto', 'confirmed')`).toHaveLength(0);
+    expect((await client`select state from decider_batches where id = ${batchId}`)[0].state).toBe('undone');
   });
 });
