@@ -13,6 +13,7 @@ import { FIXTURE_ISBN, TINY_PNG, cbzBytes, epubBytes, pdfBytes, writeBookFixture
 import { bookIdentityDigest, normalizeIsbn, seriesNumber, type BookMetadata } from './metadata.js';
 import { attr, findAll, parseXml, textOf } from './xml.js';
 import { withZip } from './zip.js';
+import { readPdf } from './pdf.js';
 
 let dir: string;
 const put = async (name: string, bytes: Buffer) => {
@@ -67,6 +68,44 @@ describe('the zip reader', () => {
       expect((await zip.read(zip.find('a.txt')!)).toString()).toBe('stored');
       expect((await zip.read(zip.find('DIR/B.TXT', true)!)).toString()).toBe('x'.repeat(5000));
       await expect(zip.read(zip.find('dir/b.txt')!, 10)).rejects.toThrow(/larger than/);
+    });
+  });
+
+  // the first central-directory entry's claimed sizes, rewritten (a hostile archive's lies)
+  const lie = (zip: Buffer, sizes: { compressedSize?: number; size?: number }): Buffer => {
+    const out = Buffer.from(zip);
+    const cd = out.readUInt32LE(out.length - 22 + 16);
+    if (sizes.compressedSize !== undefined) out.writeUInt32LE(sizes.compressedSize, cd + 20);
+    if (sizes.size !== undefined) out.writeUInt32LE(sizes.size, cd + 24);
+    return out;
+  };
+
+  it('trusts no size the archive claims: past the end, over the cap, stored sizes that differ', async () => {
+    const stored = zipBytes([{ name: 'a.txt', data: 'stored', store: true }]);
+    // a compressed size past the end of the file (4 GiB - 1): refused before anything is allocated
+    await withZip(await put('past-end.zip', lie(stored, { compressedSize: 0xfffffffe, size: 6 })), async (zip) => {
+      await expect(zip.read(zip.entries[0]!)).rejects.toThrow(/larger than|past the end/);
+    });
+    await withZip(await put('past-end-small.zip', lie(stored, { compressedSize: 5000, size: 5000 })), async (zip) => {
+      await expect(zip.read(zip.entries[0]!)).rejects.toThrow(/past the end/);
+    });
+    // a compressed size over the cap, whatever the declared size
+    const deflated = zipBytes([{ name: 'b.txt', data: 'x'.repeat(5000) }]);
+    await withZip(await put('over-cap.zip', lie(deflated, { size: 1 })), async (zip) => {
+      await expect(zip.read(zip.entries[0]!, 2)).rejects.toThrow(/larger than/);
+    });
+    // stored: the two sizes must agree
+    await withZip(await put('stored-lie.zip', lie(stored, { size: 3 })), async (zip) => {
+      await expect(zip.read(zip.entries[0]!)).rejects.toThrow(/sizes differ/);
+    });
+  });
+
+  it('a deflate bomb that declares a tiny size stops inflating at the cap', async () => {
+    // 8 MiB of zeros deflates to a few KiB; the entry claims 10 bytes
+    const bomb = lie(zipBytes([{ name: 'bomb.xml', data: Buffer.alloc(8 * 1024 * 1024) }]), { size: 10 });
+    await withZip(await put('bomb.zip', bomb), async (zip) => {
+      expect(zip.entries[0]!.compressedSize).toBeLessThan(64 * 1024);
+      await expect(zip.read(zip.entries[0]!, 64 * 1024)).rejects.toThrow(/larger than/);
     });
   });
 
@@ -125,6 +164,22 @@ describe('pdf', () => {
   it('the Info dictionary the trailer names: a UTF-16 title, several authors', async () => {
     const p = await put('info.pdf', pdfBytes({ title: 'Ünïcode — Title (2)', author: 'Ada Example; Ben Sample', pages: 2, utf16Title: true }));
     expect(await meta(pdfHandler, p)).toMatchObject({ title: 'Ünïcode — Title (2)', authors: ['Ada Example', 'Ben Sample'], pages: 2, language: null });
+  });
+
+  it('a hostile PDF (many /Info refs and page trees, a huge unterminated dictionary, an unclosed XMP) parses fast', async () => {
+    const hostile = [
+      '%PDF-1.4\n<x:xmpmeta\n',
+      ...Array.from({ length: 5000 }, (_, i) => `${i} 0 obj\n`),
+      '1 0 obj\n<< /Title (', '<<('.repeat(150_000),
+      '/Info 1 0 R\n'.repeat(60_000),
+      '<< /Type /Pages /Kids [ '.repeat(15_000),
+    ].join('');
+    expect(hostile.length).toBeLessThan(2 * 1024 * 1024); // one window: every byte is examined
+    const p = await put('hostile.pdf', Buffer.from(hostile, 'latin1'));
+    const started = performance.now();
+    const m = await readPdf(p);
+    expect(performance.now() - started).toBeLessThan(1500);
+    expect(m).toMatchObject({ format: 'pdf', title: null, pages: null });
   });
 
   it('no title: null (the app names it after the file); a file that is no PDF fails', async () => {

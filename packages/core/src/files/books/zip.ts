@@ -85,16 +85,28 @@ async function readEntries(fh: FileHandle, fileSize: number): Promise<ZipEntry[]
   return entries;
 }
 
-async function readEntry(fh: FileHandle, e: ZipEntry, maxBytes: number): Promise<Buffer> {
+async function readEntry(fh: FileHandle, fileSize: number, e: ZipEntry, maxBytes: number): Promise<Buffer> {
   if (e.flags & 0x1) throw new ZipError(`${e.name} is encrypted`);
+  if (e.method !== 0 && e.method !== 8) throw new ZipError(`${e.name}: compression method ${e.method} is not supported`);
+  // Every size below is the archive's own claim: nothing is allocated before it is checked
+  // against the file and the cap, and inflating stops at the cap whatever the entry says.
   if (e.size > maxBytes) throw new ZipError(`${e.name} is larger than ${maxBytes} bytes`);
+  if (e.compressedSize > maxBytes) throw new ZipError(`${e.name} is larger than ${maxBytes} bytes`);
+  if (e.method === 0 && e.compressedSize !== e.size) throw new ZipError(`${e.name}: a stored entry whose sizes differ`);
+  if (e.localHeaderOffset + 30 > fileSize) throw new ZipError(`broken local header for ${e.name}`);
   const loc = await readAt(fh, 30, e.localHeaderOffset);
   if (loc.readUInt32LE(0) !== LOC_SIG) throw new ZipError(`broken local header for ${e.name}`);
   const start = e.localHeaderOffset + 30 + loc.readUInt16LE(26) + loc.readUInt16LE(28);
+  if (start + e.compressedSize > fileSize) throw new ZipError(`${e.name} runs past the end of the file`);
   const raw = await readAt(fh, e.compressedSize, start);
   if (e.method === 0) return raw;
-  if (e.method === 8) return inflateRawSync(raw, { maxOutputLength: Math.max(maxBytes, 1) });
-  throw new ZipError(`${e.name}: compression method ${e.method} is not supported`);
+  try {
+    return inflateRawSync(raw, { maxOutputLength: Math.max(maxBytes, 1) });
+  } catch (err) {
+    // ERR_BUFFER_TOO_LARGE: the entry inflates past the cap, whatever size it declares
+    if ((err as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE' || err instanceof RangeError) throw new ZipError(`${e.name} is larger than ${maxBytes} bytes`);
+    throw new ZipError(`${e.name}: broken deflate data`);
+  }
 }
 
 /** An open zip file: its entries, and the bytes of one. */
@@ -102,7 +114,7 @@ export interface ZipReader {
   readonly entries: readonly ZipEntry[];
   /** The entry with this name; with `anyCase`, compared without case (tolerant readers). */
   find(name: string, anyCase?: boolean): ZipEntry | null;
-  /** The entry's uncompressed bytes; refuses an entry larger than `maxBytes`. */
+  /** The entry's uncompressed bytes; refuses an entry larger than `maxBytes` (declared, compressed or inflated). */
   read(entry: ZipEntry, maxBytes?: number): Promise<Buffer>;
 }
 
@@ -120,7 +132,7 @@ export async function withZip<T>(absPath: string, fn: (zip: ZipReader) => Promis
     return await fn({
       entries,
       find: (name, anyCase) => byName.get(name) ?? (anyCase ? byLower.get(name.toLowerCase()) ?? null : null),
-      read: (entry, maxBytes = ZIP_ENTRY_MAX) => readEntry(fh, entry, maxBytes),
+      read: (entry, maxBytes = ZIP_ENTRY_MAX) => readEntry(fh, size, entry, maxBytes),
     });
   } finally {
     await fh.close();

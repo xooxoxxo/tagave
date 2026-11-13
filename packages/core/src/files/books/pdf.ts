@@ -21,6 +21,16 @@ import { findAll, findFirst, parseXml, textOf, type XmlElement } from './xml.js'
 import { cleanText, normalizeIsbn, type BookIdentifier, type BookMetadata } from './metadata.js';
 
 const WINDOW = 1024 * 1024;
+/**
+ * Bounds on the work one file can cause (the parse runs on the worker's
+ * event loop): a dictionary is scanned for at most DICT_MAX characters, and
+ * only the last MAX_CANDIDATES /Info references and /Type /Pages are looked
+ * at (an incremental update appends a new trailer; the last ones are current).
+ */
+const DICT_MAX = 64 * 1024;
+const MAX_CANDIDATES = 8;
+/** The linearization dictionary is the file's first object (within its first KiB by the spec). */
+const LINEARIZED_SCAN = 4 * 1024;
 
 async function readWindows(absPath: string): Promise<string> {
   const fh = await open(absPath, 'r');
@@ -102,14 +112,15 @@ function stringValue(dict: string, key: string): string | null {
 function dictAt(src: string, from: number): string | null {
   const start = src.indexOf('<<', from);
   if (start < 0 || start - from > 64) return null;
+  const end = Math.min(src.length, start + DICT_MAX);
   let depth = 0;
-  for (let i = start; i < src.length - 1; i++) {
+  for (let i = start; i < end - 1; i++) {
     if (src[i] === '<' && src[i + 1] === '<') { depth++; i++; }
     else if (src[i] === '>' && src[i + 1] === '>') { depth--; i++; if (depth === 0) return src.slice(start, i + 1); }
     else if (src[i] === '(') {
       // skip a literal string: a '>>' inside a title must not close the dictionary
       let d = 1;
-      for (i++; i < src.length && d > 0; i++) {
+      for (i++; i < end && d > 0; i++) {
         if (src[i] === '\\') i++;
         else if (src[i] === '(') d++;
         else if (src[i] === ')') d--;
@@ -122,12 +133,15 @@ function dictAt(src: string, from: number): string | null {
 
 /** The document information dictionary the (last) trailer names, when its object is in the windows read. */
 function infoDict(src: string): string | null {
-  const refs = [...src.matchAll(/\/Info\s+(\d+)\s+(\d+)\s+R/g)];
+  const refs = [...src.matchAll(/\/Info\s+(\d+)\s+(\d+)\s+R/g)].slice(-MAX_CANDIDATES);
+  if (refs.length === 0) return null;
+  // every 'N G obj' header in one pass: the last one of each object wins (an update rewrites it)
+  const objEnd = new Map<string, number>();
+  for (const m of src.matchAll(/(?:^|[\s>])(\d+)\s+(\d+)\s+obj\b/g)) objEnd.set(`${m[1]} ${m[2]}`, m.index + m[0].length);
   for (const ref of refs.reverse()) {
-    const objs = [...src.matchAll(new RegExp(`(?:^|[\\s>])${ref[1]}\\s+${ref[2]}\\s+obj\\b`, 'g'))];
-    const obj = objs[objs.length - 1];
-    if (obj) {
-      const d = dictAt(src, obj.index + obj[0].length);
+    const at = objEnd.get(`${ref[1]} ${ref[2]}`);
+    if (at !== undefined) {
+      const d = dictAt(src, at);
       if (d) return d;
     }
   }
@@ -145,12 +159,13 @@ function xmpValues(xmp: XmlElement, field: string): string[] {
 }
 
 function pageCount(src: string): number | null {
-  const lin = /\/Linearized\s+[\d.]+[^>]*?\/N\s+(\d+)/.exec(src);
+  const lin = /\/Linearized\s+[\d.]+[^>]*?\/N\s+(\d+)/.exec(src.slice(0, LINEARIZED_SCAN));
   if (lin) return Number(lin[1]);
   let best: number | null = null;
-  for (const m of src.matchAll(/\/Type\s*\/Pages\b/g)) {
-    // the /Count of the dictionary around this /Type /Pages
+  for (const m of [...src.matchAll(/\/Type\s*\/Pages\b/g)].slice(-MAX_CANDIDATES)) {
+    // the /Count of the dictionary around this /Type /Pages (opened at most a dictionary's length before it)
     const open = src.lastIndexOf('<<', m.index);
+    if (open < 0 || m.index - open > DICT_MAX) continue;
     const d = open >= 0 ? dictAt(src, open) : null;
     const c = d ? /\/Count\s+(\d+)/.exec(d) : null;
     if (c) best = Math.max(best ?? 0, Number(c[1]));
@@ -162,7 +177,9 @@ export async function readPdf(absPath: string): Promise<BookMetadata> {
   const src = await readWindows(absPath);
   if (!src.startsWith('%PDF-') && !src.slice(0, 1024).includes('%PDF-')) throw new Error('not a PDF: no %PDF- header');
 
-  const packet = /<x:xmpmeta[\s\S]*?<\/x:xmpmeta>/.exec(src)?.[0] ?? null;
+  const xmpOpen = src.indexOf('<x:xmpmeta');
+  const xmpClose = xmpOpen < 0 ? -1 : src.indexOf('</x:xmpmeta>', xmpOpen);
+  const packet = xmpClose < 0 ? null : src.slice(xmpOpen, xmpClose + '</x:xmpmeta>'.length);
   // XMP is UTF-8; the windows were read as latin1
   const xmp = packet ? findFirst(parseXml(Buffer.from(packet, 'latin1').toString('utf8')), 'xmpmeta') : null;
   const info = infoDict(src);
