@@ -426,9 +426,9 @@ export const localAlbums = pgTable(
     titleGuess: varchar('title_guess', { length: 255 }),
     artistGuess: varchar('artist_guess', { length: 255 }),
     yearGuess: integer('year_guess'),
-    // 0068: where year_guess came from: tag | folder; null = no year or not known
+    // 0092: where year_guess came from: tag | folder; null = no year or not known
     yearSource: varchar('year_source', { length: 10 }),
-    // 0068: where title_guess came from: tag | folder (no album tags); null = not known
+    // 0092: where title_guess came from: tag | folder (no album tags); null = not known
     titleSource: varchar('title_source', { length: 10 }),
     discCount: integer('disc_count'),
     trackCount: integer('track_count'),
@@ -486,7 +486,7 @@ export const localTracks = pgTable(
     discNo: integer('disc_no'),
     trackNo: integer('track_no'),
     titleGuess: varchar('title_guess', { length: 255 }),
-    // 0068: where title_guess came from: tag | filename | none; null = not known
+    // 0092: where title_guess came from: tag | filename | none; null = not known
     titleSource: varchar('title_source', { length: 10 }),
     artistGuess: varchar('artist_guess', { length: 255 }),
     durationMs: integer('duration_ms'),
@@ -944,9 +944,9 @@ export const matchCandidates = pgTable(
     source: varchar({ length: 50 }).notNull(),
     excluded: boolean().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    // 0068: what the matcher compared (core/matching/evidence.ts); null before 0068
+    // 0092: what the matcher compared (core/matching/evidence.ts); null before 0092
     evidence: jsonb(),
-    // 0068: share of the album's fingerprints matched on this release; null = not looked up
+    // 0092: share of the album's fingerprints matched on this release; null = not looked up
     acoustidCoverage: numeric('acoustid_coverage', { precision: 5, scale: 4 }),
   },
   (table) => ({
@@ -954,7 +954,7 @@ export const matchCandidates = pgTable(
   })
 );
 
-/** 0068: the local side of the matching evidence, once per album. */
+/** 0092: the local side of the matching evidence, once per album. */
 export const albumEvidence = pgTable('album_evidence', {
   localAlbumId: uuid('local_album_id').primaryKey().references(() => localAlbums.id, { onDelete: 'cascade' }),
   v: smallint().notNull(),
@@ -984,16 +984,16 @@ export const albumMatches = pgTable(
     source: varchar({ length: 50 }),
     decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    /** 0069: who or what decided: user | system | rule | model | unknown (decided_by stays for older readers) */
+    /** 0093: who or what decided: user | system | rule | model | unknown (decided_by stays for older readers) */
     decidedKind: varchar('decided_kind', { length: 10 }).notNull().default('unknown'),
-    /** 0069: the person, when known */
+    /** 0093: the person, when known */
     decidedByUserId: uuid('decided_by_user_id').references(() => users.id, { onDelete: 'set null' }),
-    /** 0069: which decider, and which dated version of it */
+    /** 0093: which decider, and which dated version of it */
     deciderId: varchar('decider_id', { length: 40 }),
     deciderVersion: varchar('decider_version', { length: 80 }),
-    /** 0069: the decider's probability for the chosen tracklist (0..1) */
+    /** 0093: the decider's probability for the chosen tracklist (0..1) */
     probability: numeric({ precision: 5, scale: 4 }),
-    /** 0069: the accept batch; no foreign key */
+    /** 0093: the accept batch; no foreign key */
     batchId: uuid('batch_id'),
   },
   (table) => ({
@@ -1007,7 +1007,7 @@ export const albumMatches = pgTable(
 );
 
 /**
- * 0071: accept batches, one row per batch accepted at once (the owner's
+ * 0095: accept batches, one row per batch accepted at once (the owner's
  * rules or a decider run). run_id has no foreign key: the decider module can
  * be removed and its batches stay undoable.
  */
@@ -1045,7 +1045,7 @@ export const deciderBatches = pgTable(
 );
 
 /**
- * 0071: one row per album in a batch, with the snapshot undo restores
+ * 0095: one row per album in a batch, with the snapshot undo restores
  * (prior_*). local_album_id has no foreign key, so an album merged away
  * meanwhile is reported, not lost.
  */
@@ -2383,6 +2383,9 @@ export const deciderModels = pgTable(
   (table) => ({
     oneActive: uniqueIndex('decider_models_one_active').on(table.libraryId, table.decider).where(sql`active`),
     libraryIdx: index('idx_decider_models_library').on(table.libraryId, table.decider, table.createdAt.desc()),
+  })
+);
+
 // Deleting songs and albums (0073): one row per file the owner deleted from
 // tagave, marked (they delete it themselves) or moved to the root's trash
 // folder by the file worker. While the row exists the file's tracks are out

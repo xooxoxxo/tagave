@@ -318,7 +318,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, che
       } catch (error) {
         ctx.logger.warn({ libraryId: album.libraryId, albumId: album.id, error: String(error) }, 'art.fetch: could not queue re-lint');
       }
-      return;
+      return 'none';
     }
     ctx.logger.debug({ album: album.titleGuess }, 'no cover art found (quality flag material)');
     return providerFailed ? 'failed' : 'none';
