@@ -2,7 +2,40 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.30.2](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.2)
+## [v0.31.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.31.0)
+
+**Minor release (0.30 → 0.31).** On a desktop, your profile and its pages now sit at the foot of the sidebar, above a full-width player bar. Matching compares barcodes and accented titles more fairly. The groundwork for an autotagger ships switched off.
+
+### Before you update
+
+- **Going back to 0.30 means a restore.** This update changes the database (migrations 0092–0096, autotagger migrations 0001–0002 and books migration 0001). The updater takes a backup first and restores it on its own if the update fails. To return to 0.30 later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.31.0/docs/operations.md).
+- **The first start can take longer on a big library.** Migration 0092 records, for every track and album, whether its title and year came from the file's tags.
+
+### New
+
+- **Profile in the sidebar (desktop):** the player bar now spans the whole window, and the sidebar always ends just above it. At the foot of the sidebar are Listening, Library care (with its count), Tag changes and Settings, then the Light/Dark/Auto control and your name. Your name opens Account; the icon beside it signs you out. It works the same with the sidebar set to Always, Auto-hide or pinned. Tablet and phone keep the menu you open with a press. ([3c8882a](https://github.com/xooxoxxo/tagave/commit/3c8882a))
+- **Who decided a match:** each match now records whether you, your auto-accept rules or a model accepted it. ([f5bf686](https://github.com/xooxoxxo/tagave/commit/f5bf686))
+- **Matching evidence:** identifying an album now stores what each candidate was scored on, including AcoustID coverage. ([162c41c](https://github.com/xooxoxxo/tagave/commit/162c41c))
+- **Autotagger (off, no screen yet):** the server side of an optional module that decides which release an album matches, with a model that runs on this machine or with TypeSafe's Jev under a monthly spend cap. Its accepts go in undoable batches with spot checks. It stays off, and its screen comes in a later release. ([9943b93](https://github.com/xooxoxxo/tagave/commit/9943b93))
+
+### Changed
+
+- **Barcodes count in the match score:** barcodes are compared in normalised form, so spaces and dashes no longer make two equal barcodes differ, and a real barcode mismatch now lowers a candidate's score. Auto-accept may decide some albums differently from before. ([631260d](https://github.com/xooxoxxo/tagave/commit/631260d), [a947de1](https://github.com/xooxoxxo/tagave/commit/a947de1))
+- **Accents and other scripts:** Latin accents fold before titles are compared ("Café" matches "Cafe"). Titles in other scripts are compared as written and never count against a match. ([acf137e](https://github.com/xooxoxxo/tagave/commit/acf137e), [25c4de4](https://github.com/xooxoxxo/tagave/commit/25c4de4))
+
+### Fixed
+
+- **Accepting a match** locks the release it points to, so a relink running at the same time can't leave the match on the wrong release. ([6dcbb74](https://github.com/xooxoxxo/tagave/commit/6dcbb74), [36fa6d6](https://github.com/xooxoxxo/tagave/commit/36fa6d6))
+- **Run again on auto-accept** runs your auto-accept rules again. ([679f3b5](https://github.com/xooxoxxo/tagave/commit/679f3b5))
+
+### For self-hosters
+
+- **Migrations:** 0092 matching evidence, 0093 match provenance, 0094 identity facet provenance, 0095 decider batches, 0096 libraries app, autotagger 0001 autotagger, autotagger 0002 decider models, books 0001 books. The autotagger and books tables are created on every install and stay empty until those are turned on.
+- **Books (in development):** epub, pdf and cbz libraries exist only behind `TAGAVE_DEV_APPS=books`. Leave it unset. ([75298d2](https://github.com/xooxoxxo/tagave/commit/75298d2))
+
+**All changes:** [v0.30.2...v0.31.0](https://github.com/xooxoxxo/tagave/compare/v0.30.2...v0.31.0)
+
+## [v0.30.2](https://github.com/xooxoxxo/tagave/releases/tag/v0.30.2) (2026-11-13)
 
 **Patch release (0.30.0 → 0.30.2).** The auto-hide sidebar opens between the top bar and the player bar, and the Drop pool sees folder changes at once. 0.30.1 was tagged but never published; this release carries its changes.
 

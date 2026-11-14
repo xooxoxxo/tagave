@@ -1,7 +1,7 @@
 {
   "name": "tagave",
   "private": true,
-  "version": "0.30.2",
+  "version": "0.31.0",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22.12"
