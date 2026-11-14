@@ -22,7 +22,7 @@ type CastShown = 'none' | 'available' | 'casting';
 type Glow = 'off' | 'beat' | 'still' | 'live';
 /** play in one place: another device plays (remote), or playback was handed here and waits for a tap */
 type DeviceShown = 'none' | 'remote' | 'tap';
-interface Args { state: BarState; compartmentOpen?: boolean; glow?: Glow; cast?: CastShown; device?: DeviceShown }
+interface Args { state: BarState; glow?: Glow; cast?: CastShown; device?: DeviceShown }
 
 const noop = () => undefined;
 const TRACK = COVERS.moody;
@@ -63,7 +63,7 @@ function Bar({ state, glow = 'off', cast = 'none', device = 'none' }: { state: B
   );
 }
 
-function InTheApp({ state, compartmentOpen = false, glow = 'off', cast = 'none', device = 'none' }: Args) {
+function InTheApp({ state, glow = 'off', cast = 'none', device = 'none' }: Args) {
   const dock = (
     <>
       {device !== 'none' && <DeviceStripView playingOn={device === 'remote' ? 'Safari on iPhone' : null} needsTap={device === 'tap'} onTap={noop} menu={{ onChoose: noop, devices: [{ id: 'mac', name: 'Chrome on Mac', here: true, playing: false }, { id: 'phone', name: 'Safari on iPhone', here: false, playing: true }] }} />}
@@ -71,7 +71,7 @@ function InTheApp({ state, compartmentOpen = false, glow = 'off', cast = 'none',
     </>
   );
   return (
-    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={dock}>
+    <DesktopFrame empty={state === 'empty'} dock={dock}>
       <Albums />
     </DesktopFrame>
   );
@@ -81,7 +81,7 @@ const meta = {
   title: 'Components/Player bar/Desktop',
   component: InTheApp,
   tags: ['!autodocs'],
-  args: { state: 'empty', compartmentOpen: false },
+  args: { state: 'empty' },
   argTypes: { state: { control: 'inline-radio', options: ['empty', 'paused', 'playing'] }, glow: { control: 'inline-radio', options: ['off', 'beat', 'still', 'live'] } },
   parameters: { layout: 'fullscreen' },
 } satisfies Meta<typeof InTheApp>;
@@ -94,7 +94,6 @@ const narrow = ['viewport-1000'];
 export const Empty: Story = { tags: wide };
 export const Paused: Story = { tags: wide, args: { state: 'paused' } };
 export const Playing: Story = { tags: wide, args: { state: 'playing' } };
-export const CompartmentOpen: Story = { tags: wide, args: { state: 'paused', compartmentOpen: true } };
 /** Equalizer glow on, held mid-beat (from the bar's right side, falling off to the left), and paused (off). */
 export const GlowPeak: Story = { name: 'Equalizer glow, mid-beat', tags: wide, args: { state: 'playing', glow: 'beat' } };
 export const GlowPaused: Story = { name: 'Equalizer glow, paused', tags: wide, args: { state: 'paused', glow: 'beat' } };
@@ -105,7 +104,6 @@ export const GlowLive: Story = { name: 'Equalizer glow, live demo beat', tags: [
 export const Empty1000: Story = { name: 'Empty, 1000', tags: narrow };
 export const Paused1000: Story = { name: 'Paused, 1000', tags: narrow, args: { state: 'paused' } };
 export const Playing1000: Story = { name: 'Playing, 1000', tags: narrow, args: { state: 'playing' } };
-export const CompartmentOpen1000: Story = { name: 'Compartment open, 1000', tags: narrow, args: { state: 'paused', compartmentOpen: true } };
 /** A cast device is there: the cast key beside the queue key. */
 export const CastAvailable: Story = { name: 'Cast, device there', tags: wide, args: { state: 'playing', cast: 'available' } };
 /** Casting: the key in the player's accent, the device beside it. */

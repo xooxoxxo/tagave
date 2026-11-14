@@ -5,6 +5,7 @@ import { SearchModal, type SearchScope } from './SearchModal';
 import { pageSearchScope } from '../utils/pageSearch';
 import { IconButton } from './ui';
 import { AccountCompartment, type CompartmentLink } from './AccountCompartment';
+import { SidebarAccount, type SidebarAccountLink } from './SidebarAccount';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
@@ -33,6 +34,9 @@ import { PEEK_QUERY, sidebarMode, useSidebarPeek } from './sidebarPeek';
 import { PeekMark, SidebarPin } from './SidebarPin';
 import styles from './Layout.module.css';
 
+/** The sidebar's width and up (Layout.module.css: max-width 900px is the tablet bar). */
+const WIDE_QUERY = '(min-width: 901px)';
+
 export function Layout() {
   const { data: user } = useMe();
   const { libraryId } = useCurrentLibrary();
@@ -53,6 +57,9 @@ export function Layout() {
   // Settings › Appearance › Sidebar: Always, or Auto-hide on a desktop (sidebarPeek.ts)
   const sidebar = sidebarMode({ sidebarAutoHide, sidebarPinned }, useMediaQuery(PEEK_QUERY));
   const peekOn = sidebar !== 'always';
+  // a desktop's sidebar: its foot lists the person's pages (SidebarAccount);
+  // the tablet bar and the phone's sheet keep the compartment
+  const wide = useMediaQuery(WIDE_QUERY);
   const focusPage = useCallback(() => main.current?.focus({ preventScroll: true }), []);
   const peek = useSidebarPeek(navRef, peekOn, sidebar === 'pinned', focusPage);
   const { hideNow } = peek;
@@ -170,6 +177,15 @@ export function Layout() {
       { key: 'plans', label: pageTitles['/plans'], current: pathname.startsWith('/plans'), onSelect: () => void navigate({ to: '/plans' }) },
     ] : []),
   ];
+  // The desktop sidebar's foot: Listening, the care pages, Settings last
+  // (owner, 2026-11-14: listed, not behind a press).
+  const listeningPath = '/settings/modules/player';
+  const accountPath = '/settings/account';
+  const sidebarLinks: SidebarAccountLink[] = [
+    { key: 'listening', label: 'Listening', href: listeningPath, current: pathname === listeningPath, onSelect: () => void navigate({ to: '/settings/modules/$module', params: { module: 'player' } }) },
+    ...careLinks.filter((l) => l.key !== 'settings').map((l) => ({ ...l, href: l.key === 'work' ? '/work?tab=review' : '/plans' })),
+    ...careLinks.filter((l) => l.key === 'settings').map((l) => ({ ...l, href: '/settings', current: !!l.current && pathname !== listeningPath && pathname !== accountPath })),
+  ];
   const backAct = back ? { label: backLabel, go: goBack } : null;
   const renderInlineBack = () => back && (
     <IconButton label={backLabel} variant="quiet" className={styles.inlineBack} onClick={goBack}>
@@ -234,7 +250,19 @@ export function Layout() {
       {peekOn && <SidebarPin pinned={sidebar === 'pinned'} onToggle={togglePin} />}
       {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
       <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />
-      {/* the signed-in person: a band on the bottom edge that opens a compartment above it */}
+      {/* the signed-in person. A desktop: the sidebar's foot, everything listed;
+          tablet and phone: a row that opens a compartment */}
+      {wide ? (
+        <SidebarAccount
+          name={user.displayName}
+          email={user.email}
+          links={sidebarLinks}
+          account={{ href: accountPath, current: pathname === accountPath, onSelect: () => void navigate({ to: '/settings/$section', params: { section: 'account' } }) }}
+          signingOut={logout.isPending}
+          signOutFailed={logout.isError}
+          onSignOut={() => { stopPlayback(); logout.mutate(); }}
+        />
+      ) : (
       <div className={styles.account} data-account-row="">
         {logout.isError && <p role="alert" className={styles.accountError}>Could not sign out. Please try again.</p>}
         <AccountCompartment
@@ -248,6 +276,7 @@ export function Layout() {
           onSignOut={() => { stopPlayback(); logout.mutate(); }}
         />
       </div>
+      )}
       </div>
     </aside>
   );
@@ -279,12 +308,13 @@ export function Layout() {
             </PageBackActionContext.Provider>
           </PageBackContext.Provider>
         </main>
-        {/* mounted once here, under the page: route changes never unmount the audio */}
-        <PlayerBar />
         {/* the theme first: switching to Adaptive takes its tokens off before the cover's go on */}
         <ThemeColours />
         <AdaptiveColour />
       </div>
+      {/* mounted once here, under the sidebar and the page, the window's
+          full width: route changes never unmount the audio */}
+      <div className={styles.playerRow}><PlayerBar /></div>
       {/* while the app is down for an update: a screen over the page, under the player */}
       <AppDownHost />
       {searchOpen && <SearchModal onClose={closeSearch} scope={searchScope} />}

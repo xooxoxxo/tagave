@@ -1,4 +1,9 @@
 /**
+ * Tablet and phone: the signed-in person (the tablet bar's corner, the
+ * foot of the phone's menu sheet) and the compartment it opens. A desktop's
+ * sidebar lists the same pages instead (SidebarAccount.tsx, owner
+ * 2026-11-14); the history below is how the compartment came about.
+ *
  * The signed-in person at the foot of the sidebar, and the compartment it
  * opens. The row (initial tile, name, address) is a band as tall as the
  * player bar and as wide as the sidebar, painted like the bar, so with

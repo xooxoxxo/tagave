@@ -1,8 +1,8 @@
 /*
  * The player bar (DESIGN.md: floating layers are glass, hairlines are 1px,
  * times are tabular, nothing moves at rest). It takes its own row at the
- * foot of the content column, so the page above it scrolls and is never
- * covered; on a phone it spans the screen and clears the home indicator.
+ * foot of the window, under the sidebar and the page, so the page above it
+ * scrolls and is never covered; on a phone it spans the screen and clears the home indicator.
  */
 .dock {
   flex: none;
@@ -28,7 +28,8 @@
   row-gap: var(--space-xs);
   min-height: 72px;
   padding: 10px var(--page-pad, 24px) calc(10px + env(safe-area-inset-bottom));
-  /* no rule on top: the bar and the sidebar's account row are one strip */
+  /* no rule on top: on a desktop the bar runs under the sidebar too, the
+     window's full width (Layout .playerRow) */
   background: var(--glass);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
   backdrop-filter: blur(var(--glass-blur)) saturate(1.3);

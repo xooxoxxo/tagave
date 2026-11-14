@@ -1,8 +1,8 @@
 /**
  * The app's desktop frame for stories: Layout's own classes, the real
- * AccountCompartment at the sidebar's foot, a page, and the player bar's
- * row under it. Like PlayerBar, it tells the page how tall the bar is
- * (--player-bar-h on <html>), so the account row shares the bar's top edge.
+ * SidebarAccount at the sidebar's foot, a page, and the player bar's row
+ * under both, the frame's full width. Like PlayerBar, it tells the page
+ * how tall the bar is (--player-bar-h on <html>).
  * Static: no router state, no queries. `sidebar` picks Settings ›
  * Appearance › Sidebar; with Auto-hide the frame runs the app's own
  * behaviour (sidebarPeek.ts), the pin included.
@@ -12,22 +12,22 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { PEEK_QUERY, sidebarMode, useSidebarPeek } from '../components/sidebarPeek';
 import { PeekMark, SidebarPin } from '../components/SidebarPin';
 import { BrandMark } from '../components/BrandMark';
-import { AccountCompartment } from '../components/AccountCompartment';
+import { SidebarAccount, type SidebarAccountLink } from '../components/SidebarAccount';
 import layout from '../components/Layout.module.css';
 import bar from '../components/PlayerBar.module.css';
 
 const noop = () => undefined;
-const careLinks = [
-  { key: 'settings', label: 'Settings', onSelect: noop },
-  { key: 'work', label: 'Library care', onSelect: noop },
-  { key: 'plans', label: 'Tag changes', onSelect: noop },
+const footLinks: SidebarAccountLink[] = [
+  { key: 'listening', label: 'Listening', href: '#', onSelect: noop },
+  { key: 'work', label: 'Library care', href: '#', onSelect: noop, count: 3, countLabel: 'open tasks' },
+  { key: 'plans', label: 'Tag changes', href: '#', onSelect: noop },
+  { key: 'settings', label: 'Settings', href: '#', onSelect: noop, dot: 'a new version is available' },
 ];
 
-export function DesktopFrame({ children, dock, empty = false, compartmentOpen = false, sidebar: pref = 'always', pinned: startPinned = false, revealed = false }: {
+export function DesktopFrame({ children, dock, empty = false, sidebar: pref = 'always', pinned: startPinned = false, revealed = false }: {
   children: ReactNode;
   dock: ReactNode;
   empty?: boolean;
-  compartmentOpen?: boolean;
   sidebar?: 'always' | 'autoHide';
   /** Auto-hide: pinned to begin with */
   pinned?: boolean;
@@ -83,9 +83,7 @@ export function DesktopFrame({ children, dock, empty = false, compartmentOpen = 
             {link('Physical collection')}
           </nav>
           {peekOn && <SidebarPin pinned={sidebar === 'pinned'} onToggle={togglePin} />}
-          <div className={layout.account} data-account-row="">
-            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} links={careLinks} />
-          </div>
+          <SidebarAccount name="Oytun" email="owner@example.com" links={footLinks} account={{ href: '#', onSelect: noop }} onSignOut={noop} />
         </div>
       </aside>
       {sidebar === 'peek' && <PeekMark />}
@@ -93,6 +91,8 @@ export function DesktopFrame({ children, dock, empty = false, compartmentOpen = 
         <main id="main-content" ref={mainRef} tabIndex={-1} className={layout.main}>
           <div className={layout.page}>{children}</div>
         </main>
+      </div>
+      <div className={layout.playerRow}>
         <div ref={ref} className={bar.dock} data-player-bar="" data-empty={empty ? '' : undefined}>{dock}</div>
       </div>
     </div>

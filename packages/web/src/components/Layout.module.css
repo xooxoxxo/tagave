@@ -51,15 +51,22 @@ not as a drop. */
 .navLink:hover { background: var(--mist); color: var(--ink); }
 .navLinkActive { composes: navLink; background: var(--dew-tint); color: var(--chip-on-ink); font-weight: 600; box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge); }
 .navLinkActive:hover { background: var(--dew-tint); color: var(--chip-on-ink); }
-/* The account (AccountCompartment): the sidebar's last row, no rule above
-   it, edge to edge across the sidebar like the player bar across the pane
-   (the row's height follows the bar, see the component's CSS). It stays on
-   the bottom edge: margin-top pushes it down, sticky keeps it there when an
-   open compartment makes a short window's sidebar scroll. */
+/* The account (AccountCompartment) on a tablet and in the phone's sheet;
+   a desktop's sidebar ends with SidebarAccount instead. */
 .account { position: sticky; bottom: 0; z-index: 1; flex: none; margin-top: auto; margin-inline: calc(-1 * var(--nav-pad-x)); display: flex; flex-direction: column; }
 .accountError { position: absolute; left: 1.25rem; right: 1.25rem; bottom: 100%; margin: 0; font-size: .8125rem; color: var(--danger); }
 .main { flex: 1; min-width: 0; overflow-y: auto; outline: none; }
 .contentArea { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* The player bar's row: under the page on a tablet or phone; on a desktop
+   under the sidebar and the page both, the window's full width, so the
+   sidebar always ends on the bar's top edge (owner, 2026-11-14). */
+.playerRow { flex: none; min-width: 0; }
+@media (min-width: 901px) {
+  .container { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .nav { grid-column: 1; grid-row: 1; min-height: 0; }
+  .contentArea { grid-column: 2; grid-row: 1; }
+  .playerRow { grid-column: 1 / -1; grid-row: 2; }
+}
 .page { min-height: 100%; }
 .page > div { width: 100%; }
 .page:has([data-virtual-page]) { height: 100%; }

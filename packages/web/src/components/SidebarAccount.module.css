@@ -1,0 +1,175 @@
+/* The desktop sidebar's foot (SidebarAccount.tsx): a quieter second list,
+   the theme, and the person on the last row. No card, no band: the
+   sidebar's own surface, one hairline over the person. It sits on the
+   sidebar's bottom edge (margin-top pushes it down) and stays there when a
+   short window's sidebar scrolls (sticky, on the sidebar's paint). */
+.root {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  flex: none;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  background: var(--bg-nav);
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* a link's pill (Layout .navLink), a step smaller and quieter */
+.link {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 1rem;
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+  font: 500 0.875rem / 1.25 var(--font-body);
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  transition: background-color var(--dur) ease, color var(--dur) ease;
+}
+.link:hover { background: var(--mist); color: var(--ink); }
+.linkCurrent {
+  composes: link;
+  font-weight: 600;
+}
+.linkCurrent,
+.linkCurrent:hover {
+  background: var(--dew-tint);
+  color: var(--chip-on-ink);
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
+}
+.link:focus { outline: none; }
+.link:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+
+.label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* open tasks on Library care: at the line's end */
+.count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  margin-left: auto;
+  padding: 0 0.35rem;
+  border-radius: var(--r-pill);
+  background: var(--mist-2);
+  color: var(--ink-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.linkCurrent .count { background: var(--surface); color: var(--chip-on-ink); }
+/* a new version on Settings */
+.dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: auto;
+  border-radius: var(--r-pill);
+  background: var(--dew);
+}
+
+/* the theme fills the line, three equal options, inset like the links' text */
+.appearance { display: flex; flex-direction: column; padding-inline: 0.25rem; }
+.appearance > [role="radiogroup"] { align-self: stretch; width: auto; display: grid; grid-template-columns: repeat(3, 1fr); }
+
+.error { margin: 0; padding-inline: 1rem; font-size: 0.8125rem; color: var(--danger); }
+
+/* the person: the last row, a hairline over it, edge to edge across the sidebar */
+.person {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline: calc(-1 * var(--nav-pad-x, 1.25rem));
+  padding: 0.625rem calc(var(--nav-pad-x, 1.25rem) - 0.5rem) 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--r-inner);
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background-color var(--dur) ease;
+}
+.who:hover { background: var(--mist); }
+.whoCurrent { composes: who; }
+.whoCurrent .sub { color: var(--chip-on-ink); font-weight: 600; }
+.who:focus { outline: none; }
+.who:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+
+/* the initial: a raised tile in the active link's tint */
+.tile {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-kbd);
+  background: var(--dew-tint);
+  color: var(--chip-on-ink);
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
+  font: 600 0.9375rem / 1 var(--font-body);
+}
+
+.text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.name, .sub { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name { font: 600 0.875rem / 1.25 var(--font-body); color: var(--ink); }
+.sub { font: 400 0.75rem / 1.25 var(--font-body); color: var(--ink-3); }
+
+/* Sign out: an embossed glyph, no circle (ui/EmbossIconButton's look); a
+   thin niche on hover, the ring on keyboard focus only */
+.signOut,
+.signOut:hover:not(:disabled),
+.signOut:active:not(:disabled) {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-inner);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+  transform: none;
+}
+.signOut svg { filter: drop-shadow(0 -0.5px 0 var(--emboss-hi)) drop-shadow(0 1px 1px var(--emboss-lo)); }
+@media (hover: hover) {
+  .signOut:hover:not(:disabled) { color: var(--danger); box-shadow: inset 0 0 0 1px var(--line); }
+}
+.signOut:active:not(:disabled) svg { opacity: 0.7; transform: translateY(1px); }
+.signOut:disabled { opacity: 0.5; }
+.signOut:focus { outline: none; }
+.signOut:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Auto-hide: the sidebar is glass over the page, and a painted foot would
+   show as a box on it; the foot takes no paint and scrolls with the links
+   on a short window */
+:global([data-sidebar='peek']) .root { position: relative; background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .link, .who { transition: none; }
+}
+@media (forced-colors: active) {
+  .tile { border: 1px solid ButtonText; }
+  .dot { background: Highlight; }
+  .link:focus-visible, .who:focus-visible, .signOut:focus-visible { outline: 2px solid Highlight; }
+}
