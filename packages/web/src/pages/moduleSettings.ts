@@ -13,6 +13,7 @@ export interface ModulePageEntry {
 
 export const MODULE_PAGES: readonly ModulePageEntry[] = [
   { slug: 'player', id: 'player', name: 'Player' },
+  { slug: 'autotagger', id: 'autotagger', name: 'Autotagger' },
   { slug: 'dj', id: 'dj', name: 'DJ' },
   { slug: 'lidarr', id: 'lidarr', name: 'Lidarr' },
   { slug: 'listen-elsewhere', id: 'listen-links', name: 'Listen elsewhere' },

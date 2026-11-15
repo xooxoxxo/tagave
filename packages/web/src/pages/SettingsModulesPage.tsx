@@ -34,6 +34,8 @@ import { useDjModule, useRemoveDjData, useSetDjModule } from '../hooks/useDjModu
 import { docsUrl } from '../utils/docs';
 import { allPlaylistsExportUrl, download, usePlaylistsModule, useRemovePlaylistsData, useSetPlaylistsModule } from '../hooks/usePlaylists';
 import { useBooksModule, useSetBooksModule } from '../hooks/useBooks';
+import { useAutotaggerModule, useRemoveAutotaggerData, useSetAutotaggerModule } from '../hooks/useAutotagger';
+import { SettingsAutotaggerContent } from './SettingsAutotagger';
 import { getStepUp } from '../services/stepUp';
 import { DEV_APP_PAGES, MODULE_PAGES, moduleSlug, type ModulePageEntry } from './moduleSettings';
 import { SettingsConnectionsContent } from './SettingsConnectionsPage';
@@ -680,6 +682,25 @@ function DjSwitch() {
   );
 }
 
+function AutotaggerSwitch() {
+  const mod = useAutotaggerModule();
+  const setOn = useSetAutotaggerModule();
+  const remove = useRemoveAutotaggerData();
+  if (!mod.data) return null;
+  const v = mod.data;
+  return (
+    <SettingSwitch
+      name="Autotagger"
+      on={v.enabled}
+      meta={`${plural(v.runs, 'run', 'runs')} · ${plural(v.decisions, 'decision', 'decisions')}`}
+      pending={setOn.isPending || remove.isPending}
+      kept="runs, decisions, spot checks, models, prices, settings, key"
+      setOn={(on) => setOn.mutateAsync(on)}
+      removeData={() => remove.mutateAsync()}
+    />
+  );
+}
+
 /** Books, an app in development: Off | On (owner, step-up). Its data stays when it is off. */
 function BooksSwitch() {
   const mod = useBooksModule();
@@ -779,6 +800,9 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
     case 'playlists':
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<PlaylistsSwitch /></>;
+    case 'autotagger':
+      if (!owner) return <NotAvailable inline />;
+      return <>{heading}<AutotaggerSwitch />{on && <SettingsAutotaggerContent />}</>;
     case 'similar-artists':
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<SimilarSwitch /></>;
