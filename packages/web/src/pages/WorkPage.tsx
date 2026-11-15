@@ -20,6 +20,7 @@ import { ReviewPanel } from './QueuePage';
 import { IdentifyPanel } from './IdentifyPage';
 import { AttentionPanel } from './AttentionPage';
 import { TasksPanel } from './TasksPage';
+import { AutotaggerPanel } from './review/AutotaggerPanel';
 import { identifyTodoCount } from './identifyCounts';
 
 interface QueueData {
@@ -34,6 +35,10 @@ export function WorkPage() {
   const owner = useCan('system.manage');
   // albums asked of Lidarr: the owner's, while the lidarr module is on
   const lidarrOn = useModuleOn('lidarr');
+  // the autotagger: anyone who may edit the library, while the module is on
+  const editor = useCan('library.edit');
+  const autotaggerOn = useModuleOn('autotagger');
+  const autotagger = editor && autotaggerOn === true;
   const getting = owner && lidarrOn === true;
   const activeTab = tab || 'review';
 
@@ -94,12 +99,13 @@ export function WorkPage() {
       ...(owner ? [{ label: 'Organize', value: 'organize' }] : []),
       ...(owner ? [{ label: 'Inbox', value: 'inbox', ...(inboxCount > 0 && { count: inboxCount }) }] : []),
       ...(getting ? [{ label: 'Getting', value: 'getting' }] : []),
+      ...(autotagger ? [{ label: 'Autotagger', value: 'autotagger' }] : []),
     ],
-    [queueCount, identifyCount, attentionTotal, taskCount, owner, getting, inboxCount],
+    [queueCount, identifyCount, attentionTotal, taskCount, owner, getting, inboxCount, autotagger],
   );
 
   const handleTabChange = (newTab: string) => {
-    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'organize' | 'inbox' | 'getting' } });
+    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'organize' | 'inbox' | 'getting' | 'autotagger' } });
   };
 
   const renderPanel = () => {
@@ -120,6 +126,8 @@ export function WorkPage() {
         return owner ? <InboxPanel /> : <ReviewPanel />;
       case 'getting':
         return getting ? <GettingPanel /> : <ReviewPanel />;
+      case 'autotagger':
+        return autotagger ? <AutotaggerPanel /> : <ReviewPanel />;
       default:
         return <ReviewPanel />;
     }

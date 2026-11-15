@@ -41,10 +41,10 @@ import { MOVED_SECTIONS } from './pages/moduleSettings';
  */
 function parseWorkSearch(search: Record<string, unknown>) {
   const tab = search.tab as string | undefined;
-  if (tab && !['review', 'identify', 'attention', 'tasks', 'deleting', 'moved', 'organize', 'inbox', 'getting'].includes(tab)) {
+  if (tab && !['review', 'identify', 'attention', 'tasks', 'deleting', 'moved', 'organize', 'inbox', 'getting', 'autotagger'].includes(tab)) {
     throw new Error(`Invalid work tab: ${tab}`);
   }
-  return { tab: (tab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'organize' | 'inbox' | 'getting' | undefined) ?? 'review' };
+  return { tab: (tab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'organize' | 'inbox' | 'getting' | 'autotagger' | undefined) ?? 'review' };
 }
 
 // Root route - handles auth redirection

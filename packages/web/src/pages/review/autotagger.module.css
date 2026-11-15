@@ -1,0 +1,323 @@
+/* Library care › Autotagger (layout B · Steps): the step strip, the open
+   step, the spot-check card beside the gates, the accept dialog and the
+   past runs and batches. See AutotaggerPanel.tsx. Flat surfaces, hairlines,
+   the dew accent only on the current step and the primary drop. */
+
+.panel {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+  padding-bottom: var(--space-2xl);
+}
+
+/* ---- the step strip ------------------------------------------------- */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  background: var(--mist);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+.step:hover { background: var(--mist-2); }
+.step:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.step[aria-current='step'] {
+  background: var(--dew-tint);
+  border-color: var(--dew);
+}
+
+.stepTitle {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.stepValue {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.step[data-status='done'] .stepValue { color: var(--ink-2); }
+.stepSub {
+  font-size: var(--font-size-xs);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* ---- a step's body: label · value lines, actions -------------------- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-md);
+  min-width: 0;
+}
+.sectionTitle { margin: 0; font-size: var(--font-size-base); font-weight: 600; color: var(--ink); }
+
+.values {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--space-sm) var(--space-lg);
+  margin: 0;
+  min-width: 0;
+}
+.values > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.values dt { font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
+.values dd { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.error { margin: 0; color: var(--danger); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.muted { color: var(--ink-2); font-size: var(--font-size-sm); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* a small table of figures (held-out per band, agreement, past runs) */
+.figures { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; }
+.figures th {
+  padding: var(--space-xs) var(--space-sm) var(--space-xs) 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  text-align: left;
+  white-space: nowrap;
+}
+.figures td { padding: var(--space-sm) var(--space-sm) var(--space-sm) 0; border-top: 1px solid var(--line); color: var(--ink); }
+.figuresWrap { overflow-x: auto; min-width: 0; }
+
+/* ---- the payload preview -------------------------------------------- */
+
+.payload {
+  margin: 0;
+  max-height: 22rem;
+  overflow: auto;
+  padding: var(--space-md);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  background: var(--mist);
+  color: var(--ink);
+  font: 400 13px / 1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- the spot check: the card beside the gates ---------------------- */
+
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 17.5rem;
+  gap: var(--space-xl);
+  align-items: start;
+  min-width: 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+  padding: var(--space-xl);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.cardBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-md);
+}
+.position { color: var(--ink-2); font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; }
+
+.album { display: flex; align-items: center; gap: var(--space-md); min-width: 0; }
+.cover { flex: none; width: 4.5rem; }
+.albumText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.albumTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 300;
+  line-height: 1.2;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.albumMeta { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.tracklists { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-lg); min-width: 0; }
+.tracklist { display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.tracklistHead {
+  margin: 0 0 var(--space-xs);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.track {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+  font-size: var(--font-size-sm);
+  color: var(--ink);
+}
+.trackNo, .trackLength { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.trackTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.edition { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+
+.verdicts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-sm); }
+.verdicts > button { width: 100%; }
+.kbd {
+  display: inline-block;
+  min-width: 1.4rem;
+  margin-left: var(--space-xs);
+  padding: 1px 6px;
+  border-radius: var(--r-kbd);
+  border: 1px solid var(--line-strong);
+  font: 500 12px / 1.3 var(--font-mono);
+  color: var(--ink-2);
+  text-align: center;
+}
+
+.empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-md); }
+.emptyValue { margin: 0; font-size: var(--font-size-lg); color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ---- the gates panel ------------------------------------------------ */
+
+.side { display: flex; flex-direction: column; gap: var(--space-md); min-width: 0; }
+.side > a, .side > button { width: 100%; }
+
+.gates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  background: var(--mist);
+}
+.gatesTitle { margin: 0 0 var(--space-xs); font-size: var(--font-size-sm); font-weight: 600; color: var(--ink); }
+.gateRow { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr) 7.75rem; align-items: center; gap: var(--space-sm); font-size: var(--font-size-sm); }
+.gateRow > :last-child { justify-self: end; }
+.gateBand { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.meter {
+  position: relative;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--line);
+}
+.meterFill { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); background: var(--ink-3); }
+.meter[data-open] .meterFill { background: var(--dew); }
+.meterLine { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: var(--r-pill); background: var(--ink-2); }
+
+/* ---- the accept step: one row per band ------------------------------ */
+
+.bands { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); min-width: 0; }
+.band {
+  display: grid;
+  grid-template-columns: 3.5rem repeat(4, minmax(4.5rem, 1fr)) minmax(7rem, auto) minmax(8rem, auto);
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.band.bandHead { border-bottom: 0; padding-bottom: 0; }
+.bandHead > span { font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
+.bandName { font-weight: 600; color: var(--ink); }
+.cellLabel { display: none; }
+.bandAction { justify-self: end; }
+
+/* ---- the accept dialog ---------------------------------------------- */
+
+.dialogBody { display: flex; flex-direction: column; gap: var(--space-md); min-width: 0; }
+.list { margin: 0; padding-left: 1.1rem; color: var(--ink); font-size: var(--font-size-sm); }
+.list li + li { margin-top: 2px; }
+
+/* ---- past runs and batches ------------------------------------------ */
+
+.runRow { cursor: pointer; }
+.runRow:hover td { background: var(--mist); }
+.runRow[data-current] td { background: var(--dew-tint); }
+.runPick { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--r-kbd); }
+.runPick:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.batches { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); min-width: 0; }
+.batch { display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-md) 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.batchHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-sm) var(--space-md); min-width: 0; }
+.batchName { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-xs) var(--space-sm); min-width: 0; font-weight: 600; color: var(--ink); }
+.batchDate { font-weight: 400; color: var(--ink-2); font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; }
+.batchCounts { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; }
+.batchDetail { display: flex; flex-direction: column; gap: var(--space-md); padding: var(--space-md); border: 1px solid var(--line); border-radius: var(--r-inner); background: var(--mist); }
+.items { margin: 0; padding: 0; list-style: none; }
+.items li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) var(--space-md); padding: 4px 0; border-top: 1px solid var(--line); font-size: var(--font-size-sm); color: var(--ink); }
+.items li > span:last-child { color: var(--ink-2); }
+
+/* ---- narrow: by the panel's own width (the sidebar takes its share) ---- */
+
+@container (max-width: 760px) {
+  .stage { grid-template-columns: minmax(0, 1fr); }
+}
+
+@container (max-width: 680px) {
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .card { padding: var(--space-lg); gap: var(--space-md); }
+  .tracklists { grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
+  .band.bandHead { display: none; }
+  .band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-xs) var(--space-md);
+  }
+  .bandName { grid-column: 1 / -1; font-size: var(--font-size-base); }
+  .cellLabel { display: inline; color: var(--ink-2); margin-right: var(--space-xs); }
+  .bandAction { justify-self: start; }
+  /* no keyboard on a phone: the verdict keys make room for the labels */
+  .kbd { display: none; }
+  .verdicts { gap: var(--space-xs); }
+  .verdicts > button { min-width: 0; padding-inline: var(--space-sm); }
+  .figures th { letter-spacing: .06em; padding-right: var(--space-xs); }
+  .figures td { padding-right: var(--space-xs); }
+}
