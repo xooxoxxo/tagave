@@ -77,6 +77,7 @@ const MoveSheet = lazy(() => import('../components/MoveSheet').then((m) => ({ de
 const MaintenanceSheet = lazy(() => import('./MaintenanceSheet').then((m) => ({ default: m.MaintenanceSheet })));
 import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
+import { ProvenanceLine, provenanceOf } from '../components/ProvenanceLine';
 import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, releaseYear, shortFormat, wantsFiller } from './albumFlow';
 import { ALBUM_WIDGETS, type AlbumWidgetId } from './albumWidgets';
 import { useAlbumFlow } from './useAlbumFlow';
@@ -944,7 +945,11 @@ export function AlbumDetailPage() {
     ['Physical copy', ownsPhysical ? album.discogsCollectionItems!.map((i) => [i.format, i.folder, i.mediaCondition && `media ${i.mediaCondition}`, i.sleeveCondition && `sleeve ${i.sleeveCondition}`, i.pushState === 'pending' ? 'adding to Discogs…' : i.pushState === 'failed' ? `failed: ${i.pushError}` : null].filter(Boolean).join(' · ')).join('; ') : null],
     ['Local folder', album.dirPaths?.length ? <AlbumFolders folders={album.folders ?? album.dirPaths.map((path) => ({ path, scanRootId: null, link: null }))} /> : null],
     ...(maintenance ? [
-      ['Identification', album.match ? `${album.match.decidedBy === 'system' ? 'Automatic match' : 'Matched by you'}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}` : 'No release matched'] as [string, ReactNode],
+      ['Identification', album.match
+        ? provenanceOf(album.match)
+          ? <ProvenanceLine match={album.match} />
+          : `${album.match.decidedBy === 'system' ? 'Automatic match' : 'Matched by you'}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}`
+        : 'No release matched'] as [string, ReactNode],
       ['Artwork source', album.coverOrigin ?? null] as [string, ReactNode],
     ] : []),
     ['CUE sheet', album.isCueImage ? album.cueRelPath || 'CUE image album' : null],
@@ -1479,6 +1484,12 @@ export function AlbumDetailPage() {
             <section className={styles.plainSection}>
               <h2 className={styles.sectionTitle}>What is going on with this album</h2>
               <dl className={styles.activity}>
+                {provenanceOf(album.match) && (
+                  <>
+                    <dt>Decided</dt>
+                    <dd><ProvenanceLine match={album.match} /></dd>
+                  </>
+                )}
                 <dt>Identification</dt>
                 <dd>
                   {requestLive && request
