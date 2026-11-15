@@ -80,7 +80,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const phone: Pick<Story, 'tags' | 'globals'> = { tags: ['phone', 'shot-full'], globals: { viewport: { value: 'phone' } } };
+/** tags inline on each story: the indexer reads them statically */
+const phone: Pick<Story, 'globals'> = { globals: { viewport: { value: 'phone' } } };
 
 /** The main event: a pending check of the 97% band beside the gates (99% open). */
 export const SpotCheck: Story = {};
@@ -122,11 +123,11 @@ export const PastRunsAndBatches: Story = { args: { history: true, batchDetail: B
 
 export const Off: Story = { args: { enabled: false } };
 
-export const PhoneSpotCheck: Story = { ...phone };
-export const PhoneGatesOpen: Story = { ...phone, args: { step: 'accept' } };
-export const PhoneRunning: Story = { ...phone, args: { library: LIBRARY_JEV, run: runPaused('cap_reached'), bands: null } };
+export const PhoneSpotCheck: Story = { ...phone, tags: ['phone', 'shot-full'] };
+export const PhoneGatesOpen: Story = { ...phone, tags: ['phone', 'shot-full'], args: { step: 'accept' } };
+export const PhoneRunning: Story = { ...phone, tags: ['phone', 'shot-full'], args: { library: LIBRARY_JEV, run: runPaused('cap_reached'), bands: null } };
 export const PhoneAcceptDialog: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { step: 'accept', accept: ACCEPT_PREVIEW, onDrainFaster: noop } };
-export const PhoneBatches: Story = { ...phone, args: { history: true, batchDetail: BATCH_DETAIL } };
+export const PhoneBatches: Story = { ...phone, tags: ['phone', 'shot-full'], args: { history: true, batchDetail: BATCH_DETAIL } };
 
 /** Settings › Modules › Autotagger, under its Off | On. */
 export const Settings: Story = {
@@ -135,7 +136,7 @@ export const Settings: Story = {
 export const SettingsNoKey: Story = {
   render: () => <><h2>Autotagger</h2><AutotaggerSettingsView module={{ ...MODULE, prices: [] }} library={LIBRARY_NO_KEY} agreement={{ backtest: null, queue: [] }} onDecider={noop} onSave={noop} onKey={noop} onPrice={noop} onDeletePrice={noop} /></>,
 };
-export const SettingsPhone: Story = { ...phone, render: Settings.render! };
+export const SettingsPhone: Story = { ...phone, tags: ['phone', 'shot-full'], render: Settings.render! };
 
 /** The album page's line: who decided the match. */
 export const Provenance: Story = {
