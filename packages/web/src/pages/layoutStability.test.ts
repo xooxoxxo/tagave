@@ -116,14 +116,18 @@ describe('page shells', () => {
     expect(rule(read('../components/ui/SegmentedControl.module.css'), '.track')).toMatch(/align-self:\s*flex-start/);
   });
 
-  it('the account row: no rule above it, edge to edge across the sidebar, on the bottom edge', () => {
-    const layout = read('../components/Layout.module.css');
-    const account = rule(layout, '.account');
-    expect(account).not.toMatch(/border/);
-    // it spans exactly the sidebar's padding, nothing more
-    expect(account).toMatch(/margin-inline: calc\(-1 \* var\(--nav-pad-x\)\)/);
-    expect(account).toMatch(/margin-top: auto/);
-    expect(source('../components/Layout.tsx')).toMatch(/<AccountCompartment/);
+  it('the sidebar starts with the identity row; the account pieces are gone', () => {
+    const tsx = source('../components/Layout.tsx');
+    expect(tsx).toMatch(/<IdentityRow/);
+    expect(tsx).not.toMatch(/SidebarAccount|AccountCompartment/);
+    // nothing sticks to the sidebar's foot any more
+    expect(rule(read('../components/Layout.module.css'), '.account')).toBe('');
+  });
+
+  it('the theme switch is not in the sidebar', () => {
+    const tsx = source('../components/Layout.tsx');
+    expect(tsx).not.toMatch(/ThemeSwitch/);
+    expect(tsx).not.toMatch(/useThemePreference/);
   });
 
   it('the desktop sidebar is there by default; Auto-hide is one implementation, chosen in Settings', () => {
@@ -135,9 +139,8 @@ describe('page shells', () => {
     expect(tsx.match(/<aside/g)).toHaveLength(1);
     expect(tsx).toMatch(/useSidebarPeek\(navRef/);
     expect(source('./SettingsPage.tsx')).toMatch(/label="Sidebar"[^\n]*label: 'Always'[^\n]*label: 'Auto-hide'/);
-    // the sidebar scrolls as one column, the account row sticks to its foot
+    // the sidebar scrolls as one column, nothing held at its foot
     expect(rule(read('../components/Layout.module.css'), '.nav')).toMatch(/overflow-y: auto/);
-    expect(rule(read('../components/Layout.module.css'), '.account')).toMatch(/position: sticky/);
   });
 
   it('Auto-hide lays out only on a desktop with a hovering pointer, by transform, and still under reduced motion', () => {

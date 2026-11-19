@@ -4,8 +4,8 @@ import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan
 import { SearchModal, type SearchScope } from './SearchModal';
 import { pageSearchScope } from '../utils/pageSearch';
 import { IconButton } from './ui';
-import { AccountCompartment, type CompartmentLink } from './AccountCompartment';
-import { SidebarAccount, type SidebarAccountLink } from './SidebarAccount';
+import { IdentityRow } from './IdentityRow';
+import { identityDot, sidebarNav } from './navModel';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
@@ -13,7 +13,7 @@ import { PageBackActionContext, PageBackContext } from './ui/PageShell';
 import { backAction, parentLabel, parentPath } from '../utils/backNav';
 import { trackPlaces, useEntry, useScrollPlace } from '../utils/listPlace';
 import { useAppBarTitle, useSubpage } from './appBarTitle';
-import { pageTitle, pageTitles } from '../utils/pageTitles';
+import { pageTitle } from '../utils/pageTitles';
 import { BrandMark } from './BrandMark';
 import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
@@ -34,8 +34,6 @@ import { PEEK_QUERY, sidebarMode, useSidebarPeek } from './sidebarPeek';
 import { PeekMark, SidebarPin } from './SidebarPin';
 import styles from './Layout.module.css';
 
-/** The sidebar's width and up (Layout.module.css: max-width 900px is the tablet bar). */
-const WIDE_QUERY = '(min-width: 901px)';
 
 export function Layout() {
   const { data: user } = useMe();
@@ -43,9 +41,12 @@ export function Layout() {
   const { pathname } = useLocation();
   const logout = useLogout();
   const [searchOpen, setSearchOpen] = useState(false);
-  // Phone only: the links and the account live behind one menu button.
+  // Phone only: the sidebar (identity row, Browse, Care) lives behind one menu button.
   const [menuOpen, setMenuOpen] = useState(false);
+  // search: in the sidebar (beside the wordmark or below the identity row),
+  // and on a phone a key in the bar
   const searchButton = useRef<HTMLButtonElement>(null);
+  const barSearchButton = useRef<HTMLButtonElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const main = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -57,9 +58,6 @@ export function Layout() {
   // Settings › Appearance › Sidebar: Always, or Auto-hide on a desktop (sidebarPeek.ts)
   const sidebar = sidebarMode({ sidebarAutoHide, sidebarPinned }, useMediaQuery(PEEK_QUERY));
   const peekOn = sidebar !== 'always';
-  // a desktop's sidebar: its foot lists the person's pages (SidebarAccount);
-  // the tablet bar and the phone's sheet keep the compartment
-  const wide = useMediaQuery(WIDE_QUERY);
   const focusPage = useCallback(() => main.current?.focus({ preventScroll: true }), []);
   const peek = useSidebarPeek(navRef, peekOn, sidebar === 'pinned', focusPage);
   const { hideNow } = peek;
@@ -80,10 +78,10 @@ export function Layout() {
   const likesOn = useLikesOn();
   useJobEvents(user && libraryId && canCare ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
-  // (inside the account compartment; a dot on its row while it is closed)
   const taskCount = useGapCounts(user && canCare ? libraryId : undefined).data?.tasks?.todo ?? 0;
-  // a newer release (not skipped) shows as a quiet dot on Settings (same)
+  // a newer release (not skipped) shows as a quiet dot on the monogram (the owner's)
   const updateAvailable = useUpdateAvailable(user && canSystem ? libraryId : undefined);
+  const dot = identityDot({ owner: canSystem, updateAvailable });
   // While albums are selected, "Albums" leads back to that list, selection intact.
   const albumsReturnSearch = useAlbumsReturnSearch();
 
@@ -135,7 +133,11 @@ export function Layout() {
 
   if (!user) return <Outlet />;
   const linkClass = (active: boolean) => active ? styles.navLinkActive : styles.navLink;
-  const closeSearch = () => { setSearchOpen(false); searchButton.current?.focus(); };
+  // focus goes back to whichever search key is on screen
+  const closeSearch = () => {
+    setSearchOpen(false);
+    [barSearchButton.current, searchButton.current].find((b) => b && b.offsetParent !== null)?.focus();
+  };
   // a list page (Albums, Artists): the search narrows its list first
   const listScope = pageSearchScope(pathname);
   const searchScope: SearchScope | null = listScope && {
@@ -168,24 +170,17 @@ export function Layout() {
   // Maintenance changes the album and artist pages, so its key lives in
   // their own header; elsewhere a pill says it is on.
   const onAlbumPage = /^\/(albums|artists)\/[^/]+/.test(pathname);
-  // Looking after the library lives with the account, under the person
-  // (owner, 2026-10-28); the sidebar keeps the places to browse.
-  const careLinks: CompartmentLink[] = [
-    { key: 'settings', label: pageTitles['/settings'], current: pathname.startsWith('/settings') || pathname.startsWith('/jobs'), onSelect: () => void navigate({ to: '/settings' }), ...(updateAvailable ? { dot: 'a new version is available' } : {}) },
-    ...(canCare ? [
-      { key: 'work', label: pageTitles['/work'], current: ['/work', '/queue', '/identify', '/attention'].some((p) => pathname.startsWith(p)), onSelect: () => void navigate({ to: '/work', search: { tab: 'review' } }), count: taskCount, countLabel: `open ${taskCount === 1 ? 'task' : 'tasks'}` },
-      { key: 'plans', label: pageTitles['/plans'], current: pathname.startsWith('/plans'), onSelect: () => void navigate({ to: '/plans' }) },
-    ] : []),
-  ];
-  // The desktop sidebar's foot: Listening, the care pages, Settings last
-  // (owner, 2026-11-14: listed, not behind a press).
-  const listeningPath = '/settings/modules/player';
-  const accountPath = '/settings/account';
-  const sidebarLinks: SidebarAccountLink[] = [
-    { key: 'listening', label: 'Listening', href: listeningPath, current: pathname === listeningPath, onSelect: () => void navigate({ to: '/settings/modules/$module', params: { module: 'player' } }) },
-    ...careLinks.filter((l) => l.key !== 'settings').map((l) => ({ ...l, href: l.key === 'work' ? '/work?tab=review' : '/plans' })),
-    ...careLinks.filter((l) => l.key === 'settings').map((l) => ({ ...l, href: '/settings', current: !!l.current && pathname !== listeningPath && pathname !== accountPath })),
-  ];
+  // The sidebar: Browse for everyone, Care for those who look after the
+  // library (navModel.ts); the person's pages sit in the identity row's menu.
+  const { browse, care } = sidebarNav({ pathname, canCare, taskCount, modules: { playlists: playlistsOn, likes: likesOn, books: booksOn } });
+  const searchKey = (ref: typeof searchButton, place: string) => (
+    <button ref={ref} type="button" className={`${styles.searchButton} ${place}`} onClick={() => setSearchOpen(true)} aria-haspopup="dialog" aria-label="Search your library">
+      <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+      <span className={styles.searchLabel}>Search</span> <kbd>⌘ K</kbd>
+    </button>
+  );
+  const sideSearch = searchKey(searchButton, styles.sideSearch ?? '');
+  const beside = searchPlacement === 'beside';
   const backAct = back ? { label: backLabel, go: goBack } : null;
   const renderInlineBack = () => back && (
     <IconButton label={backLabel} variant="quiet" className={styles.inlineBack} onClick={goBack}>
@@ -207,20 +202,13 @@ export function Layout() {
           <span className={`${styles.barTitle} ${styles.barTitleShown}`} aria-hidden="true">{subpage.title}</span>
         </div>
       )}
-      <div className={searchPlacement === 'beside' ? styles.brandRowBeside : styles.brandRow}>
+      {/* phone: the bar's mark (the sidebar's identity row is in the sheet) */}
       <Link to="/" className={styles.brand} aria-label="tagave">
         <BrandMark className={styles.brandMark} />
-        {showWordmark && <span className={styles.wordmark}>tagave</span>}
       </Link>
       {/* the page's own heading names it for a screen reader */}
       {title && <span className={styles.pageTitle} aria-hidden="true">{title}</span>}
-      <div className={styles.tools}>
-      <button ref={searchButton} className={styles.searchButton} onClick={() => setSearchOpen(true)} aria-haspopup="dialog" aria-label="Search your library">
-        <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-        <span className={styles.searchLabel}>Search</span> <kbd>⌘ K</kbd>
-      </button>
-      </div>
-      </div>
+      {searchKey(barSearchButton, styles.barSearch ?? '')}
       {onAlbumPage ? null : <MaintenancePill className={styles.modePill} />}
       <button
         ref={menuButton}
@@ -228,55 +216,59 @@ export function Layout() {
         className={styles.menuButton}
         aria-expanded={menuOpen}
         aria-controls="main-navigation"
-        aria-label={menuOpen ? 'Close menu' : updateAvailable ? 'Open menu (a new version is available)' : 'Open menu'}
+        aria-label={menuOpen ? 'Close menu' : dot ? `Open menu (${dot})` : 'Open menu'}
         onClick={() => setMenuOpen((open) => !open)}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
           {menuOpen ? <path d="M6 6l12 12M18 6 6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
         </svg>
-        {updateAvailable && !menuOpen && <span className={styles.menuDot} aria-hidden="true" />}
+        {dot && !menuOpen && <span className={styles.menuDot} aria-hidden="true" />}
       </button>
       <div id="main-navigation" className={styles.navSheet}>
-      <nav className={styles.navLinks} aria-label="Main navigation">
-        <Link to="/" className={linkClass(pathname === '/')}>{pageTitles['/']}</Link>
-        <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>{pageTitles['/albums']}</Link>
-        <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>{pageTitles['/artists']}</Link>
-        <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>{pageTitles['/collection']}</Link>
-        {playlistsOn && <Link to="/playlists" className={`${linkClass(pathname.startsWith('/playlists'))} ${styles.wideOnly}`}>{pageTitles['/playlists']}</Link>}
-        {likesOn && <Link to="/liked" className={linkClass(pathname.startsWith('/liked'))}>{pageTitles['/liked']}</Link>}
-        {booksOn && <Link to="/books" className={linkClass(pathname.startsWith('/books'))}>{pageTitles['/books']}</Link>}
-      </nav>
-      {/* Auto-hide on a desktop: keep it in place (or ⌘\) */}
-      {peekOn && <SidebarPin pinned={sidebar === 'pinned'} onToggle={togglePin} />}
-      {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
-      <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />
-      {/* the signed-in person. A desktop: the sidebar's foot, everything listed;
-          tablet and phone: a row that opens a compartment */}
-      {wide ? (
-        <SidebarAccount
+      <div className={styles.identity}>
+        <IdentityRow
           name={user.displayName}
           email={user.email}
-          links={sidebarLinks}
-          account={{ href: accountPath, current: pathname === accountPath, onSelect: () => void navigate({ to: '/settings/$section', params: { section: 'account' } }) }}
+          showWordmark={showWordmark}
+          {...(beside ? { search: sideSearch } : {})}
+          canCare={canCare}
+          dot={dot}
+          onNavigate={(to) => void navigate({ to: to as never })}
           signingOut={logout.isPending}
           signOutFailed={logout.isError}
           onSignOut={() => { stopPlayback(); logout.mutate(); }}
         />
-      ) : (
-      <div className={styles.account} data-account-row="">
-        {logout.isError && <p role="alert" className={styles.accountError}>Could not sign out. Please try again.</p>}
-        <AccountCompartment
-          name={user.displayName}
-          email={user.email}
-          signingOut={logout.isPending}
-          closeKey={pathname}
-          onAccount={() => void navigate({ to: '/settings/$section', params: { section: 'account' } })}
-          onListening={() => void navigate({ to: '/settings/modules/$module', params: { module: 'player' } })}
-          links={careLinks}
-          onSignOut={() => { stopPlayback(); logout.mutate(); }}
-        />
       </div>
+      {!beside && <div className={styles.tools}>{sideSearch}</div>}
+      <nav className={styles.navLinks} aria-label="Main navigation">
+        {browse.map((item) => (
+          <Link
+            key={item.key}
+            to={item.to as never}
+            // while albums are selected, Albums leads back to that list
+            {...(item.key === 'albums' && albumsReturnSearch ? { search: albumsReturnSearch as never } : {})}
+            // phone: the sheet lists the playlists themselves (MenuPlaylists)
+            className={item.key === 'playlists' ? `${linkClass(item.current)} ${styles.wideOnly}` : linkClass(item.current)}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
+      {care.length > 0 && (
+        <nav className={styles.navGroup} aria-labelledby="nav-care">
+          <h2 id="nav-care" className={styles.navGroupLabel}>Care</h2>
+          {care.map((item) => (
+            <Link key={item.key} to={item.to as never} {...(item.search ? { search: item.search as never } : {})} className={linkClass(item.current)}>
+              <span className={styles.navLabel}>{item.label}</span>
+              {!!item.count && <span className={styles.navCount}><span className={styles.srOnly}>, </span>{item.count}<span className={styles.srOnly}> {item.countLabel}</span></span>}
+            </Link>
+          ))}
+        </nav>
       )}
+      {/* Auto-hide on a desktop: keep it in place (or ⌘\) */}
+      {peekOn && <SidebarPin pinned={sidebar === 'pinned'} onToggle={togglePin} />}
+      {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
+      <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />
       </div>
     </aside>
   );

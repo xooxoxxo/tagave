@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { mainPageOf, pageTitle, pageTitles } from './pageTitles';
 import { parentLabel } from './backNav';
+import { identityMenu, sidebarNav } from '../components/navModel';
 
 describe('page titles (phone top bar)', () => {
   it('names every main page', () => {
@@ -29,11 +30,17 @@ describe('page titles (phone top bar)', () => {
   });
 
   it('is the one source of the sidebar labels and the back button names', () => {
-    const layout = readFileSync(new URL('../components/Layout.tsx', import.meta.url), 'utf8');
+    // Layout renders what navModel lists (the sidebar) and IdentityRow the person menu
+    const layout = ['../components/Layout.tsx', '../components/navModel.ts', '../components/IdentityRow.tsx']
+      .map((rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n');
     for (const label of Object.values(pageTitles)) {
       expect(layout).not.toMatch(new RegExp(`>${label}[<{]`));
     }
-    for (const page of Object.keys(pageTitles)) expect(layout).toContain(`pageTitles['${page}']`);
+    // every main page is listed by its title: the sidebar's two groups and the person menu
+    const { browse, care } = sidebarNav({ pathname: '/', canCare: true, taskCount: 0, modules: { playlists: true, likes: true, books: true } });
+    const listed = new Map([...browse, ...care].map((i) => [i.to, i.label]));
+    for (const i of identityMenu({ canCare: true })) if (i.key === 'settings' && i.to) listed.set(i.to, i.label);
+    expect(Object.fromEntries(listed)).toEqual(pageTitles);
     expect(parentLabel('/plans')).toBe('Tag changes');
     expect(parentLabel('/albums')).toBe('Albums');
   });

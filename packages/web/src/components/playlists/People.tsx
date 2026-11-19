@@ -1,6 +1,6 @@
 /**
  * The people of a collaborative playlist (0079), as the account's initial
- * tiles (AccountCompartment): the header's row of the owner and the
+ * tiles (the identity row's monogram): the header's row of the owner and the
  * collaborators, and the small tile on each item that says who added it.
  * A tile's name shows on hover, on a long press (touch) and in the
  * accessible name.

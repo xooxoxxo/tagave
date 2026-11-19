@@ -1,6 +1,6 @@
 /**
- * The player bar in the app's desktop frame: always there, the sidebar's
- * account row beside it at its height. Before anything was played the keys,
+ * The player bar in the app's desktop frame: always there, its own row the
+ * window's full width, nothing at the sidebar's foot above it. Before anything was played the keys,
  * the seek bar and the queue key are there but disabled and the track slot
  * is empty; once something was played the bar keeps the last track, paused.
  * 1440 and 1000 wide (at 1000 the volume steps aside, as it always has).
