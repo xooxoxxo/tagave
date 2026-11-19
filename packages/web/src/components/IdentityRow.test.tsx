@@ -12,8 +12,8 @@ import { IdentityRow } from './IdentityRow';
 const noop = () => undefined;
 const text = (html: string) => html.replace(/<[^>]+>/g, '');
 const props = {
-  name: 'Oytun',
-  email: 'owner@example.com',
+  name: 'Robin',
+  email: 'robin@example.com',
   showWordmark: true,
   canCare: true,
   dot: null,
@@ -32,14 +32,14 @@ describe('IdentityRow', () => {
   });
 
   it('the monogram names the person and the update', () => {
-    expect(render({ dot: 'a new version is available' })).toContain('aria-label="Account: Oytun, a new version is available"');
+    expect(render({ dot: 'a new version is available' })).toContain('aria-label="Account: Robin, a new version is available"');
     const plain = render();
-    expect(plain).toContain('aria-label="Account: Oytun"');
+    expect(plain).toContain('aria-label="Account: Robin"');
     expect(plain).not.toContain(', a new version');
   });
 
   it('blank name falls back to the email', () => {
-    expect(render({ name: '  ' })).toContain('aria-label="Account: owner@example.com"');
+    expect(render({ name: '  ' })).toContain('aria-label="Account: robin@example.com"');
   });
 
   it('search sits between the wordmark and the monogram when given', () => {
@@ -48,6 +48,12 @@ describe('IdentityRow', () => {
     expect(at).toBeGreaterThan(-1);
     expect(at).toBeGreaterThan(html.indexOf('tagave</'));
     expect(at).toBeLessThan(html.indexOf('Account:'));
+  });
+
+  it('the monogram is a 32px tile with a 44px hit area on touch', () => {
+    expect(css).toMatch(/\.tile\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px/);
+    const touch = css.slice(css.indexOf('@media (pointer: coarse)'));
+    expect(touch).toMatch(/^@media \(pointer: coarse\) \{\s*\.tile::before \{ content: ''; position: absolute; inset: -6px; \}/);
   });
 
   it('sign-out failure is announced', () => {

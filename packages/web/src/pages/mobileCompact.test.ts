@@ -237,6 +237,13 @@ describe('the phone menu', () => {
     expect(sheet.indexOf('<IdentityRow')).toBeLessThan(sheet.indexOf('aria-label="Main navigation"'));
     expect(sheet.indexOf('aria-label="Main navigation"')).toBeLessThan(sheet.indexOf('>Care</h2>'));
     // a navigation closes the sheet (the menu inside it closes itself on a pick)
-    expect(tsx).toMatch(/useEffect\(\(\) => \{ setMenuOpen\(false\); hideNow\(\); \}, \[pathname, hideNow\]\)/);
+    const onNav = tsx.slice(tsx.indexOf('if (sheetOpen.current) {'), tsx.indexOf('}, [pathname, hideNow, focusPage]);'));
+    expect(onNav).toMatch(/setMenuOpen\(false\);/);
+    expect(onNav).toMatch(/hideNow\(\);/);
+    // focus left in the closing sheet (a link, or the monogram a menu pick refocused) goes to the page, not <body>
+    expect(onNav).toMatch(/document\.getElementById\('main-navigation'\)\?\.contains\(active\)\) focusPage\(\);/);
+    expect(onNav.indexOf('focusPage()')).toBeLessThan(onNav.indexOf('setMenuOpen(false)'));
+    expect(tsx).toMatch(/const focusPage = useCallback\(\(\) => main\.current\?\.focus\(\{ preventScroll: true \}\), \[\]\)/);
+    expect(tsx).toMatch(/<main id="main-content" ref=\{attachMain\} tabIndex=\{-1\}/);
   });
 });

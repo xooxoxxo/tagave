@@ -190,7 +190,7 @@ describe('page shells', () => {
     expect(rule(inspector, '.rowToggle')).toMatch(/align-items: flex-start/);
   });
 
-  it('the player bar draws no rule on top (one strip with the account row)', () => {
+  it('the player bar draws no rule on top (its own full-width row under the sidebar and the page)', () => {
     const bar = rule(read('../components/PlayerBar.module.css'), '.bar');
     // forced colours keep a system rule (no glass there); every theme draws none
     expect(bar).not.toMatch(/border-top:[^;]*var\(--line/);

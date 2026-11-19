@@ -4,10 +4,11 @@
  * Escape (show and hide at once), and the pin. Chrome measures
  * the real thing (the Sidebar · Auto-hide stories).
  */
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { EDGE_PX, HIDE_MS, REVEAL_MS, armsReveal, barBand, createPeek, sidebarMode } from './sidebarPeek';
+import { EDGE_PX, HIDE_MS, REVEAL_MS, armsReveal, barBand, createPeek, inSidebar, sidebarMenuOpen, sidebarMode } from './sidebarPeek';
 import { PeekMark, SidebarPin } from './SidebarPin';
 
 describe('when Auto-hide applies', () => {
@@ -161,5 +162,56 @@ describe('the pin', () => {
     const html = renderToStaticMarkup(createElement(PeekMark));
     expect(html).toMatch(/^<span[^>]*aria-hidden="true"[^>]*><\/span>$/);
     expect(html).not.toMatch(/button|svg|aria-label/);
+  });
+});
+
+describe('a menu opened from the sidebar (portalled to <body>)', () => {
+  // just enough of the DOM: the sidebar holds the monogram, the list sits in <body>
+  type Fake = { id?: string; attrs: Record<string, string>; parent: Fake | null; kids: Fake[] };
+  const node = (attrs: Record<string, string> = {}, parent: Fake | null = null): Fake => {
+    const n: Fake = { attrs, parent, kids: [] };
+    if (attrs.id) n.id = attrs.id;
+    parent?.kids.push(n);
+    return n;
+  };
+  const all = (n: Fake): Fake[] => n.kids.flatMap((k) => [k, ...all(k)]);
+  const matches = (n: Fake, sel: string) => [...sel.matchAll(/\[([\w-]+)(?:="([^"]*)")?\]/g)].every(([, k, v]) => k! in n.attrs && (v === undefined || n.attrs[k!] === v));
+  const asEl = (n: Fake): Element => ({
+    id: n.id ?? '',
+    contains: (o: unknown) => { for (let c = (o as { _fake?: Fake } | null)?._fake ?? null; c; c = c.parent) if (c === n) return true; return false; },
+    closest: (sel: string) => { for (let c: Fake | null = n; c; c = c.parent) if (matches(c, sel)) return asEl(c); return null; },
+    querySelector: (sel: string) => { const f = all(n).find((k) => matches(k, sel)); return f ? asEl(f) : null; },
+    querySelectorAll: (sel: string) => all(n).filter((k) => matches(k, sel)).map(asEl),
+    getAttribute: (k: string) => n.attrs[k] ?? null,
+    _fake: n,
+  }) as unknown as Element;
+
+  const body = node();
+  const nav = node({}, body);
+  const trigger = node({ 'aria-haspopup': 'menu', 'aria-expanded': 'true', 'aria-controls': ':r7:' }, nav);
+  const list = node({ role: 'menu', id: ':r7:' }, body);
+  const item = node({ role: 'menuitem' }, list);
+  const other = node({ role: 'menu', id: ':r9:' }, body);
+  const page = node({}, body);
+
+  it('its list counts as the sidebar, so the pointer or focus on it keeps the sidebar shown', () => {
+    expect(inSidebar(asEl(nav), asEl(trigger))).toBe(true);
+    expect(inSidebar(asEl(nav), asEl(item))).toBe(true);
+  });
+  it('another menu, or the page, does not', () => {
+    expect(inSidebar(asEl(nav), asEl(node({ role: 'menuitem' }, other)))).toBe(false);
+    expect(inSidebar(asEl(nav), asEl(page))).toBe(false);
+    expect(inSidebar(null, asEl(item))).toBe(false);
+  });
+  it('the sidebar holds while that menu is open, and lets go when it closes', () => {
+    expect(sidebarMenuOpen(asEl(nav))).toBe(true);
+    trigger.attrs['aria-expanded'] = 'false';
+    expect(sidebarMenuOpen(asEl(nav))).toBe(false);
+  });
+  it('the hook reads both', () => {
+    const src = readFileSync(new URL('./sidebarPeek.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/const onSidebar = inSidebar\(el\(\), t\)/);
+    expect(src).toMatch(/p\.shown && \(onSidebar \|\| sidebarMenuOpen\(el\(\)\)\)/);
+    expect(src).toMatch(/to instanceof Node && inSidebar\(el\(\), to\)/);
   });
 });

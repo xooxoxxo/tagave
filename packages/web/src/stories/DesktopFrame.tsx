@@ -32,7 +32,7 @@ export interface FramePerson {
   taskCount?: number;
 }
 
-export const OWNER: FramePerson = { name: 'Oytun', email: 'owner@example.com', canCare: true, owner: true };
+export const OWNER: FramePerson = { name: 'Robin', email: 'robin@example.com', canCare: true, owner: true };
 
 export function DesktopFrame({
   children, dock, empty = false, sidebar: pref = 'always', pinned: startPinned = false, revealed = false,

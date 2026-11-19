@@ -44,7 +44,7 @@ export function IdentityRow({ name, email, showWordmark, search, canCare, dot, o
   );
   return (
     <div className={styles.root}>
-      <div className={styles.row}>
+      <div className={search ? `${styles.row} ${styles.beside}` : styles.row}>
         <a href="/" className={styles.brand} aria-label="tagave" onClick={home}>
           <BrandMark className={styles.mark} />
           {showWordmark && <span className={styles.wordmark}>tagave</span>}

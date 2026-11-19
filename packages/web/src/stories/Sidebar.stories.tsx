@@ -67,5 +67,4 @@ export const PhoneOwnerWithUpdate: Story = { ...phone, name: 'Phone, owner with 
 export const PhoneEditorWithTasks: Story = { ...phone, name: 'Phone, editor with 3 open tasks', tags: ['phone'], args: { person: EDITOR, sheetOpen: true } };
 export const PhoneListener: Story = { ...phone, name: 'Phone, listener', tags: ['phone'], args: { person: LISTENER, sheetOpen: true } };
 export const PhoneWordmarkHidden: Story = { ...phone, name: 'Phone, wordmark hidden', tags: ['phone'], args: { showWordmark: false, sheetOpen: true } };
-export const PhoneSearchBeside: Story = { ...phone, name: 'Phone, search beside', tags: ['phone'], args: { searchPlacement: 'beside', sheetOpen: true } };
 export const PhoneLongName: Story = { ...phone, name: 'Phone, long name', tags: ['phone'], args: { person: LONG, sheetOpen: true } };
