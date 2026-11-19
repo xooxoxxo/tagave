@@ -1,28 +1,26 @@
 .container { display: flex; width: 100%; height: 100dvh; overflow: hidden; background: var(--bg-primary); color: var(--text-primary); }
 .nav { --nav-pad-x: 1.25rem; width: 248px; flex: 0 0 248px; display: flex; flex-direction: column; gap: 1.75rem; padding: .85rem var(--nav-pad-x) 0; background: var(--bg-nav); overflow-y: auto; }
-.brand { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; font-family: var(--font-display); font-size: 1.75rem; font-weight: 300; letter-spacing: -.01em; line-height: 1.1; color: var(--ink); padding-inline: .5rem; }
+/* The phone bar's mark (it leads home); wider, the identity row carries
+   the mark, the wordmark and the person (IdentityRow). */
+.brand { display: none; align-items: center; gap: .6rem; font-family: var(--font-display); font-size: 1.75rem; font-weight: 300; letter-spacing: -.01em; line-height: 1.1; color: var(--ink); padding-inline: .5rem; }
 .brand:hover { color: var(--ink); }
 /* The mark is the agave from the wordmark; the logo file carries its own
    colour, so no token applies. Sized in rem so it tracks the brand text. */
 .brandMark { width: 2rem; height: 2rem; object-fit: contain; flex: 0 0 auto; }
-/* The logo and the search pill: by default each on its own line (the
-   wrapper takes no box); Settings › Appearance can put the search on the
-   logo's row. On a tablet or phone the bar keeps its own arrangement. */
-.brandRow { display: contents; }
-.brandRowBeside { display: flex; align-items: center; gap: .5rem; min-width: 0; }
-.brandRowBeside .brand { flex: none; }
-/* the mark beside the search pill is the pill's height (2.75rem), so the
-   two sit as one row of equal controls (2026-10-26) */
-.brandRowBeside .brandMark { width: 2.75rem; height: 2.75rem; }
-.brandRowBeside .tools { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
+/* The identity row heads the sidebar, the tablet bar and the phone's sheet. */
+.identity { flex: none; min-width: 0; }
+/* in the identity row the pill takes the room the slot gives it */
+.sideSearch { flex: 1 1 auto; min-width: 0; }
+/* Search: by default its own row under the identity row; Settings ›
+   Appearance can put it in that row (IdentityRow's search slot). On a phone
+   the bar has its own search key instead. */
 @media (min-width: 901px) {
   /* Beside the wordmark the pill has little room: it drops the shortcut,
-     then becomes the 44px search circle. */
-  .brandRowBeside .tools { container-type: inline-size; }
-  @container (max-width: 8.5rem) { .brandRowBeside .searchButton kbd { display: none; } }
+     then becomes the 44px search circle (IdentityRow's slot is the container). */
+  @container (max-width: 8.5rem) { .nav .sideSearch kbd { display: none; } }
   @container (max-width: 6rem) {
-    .brandRowBeside .tools .searchButton { flex: none; width: 2.75rem; padding: 0; justify-content: center; }
-    .brandRowBeside .searchLabel { display: none; }
+    .nav .sideSearch { flex: none; width: 2.75rem; padding: 0; justify-content: center; }
+    .nav .sideSearch .searchLabel { display: none; }
   }
 }
 /* A search pill with the recessed fill every field has: it opens the search
@@ -35,6 +33,7 @@ not as a drop. */
 .searchButton kbd { white-space: nowrap; margin-left: auto; }
 .searchIcon { width: 1rem; height: 1rem; flex: 0 0 auto; }
 .searchLabel { min-width: 0; }
+.barSearch { display: none; }
 .navSheet { display: contents; }
 .navLinks { display: flex; flex-direction: column; gap: .2rem; }
 /* The phone menu button: a clear circle like the search pill, hidden until
@@ -51,10 +50,15 @@ not as a drop. */
 .navLink:hover { background: var(--mist); color: var(--ink); }
 .navLinkActive { composes: navLink; background: var(--dew-tint); color: var(--chip-on-ink); font-weight: 600; box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge); }
 .navLinkActive:hover { background: var(--dew-tint); color: var(--chip-on-ink); }
-/* The account (AccountCompartment) on a tablet and in the phone's sheet;
-   a desktop's sidebar ends with SidebarAccount instead. */
-.account { position: sticky; bottom: 0; z-index: 1; flex: none; margin-top: auto; margin-inline: calc(-1 * var(--nav-pad-x)); display: flex; flex-direction: column; }
-.accountError { position: absolute; left: 1.25rem; right: 1.25rem; bottom: 100%; margin: 0; font-size: .8125rem; color: var(--danger); }
+/* Care (library.edit): a second group under Browse, with a quiet label */
+.navGroup { display: flex; flex-direction: column; gap: .2rem; }
+.navGroupLabel { margin: 0 0 .35rem; padding-inline: 1rem; font: var(--type-label); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); }
+.navGroup .navLink, .navGroup .navLinkActive { display: flex; align-items: center; gap: .5rem; }
+.navLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* open tasks on Library care: at the line's end */
+.navCount { display: inline-grid; place-items: center; flex: none; min-width: 1.35rem; height: 1.35rem; margin-left: auto; padding: 0 .35rem; border-radius: var(--r-pill); background: var(--mist-2); color: var(--ink-2); font-size: .75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.navLinkActive .navCount { background: var(--surface); color: var(--chip-on-ink); }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .main { flex: 1; min-width: 0; overflow-y: auto; outline: none; }
 .contentArea { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 /* The player bar's row: under the page on a tablet or phone; on a desktop
@@ -92,33 +96,30 @@ not as a drop. */
 @media (max-width: 900px) {
   .container { flex-direction: column; }
   .nav { position: relative; z-index: var(--z-sticky); flex: 0 0 auto; width: 100%; padding: .85rem 1.25rem; display: grid; grid-template-columns: 1fr auto; gap: .65rem 1rem; overflow: visible; }
-  .brand { font-size: 1.5rem; padding: 0; }
-  .brandMark, .brandRowBeside .brandMark { width: 1.6rem; height: 1.6rem; }
-  .brandRowBeside { display: contents; }
+  .identity, .tools { grid-column: 1 / -1; }
+  .sideSearch { max-width: 20rem; }
   /* Wrap rather than scroll. A scrolling strip put a permanent scrollbar under
      the primary navigation and cut the last item in half; the short labels
      fit on two rows at any tablet width. */
   .navLinks { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: .25rem; }
   .navLink { white-space: nowrap; padding: .5rem .8rem; font-size: .8125rem; }
-  /* tablet: the tile alone in the bar's top corner, the compartment a line
-     under the bar (AccountCompartment.module.css places both) */
-  .account { display: contents; }
-  .searchButton { grid-column: 1; grid-row: 3; max-width: 20rem; }
+  /* Care: one more wrapped row, its label leading */
+  .navGroup { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; gap: .25rem; }
+  .navGroupLabel { margin: 0; padding-inline: .25rem .5rem; }
   .main { min-height: 0; }
 }
 /* The page's name in the phone's bar, where the wordmark was (sidebar and
    tablet bar keep the wordmark and the links say where you are). */
 .pageTitle { display: none; }
 /* Phone: one row of the mark, the page's name, search and a menu button
-   (about 60px). The links and sign out open as a sheet under the bar; two
-   rows of links plus a fixed footer had taken 180px of an 860px screen. */
+   (about 60px). The sidebar opens as a sheet under the bar; two rows of
+   links plus a fixed footer had taken 180px of an 860px screen. */
 @media (max-width: 720px) {
   .nav { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: .25rem; padding: .3rem .5rem .3rem 1rem; border-bottom: 1px solid var(--line); }
-  .brand { grid-column: 1; grid-row: 1; font-size: 1.3rem; gap: .5rem; }
-  .wordmark { display: none; }
+  .brand { display: flex; grid-column: 1; grid-row: 1; font-size: 1.3rem; gap: .5rem; padding: 0; }
   .pageTitle { display: block; grid-column: 2; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 var(--font-size-lg) / 1.2 var(--font-body); color: var(--ink); }
   /* a step under the 44px keys beside it */
-  .brandMark, .brandRowBeside .brandMark { width: 2.25rem; height: 2.25rem; }
+  .brandMark { width: 2.25rem; height: 2.25rem; }
   /* The bar names the page, so the page's own heading is left to screen
      readers, and a header that held only the heading keeps just the page's
      top margin (tabs and toolbars would otherwise touch the bar). */
@@ -134,6 +135,9 @@ not as a drop. */
   .menuButton:hover:not(:disabled),
   .menuButton:active:not(:disabled) { background: transparent; border: 0; box-shadow: none; }
   .searchButton { grid-column: 3; grid-row: 1; width: 2.75rem; min-height: 2.75rem; padding: 0; justify-content: center; color: var(--ink-2); }
+  .barSearch { display: flex; }
+  /* the bar's key is the search; the sheet repeats none */
+  .nav .tools, .nav .sideSearch { display: none; }
   .searchLabel, .searchButton kbd { display: none; }
   .searchIcon, .menuButton svg { width: 1.375rem; height: 1.375rem; filter: drop-shadow(0 -0.5px 0 var(--emboss-hi)) drop-shadow(0 1px 1px var(--emboss-lo)); }
   .searchButton:active:not(:disabled) .searchIcon, .menuButton:active:not(:disabled) svg { opacity: .7; transform: translateY(1px); }
@@ -141,8 +145,8 @@ not as a drop. */
   .searchButton:focus-visible, .menuButton:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; border-radius: var(--r-inner); }
   .navSheet { display: none; }
   /* The menu: the whole screen under the bar, down to the player bar (or the
-     foot), opaque, so no page shows through or below it. The links on top,
-     the account at the bottom, its compartment opening upward from it. */
+     foot), opaque, so no page shows through or below it. It mirrors the
+     desktop sidebar top to bottom: the identity row, Browse, Care. */
   .navOpen .navSheet {
     display: flex;
     flex-direction: column;
@@ -161,8 +165,8 @@ not as a drop. */
   :global(html[data-player-bar]) .navOpen .navSheet { bottom: var(--player-bar-h, 0px); }
   .navOpen .navLinks { flex-direction: column; flex-wrap: nowrap; gap: 2px; }
   .navOpen .navLink { padding: .6rem 1rem; font-size: .9375rem; }
-  /* phone: the account row ends the sheet, on its bottom edge */
-  .navOpen .account { display: flex; position: sticky; bottom: 0; margin: auto 0 0; }
+  .navOpen .navGroup { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px; }
+  .navOpen .navGroupLabel { margin: .5rem 0 .35rem; padding-inline: 1rem; }
 }
 
 /* ---- context-aware bar ---- */
@@ -246,7 +250,6 @@ not as a drop. */
   .barTitle, .appBar, .appBarScrolled { transition: none; transform: none; }
 }
 @media (max-width: 900px) {
-  .tools { display: contents; }
   /* no sidebar to sit in: the pill floats in the corner, clear of toasts */
   .modePill {
     position: fixed;
@@ -300,7 +303,7 @@ not as a drop. */
     left: 0;
     z-index: calc(var(--z-sticky) + 1);
     height: auto;
-    /* a short window: the links scroll under the account row, which stays */
+    /* a short window: the sidebar scrolls */
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: none;

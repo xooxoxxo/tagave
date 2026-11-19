@@ -82,15 +82,16 @@ describe('phone top bar: the page name in place of the wordmark', () => {
     const tsx = source('../components/Layout.tsx');
     expect(tsx).toMatch(/const title = pageTitle\(pathname\)/);
     expect(tsx).toMatch(/<span className=\{styles\.pageTitle\} aria-hidden="true">\{title\}<\/span>/);
-    expect(tsx).toMatch(/<span className=\{styles\.wordmark\}>tagave<\/span>/);
+    // the bar carries the mark alone; the wordmark lives in the identity row
+    expect(tsx).not.toMatch(/styles\.wordmark/);
+    expect(source('../components/IdentityRow.tsx')).toMatch(/<span className=\{styles\.wordmark\}>tagave<\/span>/);
     expect(tsx).toMatch(/navigate\(\{ to: subpage\.up \}\)/);
   });
 
   it('on a phone the wordmark goes, the title shows, the page heading is screen-reader only', () => {
     const css = read('../components/Layout.module.css');
     expect(block(css, '.pageTitle')).toMatch(/display:\s*none/);
-    const phone = phoneBlock(css, '.wordmark');
-    expect(phone).toMatch(/\.wordmark \{ display: none; \}/);
+    const phone = phoneBlock(css, '.pageTitle { display: block;');
     expect(phone).toMatch(/\.pageTitle \{ display: block;/);
     expect(phone).toMatch(/\.page \[data-page-title\] \{ position: absolute;/);
     // a step under the bar, not the page's full top padding (the compact pass)

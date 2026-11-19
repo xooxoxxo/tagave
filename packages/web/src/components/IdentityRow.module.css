@@ -1,6 +1,6 @@
 /* The identity row (IdentityRow.tsx): [mark] tagave · [search] · [monogram].
    The brand keeps the old brand row's look (Layout .brand); the monogram is
-   the old account tile (SidebarAccount .tile) at 32px. */
+   the old sidebar account tile at 32px. */
 .root { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 
 .row { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
@@ -27,7 +27,8 @@
 .mark { width: 2rem; height: 2rem; object-fit: contain; flex: 0 0 auto; }
 
 /* search beside: takes the room between the wordmark and the monogram */
-.search { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; }
+/* a size container, so what sits in it can shrink to the room left (Layout .sideSearch) */
+.search { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-end; container-type: inline-size; }
 
 /* the monogram sits at the row's end */
 .person { flex: none; margin-left: auto; }

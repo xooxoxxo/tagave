@@ -225,11 +225,18 @@ describe('touch', () => {
 });
 
 describe('the phone menu', () => {
-  it('is the whole screen under the bar, down to the player bar, the account at its foot', () => {
+  it('is the whole screen under the bar, down to the player bar, mirroring the sidebar from the identity row down', () => {
     const css = stripComments(read('../components/Layout.module.css'));
     expect(css).toMatch(/\.navOpen \.navSheet \{[^}]*position: fixed;[^}]*top: var\(--nav-bar-h, 3\.5rem\);[^}]*bottom: 0;/);
     expect(css).toMatch(/:global\(html\[data-player-bar\]\) \.navOpen \.navSheet \{ bottom: var\(--player-bar-h, 0px\); \}/);
-    expect(css).toMatch(/\.navOpen \.account \{ display: flex; position: sticky; bottom: 0; margin: auto 0 0; \}/);
-    expect(read('../components/Layout.tsx')).toMatch(/setProperty\('--nav-bar-h'/);
+    const tsx = read('../components/Layout.tsx');
+    expect(tsx).toMatch(/setProperty\('--nav-bar-h'/);
+    // the sheet holds what the sidebar holds, in its order: the identity row, Browse, Care
+    const sheet = tsx.slice(tsx.indexOf('id="main-navigation"'));
+    expect(sheet.indexOf('<IdentityRow')).toBeGreaterThan(-1);
+    expect(sheet.indexOf('<IdentityRow')).toBeLessThan(sheet.indexOf('aria-label="Main navigation"'));
+    expect(sheet.indexOf('aria-label="Main navigation"')).toBeLessThan(sheet.indexOf('>Care</h2>'));
+    // a navigation closes the sheet (the menu inside it closes itself on a pick)
+    expect(tsx).toMatch(/useEffect\(\(\) => \{ setMenuOpen\(false\); hideNow\(\); \}, \[pathname, hideNow\]\)/);
   });
 });
