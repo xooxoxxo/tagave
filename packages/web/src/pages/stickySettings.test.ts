@@ -93,6 +93,13 @@ describe('phone top bar: the page name in place of the wordmark', () => {
     expect(block(css, '.pageTitle')).toMatch(/display:\s*none/);
     const phone = phoneBlock(css, '.pageTitle { display: block;');
     expect(phone).toMatch(/\.pageTitle \{ display: block;/);
+    // the wordmark is the identity row's own class now, and the phone drops it there
+    const row = read('../components/IdentityRow.module.css');
+    expect(row).toMatch(/^\.wordmark \{/m);
+    expect(phoneBlock(row, '.wordmark')).toMatch(/\.wordmark \{ display: none; \}/);
+    // beside the search pill the mark is the pill's height
+    expect(row).toMatch(/\.beside \.mark \{ width: 2\.75rem; height: 2\.75rem; \}/);
+    expect(source('../components/IdentityRow.tsx')).toMatch(/search \? `\$\{styles\.row\} \$\{styles\.beside\}`/);
     expect(phone).toMatch(/\.page \[data-page-title\] \{ position: absolute;/);
     // a step under the bar, not the page's full top padding (the compact pass)
     expect(phone).toMatch(/\.page \[data-title-only\] \{ padding: \.5rem 0 0;/);

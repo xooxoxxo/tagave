@@ -92,7 +92,18 @@ export function Layout() {
   useScrollPlace(mainEl, 'main', useEntry(router.history, pathname), { resetOnEnter: true });
   // a new history entry forgets the places it overwrites
   useEffect(() => trackPlaces(router.history), [router]);
-  useEffect(() => { setMenuOpen(false); hideNow(); }, [pathname, hideNow]);
+  // another page closes the phone's sheet; focus left in it (a link, or the
+  // monogram its menu refocused) would fall to <body>: it goes to the page
+  const sheetOpen = useRef(menuOpen);
+  sheetOpen.current = menuOpen;
+  useEffect(() => {
+    if (sheetOpen.current) {
+      const active = document.activeElement;
+      if (active && document.getElementById('main-navigation')?.contains(active)) focusPage();
+      setMenuOpen(false);
+    }
+    hideNow();
+  }, [pathname, hideNow, focusPage]);
   // the phone's menu opens under the bar, to the foot: it needs the bar's height
   useLayoutEffect(() => {
     const nav = navRef.current;

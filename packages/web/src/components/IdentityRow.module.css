@@ -25,6 +25,17 @@
 .brand:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 /* the logo carries its own colour; sized in rem so it tracks the brand text */
 .mark { width: 2rem; height: 2rem; object-fit: contain; flex: 0 0 auto; }
+.wordmark { white-space: nowrap; }
+/* the mark beside the search pill is the pill's height (2.75rem), so the
+   two sit as one row of equal controls (2026-10-26) */
+@media (min-width: 721px) {
+  .beside .mark { width: 2.75rem; height: 2.75rem; }
+}
+/* phone: the bar shows the mark and names the page; the sheet's row keeps
+   the mark and drops the wordmark, as the bar always did */
+@media (max-width: 720px) {
+  .wordmark { display: none; }
+}
 
 /* search beside: takes the room between the wordmark and the monogram */
 /* a size container, so what sits in it can shrink to the room left (Layout .sideSearch) */
@@ -50,6 +61,10 @@
   box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
   font: 600 0.875rem / 1 var(--font-body);
   cursor: pointer;
+}
+/* touch: a 44px hit area round the 32px tile, the tile's look unchanged */
+@media (pointer: coarse) {
+  .tile::before { content: ''; position: absolute; inset: -6px; }
 }
 .tile:focus { outline: none; }
 .tile:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }

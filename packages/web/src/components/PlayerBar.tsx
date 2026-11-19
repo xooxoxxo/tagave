@@ -1,12 +1,12 @@
 /**
  * The player bar: what is playing, previous / play-pause / next, a seek bar
- * and (on a desktop) the volume, along the foot of the content column. It is
+ * and (on a desktop) the volume, along the foot of the window. It is
  * mounted once in Layout, so moving between pages never stops the music; it
- * takes its own row under the page (the page scrolls above it, nothing is
- * covered). On a desktop with a player it is always there, as in Spotify,
+ * takes its own full-width row under the sidebar and the page (the page
+ * scrolls above it, nothing is covered). On a desktop with a player it is always there, as in Spotify,
  * Qobuz or Tidal: before anything was played (or once the queue was cleared)
  * its keys, seek bar and queue key are there but disabled and the track slot
- * is empty, so the sidebar's account row always has the bar beside it. The
+ * is empty, so the window's foot keeps one height whatever plays. The
  * queue key opens Now Playing (player/NowPlaying.tsx) over the page; on a
  * phone the mini bar stands in for the bar, only while there is a queue.
  * PlayerBarView is the bar alone, driven by props (stories, tests);
@@ -282,8 +282,8 @@ export function PlayerBar() {
     const node = ref.current;
     if (!root || !node || !shown) return;
     root.dataset['playerBar'] = '';
-    // unrounded: the sidebar's account row takes this height and must share
-    // the bar's top edge to the sub-pixel
+    // unrounded: what sits above the full-width bar (the phone's sheet,
+    // toasts, the Maintenance pill) ends on its top edge to the sub-pixel
     const write = () => root.style.setProperty('--player-bar-h', `${node.getBoundingClientRect().height}px`);
     write();
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(write) : null;

@@ -38,6 +38,26 @@ export const PAGE_CONTROL = 'a[href], button, input, select, textarea, summary, 
 
 export type SidebarMode = 'always' | 'peek' | 'pinned';
 
+/**
+ * Whether `node` belongs to the sidebar: inside it, or inside a menu one of
+ * its triggers opened (ui/Menu portals its list to <body>, outside the
+ * sidebar; the trigger names the list by aria-controls).
+ */
+export function inSidebar(nav: Element | null | undefined, node: Node | null | undefined): boolean {
+  if (!nav || !node) return false;
+  if (nav.contains(node)) return true;
+  // a text node asks its element
+  const el = 'closest' in node ? (node as Element) : node.parentElement;
+  const list = el?.closest('[role="menu"][id]');
+  // useId's ids carry colons: compare the attribute rather than build a selector
+  return !!list && [...nav.querySelectorAll('[aria-controls]')].some((b) => b.getAttribute('aria-controls') === list.id);
+}
+
+/** A menu opened from the sidebar (the person's menu) is open: the sidebar holds while it is. */
+export function sidebarMenuOpen(nav: Element | null | undefined): boolean {
+  return !!nav?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]');
+}
+
 /** How the desktop sidebar shows: Always below the desktop query whatever the preference says. */
 export function sidebarMode(prefs: { sidebarAutoHide: boolean; sidebarPinned: boolean }, desktop: boolean): SidebarMode {
   if (!prefs.sidebarAutoHide || !desktop) return 'always';
@@ -135,7 +155,7 @@ export function useSidebarPeek(nav: RefObject<HTMLElement | null>, enabled: bool
 
   const focusInside = () => {
     const active = globalThis.document?.activeElement;
-    return !!active && !!nav.current?.contains(active);
+    return inSidebar(nav.current, active);
   };
 
   useEffect(() => {
@@ -169,11 +189,12 @@ export function useSidebarPeek(nav: RefObject<HTMLElement | null>, enabled: bool
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
       const t = e.target instanceof Element ? e.target : null;
-      const onSidebar = !!t && !!el()?.contains(t);
+      const onSidebar = inSidebar(el(), t);
       const width = el()?.offsetWidth || SIDEBAR_PX;
       // only near the left edge is it worth a look at where the bars are
       if (!p.shown && e.clientX < width) measure();
-      const here = (p.shown && onSidebar) || armsReveal(e.clientX, e.clientY, {
+      // an open menu from the sidebar keeps it, wherever the pointer goes, till the menu closes
+      const here = (p.shown && (onSidebar || sidebarMenuOpen(el()))) || armsReveal(e.clientX, e.clientY, {
         width,
         band,
         overControl: !!t?.closest(PAGE_CONTROL) && !onSidebar,
@@ -191,12 +212,12 @@ export function useSidebarPeek(nav: RefObject<HTMLElement | null>, enabled: bool
     };
     const onFocusIn = (e: FocusEvent) => {
       if (pinnedRef.current) return;
-      if (e.target instanceof Node && el()?.contains(e.target)) { measure(); p.show(); }
+      if (e.target instanceof Node && inSidebar(el(), e.target)) { measure(); p.show(); }
     };
     const onFocusOut = (e: FocusEvent) => {
-      if (pinnedRef.current || !(e.target instanceof Node) || !el()?.contains(e.target)) return;
+      if (pinnedRef.current || !(e.target instanceof Node) || !inSidebar(el(), e.target)) return;
       const to = e.relatedTarget;
-      if (to instanceof Node && el()?.contains(to)) return;
+      if (to instanceof Node && inSidebar(el(), to)) return;
       // a click inside the sidebar on something that takes no focus, or the pointer still on it
       if (!pointerHere.current) p.hide();
     };
