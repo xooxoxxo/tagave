@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { backupFrequency, backupFrequencySchema, NIGHTLY_BACKUP_HOUR, type BackupEntryView, type BackupKindSummaryView, type BackupKindView, type BackupSettingsView, type BackupsStatus } from '@tagave/shared';
-import { Badge, Banner, Button, Menu, Select, Surface, confirmDialog, showToast } from '../components/ui';
+import { Badge, Banner, Button, Menu, Select, SettingsGroup, SettingsRow, Surface, confirmDialog, showToast } from '../components/ui';
 import { backupDownloadUrl, useBackUpNow, useBackups, useDeleteBackup, useSaveBackupSettings } from '../hooks/useBackups';
 import { formatBytes } from '../utils/format';
 import { shortDate } from '../utils/time';
@@ -53,15 +53,6 @@ function download(name: string) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-}
-
-function Row({ label, title, children }: { label: string; title?: string | undefined; children: ReactNode }) {
-  return (
-    <label className={styles.row}>
-      <span className={styles.rowLabel} title={title}>{label}</span>
-      {children}
-    </label>
-  );
 }
 
 function BackupRow({ b, expires, restoreCommand, onDelete, deleting }: { b: BackupEntryView; expires: boolean; restoreCommand: string; onDelete: (b: BackupEntryView) => void; deleting: boolean }) {
@@ -116,22 +107,23 @@ function Group({ kind, summary, backups, status, save, restoreCommand, onDelete,
   const list = backups.filter((b) => b.kind === kind);
   const expiring = new Set(summary?.pendingDelete.names ?? []);
   return (
-    <section className={styles.group} aria-label={KIND_LABEL[kind]}>
-      <div className={styles.groupHead}>
-        <h3 className={styles.groupTitle}>{KIND_LABEL[kind]}</h3>
+    <SettingsGroup
+      title={KIND_LABEL[kind]}
+      status={<>
         {status === 'saved' && <span className={styles.saved} role="status">✓ Saved</span>}
         {status === 'error' && <span className={styles.bad} role="alert">{save ?? 'Not saved'}</span>}
-        {list.length > 0 && <span className={styles.groupMeta}>{list.length} · {formatBytes(list.reduce((s, b) => s + b.bytes, 0))}</span>}
-      </div>
-      {children && <Surface padded={false} className={styles.list}>{children}</Surface>}
-      {list.length > 0 && (
+      </>}
+      meta={list.length > 0 ? <>{list.length} · {formatBytes(list.reduce((s, b) => s + b.bytes, 0))}</> : undefined}
+      after={list.length > 0 && (
         <Surface padded={false} className={styles.list}>
           <ul className={styles.items}>
             {list.map((b) => <BackupRow key={b.name} b={b} expires={expiring.has(b.name)} restoreCommand={restoreCommand} onDelete={onDelete} deleting={deleting} />)}
           </ul>
         </Surface>
       )}
-    </section>
+    >
+      {children}
+    </SettingsGroup>
   );
 }
 
@@ -223,7 +215,7 @@ function Backups({ data }: { data: BackupsStatus }) {
       </div>
 
       <Group kind="nightly" summary={kind('nightly')} status={status('nightly')} save={detail('nightly')} {...common}>
-        <Row label="Schedule">
+        <SettingsRow label="Schedule">
           <Select
             dense
             className={styles.control}
@@ -238,50 +230,50 @@ function Backups({ data }: { data: BackupsStatus }) {
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
           </Select>
-        </Row>
+        </SettingsRow>
         {frequency === 'weekly' && (
-          <Row label="Day of the week">
+          <SettingsRow label="Day of the week">
             <Select dense className={styles.control} value={weekday} disabled={save.isPending} onChange={(e) => change({ weekday: Number(e.target.value) })}>
               {DAYS.map((day, n) => <option key={day} value={n}>{day}</option>)}
             </Select>
-          </Row>
+          </SettingsRow>
         )}
         {frequency === 'nightly' && (
-          <Row label="Time" title={data.timeZone}>
+          <SettingsRow label="Time" help={data.timeZone}>
             <span className={`${styles.control} ${styles.muted}`}>{hourLabel(NIGHTLY_BACKUP_HOUR)}</span>
-          </Row>
+          </SettingsRow>
         )}
         {(frequency === 'daily' || frequency === 'weekly') && (
-          <Row label="Time" title={data.timeZone}>
+          <SettingsRow label="Time" help={data.timeZone}>
             <Select dense className={styles.control} value={settings.hour} disabled={save.isPending} onChange={(e) => change({ hour: Number(e.target.value) })}>
               {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
             </Select>
-          </Row>
+          </SettingsRow>
         )}
         <div className={styles.retention}>
-          <Row label="Keep recent days">
+          <SettingsRow label="Keep recent days">
             <Select dense className={styles.control} value={settings.keepDaily} disabled={save.isPending} onChange={(e) => change({ keepDaily: parseInt(e.target.value, 10) })}>
               {ladder([1, 2, 3, 5, 7, 10, 14, 30, 60, 90], settings.keepDaily).map((n) => <option key={n} value={n}>{plural(n, 'day')}</option>)}
             </Select>
-          </Row>
-          <Row label="Keep weekly copies">
+          </SettingsRow>
+          <SettingsRow label="Keep weekly copies">
             <Select dense className={styles.control} value={settings.keepWeekly} disabled={save.isPending} onChange={(e) => change({ keepWeekly: parseInt(e.target.value, 10) })}>
               {ladder([0, 1, 2, 4, 8, 12, 26, 52], settings.keepWeekly).map((n) => <option key={n} value={n}>{n === 0 ? 'None' : plural(n, 'week')}</option>)}
             </Select>
-          </Row>
+          </SettingsRow>
         </div>
       </Group>
 
       <Group kind="pre-migration" summary={kind('pre-migration')} status={status('pre-migration')} save={detail('pre-migration')} {...common}>
-        <Row label="Keep">
+        <SettingsRow label="Keep">
           <Select dense className={styles.control} value={settings.keepPreUpdate} disabled={save.isPending} onChange={(e) => change({ keepPreUpdate: parseInt(e.target.value, 10) })}>
             {ladder([1, 2, 3, 5, 10, 20, 50], settings.keepPreUpdate).map((n) => <option key={n} value={n}>{n}</option>)}
           </Select>
-        </Row>
+        </SettingsRow>
       </Group>
 
       <Group kind="manual" summary={kind('manual')} status={status('manual')} save={detail('manual')} {...common}>
-        <Row label="Keep">
+        <SettingsRow label="Keep">
           <Select
             dense
             className={styles.control}
@@ -292,7 +284,7 @@ function Backups({ data }: { data: BackupsStatus }) {
             <option value="all">All</option>
             {ladder([1, 2, 3, 5, 10, 20, 50, 100], settings.keepManual).map((n) => <option key={n} value={n}>{n}</option>)}
           </Select>
-        </Row>
+        </SettingsRow>
       </Group>
 
       {kind('pre-restore') && <Group kind="pre-restore" summary={kind('pre-restore')} status={null} {...common} />}

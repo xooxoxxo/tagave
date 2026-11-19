@@ -1,0 +1,54 @@
+/* a quiet 28px `?`: no fill, no ring until :focus-visible */
+.toggle {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-pill);
+  background-color: transparent;
+  color: var(--ink-3);
+  font: var(--type-label);
+  font-weight: 600;
+  line-height: 1;
+  align-self: center;
+}
+
+.toggle:hover:not(:disabled) {
+  background-color: transparent;
+  color: var(--ink);
+}
+
+.toggle:active:not(:disabled) {
+  background-color: transparent;
+}
+
+.toggle[aria-expanded="true"] { color: var(--ink); }
+
+.toggle:focus { outline: none; }
+
+.toggle:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 0;
+}
+
+/* the hint: a line of its own under the row it belongs to */
+.hint {
+  flex-basis: 100%;
+  order: 99;
+  min-width: 0;
+  margin: 0;
+  padding-bottom: var(--space-sm);
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.hint[hidden] { display: none; }

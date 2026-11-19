@@ -20,3 +20,5 @@ export { CoverArt, CoverChip, coverHue, coverInitials, type CoverChipTone } from
 export { Menu, MoreIcon, type MenuItem, type MenuProps } from './Menu';
 export { Collapse, type CollapseProps } from './Collapse';
 export { ToastHost, showToast, updateToast, dismissToast, type ToastOptions } from './Toast';
+export { SettingsGroup, SettingsRow, type SettingsGroupProps, type SettingsRowProps } from './SettingsGroup';
+export { HelpToggle, type HelpToggleProps } from './HelpToggle';
