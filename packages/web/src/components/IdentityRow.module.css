@@ -44,23 +44,43 @@
 /* the monogram sits at the row's end */
 .person { flex: none; margin-left: auto; }
 
-/* the initial: a raised tile in the active link's tint, a menu trigger */
+/* the trigger: on a desktop just the tile; on a phone the tile and the name */
 .tile {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-kbd);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+/* the initial: a raised tile in the active link's tint */
+.initial {
   position: relative;
   display: inline-grid;
   place-items: center;
   flex: none;
   width: 32px;
   height: 32px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
   border-radius: var(--r-kbd);
   background: var(--dew-tint);
   color: var(--chip-on-ink);
   box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
   font: 600 0.875rem / 1 var(--font-body);
-  cursor: pointer;
+}
+.phoneName { display: none; }
+/* phone: the bar already shows the mark, so the sheet's row is the person */
+@media (max-width: 720px) {
+  .brand { display: none; }
+  .person { flex: 1 1 auto; margin-left: 0; min-width: 0; }
+  .tile { width: 100%; padding: 0.25rem 0.5rem; }
+  .phoneName { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 0.9375rem / 1.25 var(--font-body); }
 }
 /* touch: a 44px hit area round the 32px tile, the tile's look unchanged */
 @media (pointer: coarse) {
@@ -89,7 +109,7 @@
 .error { margin: 0; padding-inline: 0.5rem; font-size: 0.8125rem; color: var(--danger); }
 
 @media (forced-colors: active) {
-  .tile { border: 1px solid ButtonText; }
+  .initial { border: 1px solid ButtonText; }
   .dot { background: Highlight; }
   .brand:focus-visible, .tile:focus-visible { outline: 2px solid Highlight; }
 }

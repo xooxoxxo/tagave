@@ -51,9 +51,18 @@ describe('IdentityRow', () => {
   });
 
   it('the monogram is a 32px tile with a 44px hit area on touch', () => {
-    expect(css).toMatch(/\.tile\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px/);
+    expect(css).toMatch(/\.initial\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px/);
     const touch = css.slice(css.indexOf('@media (pointer: coarse)'));
     expect(touch).toMatch(/^@media \(pointer: coarse\) \{\s*\.tile::before \{ content: ''; position: absolute; inset: -6px; \}/);
+  });
+
+  it('on a phone the sheet row names the person in place of a second mark', () => {
+    const html = render();
+    expect(html).toMatch(/aria-hidden="true">Robin<\/span>/);
+    const phone = css.slice(css.indexOf('@media (max-width: 720px)'));
+    expect(phone).toMatch(/\.brand \{ display: none; \}/);
+    expect(phone).toMatch(/\.phoneName \{ display: block;/);
+    expect(css).toMatch(/^\.phoneName \{ display: none; \}/m);
   });
 
   it('sign-out failure is announced', () => {

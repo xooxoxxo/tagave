@@ -56,8 +56,12 @@ export function IdentityRow({ name, email, showWordmark, search, canCare, dot, o
           triggerClassName={styles.tile ?? ''}
           icon={
             <>
-              <span aria-hidden="true">{accountInitial(name, email)}</span>
-              {dot && <span className={styles.dot} aria-hidden="true" />}
+              <span className={styles.initial} aria-hidden="true">
+                {accountInitial(name, email)}
+                {dot && <span className={styles.dot} />}
+              </span>
+              {/* phone: the sheet's row names the person (the bar already shows the mark) */}
+              <span className={styles.phoneName} aria-hidden="true">{shown}</span>
             </>
           }
           heading={
