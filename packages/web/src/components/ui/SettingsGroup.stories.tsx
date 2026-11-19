@@ -30,11 +30,12 @@ type Story = StoryObj<typeof meta>;
 
 const withHelp = { args: { help: 'Applies to every person in this tagave.' } } satisfies Story;
 const withStatus = { args: { status: <span role="status" style={{ color: 'var(--ink-3)', fontSize: 'var(--font-size-xs)' }}>✓ Saved</span> } } satisfies Story;
-const phone = { globals: { viewport: { value: 'phone' } }, tags: ['phone'], render: (args) => <SettingsGroup {...args}><Rows /></SettingsGroup> } satisfies Story;
+/** tags inline on each story: the indexer reads them statically */
+const phone = { globals: { viewport: { value: 'phone' } }, render: (args) => <SettingsGroup {...args}><Rows /></SettingsGroup> } satisfies Story;
 
 export const Default: Story = {};
 export const WithHelp: Story = withHelp;
 export const WithStatus: Story = withStatus;
-export const PhoneDefault: Story = { ...phone };
-export const PhoneWithHelp: Story = { ...phone, ...withHelp };
-export const PhoneWithStatus: Story = { ...phone, ...withStatus };
+export const PhoneDefault: Story = { ...phone, tags: ['phone'] };
+export const PhoneWithHelp: Story = { ...phone, ...withHelp, tags: ['phone'] };
+export const PhoneWithStatus: Story = { ...phone, ...withStatus, tags: ['phone'] };

@@ -24,14 +24,19 @@ export interface SettingsGroupProps {
   className?: string;
 }
 
+/** A ReactNode worth rendering; `0` is a value, not "nothing". */
+function shown(node: ReactNode): boolean {
+  return node != null && node !== false && node !== '';
+}
+
 export function SettingsGroup({ title, help, meta, status, children, after, className }: SettingsGroupProps) {
   return (
     <section aria-label={title} className={[styles.group, className].filter(Boolean).join(' ')}>
       <div className={styles.groupHead}>
         <h3 className={styles.groupTitle}>{title}</h3>
-        {help && <HelpToggle label={title}>{help}</HelpToggle>}
+        {shown(help) && <HelpToggle label={title}>{help}</HelpToggle>}
         {status}
-        {meta && <span className={styles.groupMeta}>{meta}</span>}
+        {shown(meta) && <span className={styles.groupMeta}>{meta}</span>}
       </div>
       {children && <Surface padded={false} className={styles.list}>{children}</Surface>}
       {after}
