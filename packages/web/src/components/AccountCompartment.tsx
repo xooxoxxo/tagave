@@ -32,6 +32,7 @@ import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, ty
 import { SegmentedControl, type SegmentedOption } from './ui/SegmentedControl';
 import { useThemePreference, type ThemePreference } from '../theme';
 import styles from './AccountCompartment.module.css';
+import { accountInitial } from './accountInitial';
 
 /** A page the compartment leads to (Settings, Library care, Tag changes). */
 export interface CompartmentLink {
@@ -63,11 +64,7 @@ export interface AccountCompartmentProps {
   className?: string;
 }
 
-/** The tile's letter: the name's first, else the address's. */
-export function accountInitial(name: string, email: string): string {
-  const first = [...(name.trim() || email.trim())][0] ?? '?';
-  return first.toLocaleUpperCase();
-}
+export { accountInitial };
 
 const themeOptions: SegmentedOption<ThemePreference>[] = [
   { value: 'light', label: 'Light' },

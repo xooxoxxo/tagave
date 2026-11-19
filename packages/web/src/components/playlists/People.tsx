@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { PlaylistPerson } from '@tagave/shared';
-import { accountInitial } from '../AccountCompartment';
+import { accountInitial } from '../accountInitial';
 import { PeopleIcon } from '../ui';
 import tip from '../ui/Tooltip.module.css';
 import styles from './People.module.css';
