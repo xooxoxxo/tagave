@@ -1,0 +1,68 @@
+/* one group: its title, then its settings as a grouped list */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.groupHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding-inline: var(--space-md);
+}
+
+.groupTitle {
+  margin: 0;
+  font: var(--type-label);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+
+.groupMeta {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.list {
+  border-radius: var(--r-inner);
+}
+
+/* a setting: label left, one compact control right */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  min-height: 52px;
+  padding: 0 8px 0 var(--space-md);
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+
+.row + .row { border-top: 1px solid var(--line); }
+
+.rowLabel { min-width: 0; }
+
+/* with help: label, `?`, then the control on the right; the hint wraps below */
+.withHelp {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  column-gap: var(--space-xs);
+}
+
+.rowField { display: contents; }
+
+.withHelp .rowControl {
+  order: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-left: auto;
+}
