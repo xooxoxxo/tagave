@@ -10,7 +10,7 @@ import styles from './autotagger.module.css';
 
 function AgreementTable({ label, rows }: { label: string; rows: AgreementRow[] }) {
   return (
-    <div className={styles.figuresWrap}>
+    <div className={styles.figuresWrap} role="region" aria-label={label} tabIndex={0}>
       <table className={styles.figures} aria-label={label}>
         <thead><tr><th scope="col">Band</th><th scope="col">Decided</th><th scope="col">Agree</th><th scope="col">Disagree</th><th scope="col">No decision</th></tr></thead>
         <tbody>
