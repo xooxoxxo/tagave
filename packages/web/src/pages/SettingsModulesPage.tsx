@@ -1,16 +1,16 @@
 /**
- * Settings › Modules: one row per module (name, On/Off, a chevron), each
- * opening Settings › Modules › <module>, where everything that module needs
- * lives: its Off/On (owner), its connection, its per-person settings, and
- * Turn off's "Also delete its data".
+ * Settings › Modules (the owner's): one row per module (name, On/Off, a
+ * chevron), each opening Settings › Modules › <module>, where the owner's
+ * part of that module lives: its Off/On, its connection, the server's
+ * settings, and Turn off's "Also delete its data". Each person's own part
+ * (the player's Listening, DJ, Listen elsewhere, Music Connections) lives in
+ * Your settings, and the module's page links there.
  *
  * The player and any module the signed catalogue adds are switched by the
  * updater (Turn on / Turn off after a step-up, the run step by step like an
  * update; without the updater the install-tagave.sh command). Music
  * Connections, Listen elsewhere, Playlists, Lidarr, Similar artists and DJ are settings in
- * tagave's database. Everyone sees the modules that have something for them
- * (the player's Listening, Listen elsewhere's platforms, their Music
- * Connections); the owner sees all of them and their switches.
+ * tagave's database.
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
@@ -38,11 +38,8 @@ import { useAutotaggerModule, useRemoveAutotaggerData, useSetAutotaggerModule } 
 import { SettingsAutotaggerContent } from './SettingsAutotagger';
 import { getStepUp } from '../services/stepUp';
 import { DEV_APP_PAGES, MODULE_PAGES, moduleSlug, type ModulePageEntry } from './moduleSettings';
-import { SettingsConnectionsContent } from './SettingsConnectionsPage';
-import { SettingsListenElsewhereContent } from './SettingsListenElsewherePage';
 import { SettingsPlaybackContent } from './SettingsPlaybackPage';
-import { SettingsListeningContent } from './SettingsListeningPage';
-import { SettingsDjContent } from './SettingsDjPage';
+import { LinkRow } from '../components/settings/LinkRow';
 import runStyles from '../components/InAppUpdate.module.css';
 import styles from './SettingsModulesPage.module.css';
 
@@ -733,24 +730,19 @@ function BooksSwitch() {
   );
 }
 
-/** DJ's Simple mode, each person's own (crossfade, length, beat-aligned, gapless albums): SettingsDjPage. */
-function DjSettings() {
-  return <SettingsDjContent />;
-}
-
 /* ---------- Settings › Modules › <module> ---------- */
 
-/** A module that is off, for someone who can't turn it on: the value alone. */
-function OffValue() {
-  return <p className={styles.offValue}>Off</p>;
+/** The person's part of a module, in Your settings: a row that opens it. */
+export function YourPart({ group, label, to }: { group: string; label: string; to: string }) {
+  return <LinkRow group={group} label={label} to={to} className={styles.part} />;
 }
 
 /**
- * One module's page: its Off | On (owner), then everything it needs. Each
- * part keeps the permission it had on its old page: the player's server,
- * scan, scrobbling key and quality are the owner's (old Playback); its
- * Listening is everyone's; Listen elsewhere and Music Connections are each
- * person's own; Lidarr and Playlists are the owner's alone.
+ * One module's page, the owner's: its Off | On, then the server's part (the
+ * player's server, scan, scrobbling key and quality; Lidarr; Books). The
+ * person's part (the player's Listening, DJ, Listen elsewhere, Music
+ * Connections) lives in Your settings and a row links to it, so nothing is
+ * set in two places. Anyone else is sent to Your settings (routing/redirects).
  */
 export function SettingsModuleContent({ slug }: { slug: string }) {
   const owner = can(useRole(), 'system.manage');
@@ -777,16 +769,14 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
   switch (entry.id) {
     case 'player': {
       const installed = caps.data ? !!caps.data.player?.installed : null;
-      if (!owner) {
-        return <>{heading}{installed === false ? <OffValue /> : installed && <SettingsListeningContent heading={false} />}</>;
-      }
+      if (!owner) return null;
       return (
         <>
           {heading}
           <CatalogueSwitch id="player" name="Player" />
           <SettingsPlaybackContent />
           {/* each person's own part, once a player server answers (Not set up says it already) */}
-          {installed && <><h2 className={styles.part}>Listening</h2><SettingsListeningContent heading={false} /></>}
+          {installed && <YourPart group="Listening" label="Your listening" to="/you/listening" />}
         </>
       );
     }
@@ -794,9 +784,11 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<LidarrSwitch /><LidarrSettings /></>;
     case 'listen-links':
-      return <>{heading}{owner && <ListenSwitch />}{on === false ? (owner ? null : <OffValue />) : on && <SettingsListenElsewhereContent heading={false} />}</>;
+      if (!owner) return null;
+      return <>{heading}<ListenSwitch />{on && <YourPart group="Listen elsewhere" label="Your settings" to="/you/listen-elsewhere" />}</>;
     case 'mc':
-      return <>{heading}{owner && <McSwitch />}{on === false ? (owner ? null : <OffValue />) : on && <SettingsConnectionsContent heading={false} />}</>;
+      if (!owner) return null;
+      return <>{heading}<McSwitch />{on && <YourPart group="Connections" label="Your settings" to="/you/connections" />}</>;
     case 'playlists':
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<PlaylistsSwitch /></>;
@@ -807,7 +799,8 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<SimilarSwitch /></>;
     case 'dj':
-      return <>{heading}{owner && <DjSwitch />}{on === false ? (owner ? null : <OffValue />) : on && <DjSettings />}</>;
+      if (!owner) return null;
+      return <>{heading}<DjSwitch />{on && <YourPart group="DJ" label="Your settings" to="/you/dj" />}</>;
     default:
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<CatalogueSwitch id={entry.id} name={entry.name} /></>;

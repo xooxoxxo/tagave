@@ -8,9 +8,10 @@
  * /you is the list and each section a page of its own.
  */
 import type { ReactNode } from 'react';
-import { Link, useLocation } from '@tanstack/react-router';
-import { ChevronRightIcon, PageShell, SettingsGroup, SettingsRow } from '../components/ui';
+import { useLocation } from '@tanstack/react-router';
+import { PageShell } from '../components/ui';
 import { SectionNav } from '../components/settings/SectionNav';
+import { LinkRow } from '../components/settings/LinkRow';
 import { usePhoneSubpage } from '../components/appBarTitle';
 import { useCan } from '../hooks/usePermissions';
 import { useYouModules } from '../hooks/useYouModules';
@@ -81,13 +82,5 @@ export function YouModuleOff({ label }: { label: string }) {
 
 /** The owner's player server stays in Settings › Modules › Player. */
 export function PlayerServerRow() {
-  return (
-    <SettingsGroup title="Server" className={styles.modeSetting ?? ''}>
-      <SettingsRow label="Player server" as="div">
-        <Link to="/settings/modules/$module" params={{ module: 'player' }} className={own.rowLink} aria-label="Player server">
-          <ChevronRightIcon />
-        </Link>
-      </SettingsRow>
-    </SettingsGroup>
-  );
+  return <LinkRow group="Server" label="Player server" to="/settings/modules/player" className={styles.modeSetting} />;
 }

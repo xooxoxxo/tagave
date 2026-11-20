@@ -19,6 +19,8 @@ export interface SectionNavItem {
   dot?: boolean;
   /** a quiet label above the first item of each group */
   group?: string;
+  /** a quiet second line in the link (Settings search: the labels that matched) */
+  detail?: string;
 }
 
 export interface SectionNavProps {
@@ -48,6 +50,7 @@ export function SectionNav({ label, items, current, search, empty, className }: 
             {item.group && item.group !== items[i - 1]?.group && <p className={styles.groupLabel}>{item.group}</p>}
             <Link to={item.to as never} className={here ? styles.activeSection : styles.sectionLink} aria-current={here ? 'page' : undefined}>
               {item.label}{item.dot && <UpdateDot />}
+              {item.detail && <span className={styles.detail}>{item.detail}</span>}
             </Link>
           </div>
         );
