@@ -6,9 +6,9 @@
  * (Download, Copy restore command, Delete). "Back up now" and the totals sit
  * on top, the folder and how to restore at the foot.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { backupFrequency, backupFrequencySchema, NIGHTLY_BACKUP_HOUR, type BackupEntryView, type BackupKindSummaryView, type BackupKindView, type BackupSettingsView, type BackupsStatus } from '@tagave/shared';
-import { Badge, Banner, Button, Menu, Select, SettingsGroup, SettingsRow, Surface, confirmDialog, showToast } from '../components/ui';
+import { Badge, Banner, Button, Menu, SaveStatus, Select, SettingsGroup, SettingsRow, Surface, confirmDialog, showToast, useSaveFlash, type SaveState } from '../components/ui';
 import { backupDownloadUrl, useBackUpNow, useBackups, useDeleteBackup, useSaveBackupSettings } from '../hooks/useBackups';
 import { formatBytes } from '../utils/format';
 import { shortDate } from '../utils/time';
@@ -35,9 +35,9 @@ function ladder(values: number[], current: number | null): number[] {
   return [...set].sort((a, b) => a - b);
 }
 
-/** "0.11.0", "~0.10.0" (worked out from the update history) or "—". */
+/** "0.11.0", "~0.10.0" (worked out from the update history) or "Unknown". */
 export function versionLabel(b: Pick<BackupEntryView, 'version' | 'versionInferred'>): string {
-  if (!b.version) return '—';
+  if (!b.version) return 'Unknown';
   return `${b.versionInferred ? '~' : ''}${b.version}`;
 }
 
@@ -91,8 +91,6 @@ function BackupRow({ b, expires, restoreCommand, onDelete, deleting }: { b: Back
   );
 }
 
-type SaveState = 'saved' | 'error' | null;
-
 function Group({ kind, summary, backups, status, save, restoreCommand, onDelete, deleting, children }: {
   kind: BackupKindView;
   summary: BackupKindSummaryView | undefined;
@@ -109,10 +107,7 @@ function Group({ kind, summary, backups, status, save, restoreCommand, onDelete,
   return (
     <SettingsGroup
       title={KIND_LABEL[kind]}
-      status={<>
-        {status === 'saved' && <span className={styles.saved} role="status">✓ Saved</span>}
-        {status === 'error' && <span className={styles.bad} role="alert">{save ?? 'Not saved'}</span>}
-      </>}
+      status={<SaveStatus state={status} detail={save ?? null} />}
       meta={list.length > 0 ? <>{list.length} · {formatBytes(list.reduce((s, b) => s + b.bytes, 0))}</> : undefined}
       after={list.length > 0 && (
         <Surface padded={false} className={styles.list}>
@@ -144,9 +139,9 @@ function Backups({ data }: { data: BackupsStatus }) {
   const save = useSaveBackupSettings();
   // The value shown while its save is on its way; cleared when the answer comes.
   const [pending, setPending] = useState<BackupSettingsView | null>(null);
-  const [state, setState] = useState<{ kind: BackupKindView; status: SaveState; detail: string | null } | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // the group whose setting was saved last, and how that save went
+  const [savedKind, setSavedKind] = useState<BackupKindView | null>(null);
+  const flash = useSaveFlash();
 
   const settings = pending ?? data.settings;
   const frequency = settings.enabled ? backupFrequency(settings) : 'off';
@@ -160,17 +155,16 @@ function Backups({ data }: { data: BackupsStatus }) {
     const next = { ...settings, ...patch };
     const group = GROUP_OF[Object.keys(patch)[0] as keyof BackupSettingsView];
     setPending(next);
-    clearTimeout(timer.current);
-    setState(null);
+    setSavedKind(group);
+    flash.clear();
     save.mutate(next, {
       onSuccess: () => {
         setPending(null);
-        setState({ kind: group, status: 'saved', detail: null });
-        timer.current = setTimeout(() => setState(null), 2500);
+        flash.saved();
       },
       onError: (err) => {
         setPending(null);
-        setState({ kind: group, status: 'error', detail: (err as { detail?: string }).detail ?? null });
+        flash.failed((err as { detail?: string }).detail ?? null);
       },
     });
   };
@@ -185,8 +179,8 @@ function Backups({ data }: { data: BackupsStatus }) {
     if (ok) remove.mutate(b.name);
   };
 
-  const status = (k: BackupKindView): SaveState => (state?.kind === k ? state.status : null);
-  const detail = (k: BackupKindView) => (state?.kind === k ? state.detail : null);
+  const status = (k: BackupKindView): SaveState => (savedKind === k ? flash.state : null);
+  const detail = (k: BackupKindView) => (savedKind === k ? flash.detail : null);
   const common = { backups: data.backups, restoreCommand: data.restoreCommand, onDelete: (b: BackupEntryView) => void onDelete(b), deleting: remove.isPending };
 
   return (

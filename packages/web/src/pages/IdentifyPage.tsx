@@ -212,7 +212,7 @@ export function IdentifyPanel() {
             {requests.items.map((r) => (
               <div key={r.id} className={styles.requestRow}>
                 <button className={styles.requestAlbum} onClick={() => navigate({ to: '/albums/$albumId', params: { albumId: r.album.id } as never })}>
-                  {r.album.artist ? `${r.album.artist} — ` : ''}{r.album.title ?? '(untitled)'}
+                  {r.album.artist ? `${r.album.artist} · ` : ''}{r.album.title ?? '(untitled)'}
                 </button>
                 <span className={styles.requestMeta}>
                   {REQUEST_KIND[r.kind] ?? r.kind}{r.pinned ? ` ${r.pinned}` : ''} · {r.state === 'active' ? 'running' : r.state === 'retry' ? 'retrying' : r.jobsAhead === 0 ? 'next' : `${r.jobsAhead.toLocaleString()} ahead`} · {formatRelativeTime(r.createdAt)}
@@ -352,7 +352,7 @@ export function IdentifyPanel() {
                   onClick={() => navigate({ to: '/albums/$albumId', params: { albumId: item.id } as never })}
                 >
                   <div className={styles.itemTitle}>
-                    {item.artist ? `${item.artist} — ` : ''}{item.title ?? '(untitled)'}{item.year ? ` (${item.year})` : ''}
+                    {item.artist ? `${item.artist} · ` : ''}{item.title ?? '(untitled)'}{item.year ? ` (${item.year})` : ''}
                   </div>
                   <div className={styles.itemSecondary}>
                     {plural(item.trackCount, 'track')} · {item.formats.join(', ')}{item.dirPath ? ` · ${item.dirPath}` : ''}

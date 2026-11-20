@@ -97,7 +97,7 @@ export function AttentionPanel() {
               }}
             >
               <span className={styles.subject}>
-                {g.subjectArtist ? `${g.subjectArtist} — ` : ''}
+                {g.subjectArtist ? `${g.subjectArtist} · ` : ''}
                 {g.subjectTitle ?? g.subjectId}
               </span>
               <span className={styles.detail}>{gapLine(g)}</span>

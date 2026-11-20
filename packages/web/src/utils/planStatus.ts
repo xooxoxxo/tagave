@@ -40,8 +40,8 @@ export function diffRowKind(d: { before: DiffValue; after: DiffValue; reason: st
   return d.reason.replace('policy:', '');
 }
 
-/** A diff cell: nothing (missing or blank) shows as a dash. */
+/** A diff cell: nothing (missing or blank) shows as (empty). */
 export function diffValueText(v: DiffValue): string {
-  if (blank(v)) return '—';
+  if (blank(v)) return '(empty)';
   return Array.isArray(v) ? v.join('; ') : (v as string);
 }

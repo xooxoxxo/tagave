@@ -14,7 +14,7 @@ export function PayloadPreviewView({ preview }: { preview: PayloadPreview }) {
       <Values
         label="Payload"
         rows={[
-          ['Album', [preview.title, preview.artist].filter(Boolean).join(' · ') || '—'],
+          ['Album', [preview.title, preview.artist].filter(Boolean).join(' · ') || 'Unknown'],
           ['Size', `${count(preview.bytes)} bytes`],
           ['Tracklists', count(preview.groups)],
           ['Model', preview.request.model],

@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ReleaseNote, StepUpMethod, UpdateRun, UpdateStall, UpdateStep, UpdaterSelfReplace, UpdaterView } from '@tagave/shared';
-import { Button, Select, confirmDialog } from './ui';
+import { Button, Select, confirmDialog, sentence } from './ui';
 import { StepUpDialog } from './StepUpDialog';
 import { restartingOn, updaterKey, useStartUpdate, type SeenUpdaterView } from '../hooks/useUpdater';
 import { getStepUp } from '../services/stepUp';
@@ -36,13 +36,8 @@ function writeDismissed(id: string): void {
   }
 }
 
-/** "the app did not answer" → "The app did not answer." */
-export function sentence(text: string | null | undefined): string {
-  const t = (text ?? '').trim();
-  if (!t) return '';
-  const s = t[0]!.toUpperCase() + t.slice(1);
-  return /[.!?]$/.test(s) ? s : `${s}.`;
-}
+/** "the app did not answer" → "The app did not answer." (the save model's, kept here for its old importers) */
+export { sentence };
 
 export function clock(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));

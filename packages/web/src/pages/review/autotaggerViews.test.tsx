@@ -58,11 +58,15 @@ describe('the gate per band', () => {
     expect(button(render(<BandTableView rows={[P99_OPEN]} onDraw={noop} onAccept={noop} canAccept={false} />), 'Accept band')).toBe('');
   });
 
-  it('labels: Open, Needs <n> more, — before any check, Closed when it cannot be reached', () => {
+  it('labels: Open, Needs <n> more, Not checked before any check, Closed when it cannot be reached', () => {
     expect(gateLabel(P99).label).toBe('Open');
     expect(gateLabel(BANDS[1]!).label).toBe('Needs 360 more');
-    expect(gateLabel(BANDS[2]!).label).toBe('—');
+    expect(gateLabel(BANDS[2]!).label).toBe('Not checked');
     expect(gateLabel({ ...BANDS[1]!, stillNeeded: null }).label).toBe('Closed');
+  });
+
+  it('no picks reads No picks', () => {
+    expect(gateLabel({ ...BANDS[2]!, picks: 0 }).label).toBe('No picks');
   });
 
   it('the gates panel offers Go to Accept with the open albums, to the owner', () => {

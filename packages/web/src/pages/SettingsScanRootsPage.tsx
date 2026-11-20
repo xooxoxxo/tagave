@@ -122,7 +122,7 @@ function SettingsScanRootsContentInner() {
   const writableHint = (root: ScanRoot): string => {
     if (root.writable) return 'Stop tag plans from writing files under this root';
     if (root.validationStatus !== 'ok') return 'The path must be validated by the worker first';
-    if (root.probeWritable === false) return 'The worker reports this mount as read-only — remount it read-write and re-check';
+    if (root.probeWritable === false) return 'The worker reports this mount as read-only. Remount it read-write and re-check';
     return 'Allow tag plans to write files under this root (writes are journaled and revertible)';
   };
 

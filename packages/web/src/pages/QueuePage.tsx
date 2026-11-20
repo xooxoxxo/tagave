@@ -294,8 +294,8 @@ export function ReviewPanel() {
                   {rows.map((r) => (
                     <tr key={r.field}>
                       <th scope="row">{r.label}</th>
-                      <td className={styles.diskValue}>{r.disk ?? '—'}</td>
-                      <td>{r.edition ?? '—'}</td>
+                      <td className={styles.diskValue}>{r.disk ?? '(empty)'}</td>
+                      <td>{r.edition ?? '(empty)'}</td>
                       <td className={styles.markCell}>
                         <span className={styles[`v_${r.verdict}`]} role="img" aria-label={VERDICT_WORD[r.verdict]} title={VERDICT_WORD[r.verdict]}>
                           {VERDICT_MARK[r.verdict]}
@@ -327,7 +327,7 @@ export function ReviewPanel() {
                     <SourceIcon edition={c} />
                     <button type="button" className={styles.editionPick} aria-pressed={selected} onClick={(e) => { e.stopPropagation(); setCandId(c.id); }}>
                       <span className={styles.editionHead}>
-                        <span>{[year, c.country].filter(Boolean).join(' · ') || '—'}</span>
+                        <span>{[year, c.country].filter(Boolean).join(' · ') || 'Unknown'}</span>
                         {tag && <StatusTag status={tag} />}
                       </span>
                       {details && <span className={styles.editionSub}>{details}</span>}

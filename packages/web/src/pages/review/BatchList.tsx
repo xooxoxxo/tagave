@@ -28,7 +28,7 @@ export function RunListView({ runs, currentId, onPick }: { runs: RunView[]; curr
               <td>{POPULATION_LABEL[r.population]}</td>
               <td>{count(r.albums)}</td>
               <td>{runStateLabel(r.state)}</td>
-              <td>{r.deciderId === 'local' ? '—' : money(r.spent, r.currency)}</td>
+              <td>{r.deciderId === 'local' ? 'Free' : money(r.spent, r.currency)}</td>
             </tr>
           ))}
         </tbody>
@@ -61,7 +61,7 @@ function Items({ title, items }: { title: string; items: BatchItemView[] }) {
       <ul className={styles.items} aria-label={title}>
         {items.map((i) => (
           <li key={i.albumId}>
-            <span>{[i.title ?? '—', i.artist].filter(Boolean).join(' · ')}</span>
+            <span>{[i.title ?? 'Untitled', i.artist].filter(Boolean).join(' · ')}</span>
             <span>{SKIP_LABELS[i.reason] ?? i.reason}</span>
           </li>
         ))}

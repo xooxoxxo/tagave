@@ -54,7 +54,7 @@ const sheet = (opts: { albumData?: unknown; split?: AlbumSplitView; rows?: TagRo
       open
       onOpenChange={() => undefined}
       libraryId={LIB}
-      albums={{ ids: [ID], labels: { [ID]: 'Radiohead — OK Computer' } }}
+      albums={{ ids: [ID], labels: { [ID]: 'Radiohead · OK Computer' } }}
       side={opts.side ?? 'right'}
       {...(opts.rows ? { initialRows: opts.rows } : {})}
     />

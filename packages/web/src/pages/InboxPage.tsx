@@ -52,8 +52,8 @@ function PairRow({ p }: { p: InboxItem['pairing'][number] }) {
   const pos = p.position !== null ? `${p.disc !== null ? `${p.disc}-` : ''}${p.position}` : null;
   return <>
     <span className={own.file}>{p.relPath.split('/').pop()}</span>
-    <span>{pos ? `${pos} ${p.title ?? ''}` : '—'}</span>
-    <span className={`${own.pct} ${p.confidence !== null && p.confidence < 60 ? own.low : ''}`}>{p.confidence !== null ? `${p.confidence}%` : '—'}</span>
+    <span>{pos ? `${pos} ${p.title ?? ''}` : 'Unknown'}</span>
+    <span className={`${own.pct} ${p.confidence !== null && p.confidence < 60 ? own.low : ''}`}>{p.confidence !== null ? `${p.confidence}%` : 'Unknown'}</span>
   </>;
 }
 

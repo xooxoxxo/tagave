@@ -45,7 +45,7 @@ export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPe
               size="sm"
               onClick={onFetch}
               disabled={fetchPending}
-              title={`Fetched ${new Date(editions.fetchedAt).toLocaleString()} — fetch again from MusicBrainz`}
+              title={`Fetched ${new Date(editions.fetchedAt).toLocaleString()}. Fetch again from MusicBrainz`}
             >
               Refresh
             </Button>
@@ -53,7 +53,7 @@ export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPe
         </div>
       </div>
       {!hasReleaseGroup ? (
-        <p className={styles.muted}>Editions belong to a release group — match this album first.</p>
+        <p className={styles.muted}>Editions belong to a release group. Match this album first.</p>
       ) : !editions ? (
         <p className={styles.muted}>Loading…</p>
       ) : rows.length === 0 ? (

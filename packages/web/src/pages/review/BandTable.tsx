@@ -75,7 +75,7 @@ export function BandTableView({ rows, canAccept, onDraw, onAccept, drawing = nul
             <span><span className={styles.cellLabel}>Picks</span>{count(r.picks)}</span>
             <span><span className={styles.cellLabel}>Checked</span>{count(r.checked)}</span>
             <span><span className={styles.cellLabel}>Errors</span>{count(r.errors)}</span>
-            <span><span className={styles.cellLabel}>Upper bound</span>{r.checked > 0 ? percent(r.upper, 2) : '—'}</span>
+            <span><span className={styles.cellLabel}>Upper bound</span>{r.checked > 0 ? percent(r.upper, 2) : 'Not checked'}</span>
             <span><Badge tone={g.tone} size="sm">{g.label}</Badge></span>
             <span className={styles.bandAction}>
               {r.allowed && left > 0

@@ -192,7 +192,7 @@ describe('the setup form', () => {
   });
 
   it('a wrong field names itself, the error shows as an alert', () => {
-    const html = view({ bad: 'currency', error: 'Set the key first', status: <span>✓ Saved</span> });
+    const html = view({ bad: 'currency', error: 'Set the key first', state: 'saved' });
     expect(html).toContain('Three letters');
     expect(/<input[^>]*aria-label="Currency"[^>]*>/.exec(html)?.[0]).toContain('aria-invalid="true"');
     expect(html).toMatch(/role="alert"[^>]*>Set the key first</);

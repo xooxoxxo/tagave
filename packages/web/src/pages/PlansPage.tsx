@@ -49,7 +49,7 @@ export function PlansPage() {
   const initialScope = albumParam
     ? {
         albumIds: [albumParam],
-        ...(albumForWizard.data ? { albumLabels: { [albumParam]: `${albumForWizard.data.artistCredit} — ${albumForWizard.data.title}` } } : {}),
+        ...(albumForWizard.data ? { albumLabels: { [albumParam]: `${albumForWizard.data.artistCredit} · ${albumForWizard.data.title}` } } : {}),
       }
     : undefined;
 
@@ -278,7 +278,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
         <Badge tone={status.tone}>{status.label}</Badge>
       </Td>
       <Td className={`${styles.cellFiles} ${plan.stats ? '' : styles.cellEmpty}`} data-label={plan.stats ? 'files' : undefined}>
-        {plan.stats?.filesTouched ?? '—'}
+        {plan.stats?.filesTouched ?? 'Unknown'}
       </Td>
       <Td className={styles.cellDate} data-label="Created">
         <span title={formatDateTime(plan.createdAt || '')}>
@@ -291,7 +291,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
             {formatRelativeTime(plan.appliedAt || '')}
           </span>
         ) : (
-          '—'
+          'Not applied'
         )}
       </Td>
       <Td className={styles.cellActions} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>

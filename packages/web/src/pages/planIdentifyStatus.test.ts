@@ -21,7 +21,7 @@ describe('identifyLines', () => {
       { albumId: 'f', exists: false },
     ]);
     expect(lines.map((l) => l.kind)).toEqual(['live', 'live', 'matched', 'ended', 'untouched', 'gone']);
-    expect(lines[0]).toMatchObject({ text: 'identification queued, next in line', label: 'Stéphane Pompougnac — Hotel Costes Vol. 11' });
+    expect(lines[0]).toMatchObject({ text: 'identification queued, next in line', label: 'Stéphane Pompougnac · Hotel Costes Vol. 11' });
     expect(lines[1]).toMatchObject({ text: 'identifying now' });
     expect(lines[3]).toMatchObject({ title: 'could not be matched', actionable: true });
   });

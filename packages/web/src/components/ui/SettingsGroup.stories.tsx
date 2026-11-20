@@ -2,7 +2,9 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
 import { SettingsGroup, SettingsRow } from './SettingsGroup';
 import { SegmentedControl } from './SegmentedControl';
-import { Input } from './FormControl';
+import { Input, Select } from './FormControl';
+import { SaveStatus } from './SaveStatus';
+import { SettingsSave } from './SettingsSave';
 import { Stack } from '../../stories/fixtures';
 
 function Rows() {
@@ -39,3 +41,38 @@ export const WithStatus: Story = withStatus;
 export const PhoneDefault: Story = { ...phone, tags: ['phone'] };
 export const PhoneWithHelp: Story = { ...phone, ...withHelp, tags: ['phone'] };
 export const PhoneWithStatus: Story = { ...phone, ...withStatus, tags: ['phone'] };
+
+/* the save model: an instant choice shows its status in the head; a typed group has one Save under its rows */
+function InstantRows() {
+  return <SettingsRow label="Schedule">
+    <Select dense defaultValue="nightly" style={{ width: '9.5rem' }}>
+      <option value="off">Off</option>
+      <option value="nightly">Nightly</option>
+      <option value="weekly">Weekly</option>
+    </Select>
+  </SettingsRow>;
+}
+function TypedRows() {
+  return <>
+    <SettingsRow label="Server address">
+      <Input dense defaultValue="https://music.example.com" style={{ width: '14rem' }} />
+    </SettingsRow>
+    <SettingsRow label="User name">
+      <Input dense defaultValue="robin" style={{ width: '14rem' }} />
+    </SettingsRow>
+  </>;
+}
+const noop = () => {};
+const onPhone = { globals: { viewport: { value: 'phone' } } };
+const instant = { args: { title: 'Scheduled backups', meta: null, status: <SaveStatus state="saved" /> } } satisfies Story;
+const changed = { args: { title: 'Connection', meta: null, after: <SettingsSave dirty onSave={noop} /> } } satisfies Story;
+const failed = { args: { title: 'Connection', meta: null, after: <SettingsSave dirty onSave={noop} state="failed" detail="the server did not answer" /> } } satisfies Story;
+const instantAt = (width?: number): NonNullable<Story['render']> => (args) => <Stack {...(width ? { width } : {})}><SettingsGroup {...args}><InstantRows /></SettingsGroup></Stack>;
+const typedAt = (width?: number): NonNullable<Story['render']> => (args) => <Stack {...(width ? { width } : {})}><SettingsGroup {...args}><TypedRows /></SettingsGroup></Stack>;
+
+export const InstantChoiceSaved: Story = { ...instant, name: 'Instant choice saved', render: instantAt(560), tags: ['no-shot'] };
+export const TypedGroupChanged: Story = { ...changed, name: 'Typed group, changed', render: typedAt(560), tags: ['no-shot'] };
+export const TypedGroupFailed: Story = { ...failed, name: 'Typed group, failed', render: typedAt(560), tags: ['no-shot'] };
+export const PhoneInstantChoiceSaved: Story = { ...instant, ...onPhone, name: 'Phone instant choice saved', render: instantAt(), tags: ['phone', 'no-shot'] };
+export const PhoneTypedGroupChanged: Story = { ...changed, ...onPhone, name: 'Phone typed group, changed', render: typedAt(), tags: ['phone', 'no-shot'] };
+export const PhoneTypedGroupFailed: Story = { ...failed, ...onPhone, name: 'Phone typed group, failed', render: typedAt(), tags: ['phone', 'no-shot'] };

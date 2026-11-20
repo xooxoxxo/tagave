@@ -44,7 +44,7 @@ export function useAlbumFolderActions(libraryId: string | undefined, album: Main
     setNote(null);
     try {
       const r = await rescanM.mutateAsync(album.id);
-      setNote(`Rescanning ${r.queued.length} folder${r.queued.length === 1 ? '' : 's'} — the page updates as files are re-read.`);
+      setNote(`Rescanning ${r.queued.length} folder${r.queued.length === 1 ? '' : 's'}. The page updates as files are re-read.`);
     } catch (err) {
       setNote(errorText(err, 'Rescan failed'));
     }

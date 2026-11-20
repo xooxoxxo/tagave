@@ -98,7 +98,7 @@ export function searchRows(data: SearchResult | undefined, words: string, settle
     ...(kinds.has('song') ? data.tracks : []).map<Row>((t) => ({
       type: 'track', id: t.id, albumId: t.albumId, albumTitle: t.albumTitle, artist: t.artist,
       primary: t.title,
-      secondary: `${t.artist ?? 'Unknown'} — ${t.albumTitle}`,
+      secondary: `${t.artist ?? 'Unknown'} · ${t.albumTitle}`,
     })),
     ...playlists,
     ...(kinds.has('label') ? data.labels ?? [] : []).map<Row>((l) => ({ type: 'label', primary: l.name, secondary: albumsWord(l.albumCount) })),

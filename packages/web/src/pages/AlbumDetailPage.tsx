@@ -654,7 +654,7 @@ export function AlbumDetailPage() {
         id={inputId}
         aria-label="Release URL or ID for manual matching"
         className={styles.mbidInput}
-        placeholder={requestLive ? 'A request is queued — cancel it to submit another' : 'MusicBrainz release or release-group link / ID, or a Discogs release link'}
+        placeholder={requestLive ? 'A request is queued. Cancel it to submit another' : 'MusicBrainz release or release-group link / ID, or a Discogs release link'}
         value={mbidInput}
         disabled={requestLive}
         onChange={(e) => setMbidInput(e.target.value)}
@@ -1420,7 +1420,7 @@ export function AlbumDetailPage() {
                 {album.match?.releaseGroupOnly && <span className={`${styles.pill} ${styles.pillMuted}`}>any edition</span>}
                 {pending?.kind === 'mbid' && (
                   <span className={styles.muted}>
-                    Switching edition — identification {pending.state === 'active' ? 'is running on the worker' : 'is queued'}; this page updates when it decides.
+                    Switching edition: identification {pending.state === 'active' ? 'is running on the worker' : 'is queued'}; this page updates when it decides.
                   </span>
                 )}
               </>}
@@ -1435,8 +1435,8 @@ export function AlbumDetailPage() {
                   loading={switchEdition.busyMbid === e.mbid}
                   disabled={switchEdition.busy || !!pending}
                   title={switchEdition.busyMbid === e.mbid
-                    ? 'Switching to this edition — the page updates when identification decides'
-                    : pending ? 'An identification request is already queued for this album — cancel it first' : 'Re-match this album to this edition (queues a manual identification)'}
+                    ? 'Switching to this edition. The page updates when identification decides'
+                    : pending ? 'An identification request is already queued for this album. Cancel it first' : 'Re-match this album to this edition (queues a manual identification)'}
                 >
                   {switchEdition.busyMbid === e.mbid ? 'Switching…' : 'Use this edition'}
                 </Button>
@@ -1475,7 +1475,7 @@ export function AlbumDetailPage() {
             ) : (
               <section className={styles.plainSection}>
                 <h2 className={styles.sectionTitle}>Reviews &amp; listening</h2>
-                <p className={styles.muted}>Ratings, reviews and listens attach to a release group — match this album first.</p>
+                <p className={styles.muted}>Ratings, reviews and listens attach to a release group. Match this album first.</p>
               </section>
             )}
           </>)}
@@ -1495,7 +1495,7 @@ export function AlbumDetailPage() {
                   {requestLive && request
                     ? requestSummary(request)
                     : album.match
-                      ? `${album.match.decidedBy === 'system' ? 'Auto-matched' : 'Matched by you'} at distance ${album.match.distance.toFixed(4)}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleString()}` : ''}${album.match.reason ? ` — ${album.match.reason}` : ''}`
+                      ? `${album.match.decidedBy === 'system' ? 'Auto-matched' : 'Matched by you'} at distance ${album.match.distance.toFixed(4)}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleString()}` : ''}${album.match.reason ? `: ${album.match.reason}` : ''}`
                       : `${STATE_LABEL[album.state] ?? album.state}; nothing queued.`}
                 </dd>
                 {request && !requestLive && (
@@ -1505,9 +1505,9 @@ export function AlbumDetailPage() {
                   </>
                 )}
                 <dt>Candidates</dt>
-                <dd>{album.candidates.length} kept{excludedCount ? `, ${excludedCount} excluded` : ''} — compare them under Editions.</dd>
+                <dd>{album.candidates.length} kept{excludedCount ? `, ${excludedCount} excluded` : ''}. Compare them under Editions.</dd>
                 <dt>Cover art</dt>
-                <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet — Fetch cover art in the ⋮ menu'}</dd>
+                <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet: Fetch cover art in the ⋮ menu'}</dd>
                 <dt>Editions</dt>
                 <dd>{editions ? (editions.fetchedAt ? `fetched ${new Date(editions.fetchedAt).toLocaleString()}` : editions.fetching ? 'fetching now' : 'not fetched') : 'open the Editions tab to see or fetch them'}</dd>
                 <dt>Reviews</dt>
@@ -1596,7 +1596,7 @@ export function AlbumDetailPage() {
                 onOpenChange={(open) => setSheet(open ? 'tag' : null)}
                 returnFocus={opener}
                 libraryId={libraryId}
-                albums={{ ids: [albumId], labels: { [albumId]: `${artistLine} — ${title ?? 'Untitled'}` } }}
+                albums={{ ids: [albumId], labels: { [albumId]: `${artistLine} · ${title ?? 'Untitled'}` } }}
                 side={drawer ? 'bottom' : 'right'}
               />
             )}

@@ -60,7 +60,7 @@ export function requestSummary(r: IdentifyRequestView): string {
   if (r.status !== 'done') return `${kind} ${r.status === 'queued' ? 'queued' : r.status} · ${liveRequestLine(r)}${r.createdAt ? ` · since ${new Date(r.createdAt).toLocaleString()}` : ''}`;
   const o = r.outcome;
   if (!o) return `${kind} finished.`;
-  return `${kind}${r.pinned ? ` (${r.pinned})` : ''}: ${OUTCOME_TITLE[o.kind]} — ${o.message} (${new Date(o.finishedAt).toLocaleString()})`;
+  return `${kind}${r.pinned ? ` (${r.pinned})` : ''}: ${OUTCOME_TITLE[o.kind]}: ${o.message} (${new Date(o.finishedAt).toLocaleString()})`;
 }
 
 /** The provider page for a pinned id ("release:123" for Discogs). */
@@ -176,7 +176,7 @@ export function IdentifyRequestPanel({
       )}
       {o?.releaseGroup && (o.moreChoices ?? 0) > 0 && (
         <p className={styles.more}>
-          {o.moreChoices!.toLocaleString()} more {o.moreChoices === 1 ? 'release' : 'releases'} —{' '}
+          {o.moreChoices!.toLocaleString()} more {o.moreChoices === 1 ? 'release' : 'releases'}:{' '}
           <a href={`https://musicbrainz.org/release-group/${o.releaseGroup.mbid}`} target="_blank" rel="noreferrer">see them all on MusicBrainz</a>
           {' '}and paste the one you have.
         </p>

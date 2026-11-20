@@ -6,17 +6,18 @@
  * Prices are not in the draft: they are their own instant action.
  */
 import type { AutotaggerConfigPatch, AutotaggerLibraryView, DeciderChoice, DeciderPrice } from '@tagave/shared';
-import { sentence } from '../../components/InAppUpdate';
+import { sentence } from '../../components/ui/SaveStatus';
+import { rebaseDraft } from '../../components/ui/settingsDraft';
 
 /** The form's text, from the saved settings. */
-export interface SetupDraft {
+export type SetupDraft = {
   decider: DeciderChoice;
   model: string;
   monthlyCap: string;
   currency: string;
   maxErrorRate: string;
   maxRequestBytes: string;
-}
+};
 
 const MODEL_RE = /^[a-z0-9][a-z0-9._-]{0,79}$/;
 const CURRENCY_RE = /^[A-Z]{3}$/;
@@ -66,19 +67,13 @@ export const FIELD_ERROR: Record<keyof SetupDraft, string> = {
   maxRequestBytes: '1,024 to 10,000,000',
 };
 
-const FIELDS = Object.keys(FIELD_ERROR) as Array<keyof SetupDraft>;
-
 /**
  * The draft after the saved settings changed under it (a key Set, Replace
  * or Forget, a Save elsewhere): a field the person changed stays, every
  * other field takes the new saved value.
  */
 export function rebase(draft: SetupDraft, before: AutotaggerLibraryView, after: AutotaggerLibraryView): SetupDraft {
-  const was = draftOf(before);
-  const now = draftOf(after);
-  const next = { ...draft };
-  for (const k of FIELDS) if (draft[k] === was[k]) (next as Record<keyof SetupDraft, string>)[k] = now[k];
-  return next;
+  return rebaseDraft(draft, draftOf(before), draftOf(after));
 }
 
 /**

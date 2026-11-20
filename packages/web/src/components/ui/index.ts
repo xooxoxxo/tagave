@@ -22,3 +22,6 @@ export { Collapse, type CollapseProps } from './Collapse';
 export { ToastHost, showToast, updateToast, dismissToast, type ToastOptions } from './Toast';
 export { SettingsGroup, SettingsRow, type SettingsGroupProps, type SettingsRowProps } from './SettingsGroup';
 export { HelpToggle, type HelpToggleProps } from './HelpToggle';
+export { SaveStatus, sentence, type SaveState, type SaveStatusProps } from './SaveStatus';
+export { SettingsSave, type SettingsSaveProps } from './SettingsSave';
+export { useSaveFlash, useSettingsDraft, rebaseDraft, changedKeys, type SaveFlash, type SettingsDraft } from './settingsDraft';

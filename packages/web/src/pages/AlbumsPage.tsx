@@ -473,7 +473,7 @@ export function AlbumsPage() {
             {bulkResult.queued ? `${bulkResult.queued.toLocaleString()} queued` : ''}
             {bulkResult.skippedAlreadyQueued ? `${bulkResult.queued ? ', ' : ''}${bulkResult.skippedAlreadyQueued.toLocaleString()} already queued (moved ahead of the sweep)` : ''}
             {!bulkResult.updated && !bulkResult.queued && !bulkResult.skippedAlreadyQueued ? 'nothing to do' : ''}
-            {bulkResult.capped ? ' (capped — run again for the rest)' : ''}
+            {bulkResult.capped ? ' (capped: run again for the rest)' : ''}
             <Button variant="quiet" size="sm" onClick={() => setBulkResult(null)}>Dismiss</Button>
           </div>
         )}

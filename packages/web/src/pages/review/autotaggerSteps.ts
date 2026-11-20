@@ -92,11 +92,11 @@ export const decided = (run: Pick<RunView, 'outcomes'>): number => Object.values
 export const acceptableRun = (run: Pick<RunView, 'state' | 'population'> | null): boolean =>
   !!run && run.state === 'done' && (run.population === 'needs_review' || run.population === 'weak');
 
-/** A band's gate as a label: Open, Needs <n> more, Closed (cannot be reached), or — before any check. */
+/** A band's gate as a label: No picks, Open, Needs <n> more, Closed (cannot be reached), or Not checked before any check. */
 export function gateLabel(b: Pick<BandRow, 'allowed' | 'stillNeeded' | 'drawn' | 'picks'>): { label: string; tone: 'success' | 'warning' | 'neutral' } {
-  if (b.picks === 0) return { label: '—', tone: 'neutral' };
+  if (b.picks === 0) return { label: 'No picks', tone: 'neutral' };
   if (b.allowed) return { label: 'Open', tone: 'success' };
-  if (b.drawn === 0) return { label: '—', tone: 'neutral' };
+  if (b.drawn === 0) return { label: 'Not checked', tone: 'neutral' };
   if (b.stillNeeded === null) return { label: 'Closed', tone: 'neutral' };
   return { label: `Needs ${count(b.stillNeeded)} more`, tone: 'warning' };
 }

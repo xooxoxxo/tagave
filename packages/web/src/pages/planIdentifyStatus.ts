@@ -27,7 +27,7 @@ const OUTCOME_TITLE: Record<string, string> = {
 };
 
 const labelOf = (i: Extract<IdentifyStatusItem, { exists: true }>) =>
-  `${i.artist ? `${i.artist} — ` : ''}${i.title ?? 'Untitled album'}`;
+  `${i.artist ? `${i.artist} · ` : ''}${i.title ?? 'Untitled album'}`;
 
 export function identifyLines(items: readonly IdentifyStatusItem[]): AlbumIdentifyLine[] {
   return items.map((i): AlbumIdentifyLine => {

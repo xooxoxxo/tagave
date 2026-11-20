@@ -50,7 +50,7 @@ const matched = {
   id: ID, state: 'matched', title: 'OK Computer', artistCredit: 'Radiohead', trackCount: 12, tracks: [], candidates: [],
   release: { title: 'OK Computer', date: '1997-05-21', country: 'GB', labels: [{ name: 'Parlophone' }] },
 };
-const render = () => renderToStaticMarkup(<TagSheet open onOpenChange={() => undefined} libraryId="lib" albums={{ ids: [ID], labels: { [ID]: 'Radiohead — OK Computer' } }} />);
+const render = () => renderToStaticMarkup(<TagSheet open onOpenChange={() => undefined} libraryId="lib" albums={{ ids: [ID], labels: { [ID]: 'Radiohead · OK Computer' } }} />);
 const rowValues = (html: string) => [...html.matchAll(/data-row="([a-z]+)"[^]*?class="[^"]*rowLabel[^"]*">([^<]*)<\/span><span class="[^"]*">([^<]*)<\/span>/g)].map((m) => [m[1], m[3]]);
 const plan = (over: Partial<TagPlan>): TagPlan => ({
   id: 'p1', libraryId: 'lib', name: 'Jazz tags', scope: { type: 'albumIds', albumIds: ['a'] },
@@ -72,12 +72,12 @@ describe('the Tag sheet', () => {
     expect(html.match(/data-tag-primary=""[^>]*>[^]*?<\/button>/)?.[0]).toContain('Preview');
     expect(html.match(/data-tag-primary/g)).toHaveLength(1);
     expect(rowValues(html)).toEqual([
-      ['albums', 'Radiohead — OK Computer'],
+      ['albums', 'Radiohead · OK Computer'],
       ['release', 'OK Computer (1997, GB, Parlophone)'],
       // the owner's saved default (Settings › Tag preferences) is not seeded on the first render; the wizard's was the same
       ['fields', 'Canonical IDs + fill · ID3 v2.4'],
       ['paths', 'Organize · On'],
-      ['name', 'Radiohead — OK Computer tags'],
+      ['name', 'Radiohead · OK Computer tags'],
     ]);
     expect(html).not.toContain('aria-expanded="true"');
     expect(html).not.toContain('data-line=');
@@ -114,7 +114,7 @@ describe('the Tag sheet', () => {
 });
 
 describe('the Tag sheet words and payload', () => {
-  const scope = { scopeType: 'albumIds' as const, albumIds: [ID], albumLabels: { [ID]: 'Radiohead — OK Computer' } };
+  const scope = { scopeType: 'albumIds' as const, albumIds: [ID], albumLabels: { [ID]: 'Radiohead · OK Computer' } };
   const policy = { preset: 'canonical_ids_and_fill' as const, id3Version: '2.4' as const, multiValueSeparator: '; ' };
 
   it('names a release by year, country and label', () => {
@@ -124,7 +124,7 @@ describe('the Tag sheet words and payload', () => {
   });
 
   it('summarises scope and policy', () => {
-    expect(scopeSummary(scope)).toBe('Radiohead — OK Computer');
+    expect(scopeSummary(scope)).toBe('Radiohead · OK Computer');
     expect(scopeSummary({ scopeType: 'albumIds', albumIds: ['a', 'b'] })).toBe('2 albums');
     expect(scopeSummary({ scopeType: null })).toBeNull();
     expect(suggestedName({ scopeType: 'library' })).toBe('Whole library tags');
@@ -133,7 +133,7 @@ describe('the Tag sheet words and payload', () => {
 
   it('sends Organize only when changed and Split first only when off', () => {
     expect(createPayload({ scope, policy, name: '', organize: null, split: true })).toEqual({
-      name: 'Radiohead — OK Computer tags', scope: { type: 'albumIds', albumIds: [ID] }, policy,
+      name: 'Radiohead · OK Computer tags', scope: { type: 'albumIds', albumIds: [ID] }, policy,
     });
     expect(createPayload({ scope, policy, name: ' Mine ', organize: false, split: false })?.policy).toEqual({ ...policy, organize: false, split: false });
     expect(createPayload({ scope: { scopeType: null }, policy, name: '', organize: null, split: true })).toBeNull();
