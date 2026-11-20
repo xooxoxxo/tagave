@@ -24,7 +24,7 @@ export function signInErrorMessage(error: AuthClientError | null | undefined, or
   if (code === 'USER_VERIFICATION_REQUIRED') {
     return 'Your passkey or security key did not check a PIN or fingerprint. Set a PIN on the key (a YubiKey asks you to create one), then try again.';
   }
-  if (code === 'PASSKEY_NOT_FOUND') return 'That passkey is not registered with this tagave. Sign in with your password, then add it under Settings › Security.';
+  if (code === 'PASSKEY_NOT_FOUND') return 'That passkey is not registered with this tagave. Sign in with your password, then add it under Your settings › Account.';
   if (code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED') return 'That passkey or security key is already registered.';
   if (code === 'ERROR_INVALID_DOMAIN' || code === 'ERROR_INVALID_RP_ID') {
     return `Passkeys work only at the address set as PUBLIC_URL, over https or on localhost. This page is ${origin || 'at another address'}.`;

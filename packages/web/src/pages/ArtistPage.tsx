@@ -1,7 +1,7 @@
 /**
  * Artist page (spec BRW-3; approved prototype "artist-directions", 0.7.6).
  *
- * Two layouts, chosen in Settings › Appearance › Artist page: Name first
+ * Two layouts, chosen in Your settings › Appearance › Artist page: Name first
  * (ArtistNameFirst, the default) and Like albums (ArtistLikeAlbums). Both
  * draw the album page's header — back and Maintenance keys that dock into a
  * strip with the artist's name once the name scrolls under them — and both

@@ -1,5 +1,5 @@
 /**
- * Settings › Users (owner) and the invite page: people, roles, one-time
+ * Settings › People (owner) and the invite page: people, roles, one-time
  * invite and set-password links. The API asks for a fresh step-up on the
  * sensitive changes; useStepUpAction (SettingsUsersPage) handles that.
  */

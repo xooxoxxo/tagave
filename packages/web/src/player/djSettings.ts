@@ -1,5 +1,5 @@
 /**
- * Each person's DJ Simple mode (Settings › Modules › DJ) as the engine reads
+ * Each person's DJ Simple mode (Your settings › DJ) as the engine reads
  * it. The person's own copy is on the server (user_prefs, hooks/useDj.ts);
  * this browser keeps one entry per person who signs in here, so the engine
  * has it before the server answers. Every access is guarded: with storage

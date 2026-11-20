@@ -1,5 +1,5 @@
 /**
- * Settings › Storage: how much room tagave takes on this server. The
+ * Settings › Status: how much room tagave takes on this server. The
  * database by kind of data (bars show each group's share of the database),
  * the folders the app owns, and the cleanup of finished tag changes.
  */

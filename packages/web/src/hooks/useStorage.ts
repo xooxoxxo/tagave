@@ -1,5 +1,5 @@
 /**
- * Settings › Storage: disk use (GET /storage) and the tag-change cleanup
+ * Settings › Status: disk use (GET /storage) and the tag-change cleanup
  * (preview GET /storage/tag-changes, run POST /storage/tag-changes/cleanup).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

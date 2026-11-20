@@ -1,5 +1,5 @@
 /**
- * Settings › Appearance › Theme, connected: the gallery on the person's
+ * Your settings › Appearance › Theme, connected: the gallery on the person's
  * choice (it follows them between devices, ThemeColours.tsx), Custom's
  * editor under the cards on a desktop. On a phone Custom is a screen of its
  * own (/you/custom-theme, CustomThemeScreen).

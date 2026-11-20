@@ -1,7 +1,7 @@
 /**
  * Second sign-in step (/login/2fa): the authenticator-app code, or a backup
  * code, after a correct email and password. "Trust this device" skips this
- * step on this browser for 30 days (revocable in Settings › Security).
+ * step on this browser for 30 days (revocable in Your settings › Account).
  */
 
 import { useState } from 'react';

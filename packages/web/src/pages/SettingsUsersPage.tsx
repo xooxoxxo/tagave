@@ -1,5 +1,5 @@
 /**
- * Settings › Users (owner): who can sign in and with which role, invite
+ * Settings › People (owner): who can sign in and with which role, invite
  * links, set-password links, turning sign-in off, removing someone (keeping
  * or deleting their data). Invites, role changes, resets and removal ask the
  * owner to confirm it is them when the last sign-in is older than five

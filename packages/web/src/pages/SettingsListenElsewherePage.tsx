@@ -1,5 +1,5 @@
 /**
- * Settings › Modules › Listen elsewhere (each person's own): the
+ * Your settings › Listen elsewhere (each person's own): the
  * streaming platforms the Listen control offers you, in this order, and
  * which one "Play on …" opens on missing albums and Missing playlist rows
  * (one of yours, or none). None until you tick one. ListenElsewhereView is

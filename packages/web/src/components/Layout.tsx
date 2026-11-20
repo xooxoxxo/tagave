@@ -54,9 +54,9 @@ export function Layout() {
   const router = useRouter();
   const navigate = useNavigate();
   const [maintenance, setMaintenance] = useMaintenance();
-  // Settings › Appearance: search beside the logo or below it, wordmark on or off
+  // Your settings › Appearance: search beside the logo or below it, wordmark on or off
   const [{ searchPlacement, showWordmark, sidebarAutoHide, sidebarPinned }, setPrefs] = useDisplayPrefs();
-  // Settings › Appearance › Sidebar: Always, or Auto-hide on a desktop (sidebarPeek.ts)
+  // Your settings › Appearance › Sidebar: Always, or Auto-hide on a desktop (sidebarPeek.ts)
   const sidebar = sidebarMode({ sidebarAutoHide, sidebarPinned }, useMediaQuery(PEEK_QUERY));
   const peekOn = sidebar !== 'always';
   const focusPage = useCallback(() => main.current?.focus({ preventScroll: true }), []);
@@ -70,7 +70,7 @@ export function Layout() {
   // the back button leads the page's title row and, once the title scrolls
   // away, a slim bar fades in over the page with both.
   const parent = parentPath(pathname);
-  // What this person's role includes (Settings › Users): a listener has no
+  // What this person's role includes (Settings › People): a listener has no
   // library care, tag changes or install settings, so none of it is asked for.
   const canCare = useCan('library.edit');
   const canSystem = useCan('system.manage');

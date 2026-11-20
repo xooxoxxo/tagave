@@ -1,5 +1,5 @@
 /**
- * Settings › System status: the same checks as `tagave-doctor`, each with
+ * Settings › Status: the same checks as `tagave-doctor`, each with
  * what was found and, when it did not pass, how to fix it. Checks run on the
  * app host against the shared database, so worker results cover every host
  * of a split install. Music folders are those of the library on screen

@@ -1,5 +1,5 @@
 /**
- * The artist page laid out like an album page (Settings › Appearance ›
+ * The artist page laid out like an album page (Your settings › Appearance ›
  * Artist page: Like albums; approved prototype direction A).
  *
  * A hero like the album's: up to four of the artist's covers as a mosaic

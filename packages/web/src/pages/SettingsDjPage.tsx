@@ -1,5 +1,5 @@
 /**
- * Settings › Modules › DJ, each person's own part: Simple mode, the player
+ * Your settings › DJ, each person's own part: Simple mode, the player
  * mixing one track into the next by itself (vault "tagave - DJ Module").
  * Kept with the person (user_prefs, hooks/useDj.ts), so it follows them
  * between devices; the device that plays applies it. An iOS home-screen app can't mix (a running audio graph stops the

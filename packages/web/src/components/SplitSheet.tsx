@@ -276,7 +276,7 @@ export function SplitSheet({ open, onOpenChange, libraryId, albumId, title, arti
           {analyze.error && <p role="alert">Couldn’t queue cut point analysis.</p>}
           <div className={styles.actions}>
             {done && <LinkButton variant="quiet" size="sm" to="/work" search={{ tab: 'deleting' }}>Open Trash</LinkButton>}
-            {!done && busy && <LinkButton variant="quiet" size="sm" to="/jobs">Background activity</LinkButton>}
+            {!done && busy && <LinkButton variant="quiet" size="sm" to="/settings/$section" params={{ section: 'activity' }}>Background activity</LinkButton>}
             <Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
             {(state === 'failed' || analyze.isError) && data?.eligible && !task && (
               <Button size="sm" disabled={analyze.isPending} onClick={() => analyze.mutate()}>Retry analysis</Button>

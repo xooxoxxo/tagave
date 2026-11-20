@@ -69,7 +69,7 @@ export function DeletingPanel() {
   }
   const task = data.emptyTask?.task;
   if (data.marked.length === 0 && data.trash.length === 0 && !task) {
-    return <EmptyState title="Nothing deleted" action={<Link to="/settings/$section" params={{ section: 'deleting' }} className={styles.link}>{data.mode === 'trash' ? 'Deleting: Trash' : 'Deleting: Mark'}</Link>} />;
+    return <EmptyState title="Nothing deleted" action={<Link to="/settings/$section" params={{ section: 'library' }} className={styles.link}>{data.mode === 'trash' ? 'Deleting: Trash' : 'Deleting: Mark'}</Link>} />;
   }
   const taskOpen = !!task && task.state !== 'done' && task.state !== 'cancelled';
   const selection = data.emptyFileIds ?? [];

@@ -1,5 +1,5 @@
 /**
- * Settings › Account: the signed-in person's name (changed through Better
+ * Your settings › Account: the signed-in person's name (changed through Better
  * Auth's update-user, which cannot touch the role), their email address and
  * what their role lets them do here, and their link to the login service.
  */

@@ -184,7 +184,7 @@ On a split install the updater updates the app computer; run `install-tagave.sh 
 
 ### Optional modules (Settings › Modules)
 
-**Settings › Modules** lists every module with its state: Player, DJ, Lidarr, Listen elsewhere, Music Connections, Playlists and Similar artists. Each row opens the module's own page, **Settings › Modules › <module>**, which starts with its **Off | On** and holds all of its settings: the player's server, scrobbling and quality, and everyone's own player account and Last.fm and ListenBrainz; Lidarr's connection; each person's Listen elsewhere platforms; each person's Music Connections. The owner sees every module and switches them. Everyone else sees only the modules that are on and have settings of their own (the player, Listen elsewhere, Music Connections). The old addresses (`/settings/playback`, `/settings/listening`, `/settings/listen-elsewhere`, `/settings/connections`) open the new pages.
+**Settings › Modules** lists every module with its state: Player, DJ, Lidarr, Listen elsewhere, Music Connections, Playlists and Similar artists. Each row opens the module's own page, **Settings › Modules › <module>**, which starts with its **Off | On** and holds the server's settings: the player's server, scrobbling and quality; Lidarr's connection. Modules is the owner's: the owner sees every module and switches them. Each person's own parts are in **Your settings**: their player account, Last.fm and ListenBrainz under **Listening**, DJ's Simple mode under **DJ**, their platforms under **Listen elsewhere** and their linked apps under **Connections**. The old addresses (`/settings/playback`, `/settings/listening`, `/settings/listen-elsewhere`, `/settings/connections`, and a module page for anyone but the owner) open the new pages.
 
 Optional parts that run as their own containers (the player is the first) come from the module catalogue in the signed manifest of the release this server runs, so a module that arrives in a later release shows up once you update to it; nothing else needs installing. Each one's page shows how much memory and disk it takes, and whether it is off, being turned on or off, on, failed (with the reason), or waiting for an update to bring in a new image.
 
@@ -225,7 +225,7 @@ Navidrome reads your music folder read-only, always, even when you installed wit
 
 **One account per person.** tagave gives everyone on the install their own Navidrome user (made the first time they play, or within a minute of being added; locked when their tagave account is disabled). Their plays, play counts, ratings and stars are theirs, and tagave streams as them, never as the admin. The passwords are random, sealed with `APP_SECRET`, and never shown.
 
-**Phone apps.** Symfonium, Amperfy, play:Sub, Substreamer and Tempus log in to Navidrome directly, not through tagave. Each person sets a password for apps in **Settings › Modules › Player** (tagave shows their Navidrome user name there), then enters this computer's address, port 4533, that user name and that password in the app. Plays from the app come back to tagave as theirs within a minute or two, and are scrobbled like plays in tagave.
+**Phone apps.** Symfonium, Amperfy, play:Sub, Substreamer and Tempus log in to Navidrome directly, not through tagave. Each person sets a password for apps in **Your settings › Listening** (tagave shows their Navidrome user name there), then enters this computer's address, port 4533, that user name and that password in the app. Plays from the app come back to tagave as theirs within a minute or two, and are scrobbled like plays in tagave.
 
 **The first scan.** Navidrome scans the whole library once when it first starts, and again every 24 hours. The file watcher is off, because it does not work over NFS; instead tagave asks Navidrome for a scan after it writes tags. On a large library on a NAS the first scan can take hours. Albums play once Navidrome has scanned them; the installer does not wait for it. Until then an album's Play is greyed out with how far the first scan is, and it turns on by itself when the scan reaches the album.
 
@@ -243,18 +243,18 @@ docker compose exec app node packages/doctor/dist/cli.js purge-module player --d
 
 **Listens and scrobbling.** When someone has heard at least half of an album's tracks within six hours, in tagave or in a phone app, tagave adds a listen of that release to the album page (only for them). Each play also goes to the person's own Last.fm and ListenBrainz, once: tagave sends every scrobble itself, and Navidrome's own scrobbling is turned off in `compose.yml` so nothing is counted twice. A track counts when it is longer than 30 seconds and half of it (or four minutes) was heard.
 
-- **ListenBrainz** needs nothing from the owner: each person pastes their user token (listenbrainz.org › Settings) in **Settings › Modules › Player**.
+- **ListenBrainz** needs nothing from the owner: each person pastes their user token (listenbrainz.org › Settings) in **Your settings › Listening**.
 - **Last.fm** needs an API key for your server, made once by the owner:
   1. Open https://www.last.fm/api/account/create and sign in with any Last.fm account.
   2. Under **Application name**, type a name (for example "tagave at home"). Leave every other field empty.
   3. Press **Submit**. Last.fm shows an **API key** and a **Shared secret**.
   4. In tagave, open **Settings › Modules › Player › Scrobbling**, paste both, and press **Save**. tagave checks them with Last.fm and stores them sealed with `APP_SECRET`. No restart is needed.
 
-  Then each person presses **Connect Last.fm** in **Settings › Modules › Player**, allows tagave on last.fm and comes back. (`TAGAVE_LASTFM_API_KEY` and `TAGAVE_LASTFM_SECRET` in `.env` also work; the ones saved in Settings win.)
+  Then each person presses **Connect Last.fm** in **Your settings › Listening**, allows tagave on last.fm and comes back. (`TAGAVE_LASTFM_API_KEY` and `TAGAVE_LASTFM_SECRET` in `.env` also work; the ones saved in Settings win.)
 
-To check it for real after setting it up: play one album through to the end in tagave, wait a minute, and look at your profile on last.fm and listenbrainz.org; **Settings › Modules › Player › Recently played** shows each play with "Scrobbled to …" or the reason it was not.
+To check it for real after setting it up: play one album through to the end in tagave, wait a minute, and look at your profile on last.fm and listenbrainz.org; **Your settings › Listening › Recently played** shows each play with "Scrobbled to …" or the reason it was not.
 
-**Your own server instead.** If you already run Navidrome (or another Subsonic-compatible server), leave the module off and enter its address, a user name and a password under **Settings › Modules › Player**. tagave stores the password sealed with `APP_SECRET`, like the other provider secrets. Everyone plays through that account unless they add their own login on that server in **Settings › Modules › Player** (then their plays, ratings and phone-app plays are theirs; if that server already scrobbles for them, they say so there and tagave sends nothing). tagave finds the file behind each track by its path. For exact matching, open Navidrome's **Players** page and turn on **Report real path** for the player named `tagave` (it appears after tagave first connects). The bundled player does this for you.
+**Your own server instead.** If you already run Navidrome (or another Subsonic-compatible server), leave the module off and enter its address, a user name and a password under **Settings › Modules › Player**. tagave stores the password sealed with `APP_SECRET`, like the other provider secrets. Everyone plays through that account unless they add their own login on that server in **Your settings › Listening** (then their plays, ratings and phone-app plays are theirs; if that server already scrobbles for them, they say so there and tagave sends nothing). tagave finds the file behind each track by its path. For exact matching, open Navidrome's **Players** page and turn on **Report real path** for the player named `tagave` (it appears after tagave first connects). The bundled player does this for you.
 
 **Split installs.** For now the bundled player works only when everything runs on one computer (`--role all`): it has to run next to both the music and the app. On a split install the installer refuses `--with-player` and `enable-player`; run your own Navidrome on the music computer and point Settings › Modules › Player at it.
 
@@ -325,7 +325,7 @@ One line says what Lidarr can do there: **Lidarr can write here**, **Lidarr can'
 
 ### Play missing albums on your service
 
-With Listen elsewhere on (Settings › Modules), each person picks their streaming platforms in **Settings › Modules › Listen elsewhere**, and under **Missing albums** the one to play missing music on. A missing album then shows **▶ Qobuz** (or the platform chosen), which opens the album there; when its own page is not known, the artist's page or a search. A **Missing** row in a playlist gets the same key. The other platforms stay under **Listen**.
+With Listen elsewhere on (Settings › Modules), each person picks their streaming platforms in **Your settings › Listen elsewhere**, and under **Missing albums** the one to play missing music on. A missing album then shows **▶ Qobuz** (or the platform chosen), which opens the album there; when its own page is not known, the artist's page or a search. A **Missing** row in a playlist gets the same key. The other platforms stay under **Listen**.
 
 ### Similar artists
 
@@ -388,13 +388,13 @@ Open http://localhost:3100. A fresh install opens the setup wizard, which walks 
 2. **Owner account**: email, name, password (at least 12 characters) and a **contact** for MusicBrainz and Discogs (an email address or a website; required for external lookups).
 3. **Music folder**: the path to your library **as the worker sees it** (with the bundled Compose workers, `/mnt/music`). The worker checks the folder and the wizard shows what it found, with a fix for a missing path, a permission problem or a read-only mount.
 4. **First album**: start the first scan and follow it until the first album is identified. A Discogs token (cover images, 25→55 requests/min) and an AcoustID key are optional on the same page.
-5. **Protect your account** (skippable): add a passkey or a security key such as a YubiKey, or set up an authenticator app and save its backup codes. Passkeys need `PUBLIC_URL` to be the address you are on, over https or `localhost`; the step says so when it is not. Skipped, Settings › Security keeps reminding you.
+5. **Protect your account** (skippable): add a passkey or a security key such as a YubiKey, or set up an authenticator app and save its backup codes. Passkeys need `PUBLIC_URL` to be the address you are on, over https or `localhost`; the step says so when it is not. Skipped, Your settings › Account keeps reminding you.
 
-Afterwards, **Settings › System status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `tagave-doctor doctor` prints the same checks and fixes. The worker check passes when the running workers together take every kind of work (music folders, identification, album details, tag changes); on a split install it names the work no running worker takes. Set `EXPECT_WORKERS=0` in the app environment only while you run no worker on purpose.
+Afterwards, **Settings › Status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `tagave-doctor doctor` prints the same checks and fixes. The worker check passes when the running workers together take every kind of work (music folders, identification, album details, tag changes); on a split install it names the work no running worker takes. Set `EXPECT_WORKERS=0` in the app environment only while you run no worker on purpose.
 
 ### Adding people
 
-Everyone in the household can have their own account. As the owner, open **Settings › Users**, enter the person's email address, pick a role and choose **Make invite link**:
+Everyone in the household can have their own account. As the owner, open **Settings › People**, enter the person's email address, pick a role and choose **Make invite link**:
 
 - **Listener**: browse, search and play, with their own ratings, reviews and listens.
 - **Editor**: also library care and tag changes, but no install settings.
@@ -467,5 +467,5 @@ Until a worker is listening to the database, a new scan root stays `pending` and
 If you proxy the app (nginx, Caddy, etc.):
 - Set `PUBLIC_URL=https://your-domain.com` in `.env`; with https the session cookie gets the `secure` flag
 - Keep `ALLOW_INSECURE_HTTP=false` (default) so the owner account cannot be created over plain http
-- Nothing to set for client addresses: a proxy on a private network (tagave's Docker network, another compose stack through the published port, this computer, your home network) is trusted to name the client, so rate limits apply per client. `TRUST_PROXY` is needed only for a proxy on a public address; Settings › System says when it sees one
+- Nothing to set for client addresses: a proxy on a private network (tagave's Docker network, another compose stack through the published port, this computer, your home network) is trusted to name the client, so rate limits apply per client. `TRUST_PROXY` is needed only for a proxy on a public address; Settings › Status says when it sees one
 - Recommended: put the proxy and tagave on one Docker network, point the proxy at `app:3000` and drop the app's `ports:` entry. If the port must stay published, bind it where the internet cannot reach it: `"127.0.0.1:3100:3000"` or a LAN address. A port published on all addresses bypasses ufw and, on a host with public IPv6, lets internet clients in over IPv6 from the Docker gateway (docs/security.md › Reverse proxy and client addresses)

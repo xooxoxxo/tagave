@@ -85,7 +85,7 @@ const loginTwoFactorRoute = new Route({
   component: TwoFactorPage,
 });
 
-// An invite or set-password link (Settings › Users): opened signed out
+// An invite or set-password link (Settings › People): opened signed out
 const inviteRoute = new Route({
   getParentRoute: () => rootRoute,
   path: '/invite/$token',
@@ -244,7 +244,7 @@ const settingsSectionRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/$section',
   component: SettingsPage,
-  // the moved sections (/settings/account, /settings/users, ...) land here
+  // an old address (/settings/account, /settings/users, ...) goes to its new home (routing/redirects.ts)
   beforeLoad: redirectMoved,
   // ?job=<job_runs id> points Background activity at one job (a plan's
   // preview and the activity list itself link here): JobsPage reads it with

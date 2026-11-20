@@ -1,7 +1,7 @@
 /**
- * Settings › Modules › Music Connections: the person's Music Connections links (tagave as a
+ * Your settings › Connections: the person's Music Connections links (tagave as a
  * client). Add and Re-approve send the browser to the other app's consent
- * page; it comes back to Settings › Modules › Music Connections with ?linked= or ?error=.
+ * page; it comes back to Your settings › Connections with ?linked= or ?error=.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { McConnectionsView, McLinkView, McStartView } from '@tagave/shared';

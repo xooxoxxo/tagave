@@ -1,5 +1,5 @@
 /**
- * Settings › Account: this person's link to the login service. Linking is
+ * Your settings › Account: this person's link to the login service. Linking is
  * explicit (never by a matching email) and asks for a fresh confirmation
  * first; unlinking is refused while it is the only way in.
  */

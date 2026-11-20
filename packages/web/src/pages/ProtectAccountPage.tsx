@@ -1,7 +1,7 @@
 /**
  * Setup wizard, last step (skippable): protect the new account with a
  * passkey or security key, or an authenticator app. Skipping leaves the
- * warning in Settings › Security.
+ * warning in Your settings › Account.
  */
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';

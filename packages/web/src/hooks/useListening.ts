@@ -1,5 +1,5 @@
 /**
- * Listening, per person (Settings › Modules › Player): their account on the player
+ * Listening, per person (Your settings › Listening): their account on the player
  * server, Last.fm and ListenBrainz, their recent plays; and the owner's
  * Last.fm application (Settings › Modules › Player › Scrobbling).
  */
@@ -43,7 +43,7 @@ function useRefresh() {
   };
 }
 
-/** Starts the Last.fm web auth: the browser leaves for last.fm and comes back to Settings › Modules › Player. */
+/** Starts the Last.fm web auth: the browser leaves for last.fm and comes back to Your settings › Listening. */
 export function useConnectLastfm() {
   const { libraryId } = useCurrentLibrary();
   return useMutation({
