@@ -1,10 +1,11 @@
 /**
- * Work page: review, identify, attention and tasks tabs
- * Combines QueuePage (review), IdentifyPage (identify), AttentionPage
- * (attention) and TasksPage (tasks: gaps the owner took on, 0032)
+ * Library care (/work): the tabs that look after the library, from review
+ * matches to Genre mapping and Background activity (spec §4), with
+ * Maintenance in the header. Which tabs a person sees, and where a link to a
+ * module that is off goes, is workTabs.ts; this page renders the panel.
  */
 import { useMemo } from 'react';
-import { useSearch, useNavigate } from '@tanstack/react-router';
+import { Navigate, useSearch, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useCan, useCurrentLibrary, useIdentifyStats, useGapCounts } from '../hooks';
 import { DeletingPanel } from './DeletingPage';
@@ -21,7 +22,11 @@ import { IdentifyPanel } from './IdentifyPage';
 import { AttentionPanel } from './AttentionPage';
 import { TasksPanel } from './TasksPage';
 import { AutotaggerPanel } from './review/AutotaggerPanel';
+import { SettingsGenresContent } from './SettingsGenresPage';
+import { JobsPage } from './JobsPage';
+import { MaintenanceControl } from '../components/MaintenanceControl';
 import { identifyTodoCount } from './identifyCounts';
+import { allowedTab, workTabGate, workTabs, type WorkTab } from './workTabs';
 
 interface QueueData {
   items: unknown[];
@@ -31,16 +36,13 @@ interface QueueData {
 export function WorkPage() {
   const { libraryId } = useCurrentLibrary();
   const navigate = useNavigate();
-  const { tab } = useSearch({ strict: false }) as { tab?: string };
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const tab = typeof search['tab'] === 'string' ? search['tab'] : undefined;
   const owner = useCan('system.manage');
-  // albums asked of Lidarr: the owner's, while the lidarr module is on
-  const lidarrOn = useModuleOn('lidarr');
-  // the autotagger: anyone who may edit the library, while the module is on
   const editor = useCan('library.edit');
+  // Getting and Autotagger show while their module is on (workTabs.ts)
+  const lidarrOn = useModuleOn('lidarr');
   const autotaggerOn = useModuleOn('autotagger');
-  const autotagger = editor && autotaggerOn === true;
-  const getting = owner && lidarrOn === true;
-  const activeTab = tab || 'review';
 
   // Fetch queue length for review tab count
   const { data: queueData } = useQuery({
@@ -70,45 +72,28 @@ export function WorkPage() {
   }, [gapsData]);
 
   const tabs: TabItem[] = useMemo(
-    () => [
-      {
-        label: 'Review matches',
-        value: 'review',
-        ...(queueCount > 0 && { count: queueCount }),
-      },
-      {
-        label: 'Identify albums',
-        value: 'identify',
-        ...(identifyCount > 0 && { count: identifyCount }),
-      },
-      {
-        label: 'Resolve gaps',
-        value: 'attention',
-        ...(attentionTotal > 0 && { count: attentionTotal }),
-      },
-      {
-        label: 'Tasks',
-        value: 'tasks',
-        ...(taskCount > 0 && { count: taskCount }),
-      },
-      // deleted songs and albums: the owner's (a deletion reaches the music folder)
-      ...(owner ? [{ label: 'Deleting', value: 'deleting' }] : []),
-      // songs moved to another album (Maintenance › Move to album): the owner's
-      ...(owner ? [{ label: 'Moved', value: 'moved' }] : []),
-      // albums whose paths differ from the naming rules, and the drop pool's Inbox (0081)
-      ...(owner ? [{ label: 'Organize', value: 'organize' }] : []),
-      ...(owner ? [{ label: 'Inbox', value: 'inbox', ...(inboxCount > 0 && { count: inboxCount }) }] : []),
-      ...(getting ? [{ label: 'Getting', value: 'getting' }] : []),
-      ...(autotagger ? [{ label: 'Autotagger', value: 'autotagger' }] : []),
-    ],
-    [queueCount, identifyCount, attentionTotal, taskCount, owner, getting, inboxCount, autotagger],
+    () => workTabs({
+      owner,
+      editor,
+      lidarrOn,
+      autotaggerOn,
+      counts: { queue: queueCount, identify: identifyCount, attention: attentionTotal, tasks: taskCount, inbox: inboxCount },
+    }),
+    [owner, editor, lidarrOn, autotaggerOn, queueCount, identifyCount, attentionTotal, taskCount, inboxCount],
   );
 
   const handleTabChange = (newTab: string) => {
-    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'organize' | 'inbox' | 'getting' | 'autotagger' } });
+    navigate({ to: '/work', search: { tab: newTab as WorkTab } });
   };
 
+  // a tab mapped to a module that is off goes elsewhere (the modules rule)
+  const gate = workTabGate({ tab, search, owner, modules: { lidarr: lidarrOn, autotagger: autotaggerOn } });
+  if (gate && 'to' in gate) return <Navigate to={gate.to as never} search={gate.search as never} replace />;
+  const activeTab = gate ? (tab as WorkTab) : allowedTab(tab, tabs);
+
   const renderPanel = () => {
+    // the module's state is still loading: hold the tab's place, never another tab
+    if (gate) return null;
     switch (activeTab) {
       case 'identify':
         return <IdentifyPanel />;
@@ -117,17 +102,21 @@ export function WorkPage() {
       case 'tasks':
         return <TasksPanel />;
       case 'deleting':
-        return owner ? <DeletingPanel /> : <ReviewPanel />;
+        return <DeletingPanel />;
       case 'moved':
-        return owner ? <MovedPanel /> : <ReviewPanel />;
+        return <MovedPanel />;
       case 'organize':
-        return owner ? <OrganizePanel /> : <ReviewPanel />;
+        return <OrganizePanel />;
       case 'inbox':
-        return owner ? <InboxPanel /> : <ReviewPanel />;
+        return <InboxPanel />;
       case 'getting':
-        return getting ? <GettingPanel /> : <ReviewPanel />;
+        return <GettingPanel />;
       case 'autotagger':
-        return autotagger ? <AutotaggerPanel /> : <ReviewPanel />;
+        return <AutotaggerPanel />;
+      case 'genres':
+        return <SettingsGenresContent />;
+      case 'activity':
+        return <JobsPage />;
       default:
         return <ReviewPanel />;
     }
@@ -139,6 +128,7 @@ export function WorkPage() {
       tabs={tabs}
       activeTab={activeTab}
       onTabChange={handleTabChange}
+      actions={<MaintenanceControl />}
     >
       {renderPanel()}
     </PageShell>

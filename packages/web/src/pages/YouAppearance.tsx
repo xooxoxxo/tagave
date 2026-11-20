@@ -1,47 +1,28 @@
 /**
- * Your settings › Appearance: the light and dark switch, the theme, display
- * prefs, and Maintenance for those who look after the library (it moves to
- * Library care in PR 3, spec §4). Moved out of SettingsPage unchanged.
+ * Your settings › Appearance: the light and dark switch, the theme and the
+ * display prefs, the same for everyone. The curation switch lives in Library
+ * care's header (spec §4).
  */
 import type { ReactNode } from 'react';
-import { useCan } from '../hooks/usePermissions';
 import { Button, SegmentedControl, Select, ThemeSwitch } from '../components/ui';
-import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { ALBUM_WIDGETS, DEFAULT_ALBUM_WIDGETS, type WidgetPlacement } from './albumWidgets';
 import { ThemeSetting } from '../themes/ThemeSetting';
 import styles from './SettingsPage.module.css';
 
 export function YouAppearance() {
-  const canMaintain = useCan('library.edit');
-  return <YouAppearanceView theme={<ThemeSetting headingClassName={styles.modeSetting} />} canMaintain={canMaintain} />;
+  return <YouAppearanceView theme={<ThemeSetting headingClassName={styles.modeSetting} />} />;
 }
 
 /**
  * The section with its theme picker given (stories pass the gallery alone,
  * no saving to the server). The rest reads this browser's own prefs.
  */
-export function YouAppearanceView({ theme, canMaintain }: { theme: ReactNode; canMaintain: boolean }) {
+export function YouAppearanceView({ theme }: { theme: ReactNode }) {
   return <>
     <ThemeSwitch />
     {theme}
-    {canMaintain && <MaintenanceSetting />}
     <DisplaySettings />
-  </>;
-}
-
-/**
- * Maintenance: curation tools (match state, provider links, library issues,
- * the Manage menu) show only while it is on. The same switch sits in the
- * app bar (Shift+M).
- */
-function MaintenanceSetting() {
-  const [on, setOn] = useMaintenance();
-  // Same heading level and rhythm as Appearance above: siblings in the
-  // section's column, so the gap above the control matches too.
-  return <>
-    <h2 className={styles.modeSetting}>Maintenance</h2>
-    <SegmentedControl label="Maintenance" value={on ? 'on' : 'off'} onChange={(v) => setOn(v === 'on')} options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]} />
   </>;
 }
 
@@ -49,7 +30,7 @@ function MaintenanceSetting() {
  * Sidebar, album and artist display: whether the desktop sidebar stays or
  * hides (Auto-hide, components/sidebarPeek.ts), where the search sits, the wordmark,
  * the artwork under short albums, and the artist page's layout. Each is its own setting with the same rhythm
- * as Maintenance above.
+ * as Appearance above.
  */
 function DisplaySettings() {
   const [prefs, setPrefs] = useDisplayPrefs();

@@ -1,8 +1,7 @@
 /**
  * Your settings (spec §2): the person's own settings at /you/<section>, the
  * same sticky shell and phone list-or-section layout as Settings. Account
- * holds Security; Appearance keeps Maintenance until Library care has it
- * (PR 3).
+ * holds Security; Maintenance lives in Library care's header (PR 3).
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -27,10 +26,11 @@ describe('Your settings', () => {
     expect(tsx).not.toMatch(/'security'/);
   });
 
-  it('Appearance still has Maintenance until PR 3', () => {
+  it('Appearance has no Maintenance', () => {
     const tsx = source('./YouAppearance.tsx');
-    expect(tsx).toMatch(/label="Maintenance"/);
-    expect(tsx).toMatch(/library\.edit/);
+    expect(tsx).not.toContain('Maintenance');
+    expect(tsx).not.toContain('useMaintenance');
+    expect(tsx).not.toContain('library.edit');
   });
 
   it('a module section that is off shows Off, not Not available', () => {

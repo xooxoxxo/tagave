@@ -51,12 +51,12 @@ function useStoryDark(): boolean {
 }
 
 /** Appearance with the theme gallery on local state (no saving). */
-function Appearance({ canMaintain }: { canMaintain: boolean }) {
+function Appearance() {
   const dark = useStoryDark();
   const [choice, setChoice] = useState<ThemeChoice>({ theme: 'classic', custom: null });
   return <>
     <h2>Appearance</h2>
-    <YouAppearanceView canMaintain={canMaintain} theme={<><h2 className={page.modeSetting}>Theme</h2><ThemeGallery choice={choice} dark={dark} onPick={(theme) => setChoice((c) => ({ ...c, theme }))} /></>} />
+    <YouAppearanceView theme={<><h2 className={page.modeSetting}>Theme</h2><ThemeGallery choice={choice} dark={dark} onPick={(theme) => setChoice((c) => ({ ...c, theme }))} /></>} />
   </>;
 }
 
@@ -96,8 +96,8 @@ type Story = StoryObj<typeof meta>;
 /** tags inline on each story: the indexer reads them statically */
 const phone = { globals: { viewport: { value: 'phone' } } } satisfies Story;
 
-/** Account and Appearance only; no Maintenance without library.edit. */
-export const Listener: Story = { tags: ['viewport-1440'], args: { modules: NONE, section: 'appearance', content: <Appearance canMaintain={false} /> } };
+/** Account and Appearance only. */
+export const Listener: Story = { tags: ['viewport-1440'], args: { modules: NONE, section: 'appearance', content: <Appearance /> } };
 /** The owner's Listening, with the link to the player server. */
 export const EveryModuleOn: Story = {
   name: 'Every module on',
@@ -108,12 +108,12 @@ export const EveryModuleOn: Story = {
     content: <><h2>Listening</h2><ListeningSettingsView data={listening} history={history} lastfmReturn={null} onConnectLastfm={noop} onConnectListenbrainz={noop} onDisconnect={noop} onSetPhonePassword={noop} onClearPhonePassword={noop} onSaveOwnAccount={noop} onRemoveOwnAccount={noop} /><PlayerServerRow /></>,
   },
 };
-/** Appearance for someone who looks after the library: Maintenance stays here until Library care has it. */
-export const AppearanceSection: Story = { name: 'Appearance', tags: ['viewport-1440'], args: { modules: ALL, section: 'appearance', content: <Appearance canMaintain /> } };
+/** Appearance: the same for everyone (Maintenance lives in Library care's header). */
+export const AppearanceSection: Story = { name: 'Appearance', tags: ['viewport-1440'], args: { modules: ALL, section: 'appearance', content: <Appearance /> } };
 /** An old link to a module that is off: the value Off, never Not available. */
 export const ModuleOff: Story = { name: 'Module off', tags: ['viewport-1440'], args: { modules: { ...NONE, player: true }, section: 'dj', content: <YouModuleOff label="DJ" /> } };
 
 export const PhoneListener: Story = { ...phone, name: 'Phone, listener', tags: ['phone'], args: { modules: NONE, section: null } };
 export const PhoneEveryModuleOn: Story = { ...phone, name: 'Phone, every module on', tags: ['phone'], args: { modules: ALL, section: null } };
-export const PhoneAppearance: Story = { ...phone, name: 'Phone, Appearance', tags: ['phone'], args: { modules: ALL, section: 'appearance', content: <Appearance canMaintain /> } };
+export const PhoneAppearance: Story = { ...phone, name: 'Phone, Appearance', tags: ['phone'], args: { modules: ALL, section: 'appearance', content: <Appearance /> } };
 export const PhoneModuleOff: Story = { ...phone, name: 'Phone, module off', tags: ['phone'], args: { modules: NONE, section: 'dj', content: <YouModuleOff label="DJ" /> } };

@@ -36,6 +36,7 @@ import { parseAlbumsSearch } from './pages/albumsSearch';
 import { parseArtistsSearch } from './pages/artistsView';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
 import { redirectFor } from './routing/redirects';
+import { parseWorkSearch } from './pages/workTabs';
 
 /**
  * A moved settings address (routing/redirects.ts, spec §8) goes to its new
@@ -46,17 +47,6 @@ import { redirectFor } from './routing/redirects';
 function redirectMoved({ location }: { location: ParsedLocation }) {
   const r = redirectFor(location.pathname, location.search as Record<string, unknown>);
   if (r) throw redirect({ to: r.to as never, search: r.search as never, hash: location.hash, replace: true });
-}
-
-/**
- * Parse work page search params: validate optional tab
- */
-function parseWorkSearch(search: Record<string, unknown>) {
-  const tab = search.tab as string | undefined;
-  if (tab && !['review', 'identify', 'attention', 'tasks', 'deleting', 'moved', 'organize', 'inbox', 'getting', 'autotagger'].includes(tab)) {
-    throw new Error(`Invalid work tab: ${tab}`);
-  }
-  return { tab: (tab as 'review' | 'identify' | 'attention' | 'tasks' | 'deleting' | 'moved' | 'organize' | 'inbox' | 'getting' | 'autotagger' | undefined) ?? 'review' };
 }
 
 // Root route - handles auth redirection

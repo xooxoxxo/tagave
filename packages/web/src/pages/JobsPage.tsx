@@ -1,5 +1,5 @@
 /**
- * Background activity (Settings › Background activity).
+ * Background activity (Library care › Background activity).
  *
  * Summary first: is anything running, does anything need the owner. Then
  * album identification in plain numbers with a way into the review queue,
@@ -72,7 +72,7 @@ export function JobsPage() {
   const recent = jobs.data;
   const more = Math.max(0, jobs.pagination.total - jobs.pagination.offset - jobs.pagination.limit);
   const focusMissing = focusId !== undefined && !attention.some((j) => j.id === focusId) && !recent.some((j) => j.id === focusId);
-  const clearFocus = () => void navigate({ to: '/settings/$section', params: { section: 'activity' }, search: {} });
+  const clearFocus = () => void navigate({ to: '/work', search: { tab: 'activity' } });
 
   const onRetry = (job: JobView) => {
     setRetryNote((m) => ({ ...m, [job.id]: '' }));
@@ -271,7 +271,7 @@ function JobTable({ jobs, focusId, action }: { jobs: JobView[]; focusId: string 
               </Td>
               <Td className={styles.statusCell}><Badge tone={badge.tone}>{badge.text}</Badge></Td>
               <Td className={styles.whenCell}>
-                <Link to="/settings/$section" params={{ section: 'activity' }} search={{ job: job.id }} className={styles.whenLink}
+                <Link to="/work" search={{ tab: 'activity', job: job.id }} className={styles.whenLink}
                   title={`${new Date(job.at).toLocaleString()} (link to this task)`}>
                   {formatRelativeTime(job.at)}
                 </Link>

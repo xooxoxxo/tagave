@@ -1,0 +1,12 @@
+/* Maintenance in Library care's header: a quiet label, then Off/On. */
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.label {
+  font: var(--type-label);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
