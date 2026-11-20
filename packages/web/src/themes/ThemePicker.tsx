@@ -1,5 +1,5 @@
 /**
- * Settings › Appearance › Theme: a gallery of the starters, each card a live
+ * Your settings › Appearance › Theme: a gallery of the starters, each card a live
  * mini preview of the app in that theme, and Custom's editor (a colour, its
  * hue, an optional second accent for the player, the lowest contrast). Pure
  * views: ThemeSetting.tsx connects them to the person's choice.

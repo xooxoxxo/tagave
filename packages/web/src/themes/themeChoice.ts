@@ -3,7 +3,7 @@ import { themeChoiceSchema, type ThemeChoice } from '@tagave/shared';
 import { DISPLAY_STORAGE_KEY, parseDisplayPrefs } from '../displayPrefs';
 
 /**
- * The colour theme (Settings › Appearance). The person's choice lives on the
+ * The colour theme (Your settings › Appearance). The person's choice lives on the
  * server (GET/PUT /api/v1/me/prefs, user_prefs) so it follows them between
  * devices; this browser keeps a copy, and the tokens it generates for both
  * modes, so the first paint is already themed (index.html applies them

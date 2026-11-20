@@ -1,5 +1,5 @@
 /**
- * Settings › Security › Passkeys and security keys: the list (name, model,
+ * Your settings › Account › Passkeys and security keys: the list (name, model,
  * synced or device-bound, added), add a passkey or a security key, rename,
  * remove.
  */

@@ -1,6 +1,6 @@
 /**
  * The disk-space notice: only the owner sees it, only while a disk warns or
- * fails, and never on Settings › Storage, which shows the same numbers.
+ * fails, and never on Settings › Status, which shows the same numbers.
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -42,8 +42,8 @@ describe('showDiskNotice', () => {
     expect(showDiskNotice(owner, null, '/albums')).toBe(false);
   });
 
-  it('stays off Settings › Storage, which says the same', () => {
-    expect(showDiskNotice(owner, diskOf(97, 'fail'), '/settings/storage')).toBe(false);
+  it('stays off Settings › Status, which says the same', () => {
+    expect(showDiskNotice(owner, diskOf(97, 'fail'), '/settings/status')).toBe(false);
     expect(showDiskNotice(owner, diskOf(97, 'fail'), '/settings/backups')).toBe(true);
   });
 });
@@ -110,12 +110,12 @@ describe('reading the disk', () => {
 
 describe('DiskSpaceNoticeView', () => {
   it('is a one-line Banner in the warning or danger tone with the link it is given', () => {
-    const warn = renderToStaticMarkup(<DiskSpaceNoticeView disk={diskOf(88, 'warn')} action={<a href="/settings/storage">Storage</a>} />);
+    const warn = renderToStaticMarkup(<DiskSpaceNoticeView disk={diskOf(88, 'warn')} action={<a href="/settings/status">Status</a>} />);
     expect(warn).toContain('role="status"');
     expect(warn).toMatch(/tone-warning/);
-    expect(warn.replace(/<!-- -->/g, '')).toContain('Disk 88% full · 12.0 GB free · <a href="/settings/storage">Storage</a>');
+    expect(warn.replace(/<!-- -->/g, '')).toContain('Disk 88% full · 12.0 GB free · <a href="/settings/status">Status</a>');
     expect(warn).not.toMatch(/filling up|Free space before/);
-    expect(warn).toContain('href="/settings/storage"');
+    expect(warn).toContain('href="/settings/status"');
     expect(renderToStaticMarkup(<DiskSpaceNoticeView disk={diskOf(97, 'fail')} action={null} />)).toMatch(/tone-danger/);
     expect(renderToStaticMarkup(<DiskSpaceNoticeView disk={diskOf(40, 'pass')} action={null} />)).toBe('');
   });

@@ -38,12 +38,12 @@ export const PRESETS: Array<{ id: Preset; label: string; title: string }> = [
   { id: 'canonical_ids_and_fill', label: 'Canonical IDs + fill', title: 'Overwrite ID tags and key fields; fill blanks for title, artist, genre, compilation' },
   { id: 'fill_blanks_only', label: 'Fill blanks only', title: 'Never overwrite; only set empty fields' },
   { id: 'overwrite_all', label: 'Overwrite all', title: 'Replace all canonical fields with new values' },
-  { id: 'custom', label: 'Custom', title: 'Per-field rules from Settings › Tag preferences' },
+  { id: 'custom', label: 'Custom', title: 'Per-field rules from Settings › Tag writing' },
 ];
 
 /**
  * The preset a new plan starts from: the library's default policy (Settings ›
- * Tag preferences); a manual or revert default is not a preset to pick.
+ * Tag writing); a manual or revert default is not a preset to pick.
  */
 export function defaultPresetOf(policy: { preset: string } | null | undefined): Preset {
   const p = policy?.preset;

@@ -1,6 +1,6 @@
 /**
  * Adaptive colour, the controller (mounted once in Layout): while a queue
- * with a cover plays and the theme is Adaptive (Settings › Appearance), the
+ * with a cover plays and the theme is Adaptive (Your settings › Appearance), the
  * cover's scheme (scheme.ts, loaded on first use) is written to the --ad-*
  * properties on <html> and data-adaptive turns the theme over to them
  * (styles/adaptive.css). A cover with no usable colour, another theme or

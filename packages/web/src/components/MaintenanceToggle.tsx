@@ -4,7 +4,7 @@ import styles from './MaintenanceToggle.module.css';
 
 /**
  * Maintenance lives where it changes something: the album page (its header
- * actions, and the phone top bar there). Shift+M and Settings › Appearance
+ * actions, and the phone top bar there). Shift+M and Your settings › Appearance
  * switch it anywhere; elsewhere a "Maintenance on" pill says it is on.
  */
 export function MaintenanceToggle({ className }: { className?: string | undefined }) {

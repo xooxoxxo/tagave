@@ -1,5 +1,5 @@
 /**
- * Settings › Security logic, kept free of React so it can be tested: the
+ * Your settings › Account logic, kept free of React so it can be tested: the
  * account health line, readable names for browsers and authenticators, and
  * the backup-codes file.
  */

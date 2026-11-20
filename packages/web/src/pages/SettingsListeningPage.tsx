@@ -1,5 +1,5 @@
 /**
- * Settings › Modules › Player › Listening (each person's own): what the player knows as you. Your
+ * Your settings › Listening (each person's own): what the player knows as you. Your
  * own account on the player server (and a password for phone apps), your
  * Last.fm and ListenBrainz, and your recent plays with what was scrobbled.
  * ListeningSettingsView is the page alone, driven by props (stories,

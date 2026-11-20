@@ -1,5 +1,5 @@
 /**
- * Settings › Security: how the account is protected. Sign-in methods and the
+ * Your settings › Account: how the account is protected. Sign-in methods and the
  * health line, passkeys and security keys, the authenticator app, backup
  * codes, trusted devices, and the password.
  */

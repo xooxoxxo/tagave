@@ -2,7 +2,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { DEFAULT_ALBUM_WIDGETS, parseAlbumWidgets, type AlbumWidgetLayout } from './pages/albumWidgets';
 
 /**
- * Display preferences from Settings › Appearance: where the sidebar's search
+ * Display preferences from Your settings › Appearance: where the sidebar's search
  * sits, whether the "tagave" wordmark shows beside the mark, whether the
  * desktop sidebar stays or hides, the
  * generative artwork under short albums, and how the artist page is laid out. Per-browser conveniences like the
@@ -28,7 +28,7 @@ export interface DisplayPrefs {
   /** An equalizer of light rising from the player bar's top edge while music plays (BarGlow). */
   eqGlow: boolean;
   /**
-   * Settings › Appearance › Sidebar: Always (false) or Auto-hide (true). With
+   * Your settings › Appearance › Sidebar: Always (false) or Auto-hide (true). With
    * Auto-hide a desktop's sidebar hides and slides in over the page when the
    * pointer comes to where it sits (components/sidebarPeek.ts).
    */

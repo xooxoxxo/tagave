@@ -170,7 +170,7 @@ export function OnboardingPage() {
       {live === false && (
         <Banner tone="warning">
           <strong>No worker is running.</strong> {heartbeat?.remediation ?? ''}{' '}
-          <Link to="/settings/$section" params={{ section: 'system' }}>System checks</Link>
+          <Link to="/settings/$section" params={{ section: 'status' }}>System checks</Link>
         </Banner>
       )}
 

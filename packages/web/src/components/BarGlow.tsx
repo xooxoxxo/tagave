@@ -1,5 +1,5 @@
 /**
- * The equalizer glow (Settings › Appearance › Equalizer glow, off by
+ * The equalizer glow (Your settings › Appearance › Equalizer glow, off by
  * default): a bright line along the player bar's top edge and, rising from
  * it into the page, one soft wash of light that swells and flows with the
  * music, never separate bars; one hue, the playing album's accent

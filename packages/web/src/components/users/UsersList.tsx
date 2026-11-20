@@ -1,5 +1,5 @@
 /**
- * Settings › Users, the parts that only draw: a person's row (name, email,
+ * Settings › People, the parts that only draw: a person's row (name, email,
  * role, how they sign in, when they were last here, the owner's controls),
  * a pending link's row, and the one-time link panel. SettingsUsersPage
  * wires them to the API; the stories render them with fixtures.

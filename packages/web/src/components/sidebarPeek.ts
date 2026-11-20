@@ -1,5 +1,5 @@
 /**
- * Settings › Appearance › Sidebar › Auto-hide, on a desktop: the sidebar is
+ * Your settings › Appearance › Sidebar › Auto-hide, on a desktop: the sidebar is
  * hidden and the page takes the whole width; a faint accent mark sits on the
  * left edge. When the pointer comes to where the sidebar sits it slides in
  * over the page (no layout shift) after REVEAL_MS, and slides out HIDE_MS

@@ -166,7 +166,7 @@ function PreviewOutcomeNotice({
         {outcome.notInAlbum > 0 && <li>{plural(outcome.notInAlbum, 'file')} {verb(outcome.notInAlbum, 'is', 'are')} not part of any album.</li>}
         {outcome.notOnRelease > 0 && <li>Not on this release: {plural(outcome.notOnRelease, 'file')}</li>}
         {outcome.notWritable > 0 && (
-          <li>{plural(outcome.notWritable, 'file')} {verb(outcome.notWritable, 'sits', 'sit')} on a scan root that does not allow writes — <Link to="/settings/library">Settings › Music folders</Link>.</li>
+          <li>{plural(outcome.notWritable, 'file')} {verb(outcome.notWritable, 'sits', 'sit')} on a scan root that does not allow writes · <Link to="/settings/library">Settings › Library</Link></li>
         )}
         {outcome.errors.files > 0 && (
           <li>{plural(outcome.errors.files, 'file')} could not be read{outcome.errors.sample ? `: ${outcome.errors.sample}` : ''}.</li>
@@ -506,8 +506,8 @@ export function PlanPage() {
     : analysisStopped ? 'Retry the stopped cut point analysis'
     : nothingToDo ? 'Nothing to change'
       : pendingSplits.some((x) => x.state === 'analyzing') ? 'Finding cut points'
-      : tagWritesDisabled ? 'Tag writes are off in Settings › Tag preferences'
-        : noWritableRoots ? 'No scan root allows writes (Settings › Tag preferences)'
+      : tagWritesDisabled ? 'Tag writes are off in Settings › Tag writing'
+        : noWritableRoots ? 'No scan root allows writes (Settings › Library)'
           : p?.status !== 'previewed' ? `Plan is ${p?.status}` : undefined;
 
   const run = (m: { mutateAsync: () => Promise<unknown> }, ask?: ConfirmOptions) => async () => {
@@ -736,8 +736,8 @@ export function PlanPage() {
           <Banner tone="warning">
             <strong>This plan can be previewed but not applied yet.</strong>
             <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
-              {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/$section" params={{ section: 'metadata' }}>Settings › Tag preferences › Tag writes</Link></li>}
-              {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/library">Settings › Music folders</Link></li>}
+              {tagWritesDisabled && <li>Tag writes are off · <Link to="/settings/$section" params={{ section: 'tag-writing' }}>Settings › Tag writing</Link></li>}
+              {noWritableRoots && <li>No scan root allows writes · <Link to="/settings/library">Settings › Library</Link></li>}
             </ul>
           </Banner>
         )}

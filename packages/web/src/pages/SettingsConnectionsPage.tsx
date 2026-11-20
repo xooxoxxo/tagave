@@ -1,5 +1,5 @@
 /**
- * Settings › Modules › Music Connections (spec §4 UI): the links this
+ * Your settings › Connections (spec §4 UI): the links this
  * person made from tagave to other music apps. Each shows what it reads
  * (granted, not granted, or newly offered: re-link to grant), the last sync,
  * the last error and its state, with Sync now, Re-approve, Edit address and
@@ -71,7 +71,7 @@ export interface ConnectionsPanelProps {
   onEditUrl: (id: string, url: string) => Promise<boolean> | boolean;
   onRevoke: (link: McLinkView) => void;
   onCopy?: (text: string) => void;
-  /** the module's page carries the heading (Settings › Modules › Music Connections) */
+  /** the section carries the heading (Your settings › Connections) */
   heading?: boolean;
 }
 

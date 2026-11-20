@@ -15,7 +15,7 @@ This page describes credential encryption, session security, backup handling, an
 - A session lasts 30 days and is extended once a day while you use it.
 - Sign-in requests are accepted only from `PUBLIC_URL` and the origins listed in `ALLOWED_ORIGINS` (Better Auth's origin and Fetch-Metadata checks). Open tagave at the address in `PUBLIC_URL`, or list the other addresses you use in `ALLOWED_ORIGINS`.
 - Repeated sign-in attempts are rate limited (Better Auth's limiter, stored in the database). Wrong passwords are also limited per account (10 in 15 minutes), from any address. Behind a reverse proxy on a private network the limit applies per client with no setting (see [Reverse proxy and client addresses](#reverse-proxy-and-client-addresses)).
-- Passwords are hashed with argon2id. New passwords need at least 12 characters. Change yours in Settings › Security › Password; ticking **Sign out my other devices** ends every other session.
+- Passwords are hashed with argon2id. New passwords need at least 12 characters. Change yours in Your settings › Account › Password; ticking **Sign out my other devices** ends every other session.
 - **Upgrading from 0.6:** you stay signed in. The first request with the old `sessionId` cookie swaps it for the new cookie, and your password is unchanged.
 
 ### Generate your secret
@@ -62,7 +62,7 @@ Rotating `APP_SECRET` also changes the sign-in secret, so **everyone is signed o
 
 ## People and roles
 
-An install can have several accounts. Everyone signed in sees the same libraries; what they may do depends on their role. The owner sets roles in **Settings › Users**.
+An install can have several accounts. Everyone signed in sees the same libraries; what they may do depends on their role. The owner sets roles in **Settings › People**.
 
 | | Listener | Editor | Owner |
 |---|:-:|:-:|:-:|
@@ -71,13 +71,13 @@ An install can have several accounts. Everyone signed in sees the same libraries
 | Their own Account, Security and Appearance settings | yes | yes | yes |
 | Library care: scans, identify and matching, review queue, gaps, field locks, bulk edits, following artists, physical collection upkeep | | yes | yes |
 | Tag changes (plans, apply, revert), tag preferences, genre mapping, follow rules, Background activity | | yes | yes |
-| Music folders, Integrations (provider keys), Playback server, System status, Storage, Backups, Updates, Setup checklist | | | yes |
+| Library, Modules and Integrations (provider keys), Player server, Status, Backups, Updates, Setup checklist | | | yes |
 | Lidarr: Get, Get all missing, Retry, Cancel, its settings | | | yes |
-| Settings › Users: invite, change roles, reset sign-in, turn off, remove | | | yes |
+| Settings › People: invite, change roles, reset sign-in, turn off, remove | | | yes |
 
 - **Per-person data stays per person.** Ratings, reviews, listens, clippings and saved grid views are stored against the account that made them; nobody else can read or change them. Library-level things (albums, tags, tag changes, follows) are shared.
 - **Every API route declares what it needs.** The server checks it before reading the request: anonymous callers get 401, a role without the permission gets 403 "Not available for your account". A route with no declaration refuses everyone, and a test fails CI over it. A second test signs in as each role and calls every route.
-- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app, passkeys and the login service's callback). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › Users.
+- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app, passkeys and the login service's callback). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › People.
 - **At least one owner.** The last owner who can sign in cannot be demoted, turned off or removed.
 - **Invite and set-password links** are one-time, expire after 7 days and are stored only as a SHA-256 hash; the owner copies the link (no email is sent). A set-password link signs the person out everywhere and can also remove their passkeys and authenticator app (a lost device). Opening links is rate limited per address.
 - **Turning sign-in off** ends every session at once and refuses new sign-ins (password, passkey or code) until the owner turns it back on. **Removing** someone either keeps their ratings, reviews and listens (the account is closed, its email freed, its sign-in methods deleted) or deletes them with the account. Libraries and tag changes they created pass to the owner removing them.
@@ -85,30 +85,30 @@ An install can have several accounts. Everyone signed in sees the same libraries
 
 ## Passkeys and security keys
 
-Settings › Security › **Passkeys and security keys** adds a passkey (iCloud Keychain, Google Password Manager, Windows Hello, 1Password, a phone) or a hardware security key such as a **YubiKey**. The sign-in page then offers **Sign in with a passkey**, and browsers that support it list your passkeys in the email field's autofill.
+Your settings › Account › **Passkeys and security keys** adds a passkey (iCloud Keychain, Google Password Manager, Windows Hello, 1Password, a phone) or a hardware security key such as a **YubiKey**. The sign-in page then offers **Sign in with a passkey**, and browsers that support it list your passkeys in the email field's autofill.
 
 - **A PIN or fingerprint is required.** tagave asks the authenticator to verify you (WebAuthn user verification) and refuses a key that only registers a touch. A YubiKey without a PIN: your browser asks you to create one when you add it. Because of this, a passkey sign-in counts as two factors and never asks for the authenticator code.
 - **Passkeys are bound to `PUBLIC_URL`'s host name.** They work only when you open tagave at that address, over https or on `localhost`. Changing the host name later means signing in with your password and adding them again; `tagave-doctor doctor` warns when `PUBLIC_URL` no longer matches the host your passkeys were made for.
-- Add at least two (for example a YubiKey and your phone) so losing one does not lock you out. Settings › Security shows how many factors you have.
+- Add at least two (for example a YubiKey and your phone) so losing one does not lock you out. Your settings › Account shows how many factors you have.
 - The setup wizard ends with a skippable **Protect your account** step that offers the same choices.
 
 ## Two-factor sign-in and backup codes
 
-Settings › Security › **Authenticator app** turns on a second step after the password: a 6-digit code from an app on your phone (1Password, Aegis, Google Authenticator and so on).
+Your settings › Account › **Authenticator app** turns on a second step after the password: a 6-digit code from an app on your phone (1Password, Aegis, Google Authenticator and so on).
 
 - Setting it up asks for your password, shows a QR code made in your browser (the secret never goes to a third-party service) and the key as text, and turns on only after you enter one correct code.
-- You then get **10 backup codes**, shown once, to download or print. Each signs you in once instead of the code. Settings › Security shows how many are left; making new ones cancels the old ones.
+- You then get **10 backup codes**, shown once, to download or print. Each signs you in once instead of the code. Your settings › Account shows how many are left; making new ones cancels the old ones.
 - The authenticator secret and the backup codes are stored encrypted with the sign-in secret derived from `APP_SECRET`. `tagave-doctor reseal` re-encrypts them when you rotate `APP_SECRET` (it changes nothing and stops if one cannot be decrypted with either secret).
 - Ten wrong codes in a row lock the second step for 15 minutes.
 - Passkey sign-in never asks for the code: a passkey with its PIN or fingerprint already counts as two factors.
 
 ### Trusted devices
 
-On the code page, **Don't ask for a code on this device for 30 days** remembers that browser. Settings › Security › **Trusted devices** lists every remembered browser (browser, last use, expiry) and forgets any of them. Turning the authenticator off or changing your password forgets them all.
+On the code page, **Don't ask for a code on this device for 30 days** remembers that browser. Your settings › Account › **Trusted devices** lists every remembered browser (browser, last use, expiry) and forgets any of them. Turning the authenticator off or changing your password forgets them all.
 
 ## Sign in with your login service
 
-Any OpenID Connect login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID) can add a **Sign in with …** button. Set it up in Settings › Users › **Sign-in service**; each person links from Settings › **Account**. The redirect URI:
+Any OpenID Connect login service (Zitadel, Authentik, Authelia, Keycloak, Pocket ID) can add a **Sign in with …** button. Set it up in Settings › People › **Sign-in service**; each person links from Your settings › **Account**. The redirect URI:
 
 ```
 https://music.example.com/api/auth/callback/oidc
@@ -152,7 +152,7 @@ tagave has no telemetry. The server makes outbound requests only to:
 
 - the metadata services it uses: MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID when you add keys for them;
 - ListenBrainz, and Last.fm when you have a Last.fm API key, for [similar artists](install.md#similar-artists): an artist's MusicBrainz ID only;
-- the apps you link in Settings › Modules › Music Connections, and only those: tagave pulls from them, and sends them a decision when you accept or dismiss one of their wantlist suggestions;
+- the apps you link in Your settings › Connections, and only those: tagave pulls from them, and sends them a decision when you accept or dismiss one of their wantlist suggestions;
 - the GitHub releases list of the official repository, once every 12 hours, to learn about new versions. It is a plain GET with a fixed `User-Agent: tagave-update-check` and no version, id or library data. Turn it off under Settings › Updates, or for the whole server with `TAGAVE_UPDATE_FEED=off` (see [Updates](install.md#updates)).
 
 ## The in-app updater
@@ -214,7 +214,7 @@ The player is an optional service (compose profile `player`): an unmodified [Nav
 
 **Credentials.** The installer generates Navidrome's admin password and its encryption key (`TAGAVE_PLAYER_PASSWORD`, `TAGAVE_PLAYER_ENCRYPTION_KEY`, 32 random bytes each) and writes them only to `.env`, mode 600. The compose file passes the password to Navidrome and to the app, and to no other service; the workers never get it. Navidrome refuses to start without both values, because a Navidrome with no admin lets whoever reaches its port first create one. The browser never gets the password: it plays through tagave. tagave signs each request to Navidrome with Subsonic token auth, `md5(password + salt)` with a new random salt per request, so the password itself does not cross the network. For a server of your own (Settings › Modules › Player), tagave keeps the password sealed with `APP_SECRET` in the database, like the other provider secrets.
 
-**People's accounts.** tagave makes one Navidrome user per tagave person (not an admin) through Navidrome's user API, signed in as the admin. Its password is 24 random bytes, sealed with `APP_SECRET` in `player_users`, and never shown or logged. A person may replace it with their own password for phone apps (Settings › Modules › Player, at least 12 characters); tagave stores that one sealed the same way and never shows it again. Disabling or closing a tagave account locks its Navidrome user (a new random password nobody knows), so phone apps signed in as that person stop working. On a server of your own, a person's own login there is stored the same way.
+**People's accounts.** tagave makes one Navidrome user per tagave person (not an admin) through Navidrome's user API, signed in as the admin. Its password is 24 random bytes, sealed with `APP_SECRET` in `player_users`, and never shown or logged. A person may replace it with their own password for phone apps (Your settings › Listening, at least 12 characters); tagave stores that one sealed the same way and never shows it again. Disabling or closing a tagave account locks its Navidrome user (a new random password nobody knows), so phone apps signed in as that person stop working. On a server of your own, a person's own login there is stored the same way.
 
 **Scrobbling secrets.** The owner's Last.fm API key and shared secret (Settings › Modules › Player › Scrobbling) are sealed with `APP_SECRET` in the library settings; `TAGAVE_LASTFM_API_KEY` / `TAGAVE_LASTFM_SECRET` in `.env` work too and reach only the app. Each person's Last.fm session key (from Last.fm's web sign-in, which never shows tagave their Last.fm password) and ListenBrainz token are sealed in `scrobble_accounts`, one row per person; nobody else, the owner included, can read or use them through tagave. The Last.fm sign-in carries a short-lived value signed with `APP_SECRET` that names the person who started it, so a returning browser cannot attach someone else's Last.fm. Losing `APP_SECRET` means everyone connects again. tagave keeps each person's plays (`player_plays`) and album listens; deleting a person with their data deletes those. Navidrome's own Last.fm and ListenBrainz scrobbling is off in the compose file: only tagave sends plays out, to the accounts each person connected.
 
@@ -280,7 +280,7 @@ Recommended setup, which closes all three:
 
 tagave never trusts every hop: a client could then write any address into `X-Forwarded-For` and step around every limit. `TRUST_PROXY=true` (and `yes`) from older releases now means `1`, with a warning in the log; remove it. Better Auth's sign-in limiter and the trusted-device list read the address tagave worked out this way, never the raw header. A value that is none of these stops the app at start.
 
-When requests keep arriving with `X-Forwarded-For` that tagave cannot use (a proxy on a public address, as some cloud load balancers are, or one missing from `TRUST_PROXY`), the Reverse Proxy check in Settings › System and `tagave-doctor` warns and names the setting that fixes it. It stays quiet otherwise.
+When requests keep arriving with `X-Forwarded-For` that tagave cannot use (a proxy on a public address, as some cloud load balancers are, or one missing from `TRUST_PROXY`), the Reverse Proxy check in Settings › Status and `tagave-doctor` warns and names the setting that fixes it. It stays quiet otherwise.
 
 ## TLS and HTTPS
 

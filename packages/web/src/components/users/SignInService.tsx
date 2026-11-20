@@ -1,5 +1,5 @@
 /**
- * Settings › Users › Sign-in service (owner): your own login service
+ * Settings › People › Sign-in service (owner): your own login service
  * (OpenID Connect: Zitadel, Authentik, Authelia, Keycloak, Pocket ID).
  * The client secret is sent, never shown: the field says only whether one
  * is set. Saving asks for a fresh confirmation (useStepUpAction).

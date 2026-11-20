@@ -1017,7 +1017,7 @@ export function AlbumDetailPage() {
       label: shortAlbumArt && shortAlbumWaves ? 'Use still artwork' : 'Animate album artwork',
       onSelect: () => setDisplayPrefs({ shortAlbumArt: true, shortAlbumWaves: !shortAlbumArt || !shortAlbumWaves }),
     } : null,
-    customize: () => void navigate({ to: '/settings/$section', params: { section: 'appearance' }, hash: 'album-widgets' }),
+    customize: () => void navigate({ to: '/you/$section', params: { section: 'appearance' }, hash: 'album-widgets' }),
     onToggleMaintenance: () => setMaintenance(!maintenance),
     listen: listenLinks.data?.available ? listenLinks.data.links : [],
     queue: playState && !playState.disabled ? {
@@ -1063,11 +1063,11 @@ export function AlbumDetailPage() {
       ),
     }] : []),
   ];
-  // Settings › Appearance can turn the short-album artwork off
+  // Your settings › Appearance can turn the short-album artwork off
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';
   // The header's plain lines: "Rock · 2014" over the title, "5 tracks · 48 min ·
-  // FLAC 16-bit/44.1 kHz" under the artist. Settings › Appearance can move a
+  // FLAC 16-bit/44.1 kHz" under the artist. Your settings › Appearance can move a
   // value to the other line or hide it; each value is one unbreakable piece.
   const trackCount = album.trackCount == null ? null : album.isCueImage
     ? `${album.trackCount} audio ${album.trackCount === 1 ? 'file' : 'files'}`

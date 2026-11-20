@@ -1,5 +1,5 @@
 /**
- * Settings › Tag preferences (M2, spec §12.8 + M2 plan Q5): the library
+ * Settings › Tag writing (M2, spec §12.8 + M2 plan Q5): the library
  * master switch for writing tags to files, and the default write policy new
  * plans start from. Writes also need a writable scan root (Settings › Music
  * folders);

@@ -4,7 +4,7 @@
  * they can tinker with it in the submenus. Otherwise just get me to tag
  * page"). One sheet that already holds the defaults: a new plan for these
  * albums, the album's matched release, the library's default tag settings
- * (Settings › Tag preferences). Preview creates the plan and opens its page,
+ * (Settings › Tag writing). Preview creates the plan and opens its page,
  * which previews; for a matched album that is one click.
  *
  * Every other choice is a collapsed row with its value on it: Plan (add to
@@ -151,7 +151,7 @@ export function TagSheet({ open, onOpenChange, libraryId, albums, side = 'right'
     return next;
   });
 
-  // the library's default policy (Settings › Tag preferences), once it arrives
+  // the library's default policy (Settings › Tag writing), once it arrives
   const settings = useLibrarySettings(libraryId);
   const seeded = useRef(false);
   useEffect(() => {
@@ -247,7 +247,7 @@ export function TagSheet({ open, onOpenChange, libraryId, albums, side = 'right'
         <div className={styles.lines}>
           {(writesOff || noRoots) && (
             <p className={styles.lineWarn}>
-              {writesOff ? 'Tag writes are off' : 'No music folder allows writes'} · <Link to={writesOff ? '/settings/$section' : '/settings/library'} params={writesOff ? { section: 'metadata' } : {}}>Settings</Link>
+              {writesOff ? 'Tag writes are off' : 'No music folder allows writes'} · <Link to={writesOff ? '/settings/$section' : '/settings/library'} params={writesOff ? { section: 'tag-writing' } : {}}>Settings</Link>
             </p>
           )}
           {unmatched && <p className={styles.lineWarn} data-line="no-match">No release matched</p>}

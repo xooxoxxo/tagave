@@ -1,5 +1,5 @@
 /**
- * Settings › Security data: GET /api/v1/auth/security, and revoking a
+ * Your settings › Account data: GET /api/v1/auth/security, and revoking a
  * trusted device. Factor changes go through Better Auth's client.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

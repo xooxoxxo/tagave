@@ -1,5 +1,5 @@
 /**
- * /invite/$token: an invite or set-password link from Settings › Users.
+ * /invite/$token: an invite or set-password link from Settings › People.
  * An invite asks for a name and a password and makes the account; a
  * set-password link asks for a new password. Either way the person is
  * signed in and, for a new account, offered a passkey or an authenticator

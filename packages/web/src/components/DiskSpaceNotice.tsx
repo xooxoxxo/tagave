@@ -2,7 +2,7 @@
  * "Disk 90% full · 10.6 GB free · Storage": a one-line Banner across the top
  * of every page for the owner while the doctor's disk check warns or fails,
  * in the same form as the music folder notice, with a link to
- * Settings › Storage (which says the rest). 2026-10-15 a full disk stopped Postgres during an
+ * Settings › Status (which says the rest). 2026-10-15 a full disk stopped Postgres during an
  * update and nothing in the app had said so.
  *
  * It reads the status from the public /health (ok, warn or error, nothing
@@ -61,7 +61,7 @@ export function diskNoticeText(disk: DiskSpaceView | null | undefined, status?: 
 
 /**
  * The shell notice's one line, labels and values only: "Disk 90% full ·
- * 10.6 GB free". Settings › Storage keeps the longer text (diskNoticeText).
+ * 10.6 GB free". Settings › Status keeps the longer text (diskNoticeText).
  */
 export function diskNoticeLine(disk: DiskSpaceView | null | undefined, status?: 'ok' | 'warn' | 'error' | null): { tone: 'warning' | 'danger'; text: string } | null {
   const notice = diskNoticeText(disk, status);
@@ -79,7 +79,7 @@ export function showDiskNotice(
   pathname: string,
   status?: 'ok' | 'warn' | 'error' | null,
 ): boolean {
-  return can(user?.role, 'system.manage') && !pathname.startsWith('/settings/storage') && diskNoticeText(disk, status) !== null;
+  return can(user?.role, 'system.manage') && !pathname.startsWith('/settings/status') && diskNoticeText(disk, status) !== null;
 }
 
 export function DiskSpaceNoticeView({ disk, status, action }: { disk: DiskSpaceView | null | undefined; status?: 'ok' | 'warn' | 'error' | null; action: ReactNode }) {
@@ -136,7 +136,7 @@ export function DiskSpaceNotice() {
     <DiskSpaceNoticeView
       disk={disk}
       status={status}
-      action={<Link to="/settings/$section" params={{ section: 'storage' }}>Storage</Link>}
+      action={<Link to="/settings/$section" params={{ section: 'status' }}>Status</Link>}
     />
   );
 }

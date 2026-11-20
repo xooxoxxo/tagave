@@ -8,7 +8,7 @@ Every artist linked to your library's albums has a profile showing their name, t
 
 ## Genres
 
-Each album is tagged with effective genres (up to three) computed from Discogs and MusicBrainz data and weighted to surface the most relevant: top genres appear as chips, secondary styles as muted tags. Go to **Settings › Genres** to customize the genre taxonomy: edit the whitelist (default: Rock, Electronic, Pop, Jazz, 13 more), add aliases to map niche styles to top-level categories (e.g., black metal → Metal), and adjust the maximum number of genres per album.
+Each album is tagged with effective genres (up to three) computed from Discogs and MusicBrainz data and weighted to surface the most relevant: top genres appear as chips, secondary styles as muted tags. Go to **Settings › Genre mapping** to customize the genre taxonomy: edit the whitelist (default: Rock, Electronic, Pop, Jazz, 13 more), add aliases to map niche styles to top-level categories (e.g., black metal → Metal), and adjust the maximum number of genres per album.
 
 ## Identification
 
@@ -34,7 +34,7 @@ tagave safely corrects tags in your music files using metadata from MusicBrainz 
 
 The album page's **About** tab shows where the album lives on disk, relative to its music folder. From there you can list every album in that folder (**Show albums in this folder**, which filters the album grid by folder), copy the path, or open the folder itself.
 
-**Open folder** appears once you tell tagave where your own computer sees each music folder: in **Settings › Music folders**, set the folder's **Open-folder link**, for example `smb://nas/music/` or `file:///Volumes/music/`. tagave replaces the music folder's path on the server with that link and URL-encodes the rest of the album's path (so `#/!!!/2013 - Thr!!!Er` becomes `smb://nas/music/%23/!!!/2013%20-%20Thr!!!Er/`).
+**Open folder** appears once you tell tagave where your own computer sees each music folder: in **Settings › Library › Music folders**, set the folder's **Open-folder link**, for example `smb://nas/music/` or `file:///Volumes/music/`. tagave replaces the music folder's path on the server with that link and URL-encodes the rest of the album's path (so `#/!!!/2013 - Thr!!!Er` becomes `smb://nas/music/%23/!!!/2013%20-%20Thr!!!Er/`).
 
 - `smb://` links open the folder in Finder (macOS) or File Explorer (Windows) on most systems, the first time after a confirmation from the browser.
 - Browsers usually block `file://` links that come from a web page. **Copy path** is always there for that case.
