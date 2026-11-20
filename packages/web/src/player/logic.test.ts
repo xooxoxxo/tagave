@@ -60,14 +60,14 @@ describe('the queue', () => {
 
   it('says plainly why nothing can be played', () => {
     expect(nothingPlayableMessage({ scanRequested: true, tracks: [track('a', 1, 1, false)] }))
-      .toBe('Not on the player yet — tagave asked it to look for these files. Try again in a minute.');
+      .toBe('Not on the player yet: tagave asked it to look for these files. Try again in a minute.');
     const first = { scanning: true, firstScan: true, count: 9500, total: 28000, percent: 33 };
     expect(nothingPlayableMessage({ scanRequested: true, tracks: [track('a', 1, 1, false)], scan: first }))
-      .toBe('Not on the player yet — its first scan is at 33\u202f%.');
+      .toBe('Not on the player yet: its first scan is at 33\u202f%.');
     expect(nothingPlayableMessage({ scanRequested: false, tracks: [track('a', 1, 1, false)], scan: { ...first, percent: null } }))
-      .toBe('Not on the player yet — its first scan is still running.');
+      .toBe('Not on the player yet: its first scan is still running.');
     expect(nothingPlayableMessage({ scanRequested: false, tracks: [track('a', 1, 1, false)], scan: { ...first, firstScan: false, total: null, percent: null } }))
-      .toBe('Not on the player yet — it is scanning for new files.');
+      .toBe('Not on the player yet: it is scanning for new files.');
     // missing files are not a scan's business
     expect(nothingPlayableMessage({ scanRequested: false, tracks: [track('a', 1, 1, false, { reason: 'no_file' })], scan: first }))
       .toBe('The files for these tracks are missing or could not be read.');

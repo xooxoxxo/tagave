@@ -27,11 +27,6 @@
 
 /* the groups and their rows are SettingsGroup and SettingsRow (components/ui) */
 
-.saved {
-  color: var(--ink-3);
-  font-size: var(--font-size-xs);
-}
-
 .list {
   border-radius: var(--r-inner);
 }

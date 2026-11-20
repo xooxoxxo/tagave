@@ -78,7 +78,7 @@ export function DashboardPage() {
         </section>
         {canCare && <div className={styles.lowerGrid}>
           <section aria-labelledby="care-heading"><div className={styles.sectionHeading}><div><h2 id="care-heading">To do</h2></div></div>
-            <Card padded={false}><div className={styles.needsList}>{careItems.map(item => <Link key={item.tab} to="/work" search={{ tab: item.tab }} className={styles.needsItem}><div><h3>{item.label}</h3></div><span className={styles.needsCount}>{item.count ?? '—'}</span><span aria-hidden="true">→</span></Link>)}</div></Card>
+            <Card padded={false}><div className={styles.needsList}>{careItems.map(item => <Link key={item.tab} to="/work" search={{ tab: item.tab }} className={styles.needsItem}><div><h3>{item.label}</h3></div><span className={styles.needsCount}>{item.count ?? '…'}</span><span aria-hidden="true">→</span></Link>)}</div></Card>
             {(queue.isError || stats.isError || gaps.isError) && <p className={styles.status} role="status">Counts unavailable <Button variant="quiet" size="sm" onClick={() => { void queue.refetch(); void stats.refetch(); void gaps.refetch(); }}>Retry</Button></p>}
           </section>
           <section aria-labelledby="changes-heading"><div className={styles.sectionHeading}><div><h2 id="changes-heading">Recent tag changes</h2></div><Link to="/plans">View all →</Link></div>

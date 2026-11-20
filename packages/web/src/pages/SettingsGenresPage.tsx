@@ -251,8 +251,8 @@ function SettingsGenresContentInner() {
                         <td title={`${tag.source}${tag.weight !== null ? ` (weight: ${tag.weight})` : ''}`}>
                           {tag.source}
                         </td>
-                        <td>{tag.count ?? '—'}</td>
-                        <td>{tag.mappedTo || '—'}</td>
+                        <td>{tag.count ?? 0}</td>
+                        <td>{tag.mappedTo || 'Not mapped'}</td>
                       </tr>
                     ))}
                   </tbody>

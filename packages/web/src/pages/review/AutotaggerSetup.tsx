@@ -8,9 +8,9 @@
  * Advanced's open state come in as props; only the key and the new price
  * being typed live here (a secret leaves only through `onKey`).
  */
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useState } from 'react';
 import type { AutotaggerLibraryView, AutotaggerModuleView, DeciderChoice, DeciderPrice, LocalModelsView, PayloadPreview } from '@tagave/shared';
-import { Button, Collapse, Input, SegmentedControl, SettingsGroup, SettingsRow } from '../../components/ui';
+import { Button, Collapse, Input, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, type SaveState } from '../../components/ui';
 import { LocalModelBlock } from './DeciderPanel';
 import { PayloadPreviewView } from './PayloadPreview';
 import { FIELD_ERROR, inlinePriceFault, modelSuggestions, priceNeeded, saveState, type SetupDraft } from './autotaggerDraft';
@@ -42,8 +42,8 @@ export interface AutotaggerSetupViewProps {
   advancedOpen: boolean;
   onAdvanced: (open: boolean) => void;
   pending?: { save?: boolean; key?: boolean; price?: boolean; train?: boolean; seen?: boolean };
-  /** beside Save, e.g. "✓ Saved" */
-  status?: ReactNode;
+  /** beside Save: `✓ Saved` once the draft is saved */
+  state?: SaveState;
   error?: string | null;
 }
 
@@ -63,7 +63,7 @@ function FieldError({ id, error }: { id: string; error: string | undefined }) {
 
 export function AutotaggerSetupView({
   library: v, module: m, models, draft, onDraft, bad = null, onSave, onKey, onPrice, onDeletePrice, onTrain,
-  preview = null, previewOpen = false, onTogglePreview, onSeen, advancedOpen, onAdvanced, pending = {}, status = null, error = null,
+  preview = null, previewOpen = false, onTogglePreview, onSeen, advancedOpen, onAdvanced, pending = {}, state = null, error = null,
 }: AutotaggerSetupViewProps) {
   const id = useId();
   const [key, setKey] = useState('');
@@ -275,11 +275,7 @@ export function AutotaggerSetupView({
         </Collapse>
       </div>
 
-      <div className={styles.actions}>
-        <Button variant="primary" loading={!!pending.save} disabled={save.disabled} onClick={onSave}>Save</Button>
-        {save.reason && <span className={styles.muted}>{save.reason}</span>}
-        {status}
-      </div>
+      <SettingsSave dirty={!save.disabled} pending={!!pending.save} reason={save.reason} onSave={onSave} state={state} />
       {error && <p className={styles.error} role="alert">{error}</p>}
     </div>
   );

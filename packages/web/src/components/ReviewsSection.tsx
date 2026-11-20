@@ -200,7 +200,7 @@ function ReviewRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
                 <li key={r.revision} className={styles.listRow}>
                   <span className={styles.muted}>#{r.revision} · {fmtDateTime(r.editedAt)}</span>
                   <StarRating value={r.rating} size={14} />
-                  <span className={styles.historyBody}>{(r.bodyMd ?? '').slice(0, 140) || '—'}</span>
+                  <span className={styles.historyBody}>{(r.bodyMd ?? '').slice(0, 140) || 'No text'}</span>
                 </li>
               ))}
             </ul>

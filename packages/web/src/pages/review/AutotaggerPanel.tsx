@@ -367,7 +367,7 @@ export function AutotaggerPanel() {
       advancedOpen={advancedOpen}
       onAdvanced={setAdvancedOpen}
       pending={{ save: patch.isPending, key: setKey.isPending, price: setPrice.isPending || deletePrice.isPending, train: train.isPending, seen: seen.isPending }}
-      status={savedNow ? <span className={styles.muted}>✓ Saved</span> : null}
+      state={savedNow ? 'saved' : null}
       error={setupErr}
     />
   ) : <p className={styles.muted}>Loading…</p>;

@@ -150,7 +150,7 @@ function NamingForm({ libraryId, view }: { libraryId: string | undefined; view: 
             ))}
           </ul>
         )
-        : <p className={styles.muted}>—</p>}
+        : <p className={styles.muted}>No examples</p>}
 
       <div className={styles.buttons}>
         <Button onClick={onSave} loading={save.isPending} disabled={!canSave}>Save</Button>

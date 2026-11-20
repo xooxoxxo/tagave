@@ -170,7 +170,7 @@ export function AlbumPicker({ libraryId, selectedIds, labels, onChange, alreadyI
           {results.isLoading && <li className={styles.comboEmpty}>Searching…</li>}
           {!results.isLoading && items.length === 0 && <li className={styles.comboEmpty}>No albums</li>}
           {items.map((al) => {
-            const label = `${al.artistCredit} — ${al.title}`;
+            const label = `${al.artistCredit} · ${al.title}`;
             const inPlan = alreadyIn.includes(al.id);
             const picked = inPlan || selectedIds.includes(al.id);
             return (

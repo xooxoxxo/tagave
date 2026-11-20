@@ -94,10 +94,10 @@ export function nothingPlayableMessage(view: Pick<PlayerQueueView, 'scanRequeste
   const notScanned = view.tracks.length > 0 && view.tracks.every((t) => t.available || t.reason === 'not_scanned' || t.reason === 'cue')
     && view.tracks.some((t) => t.reason === 'not_scanned');
   if (view.scan?.scanning && (notScanned || view.scanRequested)) {
-    if (view.scan.firstScan && view.scan.percent != null) return `Not on the player yet — its first scan is at ${percentText(view.scan.percent)}.`;
-    return view.scan.firstScan ? 'Not on the player yet — its first scan is still running.' : 'Not on the player yet — it is scanning for new files.';
+    if (view.scan.firstScan && view.scan.percent != null) return `Not on the player yet: its first scan is at ${percentText(view.scan.percent)}.`;
+    return view.scan.firstScan ? 'Not on the player yet: its first scan is still running.' : 'Not on the player yet: it is scanning for new files.';
   }
-  if (view.scanRequested) return 'Not on the player yet — tagave asked it to look for these files. Try again in a minute.';
+  if (view.scanRequested) return 'Not on the player yet: tagave asked it to look for these files. Try again in a minute.';
   const reason = view.tracks.slice(Math.max(0, from)).find((t) => !t.available && t.reason)?.reason
     ?? view.tracks.find((t) => !t.available && t.reason)?.reason;
   if (view.tracks.length === 0) return 'This album has no tracks to play.';

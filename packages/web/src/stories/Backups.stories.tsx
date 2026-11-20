@@ -80,7 +80,7 @@ const meta = {
   args: { status: status() },
   parameters: {
     layout: 'fullscreen',
-    docs: { description: { component: 'Settings › Backups: one grouped list per kind (nightly, before update, manual, and before restore when there is one). Each setting is a row with one select, saved as it changes; under it, the kind\'s backups: date · version (~ when worked out from the update history, — when unknown) · size · ⋯ (Download, Copy restore command, Delete).' } },
+    docs: { description: { component: 'Settings › Backups: one grouped list per kind (nightly, before update, manual, and before restore when there is one). Each setting is a row with one select, saved as it changes; under it, the kind\'s backups: date · version (~ when worked out from the update history, Unknown when unknown) · size · ⋯ (Download, Copy restore command, Delete).' } },
   },
 } satisfies Meta<typeof Page>;
 export default meta;

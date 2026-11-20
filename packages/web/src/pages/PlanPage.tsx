@@ -150,7 +150,7 @@ function PreviewOutcomeNotice({
                   <li key={l.albumId}>
                     <Link to="/albums/$albumId" params={{ albumId: l.albumId }}>{l.label}</Link>
                     {': '}
-                    {l.kind === 'matched' && 'matched now — preview again to take its values.'}
+                    {l.kind === 'matched' && 'matched now. Preview again to take its values.'}
                     {l.kind === 'live' && `${l.text}.`}
                     {l.kind === 'ended' && <>{l.title}. <span className={styles.identifyReason}>{l.text.replace(/[:\s]+$/, '.')}</span>{l.needsPick ? ' Open the album to choose one.' : l.actionable ? ' Open the album to act on it.' : ''}</>}
                   </li>
@@ -887,7 +887,7 @@ export function PlanPage() {
         <details className={styles.details}>
           <summary className={styles.detailsSummary}>Details</summary>
           <dl className={styles.detailsList}>
-            <dt>Scope</dt><dd>{scopeText || '—'}</dd>
+            <dt>Scope</dt><dd>{scopeText || 'None'}</dd>
             <dt>Policy</dt><dd>{PRESET_LABEL[p.policy.preset] ?? p.policy.preset}</dd>
             {values.map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>)}
             {planUsesId3(p.formats) && <><dt>ID3 version</dt><dd>ID3v{p.policy.id3Version}</dd></>}

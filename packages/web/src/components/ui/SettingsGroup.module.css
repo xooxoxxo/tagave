@@ -66,3 +66,27 @@
   gap: var(--space-md);
   margin-left: auto;
 }
+
+/* the save model: an instant choice's status in the head, a typed group's Save under its rows */
+.saved {
+  color: var(--ink-3);
+  font-size: var(--font-size-xs);
+}
+
+.failed {
+  /* --danger-ink is the label on a danger fill (white); text on the page uses --danger */
+  color: var(--danger);
+  font-size: var(--font-size-xs);
+}
+
+.save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.reason {
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+}

@@ -270,7 +270,7 @@ export function BulkTagEditor({
                 <span className={styles.now}>Now: {s.current.compilation.yes === 0 ? 'no file is flagged' : `${s.current.compilation.yes} of ${s.files} flagged`}</span>
               </div>
             </div>
-            {row('genre', undefined, s.current.genre, 'Separate several with ; — replaces the genre on every file.')}
+            {row('genre', undefined, s.current.genre, 'Separate several with a semicolon. Replaces the genre on every file.')}
             <div className={styles.divider} />
             {row('artist', undefined, s.current.artist,
               s.trackArtistsDiffer ? 'The tracks have different artists: leave this off for a compilation.' : 'Sets the same artist on every track.')}

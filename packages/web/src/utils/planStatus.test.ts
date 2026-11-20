@@ -37,9 +37,9 @@ describe('diffRowKind', () => {
     expect(diffRowKind({ before: null, after: null, reason: 'locked' })).toBe('locked');
     expect(diffRowKind({ before: null, after: 'x', reason: 'revert' })).toBe('revert');
   });
-  it('shows an empty value as a dash', () => {
-    expect(diffValueText('')).toBe('—');
-    expect(diffValueText(null)).toBe('—');
+  it('shows an empty value as (empty)', () => {
+    expect(diffValueText('')).toBe('(empty)');
+    expect(diffValueText(null)).toBe('(empty)');
     expect(diffValueText(['a', 'b'])).toBe('a; b');
   });
 });

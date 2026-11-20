@@ -61,7 +61,7 @@ describe('SettingsBackupsPage', () => {
   it('marks a version worked out from the update history, and an unknown one', () => {
     expect(versionLabel({ version: '0.10.0', versionInferred: false })).toBe('0.10.0');
     expect(versionLabel({ version: '0.10.0', versionInferred: true })).toBe('~0.10.0');
-    expect(versionLabel({ version: null, versionInferred: false })).toBe('—');
+    expect(versionLabel({ version: null, versionInferred: false })).toBe('Unknown');
   });
 
   it('shows one selected schedule and separates retention', () => {

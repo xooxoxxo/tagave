@@ -11,11 +11,13 @@ import styles from './SettingsGroup.module.css';
 
 export interface SettingsGroupProps {
   title: string;
+  /** An anchor a link can land on (`/settings/modules#integrations`). */
+  id?: string;
   /** Behind a `?` beside the title. */
   help?: ReactNode;
   /** Right-aligned in the head, e.g. "3 · 1.2 MB". */
   meta?: ReactNode;
-  /** Beside the title, e.g. "✓ Saved" or why it was not. */
+  /** Beside the title, e.g. `<SaveStatus>` after an instant choice. */
   status?: ReactNode;
   /** The rows; they share one surface. A group with none has no surface. */
   children?: ReactNode;
@@ -29,9 +31,9 @@ function shown(node: ReactNode): boolean {
   return node != null && node !== false && node !== '';
 }
 
-export function SettingsGroup({ title, help, meta, status, children, after, className }: SettingsGroupProps) {
+export function SettingsGroup({ title, id, help, meta, status, children, after, className }: SettingsGroupProps) {
   return (
-    <section aria-label={title} className={[styles.group, className].filter(Boolean).join(' ')}>
+    <section id={id} aria-label={title} className={[styles.group, className].filter(Boolean).join(' ')}>
       <div className={styles.groupHead}>
         <h3 className={styles.groupTitle}>{title}</h3>
         {shown(help) && <HelpToggle label={title}>{help}</HelpToggle>}

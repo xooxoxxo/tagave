@@ -95,7 +95,7 @@ describe('AlbumEditionsPanel', () => {
 
   it('asks for a match first when the album has no release group', () => {
     const html = render(undefined, false);
-    expect(html).toContain('match this album first');
+    expect(html).toContain('Match this album first');
   });
 
   it('marks the copy across the whole row and keeps every action cell a real table cell', () => {

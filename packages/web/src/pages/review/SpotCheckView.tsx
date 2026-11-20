@@ -121,7 +121,7 @@ export function SpotCheckCardView({ band, bands, onBand, item, coverUrl = null, 
                 {item.album.tracks.map((t, i) => (
                   <li key={`${t.n}-${i}`} className={styles.track}>
                     <span className={styles.trackNo}>{t.n}</span>
-                    <span className={styles.trackTitle}>{t.title ?? '—'}</span>
+                    <span className={styles.trackTitle}>{t.title ?? 'Untitled'}</span>
                     <span className={styles.trackLength}>{t.length ?? '–:––'}</span>
                   </li>
                 ))}
