@@ -1,7 +1,7 @@
 /**
  * "Music folder unreachable · /mnt/music": a quiet Banner across the top of
  * every page for the owner while the latest scan of a music folder was
- * aborted, with a link to Settings › Music folders. 2026-11 the NAS share
+ * aborted, with a link to Settings › Library. 2026-11 the NAS share
  * behind a scan root did not mount after a reboot; the scan guard (LIB-5,
  * worker › jobs/scanRoot.ts) refused to mark anything missing, but nothing
  * in the app said so for hours.
@@ -24,7 +24,7 @@ import styles from './DiskSpaceNotice.module.css';
 
 export type MusicFolderNoticeState = { kind: 'none' } | { kind: 'healing' } | { kind: 'unreachable'; paths: string[] };
 
-/** Whether this person sees the notice on this page: the owner, not on Settings › Music folders (it shows the same). */
+/** Whether this person sees the notice on this page: the owner, not on Settings › Library (it shows the same). */
 export function showMusicFolderNotice(user: Pick<SessionUser, 'role'> | null | undefined, state: MusicFolderNoticeState | null | undefined, pathname: string): boolean {
   return can(user?.role, 'system.manage') && !!state && state.kind !== 'none' && !pathname.startsWith('/settings/library');
 }

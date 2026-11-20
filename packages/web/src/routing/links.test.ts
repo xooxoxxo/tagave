@@ -68,6 +68,19 @@ describe('in-app settings links', () => {
     expect(show(stale)).toEqual([]);
   });
 
+  it('no in-app link hits a redirect a non-owner gets', () => {
+    // Modules itself is the owner's page; its parts move to Your settings for everyone else.
+    // Links shown only to the owner are listed here by file and address.
+    const ownerOnly = new Set(['pages/YouPage.tsx: /settings/modules/player']);
+    const stale = links.filter(
+      (l) =>
+        l.path !== '/settings/modules' &&
+        !ownerOnly.has(`${l.file}: ${l.path}`) &&
+        redirectFor(l.path, {}, { owner: false, hasSettings: true }) !== null,
+    );
+    expect(show(stale)).toEqual([]);
+  });
+
   it('nothing links to /jobs', () => {
     expect(show(links.filter((l) => l.path === '/jobs'))).toEqual([]);
   });
