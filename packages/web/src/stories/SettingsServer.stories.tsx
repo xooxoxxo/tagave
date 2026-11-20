@@ -64,8 +64,7 @@ const modules = <>
 const meta = {
   title: 'Settings/Server',
   component: ServerSettings,
-  // No screenshot baseline yet: render one on the CI runner (DESIGN.md) and drop `no-shot`.
-  tags: ['no-shot', '!autodocs'],
+  tags: ['!autodocs'],
   args: { role: 'owner', section: 'modules' },
   parameters: {
     layout: 'fullscreen',

@@ -79,8 +79,7 @@ function YourSettings({ modules, section, content = null }: Args) {
 const meta = {
   title: 'Settings/Your settings',
   component: YourSettings,
-  // No screenshot baseline yet: render one on the CI runner (DESIGN.md) and drop `no-shot`.
-  tags: ['no-shot', '!autodocs'],
+  tags: ['!autodocs'],
   args: { modules: NONE, section: 'appearance' },
   parameters: {
     layout: 'fullscreen',
