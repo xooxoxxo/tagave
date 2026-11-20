@@ -221,7 +221,7 @@ export async function createOidcAuthRoutes(fastify: FastifyInstance) {
     if (ways.oidc) throw new ApiError(409, 'Conflict', 'Your account is linked already.');
     // a stolen session must not be able to add a way in of its own
     await requireFreshStepUp(request);
-    return linkStart(request, reply, { tagaveIntent: 'link' }, { done: '/settings/account?oidc=linked', failed: '/settings/account' });
+    return linkStart(request, reply, { tagaveIntent: 'link' }, { done: '/you/account?oidc=linked', failed: '/you/account' });
   });
 
   fastify.delete('/oidc/link', async (request, reply) => {
