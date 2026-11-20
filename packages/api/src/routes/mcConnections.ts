@@ -307,7 +307,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     return startLink(sql, user.id, link.remote_url, request.log);
   });
 
-  // A page load: always answers with a redirect to Settings › Modules › Music Connections.
+  // A page load: always answers with a redirect to Your settings › Connections.
   fastify.get('/me/connections/callback', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { sql } = getAuthHandle();
@@ -319,7 +319,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     reply.header('cache-control', 'no-store');
     const fail = (error: McLinkErrorCode, reason: string) => {
       request.log.info({ event: 'mc.link.failed', userId: user.id, remoteHost: host, reason }, 'music connections link failed');
-      return reply.redirect(`/settings/modules/music-connections?error=${error}`, 303);
+      return reply.redirect(`/you/connections?error=${error}`, 303);
     };
     if (!state) return fail(remoteError === 'access_denied' ? 'access_denied' : remoteError ? 'remote_error' : 'invalid_state', 'no state');
     if (state.length > 128) return fail('invalid_state', 'state too long');
@@ -410,7 +410,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     });
     if (first && !first.queued) request.log.info({ linkId: saved.linkId, retryAt: first.retryAt }, 'first connections pull already waiting');
     request.log.info({ event: 'mc.link.approved', userId: user.id, remoteHost: host, scopes }, 'music connections link approved');
-    return reply.redirect(`/settings/modules/music-connections?linked=${saved.linkId}`, 303);
+    return reply.redirect(`/you/connections?linked=${saved.linkId}`, 303);
   });
 
   fastify.post('/me/connections/:id/sync', async (request, reply) => {

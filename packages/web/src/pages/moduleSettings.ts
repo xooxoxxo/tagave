@@ -37,12 +37,13 @@ export function moduleSlug(id: string): string {
 }
 
 /**
- * Where the old settings sections went: /settings/<old> → /settings/modules/<slug>.
+ * Where the old settings sections went: /settings/<old> → its home in Your
+ * settings (spec §8), one hop (routing/redirects.ts reads this table).
  * Links in docs, release notes and owner asks keep working.
  */
 export const MOVED_SECTIONS: Readonly<Record<string, string>> = {
-  connections: 'music-connections',
-  'listen-elsewhere': 'listen-elsewhere',
-  playback: 'player',
-  listening: 'player',
+  connections: '/you/connections',
+  'listen-elsewhere': '/you/listen-elsewhere',
+  playback: '/you/listening',
+  listening: '/you/listening',
 };

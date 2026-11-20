@@ -1,4 +1,4 @@
-import { RootRoute, Router, Route, redirect, lazyRouteComponent } from '@tanstack/react-router';
+import { RootRoute, Router, Route, redirect, lazyRouteComponent, type ParsedLocation } from '@tanstack/react-router';
 import { App } from './components/App';
 import { Layout } from './components/Layout';
 import { NotFoundPage } from './components/NotFound';
@@ -35,7 +35,18 @@ import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
 import { parseArtistsSearch } from './pages/artistsView';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
-import { MOVED_SECTIONS } from './pages/moduleSettings';
+import { redirectFor } from './routing/redirects';
+
+/**
+ * A moved settings address (routing/redirects.ts, spec §8) goes to its new
+ * home before anything loads: one hop, the query and hash kept, the old
+ * address replaced so Back does not loop. The rows that depend on the role
+ * redirect from SettingsPage once the role is known.
+ */
+function redirectMoved({ location }: { location: ParsedLocation }) {
+  const r = redirectFor(location.pathname, location.search as Record<string, unknown>);
+  if (r) throw redirect({ to: r.to as never, search: r.search as never, hash: location.hash, replace: true });
+}
 
 /**
  * Parse work page search params: validate optional tab
@@ -214,12 +225,6 @@ const albumDetailRoute = new Route({
   },
 });
 
-const settingsProvidersRoute = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/providers',
-  component: SettingsPage,
-});
-
 // New unified routes
 const workRoute = new Route({
   getParentRoute: () => layoutRoute,
@@ -232,12 +237,15 @@ const settingsRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings',
   component: SettingsPage,
+  beforeLoad: redirectMoved,
 });
 
 const settingsSectionRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/$section',
   component: SettingsPage,
+  // the moved sections (/settings/account, /settings/users, ...) land here
+  beforeLoad: redirectMoved,
   // ?job=<job_runs id> points Background activity at one job (a plan's
   // preview and the activity list itself link here): JobsPage reads it with
   // useSearch, asks the API to include it and scrolls to it, highlighted.
@@ -263,26 +271,13 @@ const settingsModuleRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/modules/$module',
   component: SettingsPage,
+  // a Music Connections or Last.fm return goes to Your settings
+  beforeLoad: redirectMoved,
 });
-
-// Each module's settings moved into Settings › Modules › <module>
-// (2026-11-04): the old sections redirect there, keeping the query (the
-// Music Connections and Last.fm returns carry ?linked=, ?error=, ?lastfm=).
-const movedSectionRedirects = Object.entries(MOVED_SECTIONS).map(([from, to]) => new Route({
-  getParentRoute: () => layoutRoute,
-  path: `/settings/${from}`,
-  beforeLoad: ({ search }) => redirect({ to: '/settings/modules/$module', params: { module: to }, search, replace: true }),
-}));
 
 const settingsLibraryRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/library',
-  component: SettingsPage,
-});
-
-const settingsSystemRoute = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/system',
   component: SettingsPage,
 });
 
@@ -320,30 +315,6 @@ const jobsOldRoute = new Route({
   path: '/jobs',
   // keep ?job=<id> deep links working from the old address
   beforeLoad: ({ search }) => redirect({ to: '/settings/$section', params: { section: 'activity' }, search }),
-});
-
-const scanRootsRedirect = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/scan-roots',
-  beforeLoad: () => redirect({ to: '/settings/library' }),
-});
-
-const tagWritesRedirect = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/tag-writes',
-  beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'metadata' } }),
-});
-
-const genresRedirect = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/genres',
-  beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'genre-mapping' } }),
-});
-
-const followRulesRedirect = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/follow-rules',
-  beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'following' } }),
 });
 
 const settingsUpdatesRoute = new Route({
@@ -398,20 +369,13 @@ const routeTree = rootRoute.addChildren([
     settingsModuleRoute,
     youRoute,
     youSectionRoute,
-    ...movedSectionRedirects,
     settingsLibraryRoute,
-    settingsSystemRoute,
-    settingsProvidersRoute,
     // Redirects for old routes
     queueRedirect,
     identifyRedirect,
     attentionRedirect,
     collectionRoute,
     jobsOldRoute,
-    scanRootsRedirect,
-    tagWritesRedirect,
-    genresRedirect,
-    followRulesRedirect,
     settingsUpdatesRoute,
     logoutRoute,
     notFoundRoute,

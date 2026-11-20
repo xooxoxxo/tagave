@@ -184,9 +184,9 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
     return { url: lastfmAuthorizeUrl(app, cb) };
   });
 
-  // The browser comes back from Last.fm: a page load, so it answers with a redirect to Settings.
+  // The browser comes back from Last.fm: a page load, so it answers with a redirect to Your settings › Listening.
   fastify.get('/me/listening/lastfm/callback', permission('self'), async (request: FastifyRequest, reply: FastifyReply) => {
-    const back = (result: string, queued?: number) => reply.redirect(`/settings/modules/player?lastfm=${result}${queued ? `&queued=${queued}` : ''}`, 303);
+    const back = (result: string, queued?: number) => reply.redirect(`/you/listening?lastfm=${result}${queued ? `&queued=${queued}` : ''}`, 303);
     const user = request.user;
     if (!user) return reply.redirect('/login', 303);
     const { state, token } = request.query as { state?: string; token?: string };
