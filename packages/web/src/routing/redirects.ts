@@ -29,6 +29,15 @@ export type Who = {
   modules?: Readonly<Record<string, boolean | null>>;
 };
 
+/**
+ * Where someone who may not open Library care goes when an address lands
+ * there: Your settings, in place of the address. The role-free rows send
+ * /jobs, /settings/activity and Genre mapping to /work for everyone, before
+ * the role is known; /work then sends a listener on (router.tsx), so an
+ * old link never ends on Not available.
+ */
+export const WORK_OTHERWISE = '/you';
+
 /** A new home: an address, or a Library care tab. */
 type Target = string | { to: '/work'; tab: WorkTab };
 
@@ -74,7 +83,7 @@ const MODULE_ROWS: Readonly<Record<string, { id: string; on: Target; off: (who: 
     id: 'autotagger',
     on: { to: '/work', tab: 'autotagger' },
     // Library care without the tab (Review matches); someone who may not open it, Your settings
-    off: (who) => (who.owner ? '/settings/modules' : who.editor ? '/work' : '/you'),
+    off: (who) => (who.owner ? '/settings/modules' : who.editor ? '/work' : WORK_OTHERWISE),
   },
   '/settings/modules/dj': { id: 'dj', on: '/you/dj', off: personalOff },
   '/settings/modules/listen-elsewhere': { id: 'listen-links', on: '/you/listen-elsewhere', off: personalOff },
