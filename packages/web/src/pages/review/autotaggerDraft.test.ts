@@ -6,8 +6,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  FIELD_ERROR, draftOf, modelSuggestions, patchOf, priceFor, priceNeeded, rebase, saveState, setupError,
+  FIELD_ERROR, draftOf, inlinePriceFault, modelSuggestions, patchOf, priceFor, priceNeeded, rebase, saveState, setupError, stillBad,
 } from './autotaggerDraft';
+import { readFileSync } from 'node:fs';
 import { LIBRARY_JEV, LIBRARY_LOCAL, LIBRARY_NO_KEY, MODULE, MODULE_NO_PRICES, MODULE_PRICE_EUR } from '../../stories/autotaggerFixtures';
 
 describe('the setup draft', () => {
@@ -89,5 +90,43 @@ describe('Save', () => {
     expect(setupError('module is off')).toBe('Module is off.');
     expect(setupError(null)).toBe('Not saved.');
     expect(setupError('  ')).toBe('Not saved.');
+  });
+});
+
+describe('the Price row and stale flags', () => {
+  const d = draftOf(LIBRARY_JEV);
+
+  it("the Price row's refusal names the field that is wrong, not always the amount", () => {
+    expect(inlinePriceFault('0.4', d)).toBeNull();
+    expect(inlinePriceFault('0', d)).toBeNull();
+    expect(inlinePriceFault('', d)).toBe('amount');
+    expect(inlinePriceFault('-1', d)).toBe('amount');
+    expect(inlinePriceFault('0.4', { ...d, model: 'Bad Model' })).toBe('model');
+    expect(inlinePriceFault('0.4', { ...d, model: '' })).toBe('model');
+    expect(inlinePriceFault('0.4', { ...d, currency: 'US' })).toBe('currency');
+    expect(inlinePriceFault('0.4', { ...d, currency: 'usd' })).toBeNull();
+  });
+
+  it('the setup shows the model and currency faults under their own fields', () => {
+    const tsx = readFileSync(new URL('./AutotaggerSetup.tsx', import.meta.url), 'utf8');
+    expect(tsx).toMatch(/inlinePriceFault\(inlineAmount, draft\)/);
+    expect(tsx).toMatch(/error=\{inlineBad === 'amount' \? '0 or more' : undefined\}/);
+    expect(tsx).toMatch(/bad === k \|\| inlineBad === k/);
+  });
+
+  it("a flag Save raised goes once its field changes, wherever the change came from", () => {
+    expect(stillBad('currency', d, { ...d, model: 'jev-2026-09-15' })).toBe('currency');
+    expect(stillBad('currency', d, { ...d, currency: 'EUR' })).toBeNull();
+    expect(stillBad(null, d, d)).toBeNull();
+    expect(stillBad('model', d, null)).toBeNull();
+  });
+
+  it('Saved goes after a key or price action, and a rebase or edit rechecks the flag', () => {
+    const tsx = readFileSync(new URL('./AutotaggerPanel.tsx', import.meta.url), 'utf8');
+    const body = (name: string) => tsx.slice(tsx.indexOf(`const ${name} = async`), tsx.indexOf('};', tsx.indexOf(`const ${name} = async`)));
+    expect(body('onKey')).toContain('setSavedNow(false)');
+    expect(body('priceAction')).toContain('setSavedNow(false)');
+    expect(tsx).toMatch(/setBad\(stillBad\(bad, draft, next\)\)/);
+    expect(tsx).toMatch(/onDraft=\{\(d\) => \{ setBad\(stillBad\(bad, draft, d\)\)/);
   });
 });

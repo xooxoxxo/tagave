@@ -3,6 +3,7 @@
  * decider, its block (the local model, or Jev key first), the spot-check
  * gate, Advanced, one Save. A pure view: the draft comes in as a prop.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AutotaggerLibraryView } from '@tagave/shared';
@@ -117,6 +118,16 @@ describe('the setup form', () => {
     const row = html.slice(html.indexOf('Monthly cap'), html.indexOf('Spent this month'));
     expect(row).toMatch(/<input[^>]*aria-label="Monthly cap"/);
     expect(row).toContain('aria-label="Currency"');
+    // one item for the amount and its currency, so a phone never splits them
+    expect(row).toMatch(/<span class="[^"]*pair[^"]*"><input[^>]*aria-label="Monthly cap"[^>]*><input[^>]*aria-label="Currency"[^>]*><\/span>/);
+  });
+
+  it('on a phone the labels keep one line and the choices sit under the Decider label', () => {
+    const css = readFileSync(new URL('./autotagger.module.css', import.meta.url), 'utf8');
+    expect(css).toMatch(/\.inlineRow \{[^}]*flex: 1 1 0;/);
+    expect(css).toMatch(/\.choice label \{ white-space: nowrap; \}/);
+    expect(css).toMatch(/\.setup :has\(> \.choice\) \{ flex-wrap: wrap;/);
+    expect(view()).toMatch(/<span class="[^"]*choice[^"]*"><div[^>]*role="radiogroup"/);
   });
 
   it('Price needed sits in the Jev block', () => {
@@ -156,10 +167,18 @@ describe('the setup form', () => {
 
   it('copy', () => {
     for (const html of [view({ advancedOpen: true }), view({ library: LIBRARY_LOCAL, advancedOpen: true }), view({ module: MODULE_NO_PRICES, advancedOpen: true })]) {
-      for (const bad of ['TypeSafe', 'Maximum error rate', '* any', '· bytes', '—']) expect(html).not.toContain(bad);
+      for (const bad of ['TypeSafe', 'Maximum error rate', 'Max error rate', '* any', '· bytes', '—']) expect(html).not.toContain(bad);
     }
     const html = view({ advancedOpen: true });
     for (const good of ['Jev key', 'Spot-check gate', 'Request limit', 'Any model']) expect(html).toContain(good);
+  });
+
+  it('the gate row and its input are both Spot-check gate', () => {
+    const html = view();
+    const group = html.slice(html.indexOf('aria-label="Spot-check gate"'), html.indexOf('>Advanced<'));
+    expect(group).toMatch(/<input[^>]*aria-label="Spot-check gate"/);
+    // the group's name, the row's label and the input's
+    expect(group.match(/Spot-check gate/g)!.length).toBeGreaterThanOrEqual(3);
   });
 
   it('Payload and Seen need a key', () => {

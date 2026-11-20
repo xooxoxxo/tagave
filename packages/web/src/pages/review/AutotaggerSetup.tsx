@@ -13,7 +13,7 @@ import type { AutotaggerLibraryView, AutotaggerModuleView, DeciderChoice, Decide
 import { Button, Collapse, Input, SegmentedControl, SettingsGroup, SettingsRow } from '../../components/ui';
 import { LocalModelBlock } from './DeciderPanel';
 import { PayloadPreviewView } from './PayloadPreview';
-import { FIELD_ERROR, modelSuggestions, priceNeeded, saveState, type SetupDraft } from './autotaggerDraft';
+import { FIELD_ERROR, inlinePriceFault, modelSuggestions, priceNeeded, saveState, type SetupDraft } from './autotaggerDraft';
 import { money } from './autotaggerSteps';
 import styles from './autotagger.module.css';
 
@@ -68,14 +68,19 @@ export function AutotaggerSetupView({
   const id = useId();
   const [key, setKey] = useState('');
   const [inlineAmount, setInlineAmount] = useState('');
-  const [inlineBad, setInlineBad] = useState(false);
+  // the Price row's refusal, with the values it refused: it clears once any of them changes
+  const [inlineFault, setInlineFault] = useState<{ field: 'model' | 'currency' | 'amount'; amount: string; model: string; currency: string } | null>(null);
   const [add, setAdd] = useState({ model: '', perMillionInput: '', currency: v.currency });
   const [addBad, setAddBad] = useState<'model' | 'perMillionInput' | 'currency' | null>(null);
 
+  const inlineBad = inlineFault && inlineFault.amount === inlineAmount && inlineFault.model === draft.model && inlineFault.currency === draft.currency
+    ? inlineFault.field
+    : null;
   const set = (k: keyof SetupDraft) => (e: { target: { value: string } }) => onDraft({ ...draft, [k]: e.target.value });
-  const err = (k: keyof SetupDraft) => (bad === k ? FIELD_ERROR[k] : undefined);
+  const flagged = (k: keyof SetupDraft) => bad === k || inlineBad === k;
+  const err = (k: keyof SetupDraft) => (flagged(k) ? FIELD_ERROR[k] : undefined);
   const errId = (k: string) => `${id}-${k}-error`;
-  const invalid = (k: keyof SetupDraft) => (bad === k ? { 'aria-invalid': true, 'aria-describedby': errId(k) } : {});
+  const invalid = (k: keyof SetupDraft) => (flagged(k) ? { 'aria-invalid': true, 'aria-describedby': errId(k) } : {});
 
   const save = saveState(draft, v);
   const need = priceNeeded(draft, m.prices);
@@ -86,9 +91,13 @@ export function AutotaggerSetupView({
   const advancedId = `${id}-advanced`;
 
   const addInline = () => {
+    const field = inlinePriceFault(inlineAmount, draft);
     const amount = amountOf(inlineAmount);
-    if (amount === null || !PRICE_MODEL_RE.test(draftModel) || !/^[A-Z]{3}$/.test(draftCurrency)) { setInlineBad(true); return; }
-    setInlineBad(false);
+    if (field || amount === null) {
+      setInlineFault({ field: field ?? 'amount', amount: inlineAmount, model: draft.model, currency: draft.currency });
+      return;
+    }
+    setInlineFault(null);
     onPrice({ model: draftModel, perMillionInput: amount, currency: draftCurrency });
     setInlineAmount('');
   };
@@ -108,7 +117,9 @@ export function AutotaggerSetupView({
     <div className={styles.setup}>
       <SettingsGroup title="Decider">
         <SettingsRow as="div" label="Decider">
-          <SegmentedControl label="Decider" value={draft.decider} onChange={(d) => onDraft({ ...draft, decider: d })} options={DECIDERS} />
+          <span className={styles.choice}>
+            <SegmentedControl label="Decider" value={draft.decider} onChange={(d) => onDraft({ ...draft, decider: d })} options={DECIDERS} />
+          </span>
         </SettingsRow>
       </SettingsGroup>
 
@@ -160,18 +171,20 @@ export function AutotaggerSetupView({
                   inputMode="decimal"
                   value={inlineAmount}
                   onChange={(e) => setInlineAmount(e.target.value)}
-                  {...(inlineBad ? { 'aria-invalid': true, 'aria-describedby': errId('inline-price') } : {})}
+                  {...(inlineBad === 'amount' ? { 'aria-invalid': true, 'aria-describedby': errId('inline-price') } : {})}
                 />
                 <span className={styles.suffix}>{draftCurrency}</span>
                 <Button size="sm" variant="secondary" loading={!!pending.price} onClick={addInline}>Add price</Button>
-                <FieldError id={errId('inline-price')} error={inlineBad ? '0 or more' : undefined} />
+                <FieldError id={errId('inline-price')} error={inlineBad === 'amount' ? '0 or more' : undefined} />
               </span>
             </SettingsRow>
           )}
           <SettingsRow as="div" label="Monthly cap">
             <span className={styles.inlineRow}>
-              <Input dense aria-label="Monthly cap" inputMode="decimal" placeholder="No cap" value={draft.monthlyCap} onChange={set('monthlyCap')} {...invalid('monthlyCap')} />
-              <Input dense className={styles.short} aria-label="Currency" maxLength={3} autoComplete="off" value={draft.currency} onChange={set('currency')} {...invalid('currency')} />
+              <span className={styles.pair}>
+                <Input dense aria-label="Monthly cap" inputMode="decimal" placeholder="No cap" value={draft.monthlyCap} onChange={set('monthlyCap')} {...invalid('monthlyCap')} />
+                <Input dense className={styles.short} aria-label="Currency" maxLength={3} autoComplete="off" value={draft.currency} onChange={set('currency')} {...invalid('currency')} />
+              </span>
               <FieldError id={errId('monthlyCap')} error={err('monthlyCap')} />
               <FieldError id={errId('currency')} error={err('currency')} />
             </span>
@@ -193,9 +206,9 @@ export function AutotaggerSetupView({
       )}
 
       <SettingsGroup title="Spot-check gate">
-        <SettingsRow label="Max error rate">
+        <SettingsRow label="Spot-check gate">
           <span className={styles.inlineRow}>
-            <Input dense className={styles.short} aria-label="Max error rate" inputMode="decimal" value={draft.maxErrorRate} onChange={set('maxErrorRate')} {...invalid('maxErrorRate')} />
+            <Input dense className={styles.short} aria-label="Spot-check gate" inputMode="decimal" value={draft.maxErrorRate} onChange={set('maxErrorRate')} {...invalid('maxErrorRate')} />
             <span className={styles.suffix}>%</span>
             <FieldError id={errId('maxErrorRate')} error={err('maxErrorRate')} />
           </span>

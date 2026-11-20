@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { allowedTab, parseWorkSearch, workTabGate, workTabs } from './workTabs';
+import { allowedTab, parseWorkSearch, workModules, workTabGate, workTabs } from './workTabs';
 
 const source = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
@@ -80,10 +80,20 @@ describe('a tab mapped to a module', () => {
     }
   });
 
+  it('a failed GET /facets counts every module off, so the gate redirects', () => {
+    expect(workModules(undefined, false)).toEqual({ autotagger: null, lidarr: null });
+    expect(workModules(undefined, true)).toEqual({ autotagger: false, lidarr: false });
+    expect(workModules([{ id: 'autotagger', enabled: true }], false)).toEqual({ autotagger: true, lidarr: false });
+    const modules = workModules(undefined, true);
+    expect(workTabGate({ tab: 'autotagger', search: { tab: 'autotagger' }, owner: true, modules })).toEqual({ to: '/settings/modules', search: {} });
+    expect(workTabGate({ tab: 'getting', search: { tab: 'getting' }, owner: false, modules })).toEqual({ to: '/work', search: {} });
+  });
+
   it('the page obeys the gate', () => {
     const tsx = source('./WorkPage.tsx');
     expect(tsx).toMatch(/workTabGate\(/);
     expect(tsx).toMatch(/<Navigate\b[^>]*\breplace\b/);
+    expect(tsx).toMatch(/workModules\(facets\.data\?\.modules, facets\.isError\)/);
   });
 });
 

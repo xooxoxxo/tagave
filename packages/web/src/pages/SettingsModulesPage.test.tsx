@@ -78,13 +78,13 @@ describe('a row’s link', () => {
   });
 
   it('a module with a page links it', () => {
-    expect(link('player', true, true, 'player', 'Player')).toEqual({ label: 'Player', to: '/settings/modules/player' });
-    expect(link('lidarr', false, true, 'lidarr', 'Lidarr')).toEqual({ label: 'Lidarr', to: '/settings/modules/lidarr' });
-    expect(link('lyrics', false, true, 'lyrics', 'Lyrics')).toEqual({ label: 'Lyrics', to: '/settings/modules/lyrics' });
+    expect(link('player', true, true, 'player', 'Player')).toEqual({ label: 'Settings', to: '/settings/modules/player', ariaLabel: 'Player settings' });
+    expect(link('lidarr', false, true, 'lidarr', 'Lidarr')).toEqual({ label: 'Settings', to: '/settings/modules/lidarr', ariaLabel: 'Lidarr settings' });
+    expect(link('lyrics', false, true, 'lyrics', 'Lyrics')).toEqual({ label: 'Settings', to: '/settings/modules/lyrics', ariaLabel: 'Lyrics settings' });
     // the rows: a catalogue extra and Books have a page of their own
     const rows = moduleRows({ owner: true, enabled: ALL_ON, catalogue: { ...BASE_VIEW, modules: [PLAYER, DUMMY] }, devApps: { books: true } })!;
-    expect(rows.find((r) => r.slug === 'dummy')).toMatchObject({ control: 'page', link: { label: 'Dummy', to: '/settings/modules/dummy' } });
-    expect(rows.find((r) => r.slug === 'books')).toMatchObject({ control: 'page', link: { label: 'Books', to: '/settings/modules/books' } });
+    expect(rows.find((r) => r.slug === 'dummy')).toMatchObject({ control: 'page', link: { label: 'Settings', to: '/settings/modules/dummy' } });
+    expect(rows.find((r) => r.slug === 'books')).toMatchObject({ control: 'page', link: { label: 'Settings', to: '/settings/modules/books' } });
   });
 });
 
@@ -97,7 +97,7 @@ async function withAppRoutes(children: ReactNode): Promise<string> {
 }
 
 const ROWS: ModuleRowView[] = [
-  { slug: 'player', name: 'Player', state: 'On', on: true, control: 'page', link: { label: 'Player', to: '/settings/modules/player' } },
+  { slug: 'player', name: 'Player', state: 'On', on: true, control: 'page', link: { label: 'Settings', to: '/settings/modules/player', ariaLabel: 'Player settings' } },
   { slug: 'autotagger', name: 'Autotagger', state: 'On', on: true, control: 'switch', link: { label: 'Set up in Library care', to: '/work', search: { tab: 'autotagger' } } },
   { slug: 'playlists', name: 'Playlists', state: 'Off', on: false, control: 'switch', link: null },
 ];
@@ -115,6 +115,10 @@ describe('the list', () => {
     expect(player).toContain('>On<');
     expect(player).toContain('href="/settings/modules/player"');
     expect(player).not.toContain('data-switch');
+    // the link names the place, not the module a second time
+    expect(player).toContain('aria-label="Player settings"');
+    expect(player.match(/>Player</g)).toHaveLength(1);
+    expect(player).toContain('<span>Settings</span>');
     // a module that links nothing has no link; the whole row is never one
     expect(rowOf(html, 'Playlists')).not.toContain('href=');
     expect(rowOf(html, 'Playlists')).toContain('data-switch="playlists"');

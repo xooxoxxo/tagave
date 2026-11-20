@@ -81,6 +81,23 @@ export function rebase(draft: SetupDraft, before: AutotaggerLibraryView, after: 
   return next;
 }
 
+/**
+ * The field that stops the Price row's Add price, or null: the draft's model
+ * and currency go with the typed amount, so any of the three may be wrong.
+ */
+export function inlinePriceFault(amount: string, d: SetupDraft): 'model' | 'currency' | 'amount' | null {
+  if (!MODEL_RE.test(d.model.trim())) return 'model';
+  const n = Number(amount);
+  if (amount.trim() === '' || !Number.isFinite(n) || n < 0) return 'amount';
+  if (!CURRENCY_RE.test(d.currency.trim().toUpperCase())) return 'currency';
+  return null;
+}
+
+/** The field Save flagged, while it still holds the value Save found wrong; null once it changed. */
+export function stillBad(bad: keyof SetupDraft | null, before: SetupDraft | null, after: SetupDraft | null): keyof SetupDraft | null {
+  return bad && before && after && before[bad] === after[bad] ? bad : null;
+}
+
 /** The price a run of `model` pays: the model's own row, else the Any model row, else none. */
 export function priceFor(model: string, prices: DeciderPrice[]): DeciderPrice | null {
   return prices.find((p) => p.model === model) ?? prices.find((p) => p.model === '*') ?? null;

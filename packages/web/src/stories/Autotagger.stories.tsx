@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
-import type { AutotaggerModuleView, BandId } from '@tagave/shared';
+import type { AutotaggerModuleView, BandId, PayloadPreview } from '@tagave/shared';
 import { AutotaggerView, type AutotaggerViewProps } from '../pages/review/AutotaggerPanel';
 import { AutotaggerSetupView } from '../pages/review/AutotaggerSetup';
 import { draftOf, type SetupDraft } from '../pages/review/autotaggerDraft';
@@ -21,6 +21,9 @@ type ScreenProps = Partial<AutotaggerViewProps> & {
   /** what the owner has drafted over the saved settings */
   draft?: Partial<SetupDraft>;
   advancedOpen?: boolean;
+  /** the payload the setup shows, and whether it starts open */
+  preview?: PayloadPreview | null;
+  previewOpen?: boolean;
 };
 
 /** Step 1 as the owner sets it up: the draft and Advanced switch in the story. */
@@ -52,7 +55,7 @@ function Setup({ p }: { p: ScreenProps }) {
 }
 
 /** The Autotagger tab with the fixtures; the step, band, population and the past-runs view switch in the story. */
-function Screen({ module, draft, advancedOpen, ...props }: ScreenProps) {
+function Screen({ module, draft, advancedOpen, preview, previewOpen, ...props }: ScreenProps) {
   const [step, setStep] = useState<StepId | null>(props.step ?? null);
   const [band, setBand] = useState<BandId>(props.band ?? 'p97');
   const [population, setPopulation] = useState<StartablePopulation>(props.population ?? 'needs_review');
@@ -63,7 +66,7 @@ function Screen({ module, draft, advancedOpen, ...props }: ScreenProps) {
     <AutotaggerView
       owner
       agreement={null}
-      setup={owner ? <Setup p={{ ...props, ...(module ? { module } : {}), ...(draft ? { draft } : {}), ...(advancedOpen !== undefined ? { advancedOpen } : {}) }} /> : undefined}
+      setup={owner ? <Setup p={{ ...props, ...(module ? { module } : {}), ...(draft ? { draft } : {}), ...(advancedOpen !== undefined ? { advancedOpen } : {}), ...(preview ? { preview } : {}), ...(previewOpen !== undefined ? { previewOpen } : {}) }} /> : undefined}
       library={LIBRARY_LOCAL}
       models={MODELS}
       run={RUN_DONE}
@@ -83,8 +86,6 @@ function Screen({ module, draft, advancedOpen, ...props }: ScreenProps) {
       onDraw={noop}
       onUndo={noop}
       onPickRun={noop}
-      onTogglePreview={noop}
-      onSeen={noop}
       {...props}
       step={step}
       onStep={setStep}
@@ -181,7 +182,9 @@ export const RunWithStats: Story = { args: { step: 'run', stats: MODULE } };
 /** Step 3: Agreement under the gates. */
 export const SpotCheckAgreement: Story = { args: { agreement: AGREEMENT } };
 
+/** Phone 390: each label on one line, the Decider's two choices on a line under its label. */
 export const PhoneSetupLocal: Story = { ...phone, tags: ['phone', 'shot-full'], args: { step: 'decider', run: null, runs: [], bands: null } };
+/** Phone 390: the key's controls wrap beside its label; the cap amount and its currency share one row. */
 export const PhoneSetupJev: Story = { ...phone, tags: ['phone', 'shot-full'], args: { step: 'decider', library: LIBRARY_JEV } };
 export const PhoneSetupJevNoKey: Story = { ...phone, tags: ['phone', 'shot-full'], args: { step: 'decider', run: null, runs: [], bands: null, draft: { decider: 'jev' } } };
 export const PhoneSpotCheckAgreement: Story = { ...phone, tags: ['phone', 'shot-full'], args: { agreement: AGREEMENT } };
