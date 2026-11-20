@@ -72,7 +72,7 @@ export function LocalModelBlock({ models }: { models: LocalModelsView | null }) 
           ['Top pick right', percent(active.metrics.topPickRight.rate)],
         ]}
       />
-      <div className={styles.figuresWrap}>
+      <div className={styles.figuresWrap} role="region" aria-label="Held out" tabIndex={0}>
         <table className={styles.figures} aria-label="Held out">
           <thead><tr><th scope="col">Band</th><th scope="col">Decided</th><th scope="col">Coverage</th><th scope="col">Error rate</th><th scope="col">Upper bound</th></tr></thead>
           <tbody>

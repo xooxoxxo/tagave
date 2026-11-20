@@ -18,7 +18,7 @@ import styles from './autotagger.module.css';
 export function RunListView({ runs, currentId, onPick }: { runs: RunView[]; currentId: string | null; onPick: (runId: string) => void }) {
   if (runs.length === 0) return <Values rows={[['Runs', 'None']]} />;
   return (
-    <div className={styles.figuresWrap}>
+    <div className={styles.figuresWrap} role="region" aria-label="Runs" tabIndex={0}>
       <table className={styles.figures} aria-label="Runs">
         <thead><tr><th scope="col">Date</th><th scope="col">Population</th><th scope="col">Albums</th><th scope="col">State</th><th scope="col">Spent</th></tr></thead>
         <tbody>
