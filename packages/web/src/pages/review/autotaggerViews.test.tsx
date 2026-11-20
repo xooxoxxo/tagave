@@ -160,7 +160,7 @@ describe('the decider step', () => {
     expect(html).toContain('Not seen');
     expect(html).toContain('jev-latest');
     expect(html).toContain('Jev key');
-    expect(button(html, 'Payload')).toBe('');
+    expect(button(html, 'Show')).toBe('');
     expect(button(html, 'Seen')).toBe('');
   });
 });
@@ -282,7 +282,7 @@ describe('the tab, step by step', () => {
   it('the owner’s step 1 is the setup', () => {
     const html = render(<AutotaggerView {...TAB} library={LIBRARY_JEV} step="decider" setup={<i data-setup />} />);
     expect(html).toContain('data-setup');
-    expect(button(html, 'Payload')).toBe('');
+    expect(button(html, 'Show')).toBe('');
   });
 
   it('an editor’s step 1 has no form', () => {

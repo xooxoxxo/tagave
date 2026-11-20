@@ -196,7 +196,7 @@ export function AutotaggerSetupView({
           <SettingsRow as="div" label="Payload">
             <span className={styles.inlineRow}>
               <span className={styles.rowValue}>{seen ? 'Seen' : 'Not seen'}</span>
-              {v.keySet && <Button size="sm" variant="secondary" aria-expanded={previewOpen} onClick={onTogglePreview}>Payload</Button>}
+              {v.keySet && <Button size="sm" variant="secondary" aria-expanded={previewOpen} onClick={onTogglePreview}>{previewOpen ? 'Hide' : 'Show'}</Button>}
               {v.keySet && previewOpen && preview && (
                 <Button size="sm" variant={seen ? 'secondary' : 'primary'} loading={!!pending.seen} disabled={seen} onClick={onSeen}>{seen ? 'Seen ✓' : 'Seen'}</Button>
               )}
