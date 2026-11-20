@@ -202,6 +202,12 @@ export const MODULE: AutotaggerModuleView = {
   prices: [{ model: '*', perMillionInput: 0.4, currency: 'USD' }, { model: 'jev-2026-09-15', perMillionInput: 0.35, currency: 'USD' }],
 };
 
+/** No price at all: a Jev run would pause, so the setup asks for one. */
+export const MODULE_NO_PRICES: AutotaggerModuleView = { ...MODULE, prices: [] };
+
+/** One price, in euros: a run with a cap in dollars would pause. */
+export const MODULE_PRICE_EUR: AutotaggerModuleView = { ...MODULE, prices: [{ model: '*', perMillionInput: 0.4, currency: 'EUR' }] };
+
 export const AGREEMENT: AgreementView = {
   backtest: {
     runId: 'run-0',
