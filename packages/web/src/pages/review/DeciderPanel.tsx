@@ -61,6 +61,44 @@ export interface DeciderStepViewProps {
 
 const bandName = (band: string, min: number) => (band in BAND_LABEL ? BAND_LABEL[band as keyof typeof BAND_LABEL] : `≥ ${min}`);
 
+/** The local model: its figures and its held-out bands, or that there is none yet. */
+export function LocalModelBlock({ models }: { models: LocalModelsView | null }) {
+  const active = models?.active ?? null;
+  if (!active) return <Values rows={[['Model', 'None'], ['Blocked by', 'No model']]} />;
+  return (
+    <>
+      <Values
+        label="Active model"
+        rows={[
+          ['Model', modelName(models)],
+          ['Version', active.version],
+          ['Trained', shortDate(active.createdAt)],
+          ['Decisions', count(active.counts.albums)],
+          ['Yours', count(active.counts.owner)],
+          ['Automatic', count(active.counts.auto)],
+          ['Top pick right', percent(active.metrics.topPickRight.rate)],
+        ]}
+      />
+      <div className={styles.figuresWrap}>
+        <table className={styles.figures} aria-label="Held out">
+          <thead><tr><th scope="col">Band</th><th scope="col">Decided</th><th scope="col">Coverage</th><th scope="col">Error rate</th><th scope="col">Upper bound</th></tr></thead>
+          <tbody>
+            {active.metrics.bands.map((b) => (
+              <tr key={b.band}>
+                <td>{bandName(b.band, b.min)}</td>
+                <td>{count(b.decided)}</td>
+                <td>{percent(b.coverage)}</td>
+                <td>{b.errorRate === null ? '—' : percent(b.errorRate)}</td>
+                <td>{percent(b.errorUpper)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 export function DeciderStepView({ library, models, owner, training = false, onTrain, preview = null, previewOpen = false, onTogglePreview, onSeen, seenPending = false, settings = null }: DeciderStepViewProps) {
   if (library.config.decider === 'local') {
     const active = models?.active ?? null;
@@ -73,40 +111,7 @@ export function DeciderStepView({ library, models, owner, training = false, onTr
             {owner && <Button size="sm" variant="secondary" loading={training} onClick={onTrain}>{active ? 'Train again' : 'Train'}</Button>}
           </div>
         </div>
-        {active ? (
-          <>
-            <Values
-              label="Active model"
-              rows={[
-                ['Model', modelName(models)],
-                ['Version', active.version],
-                ['Trained', shortDate(active.createdAt)],
-                ['Decisions', count(active.counts.albums)],
-                ['Yours', count(active.counts.owner)],
-                ['Automatic', count(active.counts.auto)],
-                ['Top pick right', percent(active.metrics.topPickRight.rate)],
-              ]}
-            />
-            <div className={styles.figuresWrap}>
-              <table className={styles.figures} aria-label="Held out">
-                <thead><tr><th scope="col">Band</th><th scope="col">Decided</th><th scope="col">Coverage</th><th scope="col">Error rate</th><th scope="col">Upper bound</th></tr></thead>
-                <tbody>
-                  {active.metrics.bands.map((b) => (
-                    <tr key={b.band}>
-                      <td>{bandName(b.band, b.min)}</td>
-                      <td>{count(b.decided)}</td>
-                      <td>{percent(b.coverage)}</td>
-                      <td>{b.errorRate === null ? '—' : percent(b.errorRate)}</td>
-                      <td>{percent(b.errorUpper)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        ) : (
-          <Values rows={[['Model', 'None'], ['Blocked by', 'No model']]} />
-        )}
+        <LocalModelBlock models={models} />
       </section>
     );
   }
