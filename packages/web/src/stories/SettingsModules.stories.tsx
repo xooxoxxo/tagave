@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
-import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, mcDeleted, turnOffKey, type CatalogueModuleViewProps, type OffChoice, type TurnOffChoice } from '../pages/SettingsModulesPage';
+import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, YourPart, mcDeleted, turnOffKey, type CatalogueModuleViewProps, type OffChoice, type TurnOffChoice } from '../pages/SettingsModulesPage';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from './modulesFixtures';
 
@@ -21,7 +21,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Settings › Modules: one row per module with its state; each opens Settings › Modules › <module>, which starts with the module’s Off | On and holds everything it needs.',
+        component: 'Settings › Modules (the owner’s): one row per module with its state; each opens Settings › Modules › <module>, which starts with the module’s Off | On and holds the server’s part. Each person’s part is a row away, in Your settings.',
       },
     },
   },
@@ -31,8 +31,6 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const List: Story = {};
-/** A listener: only the modules with something of theirs. */
-export const Member: Story = { args: { rows: [{ slug: 'player', name: 'Player', state: 'On', on: true }, { slug: 'listen-elsewhere', name: 'Listen elsewhere', state: 'On', on: true }] } };
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
 
 const noop = () => undefined;
@@ -49,6 +47,9 @@ export const PlayerWithoutUpdater: Story = { render: () => page({ view: { ...BAS
 export const PlayerNotAvailableHere: Story = { render: () => page({ view: { ...BASE_VIEW, mode: 'command', verified: false, problem: null, modules: [{ ...PLAYER, available: false, reason: 'Not available on this install.' }] } }) };
 export const NotSigned: Story = { render: () => page({ view: { ...BASE_VIEW, verified: false, problem: 'the release manifest does not match its signature: it was changed after tagave signed it (key 3f0c9a1e5b7d2c44)', modules: [] } }) };
 export const PlayerPhone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => page({ view: { ...BASE_VIEW, run: playerRun('running'), modules: [{ ...PLAYER, state: 'installing' }, DUMMY] } }) };
+/** The owner's Player page: the server's part here, each person's Listening a row away in Your settings. */
+export const OwnerPlayerPage: Story = { name: 'Owner Player page', render: () => <>{page({ view: { ...BASE_VIEW, modules: [{ ...PLAYER, state: 'on' }, DUMMY] } })}<YourPart group="Listening" label="Your listening" to="/you/listening" /></> };
+export const OwnerPlayerPagePhone: Story = { name: 'Owner Player page, phone', tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => <>{page({ view: { ...BASE_VIEW, modules: [{ ...PLAYER, state: 'on' }, DUMMY] } })}<YourPart group="Listening" label="Your listening" to="/you/listening" /></> };
 
 /** A module that is a setting (Lidarr): the same Off | On, with its label and what it holds. */
 export const SettingSwitch: Story = { render: () => <><h2>Lidarr</h2><ModuleSwitchView name="Lidarr" label="Get missing albums" on meta="2 getting" onSwitch={noop} /></> };

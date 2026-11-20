@@ -7,6 +7,9 @@
 .sectionLink:hover { background: var(--mist); color: var(--ink); }
 .activeSection { composes: sectionLink; color: var(--chip-on-ink); background: var(--dew-tint); font-weight: 600; box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge); }
 .activeSection:hover { color: var(--chip-on-ink); background: var(--dew-tint); }
+/* Settings search: the field above the links, and the labels a hit matched */
+.search { margin-bottom: var(--space-sm); }
+.detail { display: block; margin-top: .15rem; color: var(--ink-3); font-size: var(--font-size-xs); font-weight: 400; overflow-wrap: anywhere; }
 .empty { margin: 0; padding: .6rem 1rem; color: var(--ink-3); font-size: .875rem; }
 @media (max-width: 720px) {
   .sectionLink { padding: .8rem 1rem; font-size: 1rem; }

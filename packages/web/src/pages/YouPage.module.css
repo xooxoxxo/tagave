@@ -3,7 +3,3 @@
 /* a module section whose module is off: the value alone */
 .offValue { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); }
 
-/* a row that opens another page (Player server) */
-.rowLink { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; color: var(--ink-3); border-radius: var(--r-pill); }
-.rowLink:hover { color: var(--ink); }
-.rowLink svg { width: 18px; height: 18px; }
