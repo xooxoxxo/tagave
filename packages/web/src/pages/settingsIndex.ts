@@ -33,16 +33,19 @@ export const SETTINGS_INDEX: readonly IndexEntry[] = [
 
 export type SearchHit = { section: string; label: string; matches: string[] };
 
+/** lower case, curly apostrophes as straight ones */
+const fold = (text: string) => text.toLowerCase().replace(/[\u2018\u2019]/g, "'");
+
 /**
  * The visible sections whose label, or one of whose indexed labels, holds
  * every word of the query (case-insensitive), in nav order; `matches` are
  * the indexed labels that hit. A blank query lists every visible section.
  */
 export function searchSettings(query: string, visible: readonly { value: string; label: string }[]): SearchHit[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const words = fold(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return visible.map((s) => ({ section: s.value, label: s.label, matches: [] }));
   const hits = (text: string) => {
-    const lower = text.toLowerCase();
+    const lower = fold(text);
     return words.every((w) => lower.includes(w));
   };
   const found: SearchHit[] = [];

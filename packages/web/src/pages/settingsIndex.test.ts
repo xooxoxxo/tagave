@@ -42,6 +42,10 @@ describe('searchSettings', () => {
     expect(found[0]!.matches).not.toContain('Status');
   });
 
+  it('a straight apostrophe finds a curly one', () => {
+    expect(searchSettings("what's new", owner)).toEqual([{ section: 'updates', label: 'Updates', matches: ['What\u2019s new'] }]);
+  });
+
   it('nothing matches', () => {
     expect(searchSettings('zzz nothing', owner)).toEqual([]);
   });

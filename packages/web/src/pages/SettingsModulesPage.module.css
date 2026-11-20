@@ -22,7 +22,6 @@
 .hint { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); line-height: var(--line-height-relaxed); }
 .hint code { overflow-wrap: anywhere; }
 .error { margin: 0; color: var(--danger-ink); font-size: var(--font-size-xs); overflow-wrap: anywhere; }
-.footnote { margin: 0; color: var(--ink-3); font-size: var(--font-size-xs); }
 /* Turn off's dialog: values lines (Kept · its requests), then each choice as
    its label beside an Off | On */
 .value { margin: 0 0 var(--space-sm); color: var(--ink-2); font-size: var(--font-size-sm); line-height: var(--line-height-relaxed); }

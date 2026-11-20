@@ -17,7 +17,6 @@
 }
 /* the links themselves: components/settings/SectionNav.module.css */
 .content { min-width: 0; display: flex; flex-direction: column; gap: 1.25rem; max-width: 850px; width: 100%; }
-.sectionDescription { color: var(--ink-2); font-size: .9375rem; }
 /* An update on screen (RunView) takes the whole pane: the section list steps
    aside until Done and the run's column centres in the pane; its glyph spans
    the page shell edge to edge (InAppUpdate.module.css). */

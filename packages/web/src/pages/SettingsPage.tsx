@@ -83,7 +83,7 @@ export function SettingsPage() {
         empty="No match"
       />
       <div className={styles.content}>
-        {!allowed ? <NotAvailable inline /> : <>
+        {role === null ? null : !allowed ? <NotAvailable inline /> : <>
         {section === 'library' && <><SettingsScanRootsContent /><NamingSettings /><DropPoolSettings /><SettingsDeletingContent /></>}
         {section === 'tag-writing' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}

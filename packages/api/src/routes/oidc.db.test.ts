@@ -266,7 +266,7 @@ describe.skipIf(!adminUrl)('sign in with your login service (integration)', () =
     await sql`update auth_sessions set created_at = now() where user_id = ${owner.userId}`;
 
     const linked = await flow({ url: '/api/v1/auth/oidc/link', jar: owner.jar }, { sub: 'ada-idp', email: 'ada.lovelace@idp.example', name: 'Ada L' });
-    expect(linked.location.toString()).toBe(`${TEST_PUBLIC_URL}/settings/account?oidc=linked`);
+    expect(linked.location.toString()).toBe(`${TEST_PUBLIC_URL}/you/account?oidc=linked`);
     const view = await call(owner.jar, 'GET', '/api/v1/auth/oidc/link');
     expect(view.json()).toMatchObject({ name: 'Testauth', linked: true, canUnlink: true });
     // the link names another address than the account's; the account keeps its own
