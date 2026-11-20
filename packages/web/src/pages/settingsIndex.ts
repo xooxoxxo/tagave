@@ -8,12 +8,15 @@ import { MODULE_PAGES } from './moduleSettings';
 export type IndexEntry = { section: string; label: string };
 
 export const SETTINGS_INDEX: readonly IndexEntry[] = [
-  // SettingsScanRootsPage, NamingSettings, DropPoolSettings, SettingsDeletingPage
-  ...['Music folders', 'Naming', 'Drop pool', 'Deleting'].map((label) => ({ section: 'library', label })),
+  // group titles and row labels (settingsIndex.test.ts checks each is on its page)
+  // SettingsScanRootsPage
+  ...['Music folders', 'Scanning', 'Tag writes', 'Rescan every', 'Folder link', 'Add music folder', 'Path'].map((label) => ({ section: 'library', label })),
+  // NamingSettings, DropPoolSettings, SettingsDeletingPage
+  ...['Naming', 'File', 'Soundtrack', 'Compilation', 'Leave alone', 'Examples', 'Drop pool', 'Music folder', 'Deleting'].map((label) => ({ section: 'library', label })),
   // SettingsTagWritesPage
-  ...['Tag preferences', 'Tag writes', 'Default write policy'].map((label) => ({ section: 'tag-writing', label })),
+  ...['Tag writes', 'Writable folders', 'Default write policy', 'Preset', 'MP3 tags', 'Separator'].map((label) => ({ section: 'tag-writing', label })),
   // SettingsFollowRulesPage
-  { section: 'following', label: 'Follow rules' },
+  ...['Include', 'Exclude', 'Auto-follow', 'Auto-follow at'].map((label) => ({ section: 'following', label })),
   // SettingsUsersPage, SignInService
   ...['Users', 'Invite', 'Open links', 'Sign-in service'].map((label) => ({ section: 'people', label })),
   // one row per module, then SettingsProvidersPage

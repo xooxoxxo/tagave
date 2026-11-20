@@ -1,18 +1,10 @@
-.setting {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-md);
-}
-
+/* Settings › Library › Deleting: one group (SettingsGroup). */
 .value {
-  margin: 0;
+  min-width: 0;
   color: var(--ink-3);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
+  text-align: right;
 }
 
-.error {
-  margin: 0;
-  color: var(--danger);
-  font-size: 0.875rem;
-}
+/* the way to Library care › Deleting, under the group */
+.link { display: flex; padding-inline: var(--space-md); }

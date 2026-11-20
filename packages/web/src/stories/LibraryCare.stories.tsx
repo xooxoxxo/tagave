@@ -4,9 +4,11 @@
  * not drawn here.
  */
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import type { ReactNode } from 'react';
 import { PageShell } from '../components/ui';
 import { MaintenanceControlView } from '../components/MaintenanceControl';
 import { workTabs, type WorkTabsInput } from '../pages/workTabs';
+import { GenreMappingView } from '../pages/SettingsGenresPage';
 
 const noop = () => undefined;
 const counts = { queue: 12, identify: 4, attention: 3, tasks: 0, inbox: 2 };
@@ -17,9 +19,11 @@ interface Args {
   who: WorkTabsInput;
   tab: string;
   maintenance: boolean;
+  /** the tab's body; a static line when left out */
+  body?: ReactNode;
 }
 
-function LibraryCareShell({ who, tab, maintenance }: Args) {
+function LibraryCareShell({ who, tab, maintenance, body }: Args) {
   return (
     <PageShell
       title="Library care"
@@ -28,7 +32,7 @@ function LibraryCareShell({ who, tab, maintenance }: Args) {
       onTabChange={noop}
       actions={<MaintenanceControlView on={maintenance} onChange={noop} />}
     >
-      <p>Tab body</p>
+      {body ?? <p>Tab body</p>}
     </PageShell>
   );
 }
@@ -60,6 +64,33 @@ export const Owner: Story = { tags: ['viewport-1440'], args: { who: OWNER, tab: 
 /** Maintenance on. */
 export const MaintenanceOn: Story = { name: 'Maintenance on', tags: ['viewport-1440'], args: { who: OWNER, tab: 'review', maintenance: true } };
 
+const genreMapping = (
+  <GenreMappingView
+    whitelistText={'Rock\nElectronic\nJazz'}
+    aliasesText={'metal = Rock\nidm = Electronic\nnot a line'}
+    maxGenres={3}
+    ignored={1}
+    dirty
+    preview={{
+      map: { whitelist: ['Rock', 'Electronic', 'Jazz'], aliases: { metal: 'Rock', idm: 'Electronic' }, maxGenres: 3 },
+      histogram: [{ genre: 'Rock', albums: 412 }, { genre: 'Electronic', albums: 268 }, { genre: 'Jazz', albums: 91 }],
+      tags: [
+        { tag: 'rock', kind: 'genre', source: 'file', weight: null, count: 380, mappedTo: 'Rock' },
+        { tag: 'idm', kind: 'style', source: 'discogs', weight: null, count: 44, mappedTo: 'Electronic' },
+        { tag: 'field recording', kind: 'tag', source: 'lastfm', weight: 12, count: 0, mappedTo: null },
+      ],
+    }}
+    onWhitelist={noop}
+    onAliases={noop}
+    onMaxGenres={noop}
+    onSave={noop}
+    onReset={noop}
+  />
+);
+/** Genre mapping on the settings layout: the map with its one Save and Reset, then the preview's groups. */
+export const GenreMapping: Story = { name: 'Genre mapping', tags: ['viewport-1440', 'no-shot'], args: { who: OWNER, tab: 'genres', body: genreMapping } };
+
 export const PhoneEditor: Story = { ...phone, name: 'Phone, editor', tags: ['phone'], args: { who: EDITOR, tab: 'activity' } };
 export const PhoneOwner: Story = { ...phone, name: 'Phone, owner', tags: ['phone'], args: { who: OWNER, tab: 'genres' } };
 export const PhoneMaintenanceOn: Story = { ...phone, name: 'Phone, Maintenance on', tags: ['phone'], args: { who: OWNER, tab: 'review', maintenance: true } };
+export const PhoneGenreMapping: Story = { ...phone, name: 'Phone, Genre mapping', tags: ['phone', 'no-shot'], args: { who: OWNER, tab: 'genres', body: genreMapping } };

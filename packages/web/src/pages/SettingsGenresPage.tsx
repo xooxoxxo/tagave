@@ -1,267 +1,178 @@
 /**
- * Library care › Genre mapping (spec XO-310 §7): genre whitelist, aliases, max genres, and preview
+ * Library care › Genre mapping (spec XO-310 §7): the genre whitelist, the
+ * aliases and the most genres an album keeps, typed and saved with the
+ * group's one Save (Reset beside it drops the edits, the aliases being a
+ * long text); then what the map makes of the library: Effective genres and
+ * Raw tags. GenreMappingView is the tab alone, driven by props (stories,
+ * tests); SettingsGenresContent connects it.
  */
-import { useEffect, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useCurrentLibrary } from '../hooks';
-import { useGenreMap, usePatchGenreMap, useGenrePreview, type GenreMap } from '../hooks/useArtists';
-import { Button } from '../components/ui';
+import { useGenreMap, usePatchGenreMap, useGenrePreview, type GenreMap, type GenrePreviewResponse } from '../hooks/useArtists';
+import { Button, Input, SettingsGroup, SettingsRow, SettingsSave, Textarea, useSaveFlash, type SaveState } from '../components/ui';
 import styles from './SettingsGenresPage.module.css';
 
-/**
- * Content component for embedding in SettingsPage
- */
-export function SettingsGenresContent() {
-  return <SettingsGenresContentInner />;
+/** "metal = Metal" lines → { metal: 'Metal' }, and how many lines it could not read. */
+export function parseAliases(text: string): { parsed: Record<string, string>; ignored: number } {
+  const parsed: Record<string, string> = {};
+  let ignored = 0;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/^(.+?)\s*=\s*(.+)$/);
+    const from = match?.[1]?.trim().toLowerCase();
+    const to = match?.[2]?.trim();
+    if (!from || !to) { ignored += 1; continue; }
+    parsed[from] = to;
+  }
+  return { parsed, ignored };
 }
 
-/**
- * Full page component (for backward compatibility / direct navigation)
- */
-export function SettingsGenresPage() {
-  return <SettingsGenresContentInner />;
+const parseWhitelist = (text: string) => text.split('\n').map((line) => line.trim()).filter(Boolean);
+const aliasText = (aliases: Record<string, string>) => Object.entries(aliases).map(([from, to]) => `${from} = ${to}`).join('\n');
+
+export interface GenreMappingViewProps {
+  whitelistText: string;
+  aliasesText: string;
+  maxGenres: number;
+  /** alias lines that are not "from = to" */
+  ignored: number;
+  dirty: boolean;
+  pending?: boolean;
+  state?: SaveState;
+  detail?: string | null;
+  /** what the map makes of the library; null while it loads */
+  preview: GenrePreviewResponse | null;
+  onWhitelist: (text: string) => void;
+  onAliases: (text: string) => void;
+  onMaxGenres: (n: number) => void;
+  onSave: () => void;
+  onReset: () => void;
 }
 
-function SettingsGenresContentInner() {
-  const { libraryId } = useCurrentLibrary();
-  const { data: currentMap, isLoading: mapLoading } = useGenreMap(libraryId);
-  const { data: previewData, isLoading: previewLoading } = useGenrePreview(libraryId);
-  const patchGenreMap = usePatchGenreMap(libraryId);
-
-  const [whitelist, setWhitelist] = useState<string[]>([]);
-  const [whitelistText, setWhitelistText] = useState('');
-  const [aliases, setAliases] = useState<Record<string, string>>({});
-  const [aliasesText, setAliasesText] = useState('');
-  const [maxGenres, setMaxGenres] = useState(3);
-  const [ignoredLines, setIgnoredLines] = useState({ aliases: 0 });
-  const [savedMap, setSavedMap] = useState<GenreMap | null>(null);
-
-  // Initialize fields when settings arrive
-  useEffect(() => {
-    if (currentMap) {
-      setWhitelist(currentMap.whitelist);
-      setWhitelistText(currentMap.whitelist.join('\n'));
-      setAliases(currentMap.aliases);
-      setSavedMap(currentMap);
-      setMaxGenres(currentMap.maxGenres);
-
-      // Populate aliases textarea
-      const aliasLines = Object.entries(currentMap.aliases)
-        .map(([from, to]) => `${from} = ${to}`)
-        .join('\n');
-      setAliasesText(aliasLines);
-    }
-  }, [currentMap]);
-
-  const parseAliases = (text: string): { parsed: Record<string, string>; ignored: number } => {
-    const parsed: Record<string, string> = {};
-    let ignored = 0;
-
-    text.split('\n').forEach((line) => {
-      const trimmed = line.trim();
-      // Skip blank lines
-      if (!trimmed) return;
-
-      const match = trimmed.match(/^(.+?)\s*=\s*(.+)$/);
-      if (!match) {
-        ignored += 1;
-        return;
-      }
-
-      const from = match[1]!.trim().toLowerCase();
-      const to = match[2]!.trim();
-
-      // Validate that 'from' and 'to' are non-empty
-      if (!from || !to) {
-        ignored += 1;
-        return;
-      }
-
-      parsed[from] = to;
-    });
-
-    return { parsed, ignored };
-  };
-
-  const handleAliasesChange = (text: string) => {
-    setAliasesText(text);
-    const { parsed, ignored } = parseAliases(text);
-    setAliases(parsed);
-    setIgnoredLines({ aliases: ignored });
-  };
-
-  const handleSave = async () => {
-    const newMap: GenreMap = {
-      whitelist,
-      aliases,
-      maxGenres,
-    };
-
-    await patchGenreMap.mutateAsync(newMap);
-    setSavedMap(newMap);
-  };
-
-  const handleReset = () => {
-    if (savedMap) {
-      setWhitelist(savedMap.whitelist);
-      setWhitelistText(savedMap.whitelist.join('\n'));
-      setAliases(savedMap.aliases);
-      setMaxGenres(savedMap.maxGenres);
-
-      const aliasLines = Object.entries(savedMap.aliases)
-        .map(([from, to]) => `${from} = ${to}`)
-        .join('\n');
-      setAliasesText(aliasLines);
-      setIgnoredLines({ aliases: 0 });
-    }
-  };
-
-  const hasChanges =
-    JSON.stringify(whitelist) !== JSON.stringify(savedMap?.whitelist ?? []) ||
-    JSON.stringify(aliases) !== JSON.stringify(savedMap?.aliases ?? {}) ||
-    maxGenres !== (savedMap?.maxGenres ?? 3);
-
-  const isLoading = mapLoading || previewLoading;
-  if (isLoading) return <div className={styles.container}>Loading settings...</div>;
-
-  return (
-    <div className={styles.content}>
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Genre mapping</h2>
-
-        <div className={styles.fieldGroup}>
-          <label htmlFor="whitelist" className={styles.label}>
-            Whitelist
-          </label>
-
-          <textarea
-            id="whitelist"
-            className={styles.textarea}
-            placeholder="Rock&#10;Electronic&#10;Pop&#10;..."
-            value={whitelistText}
-            onChange={(e) => {
-              setWhitelistText(e.target.value);
-              setWhitelist(e.target.value.split('\n').map((line) => line.trim()).filter(Boolean));
-            }}
-            rows={8}
-          />
-        </div>
-
-        <div className={styles.fieldGroup}>
-          <label htmlFor="aliases" className={styles.label}>
-            Aliases
-          </label>
-          {ignoredLines.aliases > 0 && (
-            <p className={styles.hint}><span className={styles.ignoredCount}>{ignoredLines.aliases} lines ignored</span></p>
-          )}
-          <textarea
-            id="aliases"
-            className={styles.textarea}
-            placeholder="metal = Metal&#10;electronic = Electronic&#10;..."
-            value={aliasesText}
-            onChange={(e) => handleAliasesChange(e.target.value)}
-            rows={8}
-          />
-        </div>
-
-        <div className={styles.fieldGroup}>
-          <label htmlFor="maxGenres" className={styles.label}>
-            Max genres
-          </label>
-          <input
-            id="maxGenres"
-            type="number"
-            min="1"
-            max="10"
-            className={styles.input}
-            value={maxGenres}
-            onChange={(e) => setMaxGenres(Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)))}
-          />
-        </div>
-
-        <div className={styles.actions}>
-          <Button
-            onClick={handleSave}
-            disabled={!hasChanges || patchGenreMap.isPending}
-          >
-            {patchGenreMap.isPending ? 'Saving...' : 'Save'}
-          </Button>
-          <Button
-            variant="quiet"
-            onClick={handleReset}
-            disabled={!hasChanges}
-          >
-            Reset
-          </Button>
-          {patchGenreMap.isSuccess && <span className={styles.success}>Saved</span>}
-          {patchGenreMap.isError && (
-            <span className={styles.error}>
-              {(patchGenreMap.error as { detail?: string; message?: string })?.detail ??
-                (patchGenreMap.error as Error)?.message ?? 'Failed to save'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {previewData && (
-        <>
-          <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>Effective genres</h2>
-            <div className={styles.histogramContainer}>
-              {previewData.histogram.length === 0 ? (
-                <p className={styles.emptyMessage}>No genres</p>
-              ) : (
-                previewData.histogram.map((item) => {
-                  const maxCount = Math.max(...previewData.histogram.map((h) => h.albums));
-                  const width = maxCount > 0 ? (item.albums / maxCount) * 100 : 0;
-                  return (
-                    <div key={item.genre} className={styles.histogramRow}>
-                      <div className={styles.genreLabel}>{item.genre}</div>
-                      <div className={styles.barContainer}>
-                        <div className={styles.bar} style={{ ['--scale' as string]: `${width / 100}` }} />
-                      </div>
-                      <div className={styles.count}>{item.albums}</div>
-                    </div>
-                  );
-                })
-              )}
+export function GenreMappingView({ whitelistText, aliasesText, maxGenres, ignored, dirty, pending = false, state = null, detail = null, preview, onWhitelist, onAliases, onMaxGenres, onSave, onReset }: GenreMappingViewProps) {
+  const most = preview ? Math.max(0, ...preview.histogram.map((h) => h.albums)) : 0;
+  let effective: ReactNode = null;
+  if (preview && preview.histogram.length > 0) {
+    effective = (
+      <div className={styles.histogram}>
+        {preview.histogram.map((item) => (
+          <div key={item.genre} className={styles.histogramRow}>
+            <div className={styles.genreLabel}>{item.genre}</div>
+            <div className={styles.barContainer}>
+              <div className={styles.bar} style={{ ['--scale' as string]: `${most > 0 ? item.albums / most : 0}` }} />
             </div>
+            <div className={styles.count}>{item.albums}</div>
           </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className={styles.page}>
+      <form onSubmit={(e) => { e.preventDefault(); if (dirty && !pending) onSave(); }} noValidate>
+        <SettingsGroup
+          title="Genre mapping"
+          after={(
+            <div className={styles.buttons}>
+              <SettingsSave type="submit" dirty={dirty} pending={pending} onSave={() => undefined} state={state} detail={detail} />
+              <Button variant="quiet" size="sm" onClick={onReset} disabled={!dirty || pending}>Reset</Button>
+            </div>
+          )}
+        >
+          <SettingsRow label="Whitelist" help="One genre a line; an album keeps only these">
+            <Textarea className={styles.textarea} placeholder={'Rock\nElectronic\nPop'} value={whitelistText} onChange={(e) => onWhitelist(e.currentTarget.value)} rows={6} spellCheck={false} />
+          </SettingsRow>
+          <SettingsRow label="Aliases" help="One a line, as tag = Genre">
+            <span className={styles.stack}>
+              <Textarea className={styles.textarea} placeholder={'metal = Metal\nelectronic = Electronic'} value={aliasesText} onChange={(e) => onAliases(e.currentTarget.value)} rows={6} spellCheck={false} />
+              {ignored > 0 && <span className={styles.value}>{ignored === 1 ? '1 line ignored' : `${ignored} lines ignored`}</span>}
+            </span>
+          </SettingsRow>
+          <SettingsRow label="Max genres">
+            <Input dense type="number" min={1} max={10} className={styles.number} value={maxGenres} onChange={(e) => onMaxGenres(Math.max(1, Math.min(10, parseInt(e.currentTarget.value, 10) || 1)))} />
+          </SettingsRow>
+        </SettingsGroup>
+      </form>
 
-          <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>Raw tags</h2>
-            <div className={styles.tableContainer}>
-              {previewData.tags.length === 0 ? (
-                <p className={styles.emptyMessage}>No tags</p>
-              ) : (
+      {preview && (
+        <>
+          <SettingsGroup title="Effective genres" meta={preview.histogram.length === 0 ? 'No genres' : null} after={effective} />
+          <SettingsGroup
+            title="Raw tags"
+            meta={preview.tags.length === 0 ? 'No tags' : null}
+            after={preview.tags.length > 0 ? (
+              <div className={styles.tableContainer}>
                 <table className={styles.table}>
                   <thead>
-                    <tr>
-                      <th>Tag</th>
-                      <th>Kind</th>
-                      <th>Source</th>
-                      <th>Count</th>
-                      <th>Maps to</th>
-                    </tr>
+                    <tr><th>Tag</th><th>Kind</th><th>Source</th><th>Count</th><th>Maps to</th></tr>
                   </thead>
                   <tbody>
-                    {previewData.tags.map((tag, idx) => (
+                    {preview.tags.map((tag, idx) => (
                       <tr key={`${tag.tag}-${tag.source}-${idx}`}>
                         <td>{tag.tag}</td>
                         <td>{tag.kind}</td>
-                        <td title={`${tag.source}${tag.weight !== null ? ` (weight: ${tag.weight})` : ''}`}>
-                          {tag.source}
-                        </td>
+                        <td title={`${tag.source}${tag.weight !== null ? ` (weight: ${tag.weight})` : ''}`}>{tag.source}</td>
                         <td>{tag.count ?? 0}</td>
                         <td>{tag.mappedTo || 'Not mapped'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-          </div>
+              </div>
+            ) : null}
+          />
         </>
       )}
     </div>
+  );
+}
+
+interface GenreTexts {
+  whitelistText: string;
+  aliasesText: string;
+  maxGenres: number;
+}
+
+const textsOf = (map: GenreMap): GenreTexts => ({ whitelistText: map.whitelist.join('\n'), aliasesText: aliasText(map.aliases), maxGenres: map.maxGenres });
+
+/** Library care › Genre mapping, connected; nothing until the map loads. */
+export function SettingsGenresContent() {
+  const { libraryId } = useCurrentLibrary();
+  const { data: stored } = useGenreMap(libraryId);
+  const { data: preview } = useGenrePreview(libraryId);
+  const patch = usePatchGenreMap(libraryId);
+  const flash = useSaveFlash();
+  const [edit, setEdit] = useState<GenreTexts | null>(null);
+  if (!stored) return null;
+  const texts = edit ?? textsOf(stored);
+  const aliases = parseAliases(texts.aliasesText);
+  const next: GenreMap = { whitelist: parseWhitelist(texts.whitelistText), aliases: aliases.parsed, maxGenres: texts.maxGenres };
+  const dirty = JSON.stringify(next.whitelist) !== JSON.stringify(stored.whitelist)
+    || JSON.stringify(next.aliases) !== JSON.stringify(stored.aliases)
+    || next.maxGenres !== stored.maxGenres;
+  const change = (patchTexts: Partial<GenreTexts>) => setEdit({ ...texts, ...patchTexts });
+
+  return (
+    <GenreMappingView
+      {...texts}
+      ignored={aliases.ignored}
+      dirty={dirty}
+      pending={patch.isPending}
+      state={flash.state}
+      detail={flash.detail}
+      preview={preview ?? null}
+      onWhitelist={(whitelistText) => change({ whitelistText })}
+      onAliases={(aliasesText) => change({ aliasesText })}
+      onMaxGenres={(maxGenres) => change({ maxGenres })}
+      onReset={() => { setEdit(null); flash.clear(); }}
+      onSave={() => {
+        flash.clear();
+        patch.mutate(next, {
+          onSuccess: () => { setEdit(null); flash.saved(); },
+          onError: (err) => flash.failed((err as { detail?: string } | null)?.detail ?? null),
+        });
+      }}
+    />
   );
 }

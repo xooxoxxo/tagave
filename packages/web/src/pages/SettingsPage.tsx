@@ -15,7 +15,7 @@ import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
 import { SettingsProvidersPage } from './SettingsProvidersPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
 import { SettingsModuleContent, SettingsModulesContent, useModuleRows } from './SettingsModulesPage';
-import { MODULE_PAGES } from './moduleSettings';
+import { DEV_APP_PAGES, MODULE_PAGES } from './moduleSettings';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
 import { SettingsStorageContent } from './SettingsStoragePage';
 import { SetupChecklistContent } from './SetupChecklistContent';
@@ -48,6 +48,9 @@ import styles from './SettingsPage.module.css';
  * address waits, rendering nothing, until the module's state is known, then
  * goes to the module's place while it is on and, while it is off, to
  * Settings › Modules for the owner and the nearest page for anyone else.
+ * The section's one h2 is the frame's: its nav label, or the module's name
+ * on a module page; the pages render groups (SettingsGroup) under it, never
+ * a heading of their own.
  */
 export function SettingsPage() {
   const role = useRole();
@@ -62,7 +65,7 @@ export function SettingsPage() {
   const allowed = !!current && can(role, current.permission);
   // Settings › Modules › <module>: a page of its own under Modules
   const moduleSlug = section === 'modules' ? parts[3] || null : null;
-  const moduleName = moduleSlug ? MODULE_PAGES.find((m) => m.slug === moduleSlug)?.name ?? moduleRows?.find((r) => r.slug === moduleSlug)?.name ?? moduleSlug : null;
+  const moduleName = moduleSlug ? [...MODULE_PAGES, ...DEV_APP_PAGES].find((m) => m.slug === moduleSlug)?.name ?? moduleRows?.find((r) => r.slug === moduleSlug)?.name ?? moduleSlug : null;
   // On a phone /settings is the list of sections and each section its own
   // page: the top bar shows a back key to the list and the section's name.
   const view = parts[2] ? 'section' : 'list';
@@ -81,6 +84,7 @@ export function SettingsPage() {
   if (moved) return <Navigate to={moved.to as never} search={moved.search as never} hash={location.hash} replace />;
   // a module row's address, its module still loading: nothing yet
   const waiting = moduleRowOf(location.pathname) !== null;
+  const heading = moduleName ?? current?.label ?? null;
   return <PageShell title="Settings" sticky>
     <div className={styles.layout} data-view={view}>
       <SectionNav
@@ -92,16 +96,17 @@ export function SettingsPage() {
         empty="No match"
       />
       <div className={styles.content}>
+        {heading && <h2>{heading}</h2>}
         {role === null || waiting ? null : !allowed ? <NotAvailable inline /> : <>
         {section === 'library' && <><SettingsScanRootsContent /><NamingSettings /><DropPoolSettings /><SettingsDeletingContent /></>}
         {section === 'tag-writing' && <SettingsTagWritesContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
-        {section === 'people' && <><h2>People</h2><SettingsUsersPage /><SignInService headingClassName={styles.modeSetting} /></>}
-        {section === 'modules' && (moduleSlug ? <SettingsModuleContent slug={moduleSlug} /> : <><h2>Modules</h2><SettingsModulesContent /><h2 id="integrations" className={styles.modeSetting}>Integrations</h2><SettingsProvidersPage /></>)}
-        {section === 'backups' && <><h2>Backups</h2><SettingsBackupsPage /></>}
+        {section === 'people' && <><SettingsUsersPage /><SignInService headingClassName={styles.modeSetting} /></>}
+        {section === 'modules' && (moduleSlug ? <SettingsModuleContent slug={moduleSlug} /> : <><SettingsModulesContent /><h2 id="integrations" className={styles.modeSetting}>Integrations</h2><SettingsProvidersPage /></>)}
+        {section === 'backups' && <SettingsBackupsPage />}
         {section === 'updates' && <SettingsUpdatesPage />}
-        {section === 'status' && <><h2>Status</h2><SystemStatus /><h2 className={styles.modeSetting}>Storage</h2><SettingsStorageContent /></>}
-        {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
+        {section === 'status' && <><SystemStatus /><h2 className={styles.modeSetting}>Storage</h2><SettingsStorageContent /></>}
+        {section === 'setup-checklist' && <SetupChecklistContent />}
         </>}
       </div>
     </div>

@@ -1,264 +1,48 @@
-.container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xl);
-  padding: var(--space-xl);
-  max-width: 900px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.content {
+/* Settings › Library › Music folders: a group per folder (SettingsGroup), then Add music folder. */
+.page {
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
-}
-
-.subtitle {
-  color: var(--text-secondary);
-  margin: 0;
-  font-size: var(--font-size-sm);
-}
-
-/* The one drop on this section; it keeps its own width in the column. */
-.addButton {
-  align-self: flex-start;
-}
-
-.form {
-  background-color: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-card);
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.field label {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.field input[type='checkbox'] {
-  width: auto;
-  margin: 0;
-}
-
-.error {
-  color: var(--error);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-tight);
-}
-
-.serverError {
-  background-color: var(--surface-danger);
-  border: 1px solid var(--error);
-  color: var(--error);
-  padding: 0.75rem 1rem;
-  border-radius: var(--r-inner);
-  font-size: var(--font-size-sm);
-}
-
-.formActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--line);
-}
-
-.rootsList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-}
-
-.rootCard {
-  background-color: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-card);
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
-}
-
-.rootCard:hover {
-  border-color: var(--line-strong);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rootCard {
-    transition: none;
-  }
-}
-
-.rootHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--space-lg);
-}
-
-.rootTitleArea {
-  flex: 1;
-}
-
-.rootTitle {
-  margin: 0 0 var(--space-xs) 0;
-  font: var(--type-title);
-}
-
-.rootPath {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--ink-2);
-  word-break: break-all;
-}
-
-.rootMeta {
-  display: flex;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.badge {
-  background: linear-gradient(180deg, var(--surface), var(--mist));
-  border: 0;
-  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
-  padding: 0.3rem 0.8rem;
-  border-radius: var(--r-pill);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-
-.rootStats {
-  display: flex;
-  gap: 2rem;
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  padding: 0 0 var(--space-md) 0;
-  border-top: 1px solid var(--line);
-  padding-top: var(--space-md);
-}
-
-.rootActions {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.rootWarning {
-  margin: var(--space-sm) 0 0;
-  font-size: var(--font-size-xs);
-  color: var(--warning, var(--text-secondary));
-  line-height: var(--line-height-tight);
-}
-
-.loading,
-.emptyState {
-  padding: var(--space-xl);
-  text-align: center;
-  background-color: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-}
-
-.emptyState p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.sectionTitle {
-  margin: 0;
-  color: var(--ink);
-}
-
-.helpText {
-  font-size: var(--font-size-sm);
-  color: var(--ink-2);
-  margin: 0;
-  padding: 0.85rem 1.25rem;
-  background-color: var(--mist);
-  border-radius: var(--r-inner);
-}
-
-.validationPending {
-  color: var(--ink-3);
-}
-
-.validationOk {
-  background: var(--ok-tint);
-  color: var(--ok);
-}
-
-.validationError {
-  background: var(--danger-tint);
-  color: var(--danger);
-}
-
-/* Open-folder link: one labelled field with its save button, help under it. */
-.folderLink {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--line);
-}
-
-.folderLinkLabel {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.folderLinkRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.folderLinkInput {
-  flex: 1 1 16rem;
   min-width: 0;
-  /* the height of the small Save button beside it */
-  min-height: var(--h-control-sm);
+}
+
+/* the folder's path, in the group's head */
+.path {
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
-}
-
-@media (pointer: coarse) {
-  .folderLinkInput { min-height: 44px; }
-}
-
-.folderLinkHelp {
-  margin: 0;
   font-size: var(--font-size-xs);
-  line-height: 1.5;
   color: var(--ink-3);
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
-.folderLinkHelp code {
+/* a row's value: quiet, wraps rather than pushing the label out */
+.value,
+.problem {
+  min-width: 0;
+  font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.value { color: var(--ink-2); }
+.problem { color: var(--danger); }
+
+/* a typed field in a row */
+.field {
+  width: 16rem;
+  max-width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.number { width: 8rem; max-width: 100%; }
+
+/* the folder's Save link and its actions, under its rows */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-inline: var(--space-md);
 }

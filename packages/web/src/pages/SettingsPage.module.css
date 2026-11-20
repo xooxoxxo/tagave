@@ -23,6 +23,7 @@
 .layout:has([data-update-takeover]) { grid-template-columns: minmax(0, 1fr); }
 .layout:has([data-update-takeover]) > .sectionNav { display: none; }
 .layout:has([data-update-takeover]) > .content { max-width: none; }
+.layout:has([data-update-takeover]) > .content > h2:first-child { display: none; }
 /* Phone: /settings (and /you) is the list of sections, a section is a page of its own
    (the top bar carries its name and the way back), as on every other phone
    screen. The section's own heading would repeat the bar, so only a screen
