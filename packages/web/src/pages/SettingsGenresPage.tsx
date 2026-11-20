@@ -1,5 +1,5 @@
 /**
- * Settings › Genres page (spec XO-310 §7): genre whitelist, aliases, max genres, and preview
+ * Library care › Genre mapping (spec XO-310 §7): genre whitelist, aliases, max genres, and preview
  */
 import { useEffect, useState } from 'react';
 import { useCurrentLibrary } from '../hooks';

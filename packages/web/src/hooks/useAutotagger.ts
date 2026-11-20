@@ -21,7 +21,7 @@ const lib = (libraryId: string | undefined) => `/libraries/${libraryId}/autotagg
 /** A run still deciding: polled while it is. */
 export const runIsActive = (run: Pick<RunView, 'state'> | null | undefined) => run?.state === 'queued' || run?.state === 'running';
 
-/* ---------- Settings › Modules › Autotagger ---------- */
+/* ---------- the module (GET /settings/autotagger): its Modules row, run stats, prices ---------- */
 
 export function useAutotaggerModule(enabled = true) {
   return useQuery({ queryKey: autotaggerModuleKey, queryFn: () => api.get<AutotaggerModuleView>('/settings/autotagger'), enabled, retry: false });

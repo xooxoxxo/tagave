@@ -1,5 +1,5 @@
 /**
- * Background activity in plain words (Settings › Background activity).
+ * Background activity in plain words (Library care › Background activity).
  *
  * job_runs is a worker-owned mirror: hourly sweeps
  * that usually find nothing, rows the API inserts as "created" that the

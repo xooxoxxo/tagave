@@ -1,5 +1,5 @@
 /**
- * The banner at the top of Settings › Background activity. It must agree
+ * The banner at the top of Library care › Background activity. It must agree
  * with the rest of the page: the activity list only holds the larger tasks,
  * so the background queue and the albums still waiting for identification
  * count too. "All caught up" is said only when all three are empty.

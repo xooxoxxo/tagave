@@ -6,6 +6,7 @@ import { redirectFor } from './redirects';
 import { SERVER_SECTIONS } from '../pages/settingsSections';
 import { YOU_SECTIONS } from '../pages/youSections';
 import { DEV_APP_PAGES, MODULE_PAGES } from '../pages/moduleSettings';
+import { WORK_TABS } from '../pages/workTabs';
 
 /*
  * No link, notice or navigate inside the app points at an address that
@@ -110,6 +111,45 @@ describe('in-app settings links', () => {
       return parts[1] === 'you' && parts.length >= 3 && !yours.has(parts[2]!);
     });
     expect(show(bad)).toEqual([]);
+  });
+
+  it('each /work link names a real tab', () => {
+    const tabs = new Set<string>(WORK_TABS);
+    const found: Array<{ file: string; tab: string }> = [];
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8');
+      for (const m of text.matchAll(/\bto\s*[=:]\s*(['"])\/work\1/g)) {
+        const tab = /\btab:\s*'([^']+)'/.exec(text.slice(m.index!, m.index! + 160));
+        if (tab) found.push({ file: rel(file), tab: tab[1]! });
+      }
+    }
+    expect(found.length).toBeGreaterThanOrEqual(5);
+    expect(found.filter((f) => !tabs.has(f.tab)).map((f) => `${f.file}: ${f.tab}`)).toEqual([]);
+  });
+
+  it("a link into a module's place sits behind its module", () => {
+    // Each file listed here links into a module's place only from inside that
+    // module's own part (so the module is on by construction). A new link
+    // elsewhere fails until it renders only while its module is on and is
+    // listed here.
+    const allowed = new Set([
+      // the Getting tab shows only while Lidarr is on; it links Lidarr's page
+      'pages/GettingPage.tsx: /settings/modules/lidarr',
+      // PlayerServerRow sits in the Listening section, shown only while the player is on
+      'pages/YouPage.tsx: /settings/modules/player',
+    ]);
+    const exempt = (file: string) => file === join('pages', 'SettingsModulesPage.tsx') || file === join('pages', 'youSections.ts') || file.startsWith('routing/');
+    const modulePlace = /^\/you\/(listening|dj|listen-elsewhere|connections)$|^\/settings\/modules\/[^/]+$/;
+    const places: string[] = links.filter((l) => !exempt(l.file) && modulePlace.test(l.path)).map((l) => `${l.file}: ${l.path}`);
+    for (const file of files) {
+      if (exempt(rel(file))) continue;
+      const text = readFileSync(file, 'utf8');
+      for (const m of text.matchAll(/\bto\s*[=:]\s*(['"])\/work\1/g)) {
+        const tab = /\btab:\s*'(autotagger|getting)'/.exec(text.slice(m.index!, m.index! + 160));
+        if (tab) places.push(`${rel(file)}: /work?tab=${tab[1]}`);
+      }
+    }
+    expect(places.filter((p) => !allowed.has(p))).toEqual([]);
   });
 
   it('the disk notice hides on Status, the page it links to', () => {

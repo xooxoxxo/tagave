@@ -1,10 +1,11 @@
 /**
  * Settings is the server's (spec §3): each section names the permission it
  * needs (@tagave/shared › permissions). A listener has none, an editor the
- * library's tag, genre and follow settings and Background activity, the
- * owner everything. The person's own settings live in Your settings
- * (youSections.ts). A plain module, not the lazy SettingsPage chunk, so
- * Layout and the router can read it.
+ * library's tag writing and follow rules, the owner everything. The
+ * person's own settings live in Your settings (youSections.ts); Genre
+ * mapping and Background activity are Library care's tabs (workTabs.ts). A
+ * plain module, not the lazy SettingsPage chunk, so Layout and the router
+ * can read it.
  */
 import { can, type Permission, type Role } from '@tagave/shared';
 
@@ -19,16 +20,12 @@ export type ServerSection = {
 export const SERVER_SECTIONS: readonly ServerSection[] = [
   { value: 'library', label: 'Library', permission: 'system.manage' },
   { value: 'tag-writing', label: 'Tag writing', permission: 'library.edit' },
-  // moves to Library care in PR 3 (spec §4)
-  { value: 'genre-mapping', label: 'Genre mapping', permission: 'library.edit' },
   { value: 'following', label: 'Follow rules', permission: 'library.edit' },
   { value: 'people', label: 'People', permission: 'users.manage' },
   { value: 'modules', label: 'Modules', permission: 'system.manage' },
   { value: 'backups', label: 'Backups', permission: 'system.manage' },
   { value: 'updates', label: 'Updates', permission: 'system.manage' },
   { value: 'status', label: 'Status', permission: 'system.manage' },
-  // moves to Library care in PR 3 (spec §4)
-  { value: 'activity', label: 'Background activity', permission: 'library.edit' },
   // First run shows it on Home; the route stays for direct links.
   { value: 'setup-checklist', label: 'Setup checklist', permission: 'system.manage', unlisted: true },
 ];

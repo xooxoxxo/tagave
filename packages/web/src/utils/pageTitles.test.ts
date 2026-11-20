@@ -23,7 +23,7 @@ describe('page titles (phone top bar)', () => {
     expect(pageTitle('/settings/')).toBe('Settings');
     expect(pageTitle('/queue')).toBe('Library care');
     expect(pageTitle('/attention')).toBe('Library care');
-    expect(pageTitle('/jobs')).toBe('Settings');
+    expect(pageTitle('/jobs')).toBe('Library care');
     expect(mainPageOf('/identify')).toBe('/work');
   });
 

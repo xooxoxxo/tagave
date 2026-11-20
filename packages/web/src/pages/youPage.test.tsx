@@ -33,10 +33,14 @@ describe('Your settings', () => {
     expect(tsx).not.toContain('library.edit');
   });
 
-  it('a module section that is off shows Off, not Not available', () => {
+  it('no Off placeholder in Your settings', () => {
+    // the modules rule: a section whose module is off goes to Account
     const tsx = source('./YouPage.tsx');
-    expect(tsx).toMatch(/>Off</);
+    expect(tsx).not.toContain('YouModuleOff');
+    expect(tsx).not.toMatch(/>Off</);
     expect(tsx).not.toMatch(/NotAvailable/);
+    expect(tsx).toMatch(/youGate\(/);
+    expect(tsx).toMatch(/<Navigate\b[^>]*to="\/you\/\$section" params=\{\{ section: 'account' \}\}[^>]*\breplace\b[^>]*\/>/);
   });
 
   it('the routes render YouPage, its own lazy chunk', () => {

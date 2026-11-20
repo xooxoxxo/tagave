@@ -13,12 +13,17 @@ describe('settingsNav', () => {
   });
 
   it('an editor sees Tag writing and Follow rules', () => {
-    // Genre mapping and Background activity stay here until Library care has them (PR 3)
-    expect(values('editor')).toEqual(['tag-writing', 'genre-mapping', 'following', 'activity']);
+    expect(values('editor')).toEqual(['tag-writing', 'following']);
   });
 
   it('the owner sees the spec order', () => {
-    expect(values('owner')).toEqual(['library', 'tag-writing', 'genre-mapping', 'following', 'people', 'modules', 'backups', 'updates', 'status', 'activity']);
+    expect(values('owner')).toEqual(['library', 'tag-writing', 'following', 'people', 'modules', 'backups', 'updates', 'status']);
+  });
+
+  it('Genre mapping and Background activity are Library care\'s', () => {
+    const all = SERVER_SECTIONS.map((s) => s.value);
+    expect(all).not.toContain('genre-mapping');
+    expect(all).not.toContain('activity');
   });
 
   it('no personal section is a server section', () => {

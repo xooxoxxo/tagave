@@ -119,7 +119,7 @@ export async function queueCounts(db: ReturnType<typeof getDb>): Promise<JobsSum
 }
 
 export async function createJobRoutes(fastify: FastifyInstance) {
-  // Background activity (Settings › Background activity): plain-words views
+  // Background activity (Library care › Background activity): plain-words views
   // of the last 30 days, heartbeats never, routine checks only on request.
   //   ?include=routine  also list scheduled checks that finished normally
   //   ?job=<id>         make sure this job is in the list (deep link)

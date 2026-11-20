@@ -1,8 +1,9 @@
 /**
  * Your settings is the person's own (spec §2): everyone has it, so the nav
  * takes no role. A module section shows only while its module is on for
- * them. A plain module, not the lazy page chunk, so Layout and the router
- * can read it.
+ * them; a link to one that is off goes to Account (the modules rule). A
+ * plain module, not the lazy page chunk, so Layout and the router can read
+ * it.
  */
 
 /** Whether each module with a part of the person's is on; null while unknown. */
@@ -36,6 +37,19 @@ export const YOU_SECTIONS: readonly YouSection[] = [
 /** The listed sections, a module section only while its module is on. */
 export function youNav(modules: YouModules): YouSection[] {
   return YOU_SECTIONS.filter((s) => !s.unlisted && (!s.module || modules[s.module] === true));
+}
+
+/**
+ * A section's address and its module: off goes to Account (replace), never
+ * an Off value; `wait` while the module loads (the heading alone); null
+ * opens it.
+ */
+export function youGate(section: string, modules: YouModules): '/you/account' | 'wait' | null {
+  const module = YOU_SECTIONS.find((s) => s.value === section)?.module;
+  if (!module) return null;
+  const on = modules[module];
+  if (on === false) return '/you/account';
+  return on === null ? 'wait' : null;
 }
 
 /**

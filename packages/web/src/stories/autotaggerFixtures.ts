@@ -1,5 +1,5 @@
 /**
- * Library care › Autotagger and Settings › Modules › Autotagger, as the api
+ * Library care › Autotagger and its Settings › Modules row, as the api
  * answers them: a run of 1,812 albums (p99 1,204 · p97 233 · p95 121 · p90
  * 88 · no pick 166), its bands against the gate, a spot check, the accept
  * preview, two batches (one undone, with albums left as they were), the

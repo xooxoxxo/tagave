@@ -318,7 +318,7 @@ export function OnboardingPage() {
               ) : job && (job.status === 'failed' || job.status === 'interrupted' || job.status === 'cancelled') ? (
                 <Banner tone="danger">
                   The scan stopped: {job.error ?? 'no reason was recorded'}.{' '}
-                  <Link to="/settings/$section" params={{ section: 'activity' }}>Open background activity</Link>
+                  <Link to="/work" search={{ tab: 'activity' }}>Open background activity</Link>
                 </Banner>
               ) : scanState === 'grouping' ? (
                 <Banner tone="info">Grouping files into albums…</Banner>
