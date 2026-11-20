@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import type { ModulesView } from '@tagave/shared';
-import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, mcDeleted, moduleRows, turnOffKey, type OffChoice } from './SettingsModulesPage';
+import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, mcDeleted, moduleLink, moduleRows, turnOffKey, type ModuleRowView, type OffChoice } from './SettingsModulesPage';
 import { MOVED_SECTIONS, moduleSlug } from './moduleSettings';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from '../stories/modulesFixtures';
 
@@ -23,10 +23,17 @@ const ALL_ON = { player: true, mc: true, 'listen-links': true, playlists: true, 
 
 describe('the rows of Settings › Modules', () => {
   it('the owner: every module, in the owner’s order, with its state', () => {
-    const rows = moduleRows({ owner: true, enabled: { ...ALL_ON, mc: false } })!;
-    expect(rows.map((r) => r.name)).toEqual(['Player', 'Lidarr', 'Listen elsewhere', 'Music Connections', 'Playlists']);
+    const rows = moduleRows({ owner: true, enabled: { ...ALL_ON, mc: false, autotagger: true, dj: false } })!;
+    expect(rows.map((r) => r.name)).toEqual(['Player', 'Autotagger', 'DJ', 'Lidarr', 'Listen elsewhere', 'Music Connections', 'Playlists']);
     expect(rows.find((r) => r.slug === 'music-connections')).toMatchObject({ state: 'Off', on: false });
     expect(rows.find((r) => r.slug === 'lidarr')).toMatchObject({ state: 'On', on: true });
+    // a module with a page of its own switches there; every other one in its row
+    const control = (slug: string) => rows.find((r) => r.slug === slug)?.control;
+    expect(['player', 'lidarr'].map(control)).toEqual(['page', 'page']);
+    expect(['autotagger', 'playlists', 'dj'].map(control)).toEqual(['switch', 'switch', 'switch']);
+    // the rows carry their links: the Autotagger's setup while on, nothing for DJ while off
+    expect(rows.find((r) => r.slug === 'autotagger')?.link).toEqual({ label: 'Set up in Library care', to: '/work', search: { tab: 'autotagger' } });
+    expect(rows.find((r) => r.slug === 'dj')?.link).toBeNull();
   });
 
   it('the owner: the player’s state from the catalogue, and a module the catalogue adds gets a row', () => {
@@ -48,21 +55,80 @@ describe('the rows of Settings › Modules', () => {
   });
 });
 
-async function withRouter(children: ReactNode): Promise<string> {
+describe('a row’s link', () => {
+  const link = (id: string, on: boolean, hasPage = false, slug = id, name = id) => moduleLink({ id, slug, name, on, hasPage });
+
+  it('the Autotagger row links its setup while on', () => {
+    expect(link('autotagger', true)).toEqual({ label: 'Set up in Library care', to: '/work', search: { tab: 'autotagger' } });
+    expect(link('autotagger', false)).toBeNull();
+  });
+
+  it('DJ, Listen elsewhere and Music Connections link Your settings while on', () => {
+    expect(link('dj', true)).toEqual({ label: 'Your settings', to: '/you/dj' });
+    expect(link('listen-links', true, false, 'listen-elsewhere')).toEqual({ label: 'Your settings', to: '/you/listen-elsewhere' });
+    expect(link('mc', true, false, 'music-connections')).toEqual({ label: 'Your settings', to: '/you/connections' });
+    for (const id of ['dj', 'listen-links', 'mc']) expect(link(id, false)).toBeNull();
+  });
+
+  it('Playlists and Similar artists link nothing', () => {
+    for (const on of [true, false]) {
+      expect(link('playlists', on)).toBeNull();
+      expect(link('similar-artists', on)).toBeNull();
+    }
+  });
+
+  it('a module with a page links it', () => {
+    expect(link('player', true, true, 'player', 'Player')).toEqual({ label: 'Player', to: '/settings/modules/player' });
+    expect(link('lidarr', false, true, 'lidarr', 'Lidarr')).toEqual({ label: 'Lidarr', to: '/settings/modules/lidarr' });
+    expect(link('lyrics', false, true, 'lyrics', 'Lyrics')).toEqual({ label: 'Lyrics', to: '/settings/modules/lyrics' });
+    // the rows: a catalogue extra and Books have a page of their own
+    const rows = moduleRows({ owner: true, enabled: ALL_ON, catalogue: { ...BASE_VIEW, modules: [PLAYER, DUMMY] }, devApps: { books: true } })!;
+    expect(rows.find((r) => r.slug === 'dummy')).toMatchObject({ control: 'page', link: { label: 'Dummy', to: '/settings/modules/dummy' } });
+    expect(rows.find((r) => r.slug === 'books')).toMatchObject({ control: 'page', link: { label: 'Books', to: '/settings/modules/books' } });
+  });
+});
+
+async function withAppRoutes(children: ReactNode): Promise<string> {
   const root = createRootRoute({ component: () => <>{children}</> });
-  const mod = createRoute({ getParentRoute: () => root, path: '/settings/modules/$module' });
-  const router = createRouter({ routeTree: root.addChildren([mod]), history: createMemoryHistory({ initialEntries: ['/'] }) });
+  const routes = ['/settings/modules/$module', '/work', '/you/$section'].map((path) => createRoute({ getParentRoute: () => root, path }));
+  const router = createRouter({ routeTree: root.addChildren(routes), history: createMemoryHistory({ initialEntries: ['/'] }) });
   await router.load();
   return renderToStaticMarkup(<RouterProvider router={router} />);
 }
 
+const ROWS: ModuleRowView[] = [
+  { slug: 'player', name: 'Player', state: 'On', on: true, control: 'page', link: { label: 'Player', to: '/settings/modules/player' } },
+  { slug: 'autotagger', name: 'Autotagger', state: 'On', on: true, control: 'switch', link: { label: 'Set up in Library care', to: '/work', search: { tab: 'autotagger' } } },
+  { slug: 'playlists', name: 'Playlists', state: 'Off', on: false, control: 'switch', link: null },
+];
+/** one row's markup, by its name */
+const rowOf = (html: string, name: string) => [...html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map((m) => m[1]!).find((li) => li.includes(`>${name}<`)) ?? '';
+
 describe('the list', () => {
-  it('a row is a link to the module’s page with its name and state, no sentence', async () => {
-    const html = await withRouter(<ModulesListView rows={[{ slug: 'lidarr', name: 'Lidarr', state: 'On', on: true }]} />);
-    expect(html).toContain('href="/settings/modules/lidarr"');
-    expect(html).toContain('>Lidarr<');
-    expect(html).toContain('>On<');
+  it('a row: name, its Off | On, its link', async () => {
+    const html = await withAppRoutes(<ModulesListView rows={ROWS} switchFor={(s) => <i data-switch={s} />} />);
+    const autotagger = rowOf(html, 'Autotagger');
+    expect(autotagger).toContain('data-switch="autotagger"');
+    expect(autotagger).toContain('href="/work?tab=autotagger"');
+    expect(autotagger).toContain('Set up in Library care');
+    const player = rowOf(html, 'Player');
+    expect(player).toContain('>On<');
+    expect(player).toContain('href="/settings/modules/player"');
+    expect(player).not.toContain('data-switch');
+    // a module that links nothing has no link; the whole row is never one
+    expect(rowOf(html, 'Playlists')).not.toContain('href=');
+    expect(rowOf(html, 'Playlists')).toContain('data-switch="playlists"');
+    expect(html).not.toMatch(/<li[^>]*><a /);
     expect(html).not.toMatch(/\.\s*</);
+  });
+
+  it('nothing is switched in two places', async () => {
+    const asked: string[] = [];
+    await withAppRoutes(<ModulesListView rows={ROWS} switchFor={(s) => { asked.push(s); return null; }} />);
+    expect(asked).toEqual(ROWS.filter((r) => r.control === 'switch').map((r) => r.slug));
+    // and no row with a page of its own is one the list switches
+    const rows = moduleRows({ owner: true, enabled: { ...ALL_ON, autotagger: true, dj: true, 'similar-artists': true }, devApps: { books: false } })!;
+    expect(rows.filter((r) => r.control === 'page').map((r) => r.slug)).toEqual(['player', 'lidarr', 'books']);
   });
 });
 

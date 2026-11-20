@@ -1,11 +1,14 @@
 /**
- * Settings › Modules (the owner's): one row per module (name, On/Off, a
- * chevron), each opening Settings › Modules › <module>, where the owner's
- * part of that module lives: its Off/On, its connection, the server's
- * settings, and Turn off's "Also delete its data". Each person's own part
- * (the player's Listening, DJ, Listen elsewhere, Music Connections) lives in
- * Your settings, and the module's page links there; the Autotagger's setup
- * lives in Library care › Autotagger, and its page links there.
+ * Settings › Modules (the owner's): one row per module, its name, its
+ * Off/On, and a link to where the module lives in the app. A module with a
+ * page of its own (the player, Lidarr, Books, a module the catalogue adds)
+ * shows its state in the row and switches on that page, where its run log
+ * and the server's settings live. Every other module (Autotagger, DJ,
+ * Listen elsewhere, Music Connections, Playlists, Similar artists) has its
+ * Off/On in the row: Off asks first, with Delete its data as Off/On. Nothing
+ * is switched in two places. While a module is on, its row links its place:
+ * the Autotagger's setup in Library care, each person's part in Your
+ * settings; while it is off, nothing outside this list shows it.
  *
  * The player and any module the signed catalogue adds are switched by the
  * updater (Turn on / Turn off after a step-up, the run step by step like an
@@ -86,22 +89,64 @@ export interface ModuleRowView {
   /** On, Off, Turning on, Failed, … */
   state: string;
   on: boolean;
+  /** `switch`: its Off/On in the row; `page`: its state, switched on its own page */
+  control: 'switch' | 'page';
+  /** where the module lives in the app, or nothing */
+  link: { label: string; to: string; search?: Record<string, string> } | null;
 }
 
-/** Settings › Modules: name, state and a chevron per module; each row opens its page. */
-export function ModulesListView({ rows, notice = null }: { rows: ModuleRowView[]; notice?: ReactNode }) {
+/** The modules whose Off/On is in their row: they have no page of their own. */
+const SWITCHED_IN_ROW: ReadonlySet<string> = new Set(['autotagger', 'dj', 'listen-links', 'mc', 'playlists', 'similar-artists']);
+
+/** Each person's part of a module, in Your settings. */
+const YOUR_PART: Readonly<Record<string, string>> = { dj: '/you/dj', 'listen-links': '/you/listen-elsewhere', mc: '/you/connections' };
+
+/**
+ * A row's link: a module with a page of its own links it; the Autotagger
+ * its setup in Library care and DJ, Listen elsewhere and Music Connections
+ * Your settings, while on (a module that is off shows nowhere else);
+ * Playlists and Similar artists nothing.
+ */
+export function moduleLink(o: { id: string; slug: string; name: string; on: boolean; hasPage: boolean }): ModuleRowView['link'] {
+  if (o.hasPage) return { label: o.name, to: `/settings/modules/${o.slug}` };
+  if (!o.on) return null;
+  if (o.id === 'autotagger') return { label: 'Set up in Library care', to: '/work', search: { tab: 'autotagger' } };
+  const you = YOUR_PART[o.id];
+  return you ? { label: 'Your settings', to: you } : null;
+}
+
+/** One row of the list, its control and link from `moduleLink`. */
+function row(page: ModulePageEntry, name: string, state: string, on: boolean, switchable: boolean): ModuleRowView {
+  const hasPage = !switchable || !SWITCHED_IN_ROW.has(page.id);
+  return { slug: page.slug, name, state, on, control: hasPage ? 'page' : 'switch', link: moduleLink({ id: page.id, slug: page.slug, name, on, hasPage }) };
+}
+
+export interface ModulesListViewProps {
+  rows: ModuleRowView[];
+  notice?: ReactNode;
+  /** the Off/On of a `switch` row, by slug (asked only for those) */
+  switchFor?: (slug: string) => ReactNode;
+}
+
+/** Settings › Modules: per module its name, its Off/On (or its state), and its link. */
+export function ModulesListView({ rows, notice = null, switchFor = () => null }: ModulesListViewProps) {
   return (
     <div className={styles.page}>
       {notice}
       {rows.length > 0 && (
         <ul className={styles.rows} aria-label="Modules">
           {rows.map((r) => (
-            <li key={r.slug}>
-              <Link to="/settings/modules/$module" params={{ module: r.slug }} className={styles.row}>
-                <span className={styles.rowName}>{r.name}</span>
-                <span className={styles.rowState} data-on={r.on || undefined}>{r.state}</span>
-                <span className={styles.chevron} aria-hidden="true"><ChevronRightIcon /></span>
-              </Link>
+            <li key={r.slug} className={styles.row}>
+              <span className={styles.rowName}>{r.name}</span>
+              <div className={styles.rowControl}>
+                {r.control === 'switch' ? switchFor(r.slug) : <span className={styles.rowState} data-on={r.on || undefined}>{r.state}</span>}
+              </div>
+              {r.link && (
+                <Link to={r.link.to as never} {...(r.link.search ? { search: r.link.search as never } : {})} className={styles.rowLink}>
+                  <span>{r.link.label}</span>
+                  <span className={styles.chevron} aria-hidden="true"><ChevronRightIcon /></span>
+                </Link>
+              )}
             </li>
           ))}
         </ul>
@@ -134,16 +179,17 @@ export function moduleRows(input: {
   for (const page of [...MODULE_PAGES, ...extra]) {
     const fromCatalogue = listed.find((m) => m.id === page.id);
     if (owner) {
-      if (fromCatalogue) rows.push({ slug: page.slug, name: fromCatalogue.name, state: STATE_LABEL[fromCatalogue.state], on: isOn(fromCatalogue) });
-      else if (page.id in enabled) rows.push({ slug: page.slug, name: page.name, state: enabled[page.id] ? 'On' : 'Off', on: !!enabled[page.id] });
+      if (fromCatalogue) rows.push(row(page, fromCatalogue.name, STATE_LABEL[fromCatalogue.state], isOn(fromCatalogue), true));
+      else if (page.id in enabled) rows.push(row(page, page.name, enabled[page.id] ? 'On' : 'Off', !!enabled[page.id], true));
       continue;
     }
+    // anyone else switches nothing: the state, and the link to their part
     const mine = page.id === 'player' ? playerInstalled === true : (page.id === 'listen-links' || page.id === 'mc' || page.id === 'dj') && enabled[page.id] === true;
-    if (mine) rows.push({ slug: page.slug, name: page.name, state: 'On', on: true });
+    if (mine) rows.push(row(page, page.name, 'On', true, false));
   }
   if (owner) {
     for (const page of DEV_APP_PAGES) {
-      if (devApps && page.id in devApps) rows.push({ slug: page.slug, name: page.name, state: devApps[page.id] ? 'On' : 'Off', on: !!devApps[page.id] });
+      if (devApps && page.id in devApps) rows.push(row(page, page.name, devApps[page.id] ? 'On' : 'Off', !!devApps[page.id], true));
     }
   }
   return rows;
@@ -173,7 +219,21 @@ export function SettingsModulesContent() {
         : null
     : null;
   if (!rows) return <p className={styles.hint}>Loading…</p>;
-  return <ModulesListView rows={rows} notice={notice} />;
+  return <ModulesListView rows={rows} notice={notice} {...(owner ? { switchFor: moduleSwitch } : {})} />;
+}
+
+/** The Off/On of each module switched in its row, by slug (each asks first on Off, with Delete its data). */
+const ROW_SWITCHES: Readonly<Record<string, () => ReactNode>> = {
+  autotagger: () => <AutotaggerSwitch />,
+  dj: () => <DjSwitch />,
+  'listen-elsewhere': () => <ListenSwitch />,
+  'music-connections': () => <McSwitch />,
+  playlists: () => <PlaylistsSwitch />,
+  'similar-artists': () => <SimilarSwitch />,
+};
+
+function moduleSwitch(slug: string): ReactNode {
+  return ROW_SWITCHES[slug]?.() ?? null;
 }
 
 /* ---------- one control shape: Off | On ---------- */
