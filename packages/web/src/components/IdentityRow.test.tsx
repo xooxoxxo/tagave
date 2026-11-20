@@ -6,8 +6,19 @@
 import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { MenuProps } from './ui/Menu';
 import { IdentityRow } from './IdentityRow';
+
+// The menu renders its items only once open: this stand-in lists them in the
+// markup, beside the trigger (its label and icon) and the heading.
+vi.mock('./ui/Menu', () => ({
+  Menu: ({ label, icon, heading, items }: MenuProps) =>
+    createElement('div', null,
+      createElement('button', { type: 'button', 'aria-label': label }, icon),
+      heading,
+      createElement('ul', { role: 'menu' }, items.map((item) => createElement('li', { key: item.key, role: 'menuitem' }, item.label)))),
+}));
 
 const noop = () => undefined;
 const text = (html: string) => html.replace(/<[^>]+>/g, '');
@@ -15,7 +26,7 @@ const props = {
   name: 'Robin',
   email: 'robin@example.com',
   showWordmark: true,
-  canCare: true,
+  hasSettings: true,
   dot: null,
   onNavigate: noop,
   onSignOut: noop,
@@ -63,6 +74,14 @@ describe('IdentityRow', () => {
     expect(phone).toMatch(/\.brand \{ display: none; \}/);
     expect(phone).toMatch(/\.phoneName \{ display: block;/);
     expect(css).toMatch(/^\.phoneName \{ display: none; \}/m);
+  });
+
+  it('Settings item only with a server section', () => {
+    expect(render()).toContain('>Settings<');
+    const without = render({ hasSettings: false });
+    expect(without).not.toContain('>Settings<');
+    expect(without).toContain('>Your settings<');
+    expect(without).toContain('>Sign out<');
   });
 
   it('sign-out failure is announced', () => {

@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { accountInitial } from './accountInitial';
 import { identityDot, identityMenu, sidebarNav } from './navModel';
+import { settingsNav } from '../pages/settingsSections';
 
 const allModules = { playlists: true, likes: true, books: true };
 const nav = (o: Partial<Parameters<typeof sidebarNav>[0]> = {}) =>
@@ -16,7 +17,7 @@ describe('sidebarNav', () => {
     const { browse, care } = nav({ canCare: false });
     expect(care).toEqual([]);
     expect(browse.map((i) => i.key)).toEqual(['home', 'albums', 'artists', 'collection', 'playlists', 'liked', 'books']);
-    expect(identityMenu({ canCare: false }).map((i) => i.key)).toEqual(['you', 'signout']);
+    expect(identityMenu({ hasSettings: false }).map((i) => i.key)).toEqual(['you', 'signout']);
   });
 
   it('editor gets Care in order', () => {
@@ -54,12 +55,23 @@ describe('sidebarNav', () => {
 
 describe('identityMenu', () => {
   it('menu order', () => {
-    const menu = identityMenu({ canCare: true });
+    const menu = identityMenu({ hasSettings: settingsNav('editor').length > 0 });
     expect(menu.map((i) => i.key)).toEqual(['you', 'settings', 'signout']);
     expect(menu.map((i) => i.label)).toEqual(['Your settings', 'Settings', 'Sign out']);
-    expect(menu.find((i) => i.key === 'you')?.to).toBe('/settings/account');
+    expect(menu.find((i) => i.key === 'you')?.to).toBe('/you');
     expect(menu.find((i) => i.key === 'settings')?.to).toBe('/settings');
     expect(menu.find((i) => i.key === 'signout')?.to).toBeUndefined();
+  });
+
+  it('an editor with a server section gets Settings', () => {
+    expect(identityMenu({ hasSettings: settingsNav('editor').length > 0 }).map((i) => i.key)).toContain('settings');
+    expect(identityMenu({ hasSettings: settingsNav('owner').length > 0 }).map((i) => i.key)).toContain('settings');
+  });
+
+  it('a listener gets no Settings', () => {
+    const menu = identityMenu({ hasSettings: settingsNav('listener').length > 0 });
+    expect(menu.map((i) => i.key)).toEqual(['you', 'signout']);
+    expect(menu.find((i) => i.key === 'you')?.to).toBe('/you');
   });
 });
 

@@ -2,7 +2,7 @@
  * Settings › Appearance › Theme, connected: the gallery on the person's
  * choice (it follows them between devices, ThemeColours.tsx), Custom's
  * editor under the cards on a desktop. On a phone Custom is a screen of its
- * own (/settings/custom-theme, CustomThemeScreen).
+ * own (/you/custom-theme, CustomThemeScreen).
  */
 import { useNavigate } from '@tanstack/react-router';
 import type { ThemeId, ThemeSpec } from '@tagave/shared';
@@ -26,7 +26,7 @@ export function ThemeSetting({ headingClassName }: { headingClassName?: string |
       <h2 className={headingClassName}>Theme</h2>
       <ThemeGallery
         choice={choice} dark={dark} onPick={pick}
-        onCustom={phone ? () => void navigate({ to: '/settings/$section', params: { section: CUSTOM_THEME_SECTION } }) : undefined}
+        onCustom={phone ? () => void navigate({ to: '/you/$section', params: { section: CUSTOM_THEME_SECTION } }) : undefined}
       />
       {!phone && choice.theme === 'custom' && <CustomEditor spec={choice.custom ?? CUSTOM_START} dark={dark} onChange={edit} />}
     </>

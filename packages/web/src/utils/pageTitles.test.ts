@@ -13,6 +13,8 @@ describe('page titles (phone top bar)', () => {
     expect(pageTitle('/work')).toBe('Library care');
     expect(pageTitle('/plans')).toBe('Tag changes');
     expect(pageTitle('/settings')).toBe('Settings');
+    expect(pageTitle('/you')).toBe('Your settings');
+    expect(pageTitle('/you/account')).toBe('Your settings');
   });
 
   it('a page under a main page carries its name; older paths their new page', () => {
@@ -39,7 +41,7 @@ describe('page titles (phone top bar)', () => {
     // every main page is listed by its title: the sidebar's two groups and the person menu
     const { browse, care } = sidebarNav({ pathname: '/', canCare: true, taskCount: 0, modules: { playlists: true, likes: true, books: true } });
     const listed = new Map([...browse, ...care].map((i) => [i.to, i.label]));
-    for (const i of identityMenu({ canCare: true })) if (i.key === 'settings' && i.to) listed.set(i.to, i.label);
+    for (const i of identityMenu({ hasSettings: true })) if (i.to) listed.set(i.to, i.label);
     expect(Object.fromEntries(listed)).toEqual(pageTitles);
     expect(parentLabel('/plans')).toBe('Tag changes');
     expect(parentLabel('/albums')).toBe('Albums');

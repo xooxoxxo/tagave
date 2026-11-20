@@ -1,7 +1,7 @@
 /**
  * The name of each main page: the sidebar's link labels and, on a phone, the
  * top bar's title (in place of the wordmark). One map, so the two never
- * drift apart. Settings sections name themselves (SettingsPage).
+ * drift apart. Settings sections name themselves (SettingsPage, YouPage).
  */
 export const pageTitles = {
   '/': 'Home',
@@ -15,6 +15,7 @@ export const pageTitles = {
   '/work': 'Library care',
   '/plans': 'Tag changes',
   '/settings': 'Settings',
+  '/you': 'Your settings',
 } as const;
 
 export type MainPage = keyof typeof pageTitles;

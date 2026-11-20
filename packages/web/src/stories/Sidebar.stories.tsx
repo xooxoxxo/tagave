@@ -37,8 +37,8 @@ function InTheApp({ person, showWordmark = true, searchPlacement = 'below', shee
   );
 }
 
-const EDITOR: FramePerson = { name: 'Deniz', email: 'editor@example.com', canCare: true, owner: false, taskCount: 3 };
-const LISTENER: FramePerson = { name: 'Sam', email: 'listener@example.com', canCare: false, owner: false };
+const EDITOR: FramePerson = { name: 'Deniz', email: 'editor@example.com', canCare: true, hasSettings: true, owner: false, taskCount: 3 };
+const LISTENER: FramePerson = { name: 'Sam', email: 'listener@example.com', canCare: false, hasSettings: false, owner: false };
 const LONG: FramePerson = { ...OWNER, name: 'Deniz Kaya-Okafor Lindqvist-Montgomery of the Long Household Name', email: 'deniz.kaya-okafor@a-long-household-domain.example' };
 
 const meta = {
