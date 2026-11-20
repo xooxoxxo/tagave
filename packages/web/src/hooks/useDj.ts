@@ -6,7 +6,7 @@
  * devices; this browser keeps a copy (player/djSettings.ts) for the engine
  * to read before the server answers.
  */
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { DJ_DEFAULTS, type DjSimpleSettings, type UserPrefsView } from '@tagave/shared';
 import { api } from '../services/api';
@@ -23,25 +23,36 @@ let saving = 0;
 /** A change made here is still on its way to the server. */
 const unsaved = () => saveTimer !== null || saving > 0;
 
-function save(client: QueryClient) {
+/** Told how the latest change's save went (Your settings › DJ shows it). */
+let settled: ((ok: boolean) => void) | null = null;
+
+function save(client: QueryClient, onSaved?: (ok: boolean) => void) {
+  settled = onSaved ?? null;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
     saving += 1;
     const dj = getDjSettings();
+    const tell = settled;
     void api.put<UserPrefsView>('/me/prefs', { dj })
-      .then((view) => { client.setQueryData<UserPrefsView>(userPrefsKey, (prev) => ({ theme: view?.theme ?? prev?.theme ?? null, dj: getDjSettings() })); })
-      .catch(() => undefined)
+      .then((view) => {
+        client.setQueryData<UserPrefsView>(userPrefsKey, (prev) => ({ theme: view?.theme ?? prev?.theme ?? null, dj: getDjSettings() }));
+        // a newer change waits for its own save; only the latest one reports
+        if (settled === tell && !saveTimer) tell?.(true);
+      })
+      .catch(() => { if (settled === tell && !saveTimer) tell?.(false); })
       .finally(() => { saving -= 1; });
   }, SAVE_MS);
 }
 
-export function useDjSettings(): [DjSimpleSettings, (patch: Partial<DjSimpleSettings>) => void] {
+export function useDjSettings(onSaved?: (ok: boolean) => void): [DjSimpleSettings, (patch: Partial<DjSimpleSettings>) => void] {
   const settings = useSyncExternalStore(subscribeDj, getDjSettings, () => DJ_DEFAULTS);
   const client = useQueryClient();
+  const told = useRef(onSaved);
+  useEffect(() => { told.current = onSaved; });
   const update = useCallback((patch: Partial<DjSimpleSettings>) => {
     setDjSettings(patch);
-    save(client);
+    save(client, (ok) => told.current?.(ok));
   }, [client]);
   return [settings, update];
 }

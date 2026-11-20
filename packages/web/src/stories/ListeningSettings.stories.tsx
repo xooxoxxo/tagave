@@ -6,11 +6,11 @@ const at = (min: number) => new Date(Date.UTC(2026, 9, 16, 19, 30) - min * 60_00
 
 const connected: ListeningView = {
   playerInstalled: true,
-  account: { kind: 'bundled', username: 'anna', phonePassword: true, serverScrobbles: false, state: 'active', lastError: null },
+  account: { kind: 'bundled', username: 'robin', phonePassword: true, serverScrobbles: false, state: 'active', lastError: null },
   lastfmAvailable: true,
   services: [
-    { service: 'lastfm', connected: true, accountName: 'anna-fm', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 0, loves: true },
-    { service: 'listenbrainz', connected: true, accountName: 'anna', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 1, loves: false },
+    { service: 'lastfm', connected: true, accountName: 'robin-fm', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 0, loves: true },
+    { service: 'listenbrainz', connected: true, accountName: 'robin', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 1, loves: false },
   ],
   lastPollAt: at(1),
   pollError: null,
@@ -45,7 +45,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Each person’s own listening settings (Settings › Your account › Listening): their account on the player (made by tagave on the bundled player, with an optional password for phone apps; or their own login on the owner’s server), Last.fm (web sign-in) and ListenBrainz (a pasted token, checked), what was last scrobbled and what failed, and their recent plays. Never shows a password, token or session key.',
+        component: 'Your settings › Listening, each person’s own: three groups. Player account (on the bundled player the user name and a phone password, a secret with its own Set, Replace and Forget; on the owner’s server the shared account or an own login, whose User name, Password and Server scrobbles save with one Save), Scrobbling (Last.fm by web sign-in, ListenBrainz by a pasted token, what was last sent, Loves saved when changed) and Recently played. Never shows a password, token or session key.',
       },
     },
   },
@@ -80,5 +80,18 @@ export const SharedAccount: Story = {
 };
 export const OwnLogin: Story = {
   name: 'Own server, own login that scrobbles',
-  args: { data: { ...connected, account: { kind: 'own', username: 'anna', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null } } },
+  args: { data: { ...connected, account: { kind: 'own', username: 'robin', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null } } },
 };
+
+const shared = { kind: 'shared', username: null, phonePassword: false, serverScrobbles: false, state: null, lastError: null } as const;
+const notSetUp = { ...connected, lastfmAvailable: false, services: connected.services.map((s) => ({ ...s, connected: false, accountName: null, lastOkAt: null, pending: 0 })) };
+
+/** Desktop and phone, side by side in the story list. */
+export const DesktopSharedAccount: Story = { name: 'Desktop, shared account', tags: ['viewport-1440', 'no-shot'], args: { data: { ...connected, account: shared } } };
+export const DesktopOwnLogin: Story = { name: 'Desktop, own login', tags: ['viewport-1440', 'no-shot'], args: { data: { ...connected, account: { kind: 'own', username: 'robin', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null } } } };
+export const DesktopLastfmConnected: Story = { name: 'Desktop, Last.fm connected, Loves saved', tags: ['viewport-1440', 'no-shot'], args: { saves: { loves: { state: 'saved' } } } };
+export const DesktopNotSetUp: Story = { name: 'Desktop, Last.fm not set up', tags: ['viewport-1440', 'no-shot'], args: { data: notSetUp, history: { plays: [], listens: [] } } };
+export const PhoneSharedAccount: Story = { name: 'Phone, shared account', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { data: { ...connected, account: shared } } };
+export const PhoneOwnLogin: Story = { name: 'Phone, own login', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { data: { ...connected, account: { kind: 'own', username: 'robin', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null } } } };
+export const PhoneLastfmConnected: Story = { name: 'Phone, Last.fm connected', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: {} };
+export const PhoneNotSetUp: Story = { name: 'Phone, Last.fm not set up', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { data: notSetUp, history: { plays: [], listens: [] } } };

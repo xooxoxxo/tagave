@@ -1,56 +1,9 @@
-/* Your settings › Listening: the same rhythm as Security (sections, hairline lists). */
-.description {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: 0.9375rem;
-}
-
+/* Your settings › Listening: groups of rows (SettingsGroup), then the recent plays as a hairline list. */
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xl);
+  gap: var(--space-lg);
   min-width: 0;
-}
-
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-  min-width: 0;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-}
-
-.title {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  color: var(--ink);
-}
-
-.subTitle {
-  margin: var(--space-sm) 0 0;
-  font-size: 0.9375rem;
-  color: var(--ink);
-}
-
-.hint {
-  margin: 0;
-  max-width: 44rem;
-  color: var(--ink-2);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-relaxed);
-}
-
-.name {
-  font-weight: 600;
-  color: var(--ink);
-  overflow-wrap: anywhere;
 }
 
 .muted {
@@ -59,75 +12,55 @@
   font-size: var(--font-size-sm);
 }
 
-.ok {
-  margin: 0;
-  color: var(--ok);
+/* a row's value: quiet, wraps rather than pushing the control out */
+.value {
+  min-width: 0;
+  color: var(--ink-2);
   font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
-.error {
-  margin: 0;
+/* a short value that never breaks inside a word (Not set, Not connected) */
+.short {
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+/* a secret's field and its buttons: they wrap together under the label on a phone */
+.control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* a typed field in a row */
+.field { width: 14rem; max-width: 100%; min-width: 0; }
+
+/* what went wrong, beside the row's control */
+.fieldError {
   color: var(--danger);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
 }
 
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  max-width: 30rem;
-  min-width: 0;
+.ok {
+  color: var(--ok);
+  font-size: var(--font-size-sm);
 }
 
-.row {
+/* the own login's Save and Use shared */
+.actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-}
-
-.choice {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-xs);
-}
-
-.choiceLabel {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--ink);
-}
-
-.services {
-  display: flex;
-  flex-direction: column;
-  margin: var(--space-xs) 0 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--line);
-}
-
-.service {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-sm);
-  padding: var(--space-md) 0;
-  border-bottom: 1px solid var(--line);
-  min-width: 0;
-}
-
-.serviceHead {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.serviceName {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--ink);
 }
 
 .plays {
@@ -183,6 +116,8 @@
 }
 
 @media (max-width: 720px) {
+  .field { width: 0; flex: 1 1 8rem; min-width: 6rem; }
+
   .play {
     grid-template-columns: minmax(0, 1fr);
   }

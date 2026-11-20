@@ -56,10 +56,10 @@ export function YouPage() {
         {section === 'account' && <><SettingsAccountPage /><SettingsSecurityPage /></>}
         {section === 'appearance' && <YouAppearance />}
         {section === 'custom-theme' && <CustomThemeScreen />}
-        {section === 'listening' && <><SettingsListeningContent heading={false} />{owner && <PlayerServerRow />}</>}
+        {section === 'listening' && <><SettingsListeningContent />{owner && <PlayerServerRow />}</>}
         {section === 'dj' && <SettingsDjContent />}
-        {section === 'listen-elsewhere' && <SettingsListenElsewhereContent heading={false} />}
-        {section === 'connections' && <SettingsConnectionsContent heading={false} />}
+        {section === 'listen-elsewhere' && <SettingsListenElsewhereContent />}
+        {section === 'connections' && <SettingsConnectionsContent />}
       </>}
     </YouLayout>
   </PageShell>;

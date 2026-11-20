@@ -1,30 +1,14 @@
-/* Your settings › Listen elsewhere: one column of platforms to tick. */
-.list {
+/* Your settings › Listen elsewhere: the Platforms and Missing albums groups. */
+.page {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: var(--space-sm) 0 0;
-  padding: 0;
-  border: 0;
-  max-width: 22rem;
+  gap: var(--space-lg);
+  min-width: 0;
 }
-.legend {
-  padding: 0;
-  margin-bottom: var(--space-xs);
-  color: var(--ink-3);
-  font-size: var(--font-size-sm);
+
+/* a platform's tick, on the right of its row */
+.check {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
 }
-.option {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  min-height: 44px;
-  color: var(--ink);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-}
-.option input { margin: 0; }
-.error { margin: var(--space-sm) 0 0; color: var(--danger); font-size: var(--font-size-sm); }
-/* "Missing albums": which platform Play on opens */
-.primary { display: flex; flex-direction: column; gap: 0; margin-top: var(--space-lg); max-width: 22rem; }
-.primary > select { width: 100%; }

@@ -7,7 +7,7 @@ const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
 
 const linked: McLinkView = {
   id: '6f1c2a3e-0000-4000-8000-000000000001',
-  remoteUrl: 'http://192.168.1.20:8080',
+  remoteUrl: 'http://reviews.example.com:8080',
   service: 'review-gatherer',
   state: 'active',
   capabilities: [
@@ -24,7 +24,7 @@ const linked: McLinkView = {
   createdAt: iso(9 * 86_400_000),
 };
 
-const view = (links: McLinkView[]) => ({ links, ownUrl: 'http://192.168.1.10:3000' });
+const view = (links: McLinkView[]) => ({ links, ownUrl: 'http://music.example.com' });
 
 const meta = {
   title: 'Pages/Settings › Modules › Music Connections',
@@ -42,11 +42,11 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Settings › Modules › Music Connections: the Music Connections links a person made from tagave to other music apps. Each card shows what tagave reads (granted, not granted, or newly offered: re-link to grant), the last sync and error, and Sync now, Re-approve, Edit address and Revoke. After the first link, Link back gives this tagave’s address to add in the other app.',
+        component: 'Your settings › Connections: the Music Connections links a person made from tagave to other music apps, a group each: its state in the head, its address with one Save address, what tagave reads (granted, not granted, or newly offered: re-link to grant), the last sync and error, and Sync, Re-approve and Revoke. Add connection is an action. After the first link, Link back gives this tagave’s address to add in the other app.',
       },
     },
   },
-  decorators: [(Story) => <div style={{ maxWidth: 850, padding: 24, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}><Story /></div>],
+  decorators: [(Story) => <div style={{ maxWidth: 850, padding: 24 }}><Story /></div>],
 } satisfies Meta<typeof ConnectionsPanel>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -69,4 +69,17 @@ export const Revoked: Story = { args: { view: view([{ ...linked, state: 'revoked
 export const Refused: Story = {
   name: 'Link refused',
   args: { view: view([]), returned: { error: 'access_denied' }, addError: 'Could not reach a Music Connections service at that address.' },
+};
+
+const second: McLinkView = { ...linked, id: '6f1c2a3e-0000-4000-8000-000000000002', remoteUrl: 'http://wantlist.example.com', service: 'wantlist', failures: 2, lastError: 'remote answered 502' };
+export const DesktopTwoLinks: Story = {
+  name: 'Desktop, two links and an error',
+  tags: ['viewport-1440', 'no-shot'],
+  args: { view: view([linked, second]), linkErrors: { [second.id]: 'The address could not be changed.' } },
+};
+export const PhoneTwoLinks: Story = {
+  name: 'Phone, two links and an error',
+  tags: ['phone', 'no-shot'],
+  globals: { viewport: { value: 'phone' } },
+  args: { view: view([linked, second]), linkErrors: { [second.id]: 'The address could not be changed.' } },
 };

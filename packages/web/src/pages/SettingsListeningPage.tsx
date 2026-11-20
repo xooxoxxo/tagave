@@ -2,12 +2,19 @@
  * Your settings › Listening (each person's own): what the player knows as you. Your
  * own account on the player server (and a password for phone apps), your
  * Last.fm and ListenBrainz, and your recent plays with what was scrobbled.
+ * Three groups (spec §6): Player account, Scrobbling, Recently played. The
+ * phone password is a secret with its own Set / Replace / Forget, never in
+ * a Save; an own login's User name, Password and Server scrobbles save
+ * together with one Save (a half-typed login is never sent); Loves save
+ * when changed, the outcome in the Scrobbling head.
  * ListeningSettingsView is the page alone, driven by props (stories,
  * tests); SettingsListeningContent connects it.
  */
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ListeningHistoryView, ListeningView, OwnPlayerAccount, PlayHistoryItem, ScrobbleAccountView, ScrobbleService } from '@tagave/shared';
-import { Badge, Banner, Button, SegmentedControl, TextField, confirmDialog } from '../components/ui';
+import {
+  Badge, Banner, Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, useSaveFlash, useSettingsDraft, type SaveState,
+} from '../components/ui';
 import {
   useClearPhonePassword, useConnectLastfm, useConnectListenbrainz, useDisconnectScrobbler, useListening, useListeningHistory, useSetLoves,
   useRemoveOwnAccount, useSaveOwnAccount, useSetPhonePassword,
@@ -43,16 +50,12 @@ export function lastfmReturnMessage(result: string | null, queued: number | null
   }
 }
 
-function Section({ id, title, children, aside }: { id: string; title: string; children: ReactNode; aside?: ReactNode }) {
-  return (
-    <section className={styles.section} aria-labelledby={id}>
-      <div className={styles.head}>
-        <h3 id={id} className={styles.title}>{title}</h3>
-        {aside}
-      </div>
-      {children}
-    </section>
-  );
+const ON_OFF = [{ value: 'off' as const, label: 'Off' }, { value: 'on' as const, label: 'On' }];
+
+/** A save's outcome for a part of the page (the save model). */
+export interface ListeningSave {
+  state: SaveState;
+  detail?: string | null;
 }
 
 export interface ListeningSettingsViewProps {
@@ -66,6 +69,8 @@ export interface ListeningSettingsViewProps {
   listenbrainzQueued?: number | null;
   busy?: Partial<Record<'lastfm' | 'listenbrainz' | 'phone' | 'account' | 'disconnect', boolean>>;
   errors?: Partial<Record<'lastfm' | 'listenbrainz' | 'phone' | 'account', string | null>>;
+  /** what was just saved: the own login, the phone password, a Loves choice */
+  saves?: Partial<Record<'account' | 'phone' | 'loves', ListeningSave>>;
   onConnectLastfm: () => void;
   onConnectListenbrainz: (token: string) => void;
   onDisconnect: (service: ScrobbleService) => void;
@@ -81,116 +86,172 @@ export function ListeningSettingsView(props: ListeningSettingsViewProps) {
   const { data, history, lastfmReturn, lastfmQueued = null } = props;
   const back = lastfmReturnMessage(lastfmReturn, lastfmQueued);
   if (!data.playerInstalled) {
-    return <p className={styles.hint}>Player not set up</p>;
+    return <p className={styles.muted}>Player not set up</p>;
   }
   return (
     <div className={styles.page}>
       {back && <Banner tone={back.tone}>{back.text}</Banner>}
-      <AccountSection {...props} />
-      <ScrobblingSection {...props} />
-      <HistorySection history={history} />
+      <AccountGroup {...props} />
+      <ScrobblingGroup {...props} />
+      <HistoryGroup history={history} />
     </div>
   );
 }
 
+/** Calls `fn` once each time `state` turns to saved (a field to clear after it went). */
+function useOnSaved(state: SaveState | undefined, fn: () => void) {
+  const was = useRef(state);
+  const latest = useRef(fn);
+  useEffect(() => { latest.current = fn; });
+  useEffect(() => {
+    if (state === 'saved' && was.current !== 'saved') latest.current();
+    was.current = state;
+  }, [state]);
+}
+
 // ---- your account on the player ----
 
-function AccountSection({ data, busy, errors, onSetPhonePassword, onClearPhonePassword, onSaveOwnAccount, onRemoveOwnAccount }: ListeningSettingsViewProps) {
+function AccountGroup({ data, busy, errors, saves, onSetPhonePassword, onClearPhonePassword, onSaveOwnAccount, onRemoveOwnAccount }: ListeningSettingsViewProps) {
   const a = data.account;
   if (a.kind === 'bundled') {
     return (
-      <Section id="listening-account" title="Player account" aside={a.state === 'disabled' ? <Badge tone="danger">Locked</Badge> : null}>
-        <p className={styles.hint}>
-          {a.username ? <><strong className={styles.name}>{a.username}</strong> · Subsonic port 4533</> : 'Subsonic port 4533'}
-        </p>
-        <PhonePasswordForm
-          key={a.phonePassword ? 'set' : 'unset'}
-          hasOne={a.phonePassword}
-          disabled={a.state === 'disabled'}
-          busy={!!busy?.phone}
-          error={errors?.phone ?? null}
-          onSave={onSetPhonePassword}
-          onClear={onClearPhonePassword}
-        />
-      </Section>
+      <PhonePasswordGroup
+        username={a.username}
+        locked={a.state === 'disabled'}
+        hasOne={a.phonePassword}
+        busy={!!busy?.phone}
+        error={errors?.phone ?? null}
+        saved={saves?.phone?.state ?? null}
+        onSave={onSetPhonePassword}
+        onClear={onClearPhonePassword}
+      />
     );
   }
   return (
-    <Section id="listening-account" title="Player account">
-      {a.kind === 'shared'
-        ? <p className={styles.hint}>Shared account</p>
-        : <p className={styles.hint}>User name: <strong className={styles.name}>{a.username}</strong></p>}
-      <OwnAccountForm account={a} busy={!!busy?.account} error={errors?.account ?? null} onSave={onSaveOwnAccount} onRemove={onRemoveOwnAccount} />
-    </Section>
+    <OwnLoginGroup
+      account={a}
+      busy={!!busy?.account}
+      error={errors?.account ?? null}
+      saved={saves?.account?.state ?? null}
+      onSave={onSaveOwnAccount}
+      onRemove={onRemoveOwnAccount}
+    />
   );
 }
 
-function PhonePasswordForm({ hasOne, disabled, busy, error, onSave, onClear }: { hasOne: boolean; disabled: boolean; busy: boolean; error: string | null; onSave: (p: string) => void; onClear: () => void }) {
+interface PhonePasswordGroupProps {
+  username: string | null;
+  locked: boolean;
+  hasOne: boolean;
+  busy: boolean;
+  error: string | null;
+  saved: SaveState;
+  onSave: (p: string) => void;
+  onClear: () => void;
+}
+
+/** The bundled player: who you are on it, and the phone password (a secret: its own Set / Replace / Forget). */
+function PhonePasswordGroup({ username, locked, hasOne, busy, error, saved, onSave, onClear }: PhonePasswordGroupProps) {
   const [password, setPassword] = useState('');
   const [invalid, setInvalid] = useState<string | null>(null);
+  useOnSaved(saved, () => setPassword(''));
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (password.length < 12) { setInvalid('Use at least 12 characters.'); return; }
+    if (!password) return;
+    if (password.length < 12) { setInvalid('Too short'); return; }
     setInvalid(null);
     onSave(password);
   };
   const clear = async () => {
     const ok = await confirmDialog({
-      title: 'Remove the password for apps?',
+      title: 'Forget the password for apps?',
       message: 'Apps signed in with it stop working.',
-      confirmLabel: 'Remove',
+      confirmLabel: 'Forget',
       tone: 'danger',
     });
     if (ok) onClear();
   };
+  const problem = invalid ?? error;
   return (
-    <form className={styles.form} onSubmit={submit} noValidate>
-      <TextField
-        label={hasOne ? 'New password for apps' : 'Password for apps'}
-        type="password"
-        autoComplete="new-password"
-        value={password}
-        onChange={(e) => setPassword(e.currentTarget.value)}
-        disabled={disabled}
-        error={invalid ?? error ?? undefined}
-        placeholder="12+ characters"
-      />
-      <div className={styles.row}>
-        <Button type="submit" variant="secondary" loading={busy} disabled={disabled}>{hasOne ? 'Change password' : 'Set password'}</Button>
-        {hasOne && <Button variant="quiet-danger" onClick={() => void clear()} disabled={busy}>Remove</Button>}
-      </div>
+    <form onSubmit={submit} noValidate>
+      <SettingsGroup title="Player account" meta={locked ? <Badge tone="danger">Locked</Badge> : null}>
+        <SettingsRow as="div" label="User name" value={<span className={styles.value}>{username ?? 'Unknown'}</span>} />
+        <SettingsRow as="div" label="Subsonic port" value={<span className={styles.value}>4533</span>} />
+        <SettingsRow
+          as="div"
+          label="Phone password"
+          help="Phone and desktop apps sign in to the player with your user name and this password. At least 12 characters."
+          value={<span className={styles.short}>{hasOne ? 'Set' : 'Not set'}</span>}
+        >
+          <span className={styles.control}>
+          <Input
+            dense
+            className={styles.field}
+            type="password"
+            autoComplete="new-password"
+            aria-label="Phone password"
+            placeholder="12+ characters"
+            value={password}
+            onChange={(e) => { setPassword(e.currentTarget.value); setInvalid(null); }}
+            disabled={locked}
+            aria-invalid={problem ? true : undefined}
+          />
+          <Button type="submit" size="sm" variant="secondary" loading={busy} disabled={locked || !password}>{hasOne ? 'Replace' : 'Set'}</Button>
+          {hasOne && <Button size="sm" variant="quiet-danger" onClick={() => void clear()} disabled={busy}>Forget</Button>}
+          {problem ? <span className={styles.fieldError} role="alert">{problem}</span> : <SaveStatus state={saved} />}
+          </span>
+        </SettingsRow>
+      </SettingsGroup>
     </form>
   );
 }
 
-function OwnAccountForm({ account, busy, error, onSave, onRemove }: { account: ListeningView['account']; busy: boolean; error: string | null; onSave: (b: OwnPlayerAccount) => void; onRemove: () => void }) {
+type OwnLoginDraft = { username: string; password: string; serverScrobbles: boolean };
+
+interface OwnLoginGroupProps {
+  account: ListeningView['account'];
+  busy: boolean;
+  error: string | null;
+  saved: SaveState;
+  onSave: (b: OwnPlayerAccount) => void;
+  onRemove: () => void;
+}
+
+/** The owner's own server: the shared account, or your own login there, saved with one Save. */
+function OwnLoginGroup({ account, busy, error, saved, onSave, onRemove }: OwnLoginGroupProps) {
   const own = account.kind === 'own';
-  const [username, setUsername] = useState(own ? account.username ?? '' : '');
-  const [password, setPassword] = useState('');
-  const [serverScrobbles, setServerScrobbles] = useState(own ? account.serverScrobbles : false);
-  useEffect(() => { if (own) { setUsername(account.username ?? ''); setServerScrobbles(account.serverScrobbles); } }, [own, account.username, account.serverScrobbles]);
+  const savedName = own ? account.username ?? '' : '';
+  const savedScrobbles = own ? account.serverScrobbles : false;
+  const base = useMemo<OwnLoginDraft>(() => ({ username: savedName, password: '', serverScrobbles: savedScrobbles }), [savedName, savedScrobbles]);
+  const { draft, set, dirty, reset } = useSettingsDraft<OwnLoginDraft>(base);
+  useOnSaved(saved, reset);
+  const d = draft ?? base;
+  const ready = dirty && !!d.username.trim();
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    onSave({ username: username.trim(), ...(password ? { password } : {}), serverScrobbles });
+    if (!ready || busy) return;
+    onSave({ username: d.username.trim(), ...(d.password ? { password: d.password } : {}), serverScrobbles: d.serverScrobbles });
   };
+  const after = (
+    <div className={styles.actions}>
+      <SettingsSave type="submit" label={own ? 'Save' : 'Add login'} dirty={ready} pending={busy} onSave={() => undefined} state={error ? 'failed' : saved} detail={error} />
+      {own && <Button variant="quiet-danger" onClick={onRemove} disabled={busy}>Use shared</Button>}
+    </div>
+  );
   return (
-    <form className={styles.form} onSubmit={submit} noValidate>
-      <TextField label="User name" autoComplete="username" value={username} onChange={(e) => setUsername(e.currentTarget.value)} required />
-      <TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} hint={own ? 'Saved' : undefined} error={error ?? undefined} />
-      <div className={styles.choice}>
-        <span className={styles.choiceLabel} aria-hidden="true">Scrobbled by</span>
-        <SegmentedControl
-          label="Scrobbled by"
-          value={serverScrobbles ? 'server' : 'tagave'}
-          onChange={(v) => setServerScrobbles(v === 'server')}
-          options={[{ value: 'tagave', label: 'tagave' }, { value: 'server', label: 'That server' }]}
-        />
-
-      </div>
-      <div className={styles.row}>
-        <Button type="submit" variant="secondary" loading={busy} disabled={!username.trim()}>{own ? 'Save' : 'Add login'}</Button>
-        {own && <Button variant="quiet-danger" onClick={onRemove} disabled={busy}>Use shared</Button>}
-      </div>
+    <form onSubmit={submit} noValidate>
+      <SettingsGroup title="Player account" after={after}>
+        {!own && <SettingsRow as="div" label="Account" value={<span className={styles.value}>Shared account</span>} />}
+        <SettingsRow label="User name">
+          <Input dense className={styles.field} autoComplete="username" value={d.username} onChange={(e) => set({ username: e.currentTarget.value })} required />
+        </SettingsRow>
+        <SettingsRow label="Password" help={own ? 'Leave it empty to keep the saved one' : undefined}>
+          <Input dense className={styles.field} type="password" autoComplete="current-password" placeholder={own ? 'Saved' : undefined} value={d.password} onChange={(e) => set({ password: e.currentTarget.value })} />
+        </SettingsRow>
+        <SettingsRow as="div" label="Server scrobbles" help="On: your server sends your scrobbles itself, so tagave does not">
+          <SegmentedControl label="Server scrobbles" value={d.serverScrobbles ? 'on' : 'off'} onChange={(v) => set({ serverScrobbles: v === 'on' })} options={ON_OFF} />
+        </SettingsRow>
+      </SettingsGroup>
     </form>
   );
 }
@@ -199,30 +260,49 @@ function OwnAccountForm({ account, busy, error, onSave, onRemove }: { account: L
 
 /** One line per connected service: who, when something last went through, what waits. */
 export function serviceLine(s: ScrobbleAccountView): string {
-  const parts = [s.accountName ?? '', s.lastOkAt ? `Last sent ${formatRelativeTime(s.lastOkAt)}` : 'Nothing sent yet'];
+  return [s.accountName ?? '', sentLine(s)].join(' · ');
+}
+
+/** When something last went through, and what waits. */
+export function sentLine(s: ScrobbleAccountView): string {
+  const parts = [s.lastOkAt ? `Last sent ${formatRelativeTime(s.lastOkAt)}` : 'Nothing sent yet'];
   if (s.pending > 0) parts.push(`${s.pending} waiting`);
   return parts.join(' · ');
 }
 
-/** Liked songs go as loves (Last.fm track.love, ListenBrainz feedback): Off or On per connection. */
-function LovesChoice({ service, on, onChange }: { service: ScrobbleService; on: boolean; onChange?: ((service: ScrobbleService, on: boolean) => void) | undefined }) {
+const connectedValue = (s: ScrobbleAccountView) => (s.accountName ? `Connected · ${s.accountName}` : 'Connected');
+
+interface ConnectedRowsProps {
+  s: ScrobbleAccountView;
+  queued?: number | null | undefined;
+  disconnecting: boolean;
+  onDisconnect: () => void;
+  onLoves?: ((service: ScrobbleService, on: boolean) => void) | undefined;
+}
+
+/** A connected service: who, what went through, its Loves (saved when changed). */
+function ConnectedRows({ s, queued = null, disconnecting, onDisconnect, onLoves }: ConnectedRowsProps) {
+  const name = SERVICE_NAME[s.service];
   return (
-    <div className={styles.choice}>
-      <span className={styles.choiceLabel} aria-hidden="true">Loves</span>
-      <SegmentedControl
-        label={`Loves on ${SERVICE_NAME[service]}`}
-        size="sm"
-        value={on ? 'on' : 'off'}
-        onChange={(v) => onChange?.(service, v === 'on')}
-        options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}
-      />
-    </div>
+    <>
+      <SettingsRow as="div" label={name} value={<span className={styles.value}>{connectedValue(s)}</span>}>
+        <Button variant="quiet-danger" size="sm" onClick={onDisconnect} disabled={disconnecting} aria-label={`Disconnect ${name}`}>Disconnect</Button>
+      </SettingsRow>
+      <SettingsRow as="div" label="Sent" value={<span className={styles.value}>{sentLine(s)}</span>}>
+        {queuedLine(queued) && <span className={styles.ok} role="status">{queuedLine(queued)}</span>}
+        {s.lastError && <span className={styles.fieldError} role="alert">{s.lastError}{s.lastErrorAt ? ` (${formatRelativeTime(s.lastErrorAt)})` : ''}</span>}
+      </SettingsRow>
+      <SettingsRow as="div" label="Loves" help={`Liked songs go to ${name} as loves`}>
+        <SegmentedControl label={`Loves on ${name}`} size="sm" value={s.loves !== false ? 'on' : 'off'} onChange={(v) => onLoves?.(s.service, v === 'on')} options={ON_OFF} />
+      </SettingsRow>
+    </>
   );
 }
 
-function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLastfm, onConnectListenbrainz, onDisconnect, onLoves }: ListeningSettingsViewProps) {
+function ScrobblingGroup({ data, busy, errors, saves, listenbrainzQueued, onConnectLastfm, onConnectListenbrainz, onDisconnect, onLoves }: ListeningSettingsViewProps) {
   const lastfm = data.services.find((s) => s.service === 'lastfm');
   const lb = data.services.find((s) => s.service === 'listenbrainz');
+  const lbForm = useId();
   const disconnect = async (service: ScrobbleService) => {
     const ok = await confirmDialog({
       title: `Disconnect ${SERVICE_NAME[service]}?`,
@@ -233,66 +313,75 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
     if (ok) onDisconnect(service);
   };
   return (
-    <Section id="listening-scrobbling" title="Scrobbling">
-      {data.account.serverScrobbles && <Banner tone="info">Your server scrobbles for you</Banner>}
-      <ul className={styles.services}>
-        <li className={styles.service}>
-          <div className={styles.serviceHead}>
-            <span className={styles.serviceName}>Last.fm</span>
-          </div>
-          {lastfm?.connected ? (
-            <>
-              <p className={styles.hint}>{serviceLine(lastfm)}</p>
-              {lastfm.lastError && <p className={styles.error} role="alert">{lastfm.lastError}{lastfm.lastErrorAt ? ` (${formatRelativeTime(lastfm.lastErrorAt)})` : ''}</p>}
-              <LovesChoice service="lastfm" on={lastfm.loves !== false} onChange={onLoves} />
-              <div className={styles.row}><Button variant="quiet-danger" size="sm" onClick={() => void disconnect('lastfm')} disabled={busy?.disconnect}>Disconnect</Button></div>
-            </>
-          ) : data.lastfmAvailable ? (
-            <>
-              {errors?.lastfm && <p className={styles.error} role="alert">{errors.lastfm}</p>}
-              <div className={styles.row}><Button loading={!!busy?.lastfm} onClick={onConnectLastfm} aria-label="Connect Last.fm">Connect</Button></div>
-            </>
-          ) : (
-            <p className={styles.hint}>Not set up on this server</p>
-          )}
-        </li>
-        <li className={styles.service}>
-          <div className={styles.serviceHead}>
-            <span className={styles.serviceName}>ListenBrainz</span>
-          </div>
-          {lb?.connected ? (
-            <>
-              <p className={styles.hint}>{serviceLine(lb)}</p>
-              {queuedLine(listenbrainzQueued) && <p className={styles.ok} role="status">{queuedLine(listenbrainzQueued)}</p>}
-              {lb.lastError && <p className={styles.error} role="alert">{lb.lastError}{lb.lastErrorAt ? ` (${formatRelativeTime(lb.lastErrorAt)})` : ''}</p>}
-              <LovesChoice service="listenbrainz" on={lb.loves !== false} onChange={onLoves} />
-              <div className={styles.row}><Button variant="quiet-danger" size="sm" onClick={() => void disconnect('listenbrainz')} disabled={busy?.disconnect}>Disconnect</Button></div>
-            </>
-          ) : (
-            <ListenbrainzForm busy={!!busy?.listenbrainz} error={errors?.listenbrainz ?? null} onConnect={onConnectListenbrainz} />
-          )}
-        </li>
-      </ul>
-    </Section>
+    <SettingsGroup
+      title="Scrobbling"
+      status={<SaveStatus state={saves?.loves?.state ?? null} detail={saves?.loves?.detail ?? null} />}
+      after={!lb?.connected ? <ListenbrainzForm id={lbForm} onConnect={onConnectListenbrainz} /> : null}
+    >
+      {data.account.serverScrobbles && <SettingsRow as="div" label="Scrobbled by" value={<span className={styles.value}>Your server</span>} />}
+      {lastfm?.connected ? (
+        <ConnectedRows s={lastfm} disconnecting={!!busy?.disconnect} onDisconnect={() => void disconnect('lastfm')} onLoves={onLoves} />
+      ) : data.lastfmAvailable ? (
+        <SettingsRow as="div" label="Last.fm" value={<span className={styles.value}>Not connected</span>}>
+          <Button size="sm" loading={!!busy?.lastfm} onClick={onConnectLastfm} aria-label="Connect Last.fm">Connect</Button>
+          {errors?.lastfm && <span className={styles.fieldError} role="alert">{errors.lastfm}</span>}
+        </SettingsRow>
+      ) : (
+        <SettingsRow as="div" label="Last.fm" value={<span className={styles.value}>Not set up on this server</span>} />
+      )}
+      {lb?.connected ? (
+        <ConnectedRows s={lb} queued={listenbrainzQueued} disconnecting={!!busy?.disconnect} onDisconnect={() => void disconnect('listenbrainz')} onLoves={onLoves} />
+      ) : (
+        <ListenbrainzRow form={lbForm} busy={!!busy?.listenbrainz} error={errors?.listenbrainz ?? null} />
+      )}
+    </SettingsGroup>
   );
 }
 
-function ListenbrainzForm({ busy, error, onConnect }: { busy: boolean; error: string | null; onConnect: (token: string) => void }) {
+/** The ListenBrainz form itself sits outside the rows; its field and button join it by id. */
+function ListenbrainzForm({ id, onConnect }: { id: string; onConnect: (token: string) => void }) {
+  return (
+    <form
+      id={id}
+      hidden
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        const token = String(new FormData(e.currentTarget).get('token') ?? '').trim();
+        if (token) onConnect(token);
+      }}
+    />
+  );
+}
+
+function ListenbrainzRow({ form, busy, error }: { form: string; busy: boolean; error: string | null }) {
   const [token, setToken] = useState('');
   return (
-    <form className={styles.form} onSubmit={(e) => { e.preventDefault(); if (token.trim()) onConnect(token.trim()); }} noValidate>
-      <TextField
-        label="User token"
+    <SettingsRow
+      as="div"
+      label="ListenBrainz"
+      help={<>Paste your user token from ListenBrainz. <a href="https://listenbrainz.org/settings/" target="_blank" rel="noreferrer">Get your token</a></>}
+      value={<span className={styles.short}>Not connected</span>}
+    >
+      <span className={styles.control}>
+      <Input
+        dense
+        form={form}
+        name="token"
+        className={styles.field}
         type="password"
         autoComplete="off"
         spellCheck={false}
+        aria-label="ListenBrainz user token"
+        placeholder="User token"
         value={token}
         onChange={(e) => setToken(e.currentTarget.value)}
-        error={error ?? undefined}
-        hint={<a href="https://listenbrainz.org/settings/" target="_blank" rel="noreferrer">Get your token</a>}
+        aria-invalid={error ? true : undefined}
       />
-      <div className={styles.row}><Button type="submit" variant="secondary" loading={busy} disabled={!token.trim()} aria-label="Connect ListenBrainz">Connect</Button></div>
-    </form>
+      <Button form={form} type="submit" size="sm" variant="secondary" loading={busy} disabled={!token.trim()} aria-label="Connect ListenBrainz">Connect</Button>
+      {error && <span className={styles.fieldError} role="alert">{error}</span>}
+      </span>
+    </SettingsRow>
   );
 }
 
@@ -312,36 +401,35 @@ function playStatus(p: PlayHistoryItem): string {
   }).join(' · ');
 }
 
-function HistorySection({ history }: { history: ListeningHistoryView | null }) {
+function HistoryGroup({ history }: { history: ListeningHistoryView | null }) {
+  const plays = history?.plays ?? [];
   return (
-    <Section id="listening-history" title="Recently played">
-      {!history ? <p className={styles.muted}>Loading…</p> : history.plays.length === 0 ? (
-        <p className={styles.hint}>No plays yet</p>
-      ) : (
-        <>
-          <ul className={styles.plays}>
-            {history.plays.map((p) => (
-              <li key={p.id} className={styles.play}>
-                <div className={styles.playMain}>
-                  <span className={styles.playTitle} dir="auto">{p.title}</span>
-                  <span className={styles.playSub} dir="auto">{[p.artist, p.album].filter(Boolean).join(' · ')}</span>
-                </div>
-                <div className={styles.playMeta}>
-                  <span className={styles.playWhen}>{when(p.startedAt)}{p.source === 'web' ? '' : ' · another app'}</span>
-                  <span className={styles.playStatus}>{playStatus(p)}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </Section>
+    <SettingsGroup
+      title="Recently played"
+      meta={!history ? 'Loading…' : plays.length === 0 ? 'No plays yet' : null}
+      after={plays.length > 0 ? (
+        <ul className={styles.plays}>
+          {plays.map((p) => (
+            <li key={p.id} className={styles.play}>
+              <div className={styles.playMain}>
+                <span className={styles.playTitle} dir="auto">{p.title}</span>
+                <span className={styles.playSub} dir="auto">{[p.artist, p.album].filter(Boolean).join(' · ')}</span>
+              </div>
+              <div className={styles.playMeta}>
+                <span className={styles.playWhen}>{when(p.startedAt)}{p.source === 'web' ? '' : ' · another app'}</span>
+                <span className={styles.playStatus}>{playStatus(p)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    />
   );
 }
 
 // ---- connected ----
 
-export function SettingsListeningContent({ heading = true }: { heading?: boolean } = {}) {
+export function SettingsListeningContent() {
   const listening = useListening();
   const history = useListeningHistory();
   const lastfm = useConnectLastfm();
@@ -352,6 +440,9 @@ export function SettingsListeningContent({ heading = true }: { heading?: boolean
   const clearPhone = useClearPhonePassword();
   const saveOwn = useSaveOwnAccount();
   const removeOwn = useRemoveOwnAccount();
+  const lovesSave = useSaveFlash();
+  const phoneSave = useSaveFlash();
+  const accountSave = useSaveFlash();
   const [{ lastfmReturn, lastfmQueued }] = useState(() => {
     try {
       const q = new URLSearchParams(globalThis.location?.search ?? '');
@@ -366,7 +457,6 @@ export function SettingsListeningContent({ heading = true }: { heading?: boolean
   }, [lastfmReturn]);
   return (
     <>
-      {heading && <h2>Listening</h2>}
       {listening.isLoading && <p className={styles.muted}>Loading…</p>}
       {listening.isError && <Banner tone="danger">Couldn’t load listening settings. {problem(listening.error, '')}</Banner>}
       {listening.data && (
@@ -386,10 +476,14 @@ export function SettingsListeningContent({ heading = true }: { heading?: boolean
           onConnectLastfm={() => lastfm.mutate()}
           onConnectListenbrainz={(token) => lb.mutate(token)}
           onDisconnect={(s) => disconnect.mutate(s)}
-          onLoves={(service, on) => loves.mutate({ service, on })}
-          onSetPhonePassword={(p) => phone.mutate(p)}
-          onClearPhonePassword={() => clearPhone.mutate()}
-          onSaveOwnAccount={(b) => saveOwn.mutate(b)}
+          saves={{ loves: { state: lovesSave.state, detail: lovesSave.detail }, phone: { state: phoneSave.state }, account: { state: accountSave.state } }}
+          onLoves={(service, on) => {
+            lovesSave.clear();
+            loves.mutate({ service, on }, { onSuccess: () => lovesSave.saved(), onError: (err) => lovesSave.failed(problem(err, '') || null) });
+          }}
+          onSetPhonePassword={(p) => { phoneSave.clear(); phone.mutate(p, { onSuccess: () => phoneSave.saved() }); }}
+          onClearPhonePassword={() => { phoneSave.clear(); clearPhone.mutate(); }}
+          onSaveOwnAccount={(b) => { accountSave.clear(); saveOwn.mutate(b, { onSuccess: () => accountSave.saved() }); }}
           onRemoveOwnAccount={() => removeOwn.mutate()}
         />
       )}
