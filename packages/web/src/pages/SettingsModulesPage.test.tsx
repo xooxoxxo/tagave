@@ -133,13 +133,11 @@ describe('the list', () => {
 });
 
 describe('Settings › Modules › Autotagger', () => {
-  it('the Autotagger page holds no settings', () => {
+  it('the Autotagger has no page: its row links its setup in Library care', () => {
     const src = readFileSync(new URL('./SettingsModulesPage.tsx', import.meta.url), 'utf8');
-    const start = src.indexOf("case 'autotagger':");
-    const body = src.slice(start, src.indexOf('case ', start + 1));
-    expect(start).toBeGreaterThan(-1);
-    expect(body).not.toContain('SettingsAutotaggerContent');
-    expect(body).toContain('Set up in Library care');
+    expect(src).not.toContain("case 'autotagger':");
+    expect(src).not.toContain('SettingsAutotaggerContent');
+    expect(moduleLink({ id: 'autotagger', slug: 'autotagger', name: 'Autotagger', on: true, hasPage: false })).toEqual({ label: 'Set up in Library care', to: '/work', search: { tab: 'autotagger' } });
   });
 });
 

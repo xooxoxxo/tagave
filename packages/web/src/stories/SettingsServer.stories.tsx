@@ -74,7 +74,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: 'Settings: the server’s sections only (an editor sees Tag writing, Genre mapping, Follow rules and Background activity). The search filters the list by section and row labels; a hit lists the labels it matched.',
+        component: 'Settings: the server’s sections only (an editor sees Tag writing and Follow rules). The search filters the list by section and row labels; a hit lists the labels it matched.',
       },
     },
   },

@@ -162,7 +162,7 @@ export function useKickSweep(libraryId: string | undefined) {
 }
 
 /**
- * Background activity (GET /jobs, refetch 15 s): plain-words job views plus
+ * Library care › Background activity (GET /jobs, refetch 15 s): plain-words job views plus
  * a summary. Tasks that need the owner always come back in full (`attention`);
  * the rest is the first `limit` entries. Routine checks are left out unless
  * asked for; `job` makes sure a deep-linked job is in the list.

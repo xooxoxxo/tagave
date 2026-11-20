@@ -20,12 +20,12 @@ export const pageTitles = {
 
 export type MainPage = keyof typeof pageTitles;
 
-/** Older paths that open inside a main page (Library care's tabs, Settings' activity). */
+/** Older paths that open inside a main page (Library care's tabs, Background activity among them). */
 const aliases: Record<string, MainPage> = {
   '/queue': '/work',
   '/identify': '/work',
   '/attention': '/work',
-  '/jobs': '/settings',
+  '/jobs': '/work',
 };
 
 /** The main page a path belongs to, or null (sign in, setup, onboarding). */

@@ -1518,7 +1518,7 @@ export function AlbumDetailPage() {
                 <dd className={styles.dirPath}>{album.dirPaths?.join('\n')}</dd>
               </dl>
               <p className={styles.muted}>
-                Library-wide progress: <Link to="/settings/$section" params={{ section: 'activity' }}>Background activity</Link> · <Link to="/work" search={{ tab: 'identify' }}>Identify</Link>.
+                Library-wide progress: <Link to="/work" search={{ tab: 'activity' }}>Background activity</Link> · <Link to="/work" search={{ tab: 'identify' }}>Identify</Link>.
               </p>
             </section>
           )}

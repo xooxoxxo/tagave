@@ -3,12 +3,14 @@
  * reached from their name. Everyone has Account (with Security) and
  * Appearance; a module section (Listening, DJ, Listen elsewhere,
  * Connections) is listed while its module is on. A link to one that is off
- * shows the value Off, never Not available, so an old link never lands on
- * a blank page. Same layout as Settings: two panes on a desktop; on a phone
- * /you is the list and each section a page of its own.
+ * goes to Account, replacing it (the modules rule: an off module shows
+ * nowhere outside Settings › Modules, so never an Off value or Not
+ * available); while the module loads the section shows its heading alone.
+ * Same layout as Settings: two panes on a desktop; on a phone /you is the
+ * list and each section a page of its own.
  */
 import type { ReactNode } from 'react';
-import { useLocation } from '@tanstack/react-router';
+import { Navigate, useLocation } from '@tanstack/react-router';
 import { PageShell } from '../components/ui';
 import { SectionNav } from '../components/settings/SectionNav';
 import { LinkRow } from '../components/settings/LinkRow';
@@ -23,9 +25,8 @@ import { SettingsDjContent } from './SettingsDjPage';
 import { SettingsListenElsewhereContent } from './SettingsListenElsewherePage';
 import { SettingsConnectionsContent } from './SettingsConnectionsPage';
 import { YouAppearance } from './YouAppearance';
-import { YOU_SECTIONS, youNav, type YouSection } from './youSections';
+import { YOU_SECTIONS, youGate, youNav, type YouSection } from './youSections';
 import styles from './SettingsPage.module.css';
-import own from './YouPage.module.css';
 
 export function YouPage() {
   const modules = useYouModules();
@@ -40,18 +41,19 @@ export function YouPage() {
   // Custom theme is a part of Appearance: the way back, and the section the nav marks
   const parent = section === 'custom-theme' ? 'appearance' : section;
   usePhoneSubpage(view === 'section' ? current.label : null, parent !== section ? `/you/${parent}` : '/you');
-  // a module section: true on, false off, null while it loads
-  const on = current.module ? modules[current.module] : true;
+  // a module section: off goes to Account; while it loads, its heading alone
+  const gate = youGate(section, modules);
+  if (gate === '/you/account') return <Navigate to="/you/$section" params={{ section: 'account' }} replace />;
   return <PageShell title="Your settings" sticky>
     <YouLayout view={view} items={visible} current={parent}>
-      {on === false ? <YouModuleOff label={current.label} /> : <>
+      {gate === 'wait' ? <h2>{current.label}</h2> : <>
         {section === 'account' && <><h2>Account</h2><SettingsAccountPage /><h2 className={styles.modeSetting}>Security</h2><SettingsSecurityPage /></>}
         {section === 'appearance' && <><h2>Appearance</h2><YouAppearance /></>}
         {section === 'custom-theme' && <><h2>Custom theme</h2><CustomThemeScreen /></>}
-        {section === 'listening' && <><h2>Listening</h2>{on && <SettingsListeningContent heading={false} />}{owner && <PlayerServerRow />}</>}
-        {section === 'dj' && <><h2>DJ</h2>{on && <SettingsDjContent />}</>}
-        {section === 'listen-elsewhere' && <><h2>Listen elsewhere</h2>{on && <SettingsListenElsewhereContent heading={false} />}</>}
-        {section === 'connections' && <><h2>Connections</h2>{on && <SettingsConnectionsContent heading={false} />}</>}
+        {section === 'listening' && <><h2>Listening</h2><SettingsListeningContent heading={false} />{owner && <PlayerServerRow />}</>}
+        {section === 'dj' && <><h2>DJ</h2><SettingsDjContent /></>}
+        {section === 'listen-elsewhere' && <><h2>Listen elsewhere</h2><SettingsListenElsewhereContent heading={false} /></>}
+        {section === 'connections' && <><h2>Connections</h2><SettingsConnectionsContent heading={false} /></>}
       </>}
     </YouLayout>
   </PageShell>;
@@ -73,11 +75,6 @@ export function YouLayout({ view, items, current, children }: { view: 'list' | '
       <div className={styles.content}>{children}</div>
     </div>
   );
-}
-
-/** A module section whose module is off: its heading and the value. */
-export function YouModuleOff({ label }: { label: string }) {
-  return <><h2>{label}</h2><p className={own.offValue}>Off</p></>;
 }
 
 /** The owner's player server stays in Settings › Modules › Player. */

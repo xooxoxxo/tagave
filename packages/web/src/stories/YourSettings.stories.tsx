@@ -10,7 +10,7 @@ import type { ListeningHistoryView, ListeningView, ThemeChoice } from '@tagave/s
 import { PageShell } from '../components/ui';
 import { ThemeGallery } from '../themes/ThemePicker';
 import { ListeningSettingsView } from '../pages/SettingsListeningPage';
-import { PlayerServerRow, YouLayout, YouModuleOff } from '../pages/YouPage';
+import { PlayerServerRow, YouLayout } from '../pages/YouPage';
 import { YouAppearanceView } from '../pages/YouAppearance';
 import { youNav, type YouModules } from '../pages/youSections';
 import page from '../pages/SettingsPage.module.css';
@@ -85,7 +85,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: 'Your settings: Account (with Security) and Appearance for everyone; Listening, DJ, Listen elsewhere and Connections while their module is on. A module section that is off shows the value Off.',
+        component: 'Your settings: Account (with Security) and Appearance for everyone; Listening, DJ, Listen elsewhere and Connections while their module is on. A link to a module section that is off opens Account.',
       },
     },
   },
@@ -110,10 +110,7 @@ export const EveryModuleOn: Story = {
 };
 /** Appearance: the same for everyone (Maintenance lives in Library care's header). */
 export const AppearanceSection: Story = { name: 'Appearance', tags: ['viewport-1440'], args: { modules: ALL, section: 'appearance', content: <Appearance /> } };
-/** An old link to a module that is off: the value Off, never Not available. */
-export const ModuleOff: Story = { name: 'Module off', tags: ['viewport-1440'], args: { modules: { ...NONE, player: true }, section: 'dj', content: <YouModuleOff label="DJ" /> } };
 
 export const PhoneListener: Story = { ...phone, name: 'Phone, listener', tags: ['phone'], args: { modules: NONE, section: null } };
 export const PhoneEveryModuleOn: Story = { ...phone, name: 'Phone, every module on', tags: ['phone'], args: { modules: ALL, section: null } };
 export const PhoneAppearance: Story = { ...phone, name: 'Phone, Appearance', tags: ['phone'], args: { modules: ALL, section: 'appearance', content: <Appearance /> } };
-export const PhoneModuleOff: Story = { ...phone, name: 'Phone, module off', tags: ['phone'], args: { modules: NONE, section: 'dj', content: <YouModuleOff label="DJ" /> } };

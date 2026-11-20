@@ -234,13 +234,9 @@ const settingsSectionRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/$section',
   component: SettingsPage,
-  // an old address (/settings/account, /settings/users, ...) goes to its new home (routing/redirects.ts)
+  // an old address (/settings/account, /settings/users, Background activity, ...)
+  // goes to its new home (routing/redirects.ts), its query kept (?job=)
   beforeLoad: redirectMoved,
-  // ?job=<job_runs id> points Background activity at one job (a plan's
-  // preview and the activity list itself link here): JobsPage reads it with
-  // useSearch, asks the API to include it and scrolls to it, highlighted.
-  validateSearch: (search: Record<string, unknown>): { job?: string } =>
-    typeof search['job'] === 'string' && search['job'] ? { job: search['job'] } : {},
 });
 
 // Your settings (spec §2): the person's own, at /you/<section>
@@ -303,8 +299,8 @@ const collectionRoute = new Route({
 const jobsOldRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/jobs',
-  // keep ?job=<id> deep links working from the old address
-  beforeLoad: ({ search }) => redirect({ to: '/settings/$section', params: { section: 'activity' }, search }),
+  // Library care › Background activity, ?job=<id> kept (routing/redirects.ts)
+  beforeLoad: redirectMoved,
 });
 
 const settingsUpdatesRoute = new Route({

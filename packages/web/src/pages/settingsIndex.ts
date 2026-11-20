@@ -12,8 +12,6 @@ export const SETTINGS_INDEX: readonly IndexEntry[] = [
   ...['Music folders', 'Naming', 'Drop pool', 'Deleting'].map((label) => ({ section: 'library', label })),
   // SettingsTagWritesPage
   ...['Tag preferences', 'Tag writes', 'Default write policy'].map((label) => ({ section: 'tag-writing', label })),
-  // SettingsGenresPage
-  ...['Genre mapping', 'Effective genres', 'Raw tags'].map((label) => ({ section: 'genre-mapping', label })),
   // SettingsFollowRulesPage
   { section: 'following', label: 'Follow rules' },
   // SettingsUsersPage, SignInService
@@ -27,8 +25,6 @@ export const SETTINGS_INDEX: readonly IndexEntry[] = [
   ...['What’s new', 'Running now', 'Update checks'].map((label) => ({ section: 'updates', label })),
   // SystemStatus, SettingsStoragePage
   ...['System status', 'Storage', 'Database', 'Folders', 'Free space', 'Tag change cleanup'].map((label) => ({ section: 'status', label })),
-  // JobsPage
-  ...['Maintenance tasks', 'Needs attention', 'Recent activity', 'Album identification'].map((label) => ({ section: 'activity', label })),
 ];
 
 export type SearchHit = { section: string; label: string; matches: string[] };

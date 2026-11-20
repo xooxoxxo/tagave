@@ -123,9 +123,27 @@ describe('the owner’s module pages keep only the owner’s parts', () => {
     expect(playerCase).toContain('Your listening');
   });
 
-  it('DJ, Listen elsewhere and Music Connections keep their Off | On and link to Your settings', () => {
+  it('no module page holds a person\'s part', () => {
     expect(content).not.toMatch(/<SettingsDjContent|<DjSettings|<SettingsListenElsewhereContent|<SettingsConnectionsContent/);
-    for (const to of ['/you/dj', '/you/listen-elsewhere', '/you/connections']) expect(content).toContain(to);
-    for (const sw of ['<DjSwitch />', '<ListenSwitch />', '<McSwitch />']) expect(content).toContain(sw);
+  });
+
+  it('the switch-only module pages are gone', () => {
+    // their Off | On is in their Modules row; the address redirects (routing/redirects.ts)
+    for (const slug of ['autotagger', 'playlists', 'similar-artists', 'dj', 'listen-links', 'mc']) expect(content).not.toContain(`case '${slug}'`);
+  });
+});
+
+describe('Library care holds what moved', () => {
+  it('Settings renders no Library care tab', () => {
+    expect(page).not.toContain("'genre-mapping'");
+    expect(page).not.toContain("'activity'");
+    expect(page).not.toContain('JobsPage');
+    expect(page).not.toContain('SettingsGenresContent');
+  });
+
+  it('a module row\'s address waits for the module\'s state', () => {
+    expect(page).toMatch(/useFacets\(/);
+    expect(page).toMatch(/redirectFor\(.*\bmodules \}\)/);
+    expect(page).toMatch(/moduleRowOf\(/);
   });
 });

@@ -450,9 +450,8 @@ export function PlanPage() {
   });
   const jobLink = (label: string) => (
     <Link
-      to="/settings/$section"
-      params={{ section: 'activity' }}
-      search={current?.jobRunId ? { job: current.jobRunId } : {}}
+      to="/work"
+      search={{ tab: 'activity', ...(current?.jobRunId && { job: current.jobRunId }) }}
       className={styles.bannerLink}
     >{label}</Link>
   );

@@ -8,7 +8,7 @@ Every artist linked to your library's albums has a profile showing their name, t
 
 ## Genres
 
-Each album is tagged with effective genres (up to three) computed from Discogs and MusicBrainz data and weighted to surface the most relevant: top genres appear as chips, secondary styles as muted tags. Go to **Settings › Genre mapping** to customize the genre taxonomy: edit the whitelist (default: Rock, Electronic, Pop, Jazz, 13 more), add aliases to map niche styles to top-level categories (e.g., black metal → Metal), and adjust the maximum number of genres per album.
+Each album is tagged with effective genres (up to three) computed from Discogs and MusicBrainz data and weighted to surface the most relevant: top genres appear as chips, secondary styles as muted tags. Go to **Library care › Genre mapping** to customize the genre taxonomy: edit the whitelist (default: Rock, Electronic, Pop, Jazz, 13 more), add aliases to map niche styles to top-level categories (e.g., black metal → Metal), and adjust the maximum number of genres per album.
 
 ## Identification
 

@@ -11,7 +11,6 @@ import { NamingSettings } from '../components/naming/NamingSettings';
 import { DropPoolSettings } from '../components/naming/DropPoolSettings';
 import { SettingsDeletingContent } from './SettingsDeletingPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
-import { SettingsGenresContent } from './SettingsGenresPage';
 import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
 import { SettingsProvidersPage } from './SettingsProvidersPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
@@ -19,31 +18,36 @@ import { SettingsModuleContent, SettingsModulesContent, useModuleRows } from './
 import { MODULE_PAGES } from './moduleSettings';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
 import { SettingsStorageContent } from './SettingsStoragePage';
-import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
 import { SettingsUsersPage } from './SettingsUsersPage';
 import { SignInService } from '../components/users/SignInService';
 import { NotAvailable } from '../components/access/NotAvailable';
 import { useRole } from '../hooks/usePermissions';
+import { useFacets } from '../hooks/useFacets';
 import { can } from '@tagave/shared';
 import { serverSection, settingsNav } from './settingsSections';
 import { searchSettings } from './settingsIndex';
 import { settingsNavItems } from './settingsNavItems';
-import { redirectFor } from '../routing/redirects';
+import { moduleRowOf, moduleStates, redirectFor } from '../routing/redirects';
 import styles from './SettingsPage.module.css';
 
 /**
  * Settings is the server's (spec §3): the sections and the permission each
  * needs come from settingsSections.ts. A listener has none (their own
- * settings are Your settings, /you); an editor has Tag writing, Genre
- * mapping, Follow rules and Background activity; the owner everything. A
- * search above the list filters it over a static index of labels. A direct
- * link to a section the role lacks shows "Not available for your account"
- * in place of the section. Once the role is known, the addresses that move
- * for this role (routing/redirects.ts: a non-owner's module pages and
- * Modules, /settings for someone with no server section) go to Your
- * settings, replacing the old address, before any section renders.
+ * settings are Your settings, /you); an editor has Tag writing and Follow
+ * rules (Genre mapping and Background activity are Library care's tabs);
+ * the owner everything. A search above the list filters it over a static
+ * index of labels. A direct link to a section the role lacks shows "Not
+ * available for your account" in place of the section. Once the role is
+ * known, the addresses that move for this role (routing/redirects.ts: a
+ * non-owner's Player page and Modules, /settings for someone with no server
+ * section) go to their new home, replacing the old address, before any
+ * section renders. A module switched in its Modules row (the Autotagger,
+ * DJ, Listen elsewhere, Music Connections) has no page here: its old
+ * address waits, rendering nothing, until the module's state is known, then
+ * goes to the module's place while it is on and, while it is off, to
+ * Settings › Modules for the owner and the nearest page for anyone else.
  */
 export function SettingsPage() {
   const role = useRole();
@@ -70,8 +74,12 @@ export function SettingsPage() {
   // one section needs no search
   const searchable = visible.length > 1;
   const hits = searchSettings(searchable ? query : '', visible);
-  const moved = role && redirectFor(location.pathname, location.search as Record<string, unknown>, { owner: can(role, 'system.manage'), hasSettings: visible.length > 0 });
+  const facets = useFacets();
+  const modules = moduleStates(facets.data ? Object.fromEntries(facets.data.modules.map((m) => [m.id, m.enabled])) : null);
+  const moved = role && redirectFor(location.pathname, location.search as Record<string, unknown>, { owner: can(role, 'system.manage'), hasSettings: visible.length > 0, editor: can(role, 'library.edit'), modules });
   if (moved) return <Navigate to={moved.to as never} search={moved.search as never} hash={location.hash} replace />;
+  // a module row's address, its module still loading: nothing yet
+  const waiting = moduleRowOf(location.pathname) !== null;
   return <PageShell title="Settings" sticky>
     <div className={styles.layout} data-view={view}>
       <SectionNav
@@ -83,17 +91,15 @@ export function SettingsPage() {
         empty="No match"
       />
       <div className={styles.content}>
-        {role === null ? null : !allowed ? <NotAvailable inline /> : <>
+        {role === null || waiting ? null : !allowed ? <NotAvailable inline /> : <>
         {section === 'library' && <><SettingsScanRootsContent /><NamingSettings /><DropPoolSettings /><SettingsDeletingContent /></>}
         {section === 'tag-writing' && <SettingsTagWritesContent />}
-        {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
         {section === 'people' && <><h2>People</h2><SettingsUsersPage /><SignInService headingClassName={styles.modeSetting} /></>}
         {section === 'modules' && (moduleSlug ? <SettingsModuleContent slug={moduleSlug} /> : <><h2>Modules</h2><SettingsModulesContent /><h2 id="integrations" className={styles.modeSetting}>Integrations</h2><SettingsProvidersPage /></>)}
         {section === 'backups' && <><h2>Backups</h2><SettingsBackupsPage /></>}
         {section === 'updates' && <SettingsUpdatesPage />}
         {section === 'status' && <><h2>Status</h2><SystemStatus /><h2 className={styles.modeSetting}>Storage</h2><SettingsStorageContent /></>}
-        {section === 'activity' && <><h2>Background activity</h2><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         </>}
       </div>

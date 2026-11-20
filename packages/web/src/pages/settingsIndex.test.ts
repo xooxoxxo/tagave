@@ -15,6 +15,13 @@ describe('SETTINGS_INDEX', () => {
   });
 });
 
+describe('Library care', () => {
+  it('no entry for a Library care tab', () => {
+    expect(SETTINGS_INDEX.filter((e) => e.section === 'genre-mapping' || e.section === 'activity')).toEqual([]);
+    expect(searchSettings('genre', settingsNav('owner'))).toEqual([]);
+  });
+});
+
 describe('searchSettings', () => {
   it('blank query lists every visible section', () => {
     const found = searchSettings('  ', owner);

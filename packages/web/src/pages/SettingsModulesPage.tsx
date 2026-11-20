@@ -799,10 +799,13 @@ export function YourPart({ group, label, to }: { group: string; label: string; t
 
 /**
  * One module's page, the owner's: its Off | On, then the server's part (the
- * player's server, scan, scrobbling key and quality; Lidarr; Books). The
- * person's part (the player's Listening, DJ, Listen elsewhere, Music
- * Connections) lives in Your settings and a row links to it, so nothing is
- * set in two places. Anyone else is sent to Your settings (routing/redirects).
+ * player's server, scan, scrobbling key and quality; Lidarr; Books; a
+ * module the catalogue adds). The player's Listening lives in Your settings
+ * and a row links to it, so nothing is set in two places. A module switched
+ * in its Modules row (the Autotagger, DJ, Listen elsewhere, Music
+ * Connections, Playlists, Similar artists) has no page: its old address
+ * redirects first (routing/redirects.ts). Anyone else is sent to Your
+ * settings.
  */
 export function SettingsModuleContent({ slug }: { slug: string }) {
   const owner = can(useRole(), 'system.manage');
@@ -823,7 +826,6 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
     if (owner && catalogue.isLoading) return null;
     return <NotAvailable inline />;
   }
-  const on = facets.data?.modules.find((m) => m.id === entry.id)?.enabled ?? null;
   const heading = <h2>{entry.name}</h2>;
 
   switch (entry.id) {
@@ -843,25 +845,6 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
     case 'lidarr':
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<LidarrSwitch /><LidarrSettings /></>;
-    case 'listen-links':
-      if (!owner) return null;
-      return <>{heading}<ListenSwitch />{on && <YourPart group="Listen elsewhere" label="Your settings" to="/you/listen-elsewhere" />}</>;
-    case 'mc':
-      if (!owner) return null;
-      return <>{heading}<McSwitch />{on && <YourPart group="Connections" label="Your settings" to="/you/connections" />}</>;
-    case 'playlists':
-      if (!owner) return <NotAvailable inline />;
-      return <>{heading}<PlaylistsSwitch /></>;
-    case 'autotagger':
-      if (!owner) return <NotAvailable inline />;
-      // its setup lives in Library care › Autotagger, while the module is on
-      return <>{heading}<AutotaggerSwitch />{on && <LinkRow group="Setup" label="Set up in Library care" to="/work" search={{ tab: 'autotagger' }} className={styles.part} />}</>;
-    case 'similar-artists':
-      if (!owner) return <NotAvailable inline />;
-      return <>{heading}<SimilarSwitch /></>;
-    case 'dj':
-      if (!owner) return null;
-      return <>{heading}<DjSwitch />{on && <YourPart group="DJ" label="Your settings" to="/you/dj" />}</>;
     default:
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<CatalogueSwitch id={entry.id} name={entry.name} /></>;
