@@ -66,8 +66,8 @@ describe('the list', () => {
 });
 
 describe('where the old sections went', () => {
-  it('each old address has a module page', () => {
-    expect(MOVED_SECTIONS).toEqual({ connections: 'music-connections', 'listen-elsewhere': 'listen-elsewhere', playback: 'player', listening: 'player' });
+  it('each old address has a home in Your settings', () => {
+    expect(MOVED_SECTIONS).toEqual({ connections: '/you/connections', 'listen-elsewhere': '/you/listen-elsewhere', playback: '/you/listening', listening: '/you/listening' });
     expect(moduleSlug('mc')).toBe('music-connections');
     expect(moduleSlug('listen-links')).toBe('listen-elsewhere');
     expect(moduleSlug('lyrics')).toBe('lyrics');

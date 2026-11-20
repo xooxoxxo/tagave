@@ -358,7 +358,7 @@ export function SettingsListeningContent({ heading = true }: { heading?: boolean
       return { lastfmReturn: q.get('lastfm'), lastfmQueued: Number(q.get('queued')) || null };
     } catch { return { lastfmReturn: null, lastfmQueued: null }; }
   });
-  // the ?lastfm= note is read once; the address goes back to plain Settings › Modules › Player
+  // the ?lastfm= note is read once; the address goes back to plain /you/listening
   useEffect(() => {
     if (lastfmReturn) {
       try { globalThis.history?.replaceState(globalThis.history.state, '', globalThis.location.pathname); } catch { /* keep it */ }

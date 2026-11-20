@@ -214,7 +214,7 @@ export function CollectionPage() {
       {!source ? (
         <EmptyState
           title="No collection connected"
-          action={canConnect ? <LinkButton to="/settings/providers">Connect Discogs</LinkButton> : undefined}
+          action={canConnect ? <LinkButton to="/settings/$section" params={{ section: 'modules' }} hash="integrations">Connect Discogs</LinkButton> : undefined}
         />
       ) : (
         <>

@@ -290,7 +290,7 @@ export function SettingsConnectionsContent({ heading = true }: { heading?: boole
   const [returned] = useState(readReturn);
   const [linkErrors, setLinkErrors] = useState<Record<string, string>>({});
   const [busyLinkId, setBusy] = useState<string | null>(null);
-  // the ?linked= / ?error= note is read once; the address goes back to plain Settings › Modules › Music Connections
+  // the ?linked= / ?error= note is read once; the address goes back to plain /you/connections
   useEffect(() => {
     if (returned) {
       try { globalThis.history?.replaceState(globalThis.history.state, '', globalThis.location.pathname); } catch { /* keep it */ }

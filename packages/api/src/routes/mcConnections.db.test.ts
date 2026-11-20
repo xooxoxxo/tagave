@@ -157,7 +157,7 @@ describe.skipIf(!adminUrl)('Settings › Modules › Music Connections (integrat
     const back = await callback({ code: 'the-code', state: authorize.searchParams.get('state')! }, u);
     expect(back.statusCode).toBe(303);
     const loc = new URL(back.headers.location as string, TEST_PUBLIC_URL);
-    expect(loc.pathname).toBe('/settings/modules/music-connections');
+    expect(loc.pathname).toBe('/you/connections');
     return { authorize, linkId: loc.searchParams.get('linked')! };
   }
 
@@ -222,7 +222,7 @@ describe.skipIf(!adminUrl)('Settings › Modules › Music Connections (integrat
     // the verifier sent at the exchange matches the challenge sent to authorize
     expect(createHash('sha256').update(p.get('code_verifier')!).digest('base64url')).toBe(authorize.searchParams.get('code_challenge'));
     const replay = await callback({ code: 'the-code', state: authorize.searchParams.get('state')! });
-    expect(replay.headers.location).toBe('/settings/modules/music-connections?error=invalid_state');
+    expect(replay.headers.location).toBe('/you/connections?error=invalid_state');
   });
 
   it('a capability left out shows as not granted; one offered later as available, re-link to grant', async () => {
@@ -249,7 +249,7 @@ describe.skipIf(!adminUrl)('Settings › Modules › Music Connections (integrat
     expect(re.statusCode).toBe(200);
     const state = new URL(re.json().authorizeUrl).searchParams.get('state')!;
     const back = await callback({ code: 'c2', state });
-    expect(back.headers.location).toBe(`/settings/modules/music-connections?linked=${linkId}`);
+    expect(back.headers.location).toBe(`/you/connections?linked=${linkId}`);
     const [row] = await handle.sql`select state, cursors, scopes from mc_links where id = ${linkId}`;
     expect(row).toMatchObject({ state: 'active', cursors: { 'critic-scores': 'c-41' } });
     const changes = (await audits()).filter((a) => a.action === 'mc.consumer.scope_change');
@@ -273,20 +273,20 @@ describe.skipIf(!adminUrl)('Settings › Modules › Music Connections (integrat
   it('a denial or an error from the remote comes back as ?error=, and nothing is linked', async () => {
     const res = await start(RG);
     const state = new URL(res.json().authorizeUrl).searchParams.get('state')!;
-    expect((await callback({ error: 'access_denied', state })).headers.location).toBe('/settings/modules/music-connections?error=access_denied');
-    expect((await callback({ error: 'access_denied' })).headers.location).toBe('/settings/modules/music-connections?error=access_denied');
+    expect((await callback({ error: 'access_denied', state })).headers.location).toBe('/you/connections?error=access_denied');
+    expect((await callback({ error: 'access_denied' })).headers.location).toBe('/you/connections?error=access_denied');
     rg.state.tokenStatus = 400;
     const res2 = await start(RG);
     const state2 = new URL(res2.json().authorizeUrl).searchParams.get('state')!;
     const back = await callback({ code: 'x', state: state2 });
-    expect(back.headers.location).toBe('/settings/modules/music-connections?error=remote_error');
+    expect(back.headers.location).toBe('/you/connections?error=remote_error');
     expect(await handle.sql`select 1 from mc_links`).toHaveLength(0);
   });
 
   it('another person cannot finish, see, sync or change my link', async () => {
     const res = await start(RG);
     const state = new URL(res.json().authorizeUrl).searchParams.get('state')!;
-    expect((await callback({ code: 'x', state }, other)).headers.location).toBe('/settings/modules/music-connections?error=invalid_state');
+    expect((await callback({ code: 'x', state }, other)).headers.location).toBe('/you/connections?error=invalid_state');
     const { linkId } = await linkRg();
     expect((await list(other)).links).toEqual([]);
     for (const [method, url] of [['POST', `/api/v1/me/connections/${linkId}/sync`], ['POST', `/api/v1/me/connections/${linkId}/reapprove`], ['DELETE', `/api/v1/me/connections/${linkId}`]] as const) {
@@ -333,7 +333,7 @@ describe.skipIf(!adminUrl)('Settings › Modules › Music Connections (integrat
     // re-approving at the new address lands on the same row, cursors intact
     const re = await app.inject({ method: 'POST', url: `/api/v1/me/connections/${linkId}/reapprove`, headers: as(person) });
     const back = await callback({ code: 'c', state: new URL(re.json().authorizeUrl).searchParams.get('state')! });
-    expect(back.headers.location).toBe(`/settings/modules/music-connections?linked=${linkId}`);
+    expect(back.headers.location).toBe(`/you/connections?linked=${linkId}`);
     const [after] = await handle.sql`select state, cursors from mc_links where id = ${linkId}`;
     expect(after).toMatchObject({ state: 'active', cursors: { 'critic-scores': 'c-7' } });
   });

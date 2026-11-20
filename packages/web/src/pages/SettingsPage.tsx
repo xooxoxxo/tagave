@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLocation } from '@tanstack/react-router';
+import { Navigate, useLocation } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { useUpdateAvailable } from '../hooks/useUpdates';
 import { PageShell } from '../components/ui';
@@ -30,6 +30,7 @@ import { can } from '@tagave/shared';
 import { serverSection, settingsNav } from './settingsSections';
 import { searchSettings } from './settingsIndex';
 import { settingsNavItems } from './settingsNavItems';
+import { redirectFor } from '../routing/redirects';
 import styles from './SettingsPage.module.css';
 
 /**
@@ -39,13 +40,17 @@ import styles from './SettingsPage.module.css';
  * mapping, Follow rules and Background activity; the owner everything. A
  * search above the list filters it over a static index of labels. A direct
  * link to a section the role lacks shows "Not available for your account"
- * in place of the section.
+ * in place of the section. Once the role is known, the addresses that move
+ * for this role (routing/redirects.ts: a non-owner's module pages and
+ * Modules, /settings for someone with no server section) go to Your
+ * settings, replacing the old address, before any section renders.
  */
 export function SettingsPage() {
   const role = useRole();
   const moduleRows = useModuleRows();
   const visible = settingsNav(role);
-  const parts = useLocation().pathname.split('/');
+  const location = useLocation();
+  const parts = location.pathname.split('/');
   const known = parts[2] ? serverSection(parts[2]) : undefined;
   // an unknown section opens the first listed one
   const current = known ?? visible[0];
@@ -65,6 +70,8 @@ export function SettingsPage() {
   // one section needs no search
   const searchable = visible.length > 1;
   const hits = searchSettings(searchable ? query : '', visible);
+  const moved = role && redirectFor(location.pathname, location.search as Record<string, unknown>, { owner: can(role, 'system.manage'), hasSettings: visible.length > 0 });
+  if (moved) return <Navigate to={moved.to as never} search={moved.search as never} hash={location.hash} replace />;
   return <PageShell title="Settings" sticky>
     <div className={styles.layout} data-view={view}>
       <SectionNav
