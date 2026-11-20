@@ -2,16 +2,15 @@
  * Library care › Autotagger, steps 1 and 2 and the strip above them:
  * the step strip (Decider · Run · Spot check · Accept), the decider step
  * as read (the local model with its held-out figures and Train again, or
- * Jev with its key, cap, spend and the payload that must be seen; the
- * owner's step 1 is the setup, AutotaggerSetup), and the run step (the
+ * Jev with its key, cap, spend and whether the payload was seen; the
+ * owner's step 1 is the setup, AutotaggerSetup, where the payload is shown), and the run step (the
  * owner's run stats; population and Run; while it runs, its state,
  * outcomes, spend and the pause reason, with Resume and Cancel). Pure
  * views: data and callbacks.
  */
 import type { ReactNode } from 'react';
 import { Button, SegmentedControl, Badge } from '../../components/ui';
-import type { AutotaggerLibraryView, LocalModelsView, PayloadPreview, RunView } from '@tagave/shared';
-import { PayloadPreviewView } from './PayloadPreview';
+import type { AutotaggerLibraryView, LocalModelsView, RunView } from '@tagave/shared';
 import { Values } from './autotaggerParts';
 import {
   BAND_LABEL, OUTCOME_LABEL, POPULATION_LABEL, STARTABLE_POPULATIONS, count, decided, modelName, money, pauseLabel, percent, runStateLabel, shortDate,
@@ -51,12 +50,6 @@ export interface DeciderStepViewProps {
   owner: boolean;
   training?: boolean;
   onTrain: () => void;
-  /** Jev: the payload one album's run would send (the owner's) */
-  preview?: PayloadPreview | null;
-  previewOpen?: boolean;
-  onTogglePreview?: () => void;
-  onSeen?: () => void;
-  seenPending?: boolean;
 }
 
 const bandName = (band: string, min: number) => (band in BAND_LABEL ? BAND_LABEL[band as keyof typeof BAND_LABEL] : `≥ ${min}`);
@@ -88,7 +81,7 @@ export function LocalModelBlock({ models }: { models: LocalModelsView | null }) 
                 <td>{bandName(b.band, b.min)}</td>
                 <td>{count(b.decided)}</td>
                 <td>{percent(b.coverage)}</td>
-                <td>{b.errorRate === null ? '—' : percent(b.errorRate)}</td>
+                <td>{b.errorRate === null ? '' : percent(b.errorRate)}</td>
                 <td>{percent(b.errorUpper)}</td>
               </tr>
             ))}
@@ -99,7 +92,7 @@ export function LocalModelBlock({ models }: { models: LocalModelsView | null }) 
   );
 }
 
-export function DeciderStepView({ library, models, owner, training = false, onTrain, preview = null, previewOpen = false, onTogglePreview, onSeen, seenPending = false }: DeciderStepViewProps) {
+export function DeciderStepView({ library, models, owner, training = false, onTrain }: DeciderStepViewProps) {
   if (library.config.decider === 'local') {
     const active = models?.active ?? null;
     return (
@@ -130,13 +123,6 @@ export function DeciderStepView({ library, models, owner, training = false, onTr
           ['Payload', seen ? 'Seen' : 'Not seen'],
         ]}
       />
-      {owner && library.keySet && (
-        <div className={styles.actions}>
-          <Button size="sm" variant="secondary" aria-expanded={previewOpen} onClick={onTogglePreview}>Payload</Button>
-          {previewOpen && preview && <Button size="sm" variant={seen ? 'secondary' : 'primary'} loading={seenPending} disabled={seen} onClick={onSeen}>{seen ? 'Seen ✓' : 'Seen'}</Button>}
-        </div>
-      )}
-      {previewOpen && preview && <PayloadPreviewView preview={preview} />}
     </section>
   );
 }
@@ -175,7 +161,7 @@ export function runRows(run: RunView): Array<[string, ReactNode]> {
   for (const [outcome, n] of Object.entries(run.outcomes)) if (n > 0) rows.push([OUTCOME_LABEL[outcome] ?? outcome, count(n)]);
   if (paid) {
     rows.push(['Spent', money(run.spent, run.currency)]);
-    rows.push(['Projected', run.projected === null ? '—' : money(run.projected, run.currency)]);
+    if (run.projected !== null) rows.push(['Projected', money(run.projected, run.currency)]);
   }
   rows.push(['Started', shortDate(run.createdAt)]);
   return rows;

@@ -14,7 +14,7 @@ import { OrganizePanel } from './OrganizePage';
 import { InboxPanel } from './InboxPage';
 import { useInbox } from '../hooks/useNaming';
 import { GettingPanel } from './GettingPage';
-import { useModuleOn } from '../hooks/useFacets';
+import { useFacets } from '../hooks/useFacets';
 import { api } from '../services/api';
 import { PageShell, TabItem } from '../components/ui';
 import { ReviewPanel } from './QueuePage';
@@ -26,7 +26,7 @@ import { SettingsGenresContent } from './SettingsGenresPage';
 import { JobsPage } from './JobsPage';
 import { MaintenanceControl } from '../components/MaintenanceControl';
 import { identifyTodoCount } from './identifyCounts';
-import { allowedTab, workTabGate, workTabs, type WorkTab } from './workTabs';
+import { allowedTab, workModules, workTabGate, workTabs, type WorkTab } from './workTabs';
 
 interface QueueData {
   items: unknown[];
@@ -41,8 +41,11 @@ export function WorkPage() {
   const owner = useCan('system.manage');
   const editor = useCan('library.edit');
   // Getting and Autotagger show while their module is on (workTabs.ts)
-  const lidarrOn = useModuleOn('lidarr');
-  const autotaggerOn = useModuleOn('autotagger');
+  // GET /facets failed: every module counts as off, so the gate still redirects
+  const facets = useFacets();
+  const modules = workModules(facets.data?.modules, facets.isError);
+  const lidarrOn = modules['lidarr'] ?? null;
+  const autotaggerOn = modules['autotagger'] ?? null;
 
   // Fetch queue length for review tab count
   const { data: queueData } = useQuery({
@@ -87,7 +90,7 @@ export function WorkPage() {
   };
 
   // a tab mapped to a module that is off goes elsewhere (the modules rule)
-  const gate = workTabGate({ tab, search, owner, modules: { lidarr: lidarrOn, autotagger: autotaggerOn } });
+  const gate = workTabGate({ tab, search, owner, modules });
   if (gate && 'to' in gate) return <Navigate to={gate.to as never} search={gate.search as never} replace />;
   const activeTab = gate ? (tab as WorkTab) : allowedTab(tab, tabs);
 

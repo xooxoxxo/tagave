@@ -19,7 +19,7 @@ import { defaultStep, deciderReady, gateLabel, stepTiles, verdictForKey } from '
 import { ProvenanceLine } from '../../components/ProvenanceLine';
 import {
   ACCEPT_PREVIEW, AGREEMENT, BANDS, BANDS_CLOSED, BATCH_ACCEPTED, BATCH_DETAIL, BATCH_UNDONE, CHECK, CHECK_STALE, HAND_MATCH, LIBRARY_JEV, LIBRARY_LOCAL,
-  LIBRARY_NO_KEY, LIBRARY_NOT_SEEN, MODEL_MATCH, MODELS, MODULE, NO_MODELS, PAYLOAD, RULE_MATCH, RUN_DONE, RUN_RUNNING, runPaused,
+  LIBRARY_NO_KEY, LIBRARY_NOT_SEEN, MODEL_MATCH, MODELS, MODULE, NO_MODELS, RULE_MATCH, RUN_DONE, RUN_RUNNING, runPaused,
 } from '../../stories/autotaggerFixtures';
 
 const render = (el: ReactElement) => renderToStaticMarkup(el);
@@ -119,6 +119,10 @@ describe('the run step', () => {
     expect(owner).toContain('$1.84');
     expect(owner).toContain('$5.81');
     expect(button(owner, 'Cancel')).not.toBe('');
+    // no projection yet: no Projected row, and no dash in its place
+    const unprojected = render(<RunStepView run={{ ...RUN_RUNNING, projected: null }} ready={{ ready: true, blocker: null }} {...handlers} />);
+    expect(unprojected).not.toContain('Projected');
+    expect(unprojected).not.toContain('—');
     const editor = render(<RunStepView run={RUN_RUNNING} ready={{ ready: true, blocker: null }} {...handlers} owner={false} />);
     expect(button(editor, 'Cancel')).toBe('');
     expect(button(render(<RunStepView run={RUN_DONE} ready={{ ready: true, blocker: null }} {...handlers} owner={false} />), 'Run')).toBe('');
@@ -142,13 +146,22 @@ describe('the decider step', () => {
     expect(button(render(<DeciderStepView library={LIBRARY_LOCAL} models={MODELS} owner={false} onTrain={noop} />), 'Train again')).toBe('');
   });
 
-  it('Jev: the key by its hint, the payload and its Seen', () => {
-    const html = render(<DeciderStepView library={LIBRARY_NOT_SEEN} models={null} owner onTrain={noop} preview={PAYLOAD} previewOpen onSeen={noop} />);
+  it('a band with no error rate yet shows an empty cell, never a dash', () => {
+    const active = MODELS.active!;
+    const models = { ...MODELS, active: { ...active, metrics: { ...active.metrics, bands: active.metrics.bands.map((b) => ({ ...b, errorRate: null })) } } };
+    const html = render(<DeciderStepView library={LIBRARY_LOCAL} models={models} owner onTrain={noop} />);
+    expect(html).toContain('Error rate');
+    expect(html).not.toContain('—');
+  });
+
+  it('Jev: the key by its hint and whether the payload was seen, read only (the setup shows the payload)', () => {
+    const html = render(<DeciderStepView library={LIBRARY_NOT_SEEN} models={null} owner onTrain={noop} />);
     expect(html).toContain('••••9f2c');
     expect(html).toContain('Not seen');
-    expect(button(html, 'Seen')).not.toMatch(/disabled/);
     expect(html).toContain('jev-latest');
     expect(html).toContain('Jev key');
+    expect(button(html, 'Payload')).toBe('');
+    expect(button(html, 'Seen')).toBe('');
   });
 });
 

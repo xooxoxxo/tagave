@@ -91,8 +91,12 @@ export interface ModuleRowView {
   on: boolean;
   /** `switch`: its Off/On in the row; `page`: its state, switched on its own page */
   control: 'switch' | 'page';
-  /** where the module lives in the app, or nothing */
-  link: { label: string; to: string; search?: Record<string, string> } | null;
+  /**
+   * where the module lives in the app, or nothing: `label` names the place,
+   * never the module again (the row already shows its name); `ariaLabel`
+   * says whose place it is when the label alone does not
+   */
+  link: { label: string; to: string; search?: Record<string, string>; ariaLabel?: string } | null;
 }
 
 /** The modules whose Off/On is in their row: they have no page of their own. */
@@ -102,13 +106,14 @@ const SWITCHED_IN_ROW: ReadonlySet<string> = new Set(['autotagger', 'dj', 'liste
 const YOUR_PART: Readonly<Record<string, string>> = { dj: '/you/dj', 'listen-links': '/you/listen-elsewhere', mc: '/you/connections' };
 
 /**
- * A row's link: a module with a page of its own links it; the Autotagger
+ * A row's link: a module with a page of its own links it as Settings (its
+ * name is the row's already); the Autotagger
  * its setup in Library care and DJ, Listen elsewhere and Music Connections
  * Your settings, while on (a module that is off shows nowhere else);
  * Playlists and Similar artists nothing.
  */
 export function moduleLink(o: { id: string; slug: string; name: string; on: boolean; hasPage: boolean }): ModuleRowView['link'] {
-  if (o.hasPage) return { label: o.name, to: `/settings/modules/${o.slug}` };
+  if (o.hasPage) return { label: 'Settings', to: `/settings/modules/${o.slug}`, ariaLabel: `${o.name} settings` };
   if (!o.on) return null;
   if (o.id === 'autotagger') return { label: 'Set up in Library care', to: '/work', search: { tab: 'autotagger' } };
   const you = YOUR_PART[o.id];
@@ -142,7 +147,7 @@ export function ModulesListView({ rows, notice = null, switchFor = () => null }:
                 {r.control === 'switch' ? switchFor(r.slug) : <span className={styles.rowState} data-on={r.on || undefined}>{r.state}</span>}
               </div>
               {r.link && (
-                <Link to={r.link.to as never} {...(r.link.search ? { search: r.link.search as never } : {})} className={styles.rowLink}>
+                <Link to={r.link.to as never} {...(r.link.search ? { search: r.link.search as never } : {})} {...(r.link.ariaLabel ? { 'aria-label': r.link.ariaLabel } : {})} className={styles.rowLink}>
                   <span>{r.link.label}</span>
                   <span className={styles.chevron} aria-hidden="true"><ChevronRightIcon /></span>
                 </Link>

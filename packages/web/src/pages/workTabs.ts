@@ -63,6 +63,21 @@ export function allowedTab(tab: string | undefined, tabs: TabItem[]): WorkTab {
 /** A tab mapped to a module (by facet id). */
 export const TAB_MODULE: Readonly<Partial<Record<WorkTab, string>>> = { autotagger: 'autotagger', getting: 'lidarr' };
 
+/**
+ * The state of each tab's module from GET /facets (facet id → on; null while
+ * it loads). A failed GET counts every module as off, so a link to a module's
+ * tab still goes somewhere rather than waiting on an empty page.
+ */
+export function workModules(
+  modules: ReadonlyArray<{ id: string; enabled: boolean }> | undefined,
+  failed: boolean,
+): Record<string, boolean | null> {
+  return Object.fromEntries(Object.values(TAB_MODULE).map((id) => {
+    const m = modules?.find((x) => x.id === id);
+    return [id, m ? m.enabled : modules || failed ? false : null];
+  }));
+}
+
 export type WorkTabGate = { wait: true } | { to: '/settings/modules' | '/work'; search: Record<string, unknown> } | null;
 
 /**

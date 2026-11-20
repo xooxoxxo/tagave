@@ -20,7 +20,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type {
   AcceptPreview, AgreementView as Agreement, AutotaggerLibraryView, AutotaggerModuleView, BandId, BandRow, BatchDetail, BatchSummary, DeciderPrice, LocalModelsView,
-  PayloadPreview, RunView, SpotCheckItem,
+  RunView, SpotCheckItem,
 } from '@tagave/shared';
 import { DEFAULT_AUTOTAGGER_CONFIG } from '@tagave/shared';
 import { Button, confirmDialog } from '../../components/ui';
@@ -39,7 +39,7 @@ import { BandTableView, GatesPanelView } from './BandTable';
 import { AcceptBandDialogView } from './AcceptBandDialog';
 import { AgreementView } from './AgreementTables';
 import { AutotaggerSetupView } from './AutotaggerSetup';
-import { draftOf, patchOf, rebase, setupError, type SetupDraft } from './autotaggerDraft';
+import { draftOf, patchOf, rebase, setupError, stillBad, type SetupDraft } from './autotaggerDraft';
 import { BatchListView, RunListView } from './BatchList';
 import { Values } from './autotaggerParts';
 import { acceptableRun, deciderReady, defaultStep, stepTiles, type StartablePopulation, type StepId } from './autotaggerSteps';
@@ -65,10 +65,6 @@ export interface AutotaggerViewProps {
   onHistory: (open: boolean) => void;
   population: StartablePopulation;
   onPopulation: (p: StartablePopulation) => void;
-  preview?: PayloadPreview | null;
-  previewOpen?: boolean;
-  onTogglePreview?: () => void;
-  onSeen?: () => void;
   batches: BatchSummary[];
   batchDetail?: BatchDetail | null;
   onOpenBatch?: (batchId: string | null) => void;
@@ -87,7 +83,7 @@ export interface AutotaggerViewProps {
   onUndo: (batchId: string) => void;
   onPickRun: (runId: string) => void;
   pending?: {
-    run?: boolean; resume?: boolean; cancel?: boolean; train?: boolean; verdict?: boolean; draw?: BandId | null; accept?: boolean; seen?: boolean;
+    run?: boolean; resume?: boolean; cancel?: boolean; train?: boolean; verdict?: boolean; draw?: BandId | null; accept?: boolean;
     undo?: string | null; drain?: boolean;
   };
   error?: string | null;
@@ -138,11 +134,6 @@ export function AutotaggerView(p: AutotaggerViewProps) {
           owner={p.owner}
           training={!!pending.train}
           onTrain={p.onTrain}
-          preview={p.preview ?? null}
-          previewOpen={!!p.previewOpen}
-          {...(p.onTogglePreview ? { onTogglePreview: p.onTogglePreview } : {})}
-          {...(p.onSeen ? { onSeen: p.onSeen } : {})}
-          seenPending={!!pending.seen}
         />
       );
       break;
@@ -195,7 +186,7 @@ export function AutotaggerView(p: AutotaggerViewProps) {
       body = done && p.bands ? (
         accepting
           ? <BandTableView rows={p.bands} canAccept={p.owner} onDraw={p.onDraw} onAccept={p.onAcceptBand} drawing={pending.draw ?? null} />
-          : <Values rows={[['Accept', 'Never'], ['Population', p.run ? p.run.population === 'backtest' ? 'Backtest' : 'Measure' : '—']]} />
+          : <Values rows={[['Accept', 'Never'], ['Population', p.run?.population === 'backtest' ? 'Backtest' : 'Measure']]} />
       ) : <Values rows={[['Accept', 'Run first']]} />;
   }
 
@@ -259,11 +250,14 @@ export function AutotaggerPanel() {
   const saved = library.data ?? null;
   const [draft, setDraft] = useState<SetupDraft | null>(() => (saved ? draftOf(saved) : null));
   const [base, setBase] = useState<AutotaggerLibraryView | null>(saved);
-  if (saved !== base) {
-    setBase(saved);
-    setDraft((d) => (saved ? (d && base ? rebase(d, base, saved) : draftOf(saved)) : null));
-  }
+  // the field Save flagged: cleared once that field changes, by the person or by a rebase
   const [bad, setBad] = useState<keyof SetupDraft | null>(null);
+  if (saved !== base) {
+    const next = saved ? (draft && base ? rebase(draft, base, saved) : draftOf(saved)) : null;
+    setBase(saved);
+    setDraft(next);
+    setBad(stillBad(bad, draft, next));
+  }
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [setupErr, setSetupErr] = useState<string | null>(null);
   const [savedNow, setSavedNow] = useState(false);
@@ -307,7 +301,7 @@ export function AutotaggerPanel() {
       title: 'Undo this batch?',
       message: (
         <>
-          <p>{`Albums · ${b ? b.counts.accepted : '—'}`}</p>
+          {b && <p>{`Albums · ${b.counts.accepted}`}</p>}
           {cannot && <p>{`Cannot be undone · ${cannot.join(', ')}`}</p>}
         </>
       ),
@@ -335,6 +329,7 @@ export function AutotaggerPanel() {
   /** The key (fresh step-up), Set, Replace or Forget; the draft is rebased, not reset. */
   const onKey = async (key: string | null) => {
     setSetupErr(null);
+    setSavedNow(false);
     try {
       await stepUp(key === null ? 'Forgetting the key' : 'Setting the key', () => setKey.mutateAsync(key));
     } catch (e) {
@@ -344,6 +339,7 @@ export function AutotaggerPanel() {
   /** A price, Add or Remove: its own instant action, never Save's and never the draft's. */
   const priceAction = async (fn: () => Promise<unknown>) => {
     setSetupErr(null);
+    setSavedNow(false);
     try {
       await fn();
     } catch (e) {
@@ -357,7 +353,7 @@ export function AutotaggerPanel() {
       module={mod.data}
       models={models.data ?? null}
       draft={draft}
-      onDraft={(d) => { setDraft(d); setSavedNow(false); }}
+      onDraft={(d) => { setBad(stillBad(bad, draft, d)); setDraft(d); setSavedNow(false); }}
       bad={bad}
       onSave={() => void onSave()}
       onKey={(k) => void onKey(k)}
@@ -420,7 +416,7 @@ export function AutotaggerPanel() {
         onPickRun={(id) => { setRunId(id); setStep(null); setAnswered(new Set()); }}
         pending={{
           run: start.isPending, resume: resume.isPending, cancel: cancel.isPending, train: train.isPending, verdict: false,
-          draw: draw.isPending ? draw.variables?.band ?? null : null, accept: accept.isPending, seen: seen.isPending,
+          draw: draw.isPending ? draw.variables?.band ?? null : null, accept: accept.isPending,
           undo: undo.isPending ? undo.variables ?? null : null, drain: pace.isPending,
         }}
         error={error}

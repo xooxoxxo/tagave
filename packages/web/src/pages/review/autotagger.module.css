@@ -109,9 +109,11 @@
 
 .setup { display: flex; flex-direction: column; gap: var(--space-lg); min-width: 0; }
 
-/* a row's controls: inputs, their unit, their buttons; wraps on a phone */
+/* a row's controls: inputs, their unit, their buttons; wraps on a phone.
+   It takes the room the label leaves (basis 0), so the label never wraps. */
 .inlineRow {
   display: flex;
+  flex: 1 1 0;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
@@ -119,9 +121,16 @@
   min-width: 0;
   padding-block: var(--space-xs);
 }
-.inlineRow > input { width: 9rem; min-width: 0; }
-.inlineRow > input.short { width: 4.5rem; text-transform: uppercase; }
-.inlineRow > input.wide { width: 12rem; }
+.inlineRow > input,
+.pair > input { width: 9rem; min-width: 0; }
+.inlineRow > input.short,
+.pair > input.short { width: 4.5rem; text-transform: uppercase; }
+.inlineRow > input.wide { width: 12rem; max-width: 100%; }
+/* an amount and its currency: one item, never split over two lines */
+.pair { display: inline-flex; align-items: center; gap: var(--space-xs); min-width: 0; }
+/* the Decider's two choices, each on one line */
+.choice { display: flex; justify-content: flex-end; min-width: 0; }
+.choice label { white-space: nowrap; }
 .rowValue { color: var(--ink-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
 /* a unit after its input: quiet, never part of the label */
@@ -352,4 +361,8 @@
   .figures td { padding-right: var(--space-xs); }
   .inlineRow { justify-content: flex-start; }
   .fieldError { text-align: left; }
+  .pair > input:not(.short) { width: 6.5rem; }
+  /* the Decider's row: its label, then the two choices on a line of their own */
+  .setup :has(> .choice) { flex-wrap: wrap; row-gap: var(--space-xs); padding-block: var(--space-sm); }
+  .choice { flex-basis: 100%; justify-content: flex-start; }
 }

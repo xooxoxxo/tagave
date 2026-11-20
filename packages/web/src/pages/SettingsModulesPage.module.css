@@ -62,5 +62,5 @@
 /* A module's page: Off | On first, its values under it. */
 .switch { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-xs); min-width: 0; }
 .switchLabel { font-size: var(--font-size-sm); font-weight: 500; color: var(--ink); }
-/* a second part of the page (the row to the person's part in Your settings): the rhythm of Appearance › Maintenance */
+/* a second part of the page (the row to the person's part in Your settings), spaced like Settings' .modeSetting */
 .part { margin-top: var(--space-xl); }

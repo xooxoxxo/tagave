@@ -39,7 +39,7 @@
   }
 }
 
-/* Appearance › Maintenance */
+/* a second part of a section, below the first (e.g. Status › Storage, Appearance › Sidebar) */
 .modeSetting { margin-top: var(--space-xl); }
 .widgetSettings { display: grid; justify-items: start; gap: var(--space-sm); }
 .widgetChoices { width: min(100%, 32rem); border-block: 1px solid var(--line); }
