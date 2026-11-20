@@ -32,7 +32,8 @@ export function YouPage() {
   const modules = useYouModules();
   const owner = useCan('system.manage');
   const visible = youNav(modules);
-  const parts = useLocation().pathname.split('/');
+  const location = useLocation();
+  const parts = location.pathname.split('/');
   // an unknown section opens the first listed one (as Settings does)
   const known = YOU_SECTIONS.find((s) => s.value === parts[2]);
   const current: YouSection = known ?? visible[0] ?? YOU_SECTIONS[0]!;
@@ -43,7 +44,8 @@ export function YouPage() {
   usePhoneSubpage(view === 'section' ? current.label : null, parent !== section ? `/you/${parent}` : '/you');
   // a module section: off goes to Account; while it loads, its heading alone
   const gate = youGate(section, modules);
-  if (gate === '/you/account') return <Navigate to="/you/$section" params={{ section: 'account' }} replace />;
+  // the query goes along (a Connections or Last.fm return: ?linked=, ?error=, ?lastfm=)
+  if (gate === '/you/account') return <Navigate to="/you/$section" params={{ section: 'account' }} search={location.search as never} hash={location.hash} replace />;
   return <PageShell title="Your settings" sticky>
     <YouLayout view={view} items={visible} current={parent}>
       {gate === 'wait' ? <h2>{current.label}</h2> : <>

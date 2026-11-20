@@ -75,7 +75,8 @@ export function SettingsPage() {
   const searchable = visible.length > 1;
   const hits = searchSettings(searchable ? query : '', visible);
   const facets = useFacets();
-  const modules = moduleStates(facets.data ? Object.fromEntries(facets.data.modules.map((m) => [m.id, m.enabled])) : null);
+  // GET /facets failed: every module counts as off, so a module row's address still goes somewhere
+  const modules = moduleStates(facets.data ? Object.fromEntries(facets.data.modules.map((m) => [m.id, m.enabled])) : facets.isError ? {} : null);
   const moved = role && redirectFor(location.pathname, location.search as Record<string, unknown>, { owner: can(role, 'system.manage'), hasSettings: visible.length > 0, editor: can(role, 'library.edit'), modules });
   if (moved) return <Navigate to={moved.to as never} search={moved.search as never} hash={location.hash} replace />;
   // a module row's address, its module still loading: nothing yet

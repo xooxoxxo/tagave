@@ -35,7 +35,7 @@ import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
 import { parseArtistsSearch } from './pages/artistsView';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
-import { redirectFor } from './routing/redirects';
+import { redirectFor, WORK_OTHERWISE } from './routing/redirects';
 import { parseWorkSearch } from './pages/workTabs';
 
 /**
@@ -219,7 +219,9 @@ const albumDetailRoute = new Route({
 const workRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/work',
-  component: guarded('library.edit', WorkPage),
+  // a role without library.edit that follows an old link here (/jobs,
+  // Genre mapping) goes to Your settings, never Not available
+  component: guarded('library.edit', WorkPage, WORK_OTHERWISE),
   validateSearch: (search: Record<string, unknown>) => parseWorkSearch(search),
 });
 
@@ -257,7 +259,8 @@ const settingsModuleRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/modules/$module',
   component: SettingsPage,
-  // a Music Connections or Last.fm return goes to Your settings
+  // a switch-only module page goes to Modules; a Music Connections or
+  // Last.fm return to Your settings (routing/redirects.ts)
   beforeLoad: redirectMoved,
 });
 
