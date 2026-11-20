@@ -138,7 +138,7 @@ describe('page shells', () => {
     expect(layout).not.toMatch(/sidebarDock|sidebarEdge/);
     expect(tsx.match(/<aside/g)).toHaveLength(1);
     expect(tsx).toMatch(/useSidebarPeek\(navRef/);
-    expect(source('./SettingsPage.tsx')).toMatch(/label="Sidebar"[^\n]*label: 'Always'[^\n]*label: 'Auto-hide'/);
+    expect(source('./YouAppearance.tsx')).toMatch(/label="Sidebar"[^\n]*label: 'Always'[^\n]*label: 'Auto-hide'/);
     // the sidebar scrolls as one column, nothing held at its foot
     expect(rule(read('../components/Layout.module.css'), '.nav')).toMatch(/overflow-y: auto/);
   });

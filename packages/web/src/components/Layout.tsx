@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useRouter } from '@tanstack/react-router';
-import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan } from '../hooks';
+import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan, useRole } from '../hooks';
 import { SearchModal, type SearchScope } from './SearchModal';
 import { pageSearchScope } from '../utils/pageSearch';
 import { IconButton } from './ui';
 import { IdentityRow } from './IdentityRow';
 import { identityDot, sidebarNav } from './navModel';
+import { settingsNav } from '../pages/settingsSections';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
@@ -73,6 +74,8 @@ export function Layout() {
   // library care, tag changes or install settings, so none of it is asked for.
   const canCare = useCan('library.edit');
   const canSystem = useCan('system.manage');
+  // the person menu lists Settings for anyone with a server section of theirs
+  const hasSettings = settingsNav(useRole()).length > 0;
   const playlistsOn = usePlaylistsOn();
   const booksOn = useBooksOn();
   const likesOn = useLikesOn();
@@ -242,7 +245,7 @@ export function Layout() {
           email={user.email}
           showWordmark={showWordmark}
           {...(beside ? { search: sideSearch } : {})}
-          canCare={canCare}
+          hasSettings={hasSettings}
           dot={dot}
           onNavigate={(to) => void navigate({ to: to as never })}
           signingOut={logout.isPending}

@@ -24,15 +24,17 @@ const noop = () => undefined;
 export interface FramePerson {
   name: string;
   email: string;
-  /** library.edit: the Care group and the Settings item */
+  /** library.edit: the Care group */
   canCare: boolean;
+  /** a Settings section is theirs (settingsNav): the menu's Settings item */
+  hasSettings: boolean;
   /** system.manage: the update dot is theirs */
   owner: boolean;
   updateAvailable?: boolean;
   taskCount?: number;
 }
 
-export const OWNER: FramePerson = { name: 'Robin', email: 'robin@example.com', canCare: true, owner: true };
+export const OWNER: FramePerson = { name: 'Robin', email: 'robin@example.com', canCare: true, hasSettings: true, owner: true };
 
 export function DesktopFrame({
   children, dock, empty = false, sidebar: pref = 'always', pinned: startPinned = false, revealed = false,
@@ -122,7 +124,7 @@ export function DesktopFrame({
               email={person.email}
               showWordmark={showWordmark}
               {...(beside ? { search: searchKey(layout.sideSearch ?? '') } : {})}
-              canCare={person.canCare}
+              hasSettings={person.hasSettings}
               dot={dot}
               onNavigate={noop}
               onSignOut={noop}

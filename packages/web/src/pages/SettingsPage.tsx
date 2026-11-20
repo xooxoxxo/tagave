@@ -1,12 +1,9 @@
-import { useLayoutEffect, useRef } from 'react';
-import { Link, useLocation } from '@tanstack/react-router';
+import { useLocation } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { useUpdateAvailable } from '../hooks/useUpdates';
-import { UpdateDot } from '../components/UpdateDot';
-import { Button, PageShell, SegmentedControl, Select, ThemeSwitch } from '../components/ui';
-import { useMaintenance } from '../maintenance';
-import { useDisplayPrefs } from '../displayPrefs';
-import { ALBUM_WIDGETS, DEFAULT_ALBUM_WIDGETS, type WidgetPlacement } from './albumWidgets';
+import { PageShell } from '../components/ui';
+import { SectionNav } from '../components/settings/SectionNav';
+import { YouAppearance } from './YouAppearance';
 import { usePhoneSubpage } from '../components/appBarTitle';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
 import { NamingSettings } from '../components/naming/NamingSettings';
@@ -28,7 +25,7 @@ import { SystemStatus } from './Settings/SystemStatus';
 import { SettingsUsersPage } from './SettingsUsersPage';
 import { SignInService } from '../components/users/SignInService';
 import { SettingsAccountPage } from './SettingsAccountPage';
-import { CUSTOM_THEME_SECTION, CustomThemeScreen, ThemeSetting } from '../themes/ThemeSetting';
+import { CUSTOM_THEME_SECTION, CustomThemeScreen } from '../themes/ThemeSetting';
 import { NotAvailable } from '../components/access/NotAvailable';
 import { useRole } from '../hooks/usePermissions';
 import { can, type Permission } from '@tagave/shared';
@@ -105,14 +102,17 @@ export function SettingsPage() {
   const parent = section === CUSTOM_THEME_SECTION ? 'appearance' : section;
   const nested = parent !== section || moduleSlug !== null;
   usePhoneSubpage(view === 'section' ? moduleName ?? known?.label ?? null : null, nested ? `/settings/${parent}` : '/settings');
-  const navRef = useActiveInView<HTMLElement>(parent);
   const { libraryId } = useCurrentLibrary();
   // the release feed is the owner's: nobody else is asked about it
   const updateAvailable = useUpdateAvailable(can(role, 'system.manage') ? libraryId : undefined);
-  const canMaintain = can(role, 'library.edit');
   return <PageShell title="Settings" sticky>
     <div className={styles.layout} data-view={view}>
-      <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{visible.map((item, i) => <div key={item.value}>{item.group !== visible[i - 1]?.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === parent ? styles.activeSection : styles.sectionLink} aria-current={item.value === parent ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
+      <SectionNav
+        className={styles.sectionNav}
+        label="Settings sections"
+        items={visible.map((item) => ({ value: item.value, label: item.label, group: item.group, to: `/settings/${item.value}`, dot: item.value === 'updates' && !!updateAvailable }))}
+        current={parent}
+      />
       <div className={styles.content}>
         {!allowed ? <NotAvailable inline /> : <>
         {section === 'library' && <><SettingsScanRootsContent /><NamingSettings /><DropPoolSettings /></>}
@@ -120,7 +120,7 @@ export function SettingsPage() {
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
-        {section === 'appearance' && <><h2>Appearance</h2><ThemeSwitch /><ThemeSetting headingClassName={styles.modeSetting} />{canMaintain && <MaintenanceSetting />}<DisplaySettings /></>}
+        {section === 'appearance' && <><h2>Appearance</h2><YouAppearance /></>}
         {section === CUSTOM_THEME_SECTION && <><h2>Custom theme</h2><CustomThemeScreen /></>}
         {section === 'users' && <><h2>Users</h2><SettingsUsersPage /><SignInService headingClassName={styles.modeSetting} /></>}
         {section === 'account' && <><h2>Account</h2><SettingsAccountPage /></>}
@@ -137,86 +137,4 @@ export function SettingsPage() {
       </div>
     </div>
   </PageShell>;
-}
-
-/**
- * The section list stays put while a section scrolls, and scrolls on its own
- * when it is taller than the pane: the current section is brought into it.
- */
-function useActiveInView<T extends HTMLElement>(key: string) {
-  const ref = useRef<T>(null);
-  useLayoutEffect(() => {
-    const nav = ref.current;
-    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (!nav || !active || nav.scrollHeight <= nav.clientHeight) return;
-    const top = active.offsetTop;
-    const bottom = top + active.offsetHeight;
-    if (top < nav.scrollTop) nav.scrollTop = top;
-    else if (bottom > nav.scrollTop + nav.clientHeight) nav.scrollTop = bottom - nav.clientHeight;
-  }, [key]);
-  return ref;
-}
-
-/**
- * Maintenance: curation tools (match state, provider links, library issues,
- * the Manage menu) show only while it is on. The same switch sits in the
- * app bar (Shift+M).
- */
-function MaintenanceSetting() {
-  const [on, setOn] = useMaintenance();
-  // Same heading level and rhythm as Appearance above: siblings in the
-  // section's column, so the gap above the control matches too.
-  return <>
-    <h2 className={styles.modeSetting}>Maintenance</h2>
-    
-    <SegmentedControl label="Maintenance" value={on ? 'on' : 'off'} onChange={(v) => setOn(v === 'on')} options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]} />
-  </>;
-}
-
-
-/**
- * Sidebar, album and artist display: whether the desktop sidebar stays or
- * hides (Auto-hide, components/sidebarPeek.ts), where the search sits, the wordmark,
- * the artwork under short albums, and the artist page's layout. Each is its own setting with the same rhythm
- * as Maintenance above.
- */
-function DisplaySettings() {
-  const [prefs, setPrefs] = useDisplayPrefs();
-  return <>
-    <h2 className={styles.modeSetting}>Sidebar</h2>
-    <SegmentedControl label="Sidebar" value={prefs.sidebarAutoHide ? 'autoHide' : 'always'} onChange={(v) => setPrefs({ sidebarAutoHide: v === 'autoHide' })} options={[{ value: 'always', label: 'Always' }, { value: 'autoHide', label: 'Auto-hide' }]} />
-    <h2 className={styles.modeSetting}>Search box</h2>
-    
-    <SegmentedControl label="Search box" value={prefs.searchPlacement} onChange={(v) => setPrefs({ searchPlacement: v })} options={[{ value: 'below', label: 'Below' }, { value: 'beside', label: 'Beside' }]} />
-    <h2 className={styles.modeSetting}>Wordmark</h2>
-    
-    <SegmentedControl label="Wordmark" value={prefs.showWordmark ? 'shown' : 'hidden'} onChange={(v) => setPrefs({ showWordmark: v === 'shown' })} options={[{ value: 'shown', label: 'Shown' }, { value: 'hidden', label: 'Hidden' }]} />
-    <h2 className={styles.modeSetting}>Short albums</h2>
-    
-    <SegmentedControl label="Short album artwork" value={prefs.shortAlbumArt ? prefs.shortAlbumWaves ? 'waves' : 'still' : 'off'}
-      onChange={(v) => setPrefs({ shortAlbumArt: v !== 'off', shortAlbumWaves: v === 'waves' })}
-      options={[{ value: 'still', label: 'Still' }, { value: 'waves', label: 'Waves' }, { value: 'off', label: 'Off' }]} />
-    <section id="album-widgets" aria-labelledby="album-widgets-title" className={styles.widgetSettings}>
-      <h2 id="album-widgets-title" className={styles.modeSetting}>Album header</h2>
-      <div className={styles.widgetChoices}>
-        {ALBUM_WIDGETS.map(({ id, label }) => <label key={id}>
-          <span>{label}</span>
-          <Select dense value={prefs.albumWidgets[id]} onChange={(event) => setPrefs({
-            albumWidgets: { ...prefs.albumWidgets, [id]: event.target.value as WidgetPlacement },
-          })}>
-            <option value="above">Above the title</option>
-            <option value="below">Below the artist</option>
-            <option value="hidden">Hidden</option>
-          </Select>
-        </label>)}
-      </div>
-      <Button variant="quiet" size="sm" onClick={() => setPrefs({ albumWidgets: DEFAULT_ALBUM_WIDGETS })}>Restore defaults</Button>
-    </section>
-    <h2 className={styles.modeSetting}>Artist page</h2>
-    
-    <SegmentedControl label="Artist page" value={prefs.artistLayout} onChange={(v) => setPrefs({ artistLayout: v })} options={[{ value: 'name', label: 'Name first' }, { value: 'albums', label: 'Like albums' }]} />
-    <h2 className={styles.modeSetting}>Equalizer glow</h2>
-    
-    <SegmentedControl label="Equalizer glow" value={prefs.eqGlow ? 'on' : 'off'} onChange={(v) => setPrefs({ eqGlow: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
-  </>;
 }

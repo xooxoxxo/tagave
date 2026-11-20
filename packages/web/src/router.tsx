@@ -20,6 +20,7 @@ const PlansPage = lazyRouteComponent(() => import('./pages/PlansPage'), 'PlansPa
 const PlanPage = lazyRouteComponent(() => import('./pages/PlanPage'), 'PlanPage');
 const WorkPage = lazyRouteComponent(() => import('./pages/WorkPage'), 'WorkPage');
 const SettingsPage = lazyRouteComponent(() => import('./pages/SettingsPage'), 'SettingsPage');
+const YouPage = lazyRouteComponent(() => import('./pages/YouPage'), 'YouPage');
 const InvitePage = lazyRouteComponent(() => import('./pages/InvitePage'), 'InvitePage');
 const OidcDonePage = lazyRouteComponent(() => import('./pages/OidcDonePage'), 'OidcDonePage');
 const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
@@ -244,6 +245,19 @@ const settingsSectionRoute = new Route({
     typeof search['job'] === 'string' && search['job'] ? { job: search['job'] } : {},
 });
 
+// Your settings (spec §2): the person's own, at /you/<section>
+const youRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/you',
+  component: YouPage,
+});
+
+const youSectionRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/you/$section',
+  component: YouPage,
+});
+
 // Settings › Modules › <module> (moduleSettings.ts): each module's own page
 const settingsModuleRoute = new Route({
   getParentRoute: () => layoutRoute,
@@ -382,6 +396,8 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
     settingsSectionRoute,
     settingsModuleRoute,
+    youRoute,
+    youSectionRoute,
     ...movedSectionRedirects,
     settingsLibraryRoute,
     settingsSystemRoute,

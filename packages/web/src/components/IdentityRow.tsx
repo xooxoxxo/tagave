@@ -2,7 +2,7 @@
  * The top of the sidebar: the mark (it leads home), the "tagave" wordmark
  * when the Appearance pref shows it, search when it sits beside, and the
  * person's monogram. The monogram opens one menu: Your settings, Settings
- * (for those who look after the library) and Sign out. The owner's update
+ * (for anyone with a server section) and Sign out. The owner's update
  * dot sits on the monogram. Replaces the brand row and both account pieces
  * (spec §1).
  */
@@ -19,7 +19,8 @@ export interface IdentityRowProps {
   showWordmark: boolean;
   /** search, when it sits in this row (between the wordmark and the monogram) */
   search?: ReactNode;
-  canCare: boolean;
+  /** at least one Settings section is theirs (settingsNav) */
+  hasSettings: boolean;
   /** the monogram's dot as words (identityDot), or null for none */
   dot: string | null;
   onNavigate: (to: string) => void;
@@ -29,7 +30,7 @@ export interface IdentityRowProps {
   signOutFailed?: boolean;
 }
 
-export function IdentityRow({ name, email, showWordmark, search, canCare, dot, onNavigate, onSignOut, signingOut = false, signOutFailed = false }: IdentityRowProps) {
+export function IdentityRow({ name, email, showWordmark, search, hasSettings, dot, onNavigate, onSignOut, signingOut = false, signOutFailed = false }: IdentityRowProps) {
   const shown = name.trim() || email;
   // a plain press stays in the app; a modified or middle press is the browser's
   const home = (e: MouseEvent<HTMLAnchorElement>) => {
@@ -37,7 +38,7 @@ export function IdentityRow({ name, email, showWordmark, search, canCare, dot, o
     e.preventDefault();
     onNavigate('/');
   };
-  const items: MenuItem[] = identityMenu({ canCare }).map((item) =>
+  const items: MenuItem[] = identityMenu({ hasSettings }).map((item) =>
     item.key === 'signout'
       ? { key: item.key, label: signingOut ? 'Signing out' : item.label, disabled: signingOut, separated: true, onSelect: onSignOut }
       : { key: item.key, label: item.label, onSelect: () => item.to && onNavigate(item.to) },

@@ -6,7 +6,8 @@
  *   their module is on.
  * - Care, for those who look after the library (`library.edit`): Library
  *   care (with its open tasks) and Tag changes. A listener gets none.
- * - The person menu: Your settings, Settings (only with Care), Sign out.
+ * - The person menu: Your settings, Settings (only with a server section,
+ *   settingsSections.ts), Sign out.
  */
 import { pageTitles } from '../utils/pageTitles';
 
@@ -63,11 +64,11 @@ export function sidebarNav(o: { pathname: string; canCare: boolean; taskCount: n
 
 export type IdentityItem = { key: 'you' | 'settings' | 'signout'; label: string; to?: string };
 
-/** The person menu. PR 2 points `you` at `/you` and shows `settings` to anyone with a server section. */
-export function identityMenu(o: { canCare: boolean }): IdentityItem[] {
+/** The person menu: `settings` for anyone with a server section (`settingsNav(role).length > 0`). */
+export function identityMenu(o: { hasSettings: boolean }): IdentityItem[] {
   return [
-    { key: 'you', label: 'Your settings', to: '/settings/account' },
-    ...(o.canCare ? [{ key: 'settings' as const, label: pageTitles['/settings'], to: '/settings' }] : []),
+    { key: 'you', label: pageTitles['/you'], to: '/you' },
+    ...(o.hasSettings ? [{ key: 'settings' as const, label: pageTitles['/settings'], to: '/settings' }] : []),
     { key: 'signout', label: 'Sign out' },
   ];
 }
