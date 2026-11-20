@@ -21,9 +21,25 @@ describe('Your settings', () => {
     const tsx = source('./YouPage.tsx');
     const account = tsx.slice(tsx.indexOf("section === 'account'"));
     const branch = account.slice(0, account.indexOf('\n'));
-    expect(branch).toMatch(/<SettingsAccountPage \/>/);
-    expect(branch).toMatch(/<h2[^>]*>Security<\/h2><SettingsSecurityPage \/>/);
+    expect(branch).toMatch(/<SettingsAccountPage \/><SettingsSecurityPage \/>/);
     expect(tsx).not.toMatch(/'security'/);
+  });
+
+  it("one h2 per section, the frame's", () => {
+    const tsx = source('./YouPage.tsx');
+    expect(tsx.match(/<h2/g)).toHaveLength(1);
+    expect(tsx).toContain('<h2>{current.label}</h2>');
+    for (const file of ['./YouAppearance.tsx', './SettingsAccountPage.tsx', './SettingsSecurityPage.tsx', '../themes/ThemeSetting.tsx']) {
+      const body = source(file);
+      expect(body, file).not.toMatch(/<h2/);
+      expect(body, file).not.toContain('modeSetting');
+    }
+  });
+
+  it('the phone hides the section heading with one rule', () => {
+    const css = source('./SettingsPage.module.css');
+    expect(css).toContain('.layout[data-view="section"] > .content > h2:first-child');
+    expect(css).not.toMatch(/div:first-child > h2/);
   });
 
   it('Appearance has no Maintenance', () => {

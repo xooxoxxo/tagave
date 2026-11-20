@@ -6,8 +6,11 @@
  * goes to Account, replacing it (the modules rule: an off module shows
  * nowhere outside Settings › Modules, so never an Off value or Not
  * available); while the module loads the section shows its heading alone.
- * Same layout as Settings: two panes on a desktop; on a phone /you is the
- * list and each section a page of its own.
+ * The section's one h2 (its nav label) is the frame's: the pages render
+ * groups (SettingsGroup) under it, never a heading of their own; Account's
+ * Security groups follow its Account groups. Same layout as Settings: two
+ * panes on a desktop; on a phone /you is the list and each section a page
+ * of its own.
  */
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from '@tanstack/react-router';
@@ -48,14 +51,15 @@ export function YouPage() {
   if (gate === '/you/account') return <Navigate to="/you/$section" params={{ section: 'account' }} search={location.search as never} hash={location.hash} replace />;
   return <PageShell title="Your settings" sticky>
     <YouLayout view={view} items={visible} current={parent}>
-      {gate === 'wait' ? <h2>{current.label}</h2> : <>
-        {section === 'account' && <><h2>Account</h2><SettingsAccountPage /><h2 className={styles.modeSetting}>Security</h2><SettingsSecurityPage /></>}
-        {section === 'appearance' && <><h2>Appearance</h2><YouAppearance /></>}
-        {section === 'custom-theme' && <><h2>Custom theme</h2><CustomThemeScreen /></>}
-        {section === 'listening' && <><h2>Listening</h2><SettingsListeningContent heading={false} />{owner && <PlayerServerRow />}</>}
-        {section === 'dj' && <><h2>DJ</h2><SettingsDjContent /></>}
-        {section === 'listen-elsewhere' && <><h2>Listen elsewhere</h2><SettingsListenElsewhereContent heading={false} /></>}
-        {section === 'connections' && <><h2>Connections</h2><SettingsConnectionsContent heading={false} /></>}
+      <h2>{current.label}</h2>
+      {gate !== 'wait' && <>
+        {section === 'account' && <><SettingsAccountPage /><SettingsSecurityPage /></>}
+        {section === 'appearance' && <YouAppearance />}
+        {section === 'custom-theme' && <CustomThemeScreen />}
+        {section === 'listening' && <><SettingsListeningContent heading={false} />{owner && <PlayerServerRow />}</>}
+        {section === 'dj' && <SettingsDjContent />}
+        {section === 'listen-elsewhere' && <SettingsListenElsewhereContent heading={false} />}
+        {section === 'connections' && <SettingsConnectionsContent heading={false} />}
       </>}
     </YouLayout>
   </PageShell>;

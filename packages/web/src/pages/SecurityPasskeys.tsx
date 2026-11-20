@@ -1,10 +1,10 @@
 /**
- * Your settings › Account › Passkeys and security keys: the list (name, model,
- * synced or device-bound, added), add a passkey or a security key, rename,
- * remove.
+ * Your settings › Account › Passkeys and security keys: a group with a row per
+ * key (name; model, synced or device-bound, added), add a passkey or a
+ * security key under it, rename, remove.
  */
 import { useState } from 'react';
-import { Banner, Button, TextField, confirmDialog } from '../components/ui';
+import { Banner, Button, Input, SaveStatus, SettingsGroup, SettingsRow, confirmDialog } from '../components/ui';
 import { useRefreshSecurity } from '../hooks/useSecurity';
 import { addPasskey, deletePasskey, renamePasskey, type PasskeyKind } from '../services/passkeys';
 import { signInErrorMessage } from './loginErrors';
@@ -45,7 +45,7 @@ export function AddPasskeyButtons({ onAdded, disabled }: { onAdded: () => void |
 
 export function PasskeysSection({ data }: { data: SecurityStatus }) {
   const refresh = useRefreshSecurity();
-  const problem = passkeyProblem(data.config, window.location.origin);
+  const problem = passkeyProblem(data.config, typeof window === 'undefined' ? data.config.publicUrl : window.location.origin);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -66,8 +66,8 @@ export function PasskeysSection({ data }: { data: SecurityStatus }) {
     await refresh();
   };
 
-  const saveName = async (e: React.FormEvent, id: string) => {
-    e.preventDefault();
+  const saveName = async (id: string) => {
+    if (!name.trim()) return;
     const res = await renamePasskey(id, name.trim());
     if (!res.ok) {
       setError(signInErrorMessage(res.error));
@@ -78,45 +78,41 @@ export function PasskeysSection({ data }: { data: SecurityStatus }) {
   };
 
   return (
-    <section className={styles.section} aria-labelledby="security-passkeys">
-      <div className={styles.head}>
-        <h3 id="security-passkeys" className={styles.title}>Passkeys and security keys</h3>
-      </div>
-
-      {problem && <Banner tone="warning">{problem}</Banner>}
-      {data.passkeys.length > 0 && (
-        <ul className={styles.list}>
-          {data.passkeys.map((p) => (
-            <li key={p.id} className={styles.item}>
-              {renaming === p.id ? (
-                <form className={styles.form} onSubmit={(e) => void saveName(e, p.id)}>
-                  <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus maxLength={60} />
-                  <div className={styles.actions}>
-                    <Button type="submit" size="sm" disabled={!name.trim()}>Save</Button>
-                    <Button type="button" size="sm" variant="quiet" onClick={() => setRenaming(null)}>Cancel</Button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <div>
-                    <strong>{passkeyLabel(p)}</strong>
-                    <div className={styles.muted}>
-                      {passkeyKind(p)}
-                      {p.createdAt ? ` · ${shortDate(p.createdAt, { time: false })}` : ''}
-                    </div>
-                  </div>
-                  <div className={styles.actions}>
-                    <Button variant="quiet" size="sm" onClick={() => { setRenaming(p.id); setName(passkeyLabel(p)); }}>Rename</Button>
-                    <Button variant="quiet-danger" size="sm" onClick={() => void remove(p)}>Remove</Button>
-                  </div>
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {error && <Banner tone="danger">{error}</Banner>}
-      <AddPasskeyButtons onAdded={refresh} disabled={Boolean(problem)} />
-    </section>
+    <SettingsGroup
+      title="Passkeys and security keys"
+      status={error ? <SaveStatus state="failed" detail={error} /> : null}
+      after={<>
+        {problem && <Banner tone="warning">{problem}</Banner>}
+        <AddPasskeyButtons onAdded={refresh} disabled={Boolean(problem)} />
+      </>}
+    >
+      {data.passkeys.length === 0 && <SettingsRow as="div" label="Passkeys" value={<span className={styles.value}>None</span>} />}
+      {data.passkeys.map((p) => renaming === p.id ? (
+        // a row, not a form (a form between rows would break their dividers): Enter saves
+        <SettingsRow key={p.id} as="div" label="Name">
+          <span className={styles.actions}>
+            <Input
+              dense className={styles.field} aria-label="Name" value={name} autoFocus maxLength={60}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveName(p.id); } }}
+            />
+            <Button size="sm" disabled={!name.trim()} onClick={() => void saveName(p.id)}>Save</Button>
+            <Button size="sm" variant="quiet" onClick={() => setRenaming(null)}>Cancel</Button>
+          </span>
+        </SettingsRow>
+      ) : (
+        <SettingsRow
+          key={p.id}
+          as="div"
+          label={passkeyLabel(p)}
+          value={<span className={styles.value}>{passkeyKind(p)}{p.createdAt ? ` · ${shortDate(p.createdAt, { time: false })}` : ''}</span>}
+        >
+          <span className={styles.actions}>
+            <Button variant="quiet" size="sm" onClick={() => { setRenaming(p.id); setName(passkeyLabel(p)); }}>Rename</Button>
+            <Button variant="quiet-danger" size="sm" onClick={() => void remove(p)}>Remove</Button>
+          </span>
+        </SettingsRow>
+      ))}
+    </SettingsGroup>
   );
 }

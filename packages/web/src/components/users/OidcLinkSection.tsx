@@ -1,12 +1,13 @@
 /**
- * Your settings › Account: this person's link to the login service. Linking is
+ * Your settings › Account: this person's link to the login service, a group
+ * named after the service with one row, Linked or Not linked. Linking is
  * explicit (never by a matching email) and asks for a fresh confirmation
  * first; unlinking is refused while it is the only way in.
  */
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { OidcLinkView } from '@tagave/shared';
-import { Badge, Banner, Button, confirmDialog } from '../ui';
+import { Button, SaveStatus, SettingsGroup, SettingsRow, confirmDialog } from '../ui';
 import { OIDC_LINK_KEY, startOidcLink, unlinkOidc, useOidcLink } from '../../services/oidc';
 import { shortDate } from '../../utils/time';
 import { useStepUpAction } from './useStepUpAction';
@@ -27,25 +28,22 @@ export interface OidcLinkViewProps {
   onUnlink: () => void;
 }
 
-/** The section, without data fetching (Storybook renders it with fixtures). */
+/** The group, without data fetching (Storybook renders it with fixtures). */
 export function OidcLinkPanel({ view, busy = false, returned = null, error = null, onLink, onUnlink }: OidcLinkViewProps) {
   const name = view.name ?? 'Login service';
+  const failed = error ?? (returned === 'failed' ? `Couldn’t link ${name}.` : null);
   return (
-    <section className={styles.section} aria-labelledby="account-oidc">
-      <h3 id="account-oidc" className={styles.title}>{name}</h3>
-      <div className={styles.item}>
-        <div>
-          {view.linked
-            ? <><Badge tone="success">Linked</Badge>{view.linkedAt && <span className={styles.muted}> {shortDate(view.linkedAt, { time: false })}</span>}</>
-            : <Badge tone="neutral">Not linked</Badge>}
-        </div>
+    <SettingsGroup title={name} status={failed && <SaveStatus state="failed" detail={failed} />}>
+      <SettingsRow
+        as="div"
+        label={view.linked ? 'Linked' : 'Not linked'}
+        value={view.linked && view.linkedAt ? <span className={styles.value}>{shortDate(view.linkedAt, { time: false })}</span> : null}
+      >
         {view.linked
           ? <Button size="sm" variant="secondary" onClick={onUnlink} disabled={busy || !view.canUnlink}>Unlink</Button>
           : view.name && <Button size="sm" onClick={onLink} loading={busy}>Link</Button>}
-      </div>
-      {returned === 'failed' && <Banner tone="danger">Couldn’t link {name}.</Banner>}
-      {error && <Banner tone="danger">{error}</Banner>}
-    </section>
+      </SettingsRow>
+    </SettingsGroup>
   );
 }
 
