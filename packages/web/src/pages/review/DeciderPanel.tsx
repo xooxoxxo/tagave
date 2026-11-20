@@ -1,10 +1,12 @@
 /**
  * Library care › Autotagger, steps 1 and 2 and the strip above them:
  * the step strip (Decider · Run · Spot check · Accept), the decider step
- * (the local model with its held-out figures and Train again, or Jev with
- * its key, cap, spend and the payload that must be seen), and the run step
- * (population and Run; while it runs, its state, outcomes, spend and the
- * pause reason, with Resume and Cancel). Pure views: data and callbacks.
+ * as read (the local model with its held-out figures and Train again, or
+ * Jev with its key, cap, spend and the payload that must be seen; the
+ * owner's step 1 is the setup, AutotaggerSetup), and the run step (the
+ * owner's run stats; population and Run; while it runs, its state,
+ * outcomes, spend and the pause reason, with Resume and Cancel). Pure
+ * views: data and callbacks.
  */
 import type { ReactNode } from 'react';
 import { Button, SegmentedControl, Badge } from '../../components/ui';
@@ -55,8 +57,6 @@ export interface DeciderStepViewProps {
   onTogglePreview?: () => void;
   onSeen?: () => void;
   seenPending?: boolean;
-  /** the link to Settings › Modules › Autotagger (the owner's) */
-  settings?: ReactNode;
 }
 
 const bandName = (band: string, min: number) => (band in BAND_LABEL ? BAND_LABEL[band as keyof typeof BAND_LABEL] : `≥ ${min}`);
@@ -99,7 +99,7 @@ export function LocalModelBlock({ models }: { models: LocalModelsView | null }) 
   );
 }
 
-export function DeciderStepView({ library, models, owner, training = false, onTrain, preview = null, previewOpen = false, onTogglePreview, onSeen, seenPending = false, settings = null }: DeciderStepViewProps) {
+export function DeciderStepView({ library, models, owner, training = false, onTrain, preview = null, previewOpen = false, onTogglePreview, onSeen, seenPending = false }: DeciderStepViewProps) {
   if (library.config.decider === 'local') {
     const active = models?.active ?? null;
     return (
@@ -107,7 +107,6 @@ export function DeciderStepView({ library, models, owner, training = false, onTr
         <div className={styles.sectionHead}>
           <h3 className={styles.sectionTitle}>On this machine</h3>
           <div className={styles.actions}>
-            {settings}
             {owner && <Button size="sm" variant="secondary" loading={training} onClick={onTrain}>{active ? 'Train again' : 'Train'}</Button>}
           </div>
         </div>
@@ -121,11 +120,10 @@ export function DeciderStepView({ library, models, owner, training = false, onTr
     <section className={styles.section} aria-label="Decider">
       <div className={styles.sectionHead}>
         <h3 className={styles.sectionTitle}>Jev</h3>
-        <div className={styles.actions}>{settings}</div>
       </div>
       <Values
         rows={[
-          ['Key', library.keySet ? (library.keyHint ? `Set · ••••${library.keyHint}` : 'Set') : 'Not set'],
+          ['Jev key', library.keySet ? (owner && library.keyHint ? `Set · ••••${library.keyHint}` : 'Set') : 'Not set'],
           ['Model', library.config.model],
           ['Monthly cap', cap === null ? 'No cap' : money(cap, library.currency)],
           ['Spent', money(library.spentThisMonth, library.currency)],
@@ -157,6 +155,10 @@ export interface RunStepViewProps {
   onCancel: () => void;
   pending?: { run?: boolean; resume?: boolean; cancel?: boolean };
   error?: string | null;
+  /** the module's runs and decisions (the owner's: GET /settings/autotagger is system.manage) */
+  stats?: { runs: number; decisions: number } | null;
+  /** this month's spend in another currency than the cap's */
+  spentOther?: Array<{ currency: string; amount: number }>;
 }
 
 const activeRun = (run: RunView | null) => !!run && (run.state === 'queued' || run.state === 'running' || run.state === 'paused');
@@ -179,10 +181,19 @@ export function runRows(run: RunView): Array<[string, ReactNode]> {
   return rows;
 }
 
-export function RunStepView({ run, owner, ready, population, onPopulation, onRun, onResume, onCancel, pending = {}, error = null }: RunStepViewProps) {
+export function RunStepView({ run, owner, ready, population, onPopulation, onRun, onResume, onCancel, pending = {}, error = null, stats = null, spentOther = [] }: RunStepViewProps) {
   const active = activeRun(run);
   return (
     <section className={styles.section} aria-label="Run">
+      {stats && (
+        <Values
+          rows={[
+            ['Runs', count(stats.runs)],
+            ['Decisions', count(stats.decisions)],
+            ...spentOther.map((x) => [`Spent · ${x.currency}`, money(x.amount, x.currency)] as [string, string]),
+          ]}
+        />
+      )}
       {run && (
         <>
           <div className={styles.sectionHead}>

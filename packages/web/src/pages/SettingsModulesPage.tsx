@@ -4,7 +4,8 @@
  * part of that module lives: its Off/On, its connection, the server's
  * settings, and Turn off's "Also delete its data". Each person's own part
  * (the player's Listening, DJ, Listen elsewhere, Music Connections) lives in
- * Your settings, and the module's page links there.
+ * Your settings, and the module's page links there; the Autotagger's setup
+ * lives in Library care › Autotagger, and its page links there.
  *
  * The player and any module the signed catalogue adds are switched by the
  * updater (Turn on / Turn off after a step-up, the run step by step like an
@@ -35,7 +36,6 @@ import { docsUrl } from '../utils/docs';
 import { allPlaylistsExportUrl, download, usePlaylistsModule, useRemovePlaylistsData, useSetPlaylistsModule } from '../hooks/usePlaylists';
 import { useBooksModule, useSetBooksModule } from '../hooks/useBooks';
 import { useAutotaggerModule, useRemoveAutotaggerData, useSetAutotaggerModule } from '../hooks/useAutotagger';
-import { SettingsAutotaggerContent } from './SettingsAutotagger';
 import { getStepUp } from '../services/stepUp';
 import { DEV_APP_PAGES, MODULE_PAGES, moduleSlug, type ModulePageEntry } from './moduleSettings';
 import { SettingsPlaybackContent } from './SettingsPlaybackPage';
@@ -794,7 +794,8 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
       return <>{heading}<PlaylistsSwitch /></>;
     case 'autotagger':
       if (!owner) return <NotAvailable inline />;
-      return <>{heading}<AutotaggerSwitch />{on && <SettingsAutotaggerContent />}</>;
+      // its setup lives in Library care › Autotagger, while the module is on
+      return <>{heading}<AutotaggerSwitch />{on && <LinkRow group="Setup" label="Set up in Library care" to="/work" search={{ tab: 'autotagger' }} className={styles.part} />}</>;
     case 'similar-artists':
       if (!owner) return <NotAvailable inline />;
       return <>{heading}<SimilarSwitch /></>;
