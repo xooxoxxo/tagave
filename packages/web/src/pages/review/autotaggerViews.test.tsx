@@ -1,9 +1,11 @@
 /**
- * Library care › Autotagger (layout B · Steps) and Settings › Modules ›
- * Autotagger, as pure views: the gate per band, the accept dialog, the run
- * step (paused, waiting for the payload), the spot-check card and its
- * keys, the batches, the step strip, and the provenance line.
+ * Library care › Autotagger (layout B · Steps), as pure views: the gate per
+ * band, the accept dialog, the run step (paused, waiting for the payload,
+ * the owner's run stats), the decider step (the owner's setup, an editor's
+ * read view), the spot-check card and its keys, Agreement under the gates,
+ * the batches, the step strip, and the provenance line.
  */
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ReactElement } from 'react';
@@ -15,13 +17,13 @@ import { BatchListView, canUndo } from './BatchList';
 import { AutotaggerView, type AutotaggerViewProps } from './AutotaggerPanel';
 import { defaultStep, deciderReady, gateLabel, stepTiles, verdictForKey } from './autotaggerSteps';
 import { ProvenanceLine } from '../../components/ProvenanceLine';
-import { AutotaggerSettingsView, draftOf, patchOf } from '../SettingsAutotagger';
 import {
   ACCEPT_PREVIEW, AGREEMENT, BANDS, BANDS_CLOSED, BATCH_ACCEPTED, BATCH_DETAIL, BATCH_UNDONE, CHECK, CHECK_STALE, HAND_MATCH, LIBRARY_JEV, LIBRARY_LOCAL,
   LIBRARY_NO_KEY, LIBRARY_NOT_SEEN, MODEL_MATCH, MODELS, MODULE, NO_MODELS, PAYLOAD, RULE_MATCH, RUN_DONE, RUN_RUNNING, runPaused,
 } from '../../stories/autotaggerFixtures';
 
 const render = (el: ReactElement) => renderToStaticMarkup(el);
+const source = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const noop = () => undefined;
 /** the <button> whose label is `label` (its markup), or '' */
 const button = (html: string, label: string) => {
@@ -34,6 +36,14 @@ const button = (html: string, label: string) => {
 
 const P99 = BANDS[0]!;
 const P99_OPEN = P99;
+
+/** the whole tab: the owner, a done run, the spot check of the 97% band */
+const TAB: AutotaggerViewProps = {
+  owner: true, library: LIBRARY_LOCAL, models: MODELS, run: RUN_DONE, runs: [RUN_DONE], bands: BANDS, band: 'p97', onBand: noop, check: CHECK,
+  step: null, onStep: noop, history: false, onHistory: noop, population: 'needs_review', onPopulation: noop, batches: [], onAcceptBand: noop,
+  onConfirmAccept: noop, onCancelAccept: noop, onRun: noop, onResume: noop, onCancel: noop, onTrain: noop, onVerdict: noop, onDraw: noop, onUndo: noop, onPickRun: noop,
+  agreement: null,
+};
 
 describe('the gate per band', () => {
   it('a closed gate shows how many checks are still needed and no accept button', () => {
@@ -138,6 +148,7 @@ describe('the decider step', () => {
     expect(html).toContain('Not seen');
     expect(button(html, 'Seen')).not.toMatch(/disabled/);
     expect(html).toContain('jev-latest');
+    expect(html).toContain('Jev key');
   });
 });
 
@@ -245,18 +256,70 @@ describe('the steps', () => {
     expect(html).toContain('3 · Spot check');
   });
 
-  it('the whole tab: the card and the gates, no sentence; off says Off', () => {
-    const props: AutotaggerViewProps = {
-      owner: true, enabled: true, library: LIBRARY_LOCAL, models: MODELS, run: RUN_DONE, runs: [RUN_DONE], bands: BANDS, band: 'p97', onBand: noop, check: CHECK,
-      step: null, onStep: noop, history: false, onHistory: noop, population: 'needs_review', onPopulation: noop, batches: [], onAcceptBand: noop,
-      onConfirmAccept: noop, onCancelAccept: noop, onRun: noop, onResume: noop, onCancel: noop, onTrain: noop, onVerdict: noop, onDraw: noop, onUndo: noop, onPickRun: noop,
-    };
-    const html = render(<AutotaggerView {...props} />);
+  it('the whole tab: the card and the gates, no sentence', () => {
+    const html = render(<AutotaggerView {...TAB} />);
     expect(html).toContain('Spot check');
     expect(html).toContain('Gates · limit');
     expect(button(html, 'Past runs and batches')).not.toBe('');
     expect(html).not.toMatch(/Liner/);
-    expect(render(<AutotaggerView {...props} enabled={false} />)).toContain('Off');
+  });
+});
+
+describe('the tab, step by step', () => {
+  it('the owner’s step 1 is the setup', () => {
+    const html = render(<AutotaggerView {...TAB} library={LIBRARY_JEV} step="decider" setup={<i data-setup />} />);
+    expect(html).toContain('data-setup');
+    expect(button(html, 'Payload')).toBe('');
+  });
+
+  it('an editor’s step 1 has no form', () => {
+    const html = render(<AutotaggerView {...TAB} owner={false} library={LIBRARY_JEV} step="decider" />);
+    expect(html).not.toContain('<input');
+    expect(button(html, 'Save')).toBe('');
+    expect(button(html, 'Add price')).toBe('');
+    expect(html).not.toContain('••••');
+    expect(button(html, 'Payload')).toBe('');
+    expect(html).toContain('<dt>Jev key</dt><dd>Set</dd>');
+  });
+
+  it('run stats sit in step 2, the owner’s', () => {
+    const html = render(<AutotaggerView {...TAB} step="run" stats={MODULE} />);
+    expect(html).toContain('<dt>Runs</dt><dd>4</dd>');
+    expect(html).toContain('<dt>Decisions</dt><dd>5,612</dd>');
+    expect(render(<AutotaggerView {...TAB} step="run" stats={null} />)).not.toContain('<dt>Runs</dt>');
+  });
+
+  it('Agreement sits in step 3 under the gates', () => {
+    const html = render(<AutotaggerView {...TAB} step="check" agreement={AGREEMENT} />);
+    expect(html.indexOf('aria-label="Backtest"')).toBeGreaterThan(html.indexOf('Gates'));
+    expect(html.indexOf('Gates')).toBeGreaterThan(-1);
+    const first = render(<AutotaggerView {...TAB} step="check" run={null} runs={[]} bands={null} agreement={AGREEMENT} />);
+    expect(first.indexOf('Run first')).toBeGreaterThan(-1);
+    expect(first.indexOf('aria-label="Agreement"')).toBeGreaterThan(first.indexOf('Run first'));
+  });
+
+  it('the tab has no Off view', () => {
+    const panel = source('./AutotaggerPanel.tsx');
+    expect(panel).not.toContain("'Autotagger', 'Off'");
+    expect(panel).not.toContain('/settings/modules');
+    // @ts-expect-error the view takes no `enabled`: the tab shows only while the module is on
+    const props: AutotaggerViewProps = { ...TAB, enabled: true };
+    expect(props).toBeTruthy();
+  });
+
+  it('the panel renders only while the module is on', () => {
+    const panel = source('./AutotaggerPanel.tsx');
+    expect(panel).toContain('if (!enabled) return null');
+    expect(panel.slice(panel.indexOf('<AutotaggerView'))).not.toMatch(/\benabled=\{/);
+  });
+
+  it('no link to the old settings page', () => {
+    expect(source('./AutotaggerPanel.tsx')).not.toContain("module: 'autotagger'");
+    expect(existsSync(new URL('../SettingsAutotagger.tsx', import.meta.url))).toBe(false);
+  });
+
+  it('the panel asks for the owner’s module view only as the owner', () => {
+    expect(source('./AutotaggerPanel.tsx')).toMatch(/useAutotaggerModule\(owner/);
   });
 });
 
@@ -266,36 +329,5 @@ describe('the provenance line', () => {
     expect(render(<ProvenanceLine match={RULE_MATCH} locale="en-GB" />)).toContain('Automatic: your rules, batch of 27 Oct');
     expect(render(<ProvenanceLine match={HAND_MATCH} />)).toBe('<span>By Ada</span>');
     expect(render(<ProvenanceLine match={{ decidedBy: 'system' }} />)).toBe('');
-  });
-});
-
-describe('Settings › Modules › Autotagger', () => {
-  const view = (p: Partial<Parameters<typeof AutotaggerSettingsView>[0]> = {}) => render(
-    <AutotaggerSettingsView module={MODULE} library={LIBRARY_JEV} agreement={AGREEMENT} onDecider={noop} onSave={noop} onKey={noop} onPrice={noop} onDeletePrice={noop} {...p} />,
-  );
-
-  it('the decider as On this machine | Jev, the key by its hint, prices and agreement', () => {
-    const html = view();
-    expect(html).toContain('On this machine');
-    expect(html).toContain('Set · ••••9f2c');
-    expect(html).toContain('Maximum error rate');
-    expect(html).toContain('Request limit');
-    expect(html).toContain('$0.40');
-    expect(html).toContain('Backtest');
-    expect(html).toContain('1,101');
-  });
-
-  it('Jev waits for a key', () => {
-    const html = view({ library: LIBRARY_NO_KEY });
-    expect(/<input[^>]*value="jev"[^>]*>/.exec(html)?.[0]).toMatch(/disabled/);
-  });
-
-  it('the form patches only what changed, and names a wrong field', () => {
-    const d = draftOf(LIBRARY_JEV);
-    expect(d.maxErrorRate).toBe('1');
-    expect(patchOf(d, LIBRARY_JEV)).toEqual({ patch: {} });
-    expect(patchOf({ ...d, maxErrorRate: '2', monthlyCap: '' }, LIBRARY_JEV)).toEqual({ patch: { maxErrorRate: 0.02, monthlyCap: null } });
-    expect(patchOf({ ...d, currency: 'eu' }, LIBRARY_JEV)).toEqual({ field: 'currency' });
-    expect(patchOf({ ...d, maxRequestBytes: '12' }, LIBRARY_JEV)).toEqual({ field: 'maxRequestBytes' });
   });
 });

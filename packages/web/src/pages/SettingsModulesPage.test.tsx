@@ -4,6 +4,7 @@
  * signed catalogue, the install-tagave.sh command without the updater, the
  * run while it runs.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router';
@@ -62,6 +63,17 @@ describe('the list', () => {
     expect(html).toContain('>Lidarr<');
     expect(html).toContain('>On<');
     expect(html).not.toMatch(/\.\s*</);
+  });
+});
+
+describe('Settings › Modules › Autotagger', () => {
+  it('the Autotagger page holds no settings', () => {
+    const src = readFileSync(new URL('./SettingsModulesPage.tsx', import.meta.url), 'utf8');
+    const start = src.indexOf("case 'autotagger':");
+    const body = src.slice(start, src.indexOf('case ', start + 1));
+    expect(start).toBeGreaterThan(-1);
+    expect(body).not.toContain('SettingsAutotaggerContent');
+    expect(body).toContain('Set up in Library care');
   });
 });
 

@@ -6,28 +6,40 @@
  * and batches sit behind a link; choosing a run there makes it the run of
  * steps 2 to 4.
  *
- * Shown while the module is on to anyone who may edit the library; what
- * only the owner does (run, resume, cancel, train, payload seen, accept)
- * is hidden from the others. `AutotaggerView` is the pure layout (stories
- * and tests); `AutotaggerPanel` wires it to the api.
+ * Step 1 is the owner's setup (AutotaggerSetup: the decider, its block, the
+ * spot-check gate, Advanced, one Save); anyone else reads it. Step 2 holds
+ * the owner's run stats, step 3 the decider's agreement under the gates.
+ *
+ * Shown only while the module is on (the modules rule: the tab has no Off
+ * view; a link to it while off is sent on by Library care's tab gate), to
+ * anyone who may edit the library; what only the owner does (set up, run,
+ * resume, cancel, train, payload seen, accept) is hidden from the others.
+ * `AutotaggerView` is the pure layout (stories and tests); `AutotaggerPanel`
+ * wires it to the api.
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import type {
-  AcceptPreview, AutotaggerLibraryView, BandId, BandRow, BatchDetail, BatchSummary, LocalModelsView, PayloadPreview, RunView, SpotCheckItem,
+  AcceptPreview, AgreementView as Agreement, AutotaggerLibraryView, AutotaggerModuleView, BandId, BandRow, BatchDetail, BatchSummary, DeciderPrice, LocalModelsView,
+  PayloadPreview, RunView, SpotCheckItem,
 } from '@tagave/shared';
 import { DEFAULT_AUTOTAGGER_CONFIG } from '@tagave/shared';
-import { Button, LinkButton, confirmDialog } from '../../components/ui';
+import { Button, confirmDialog } from '../../components/ui';
+import { useStepUpAction } from '../../components/users/useStepUpAction';
 import { useCan, useCurrentLibrary } from '../../hooks';
 import { useModuleOn } from '../../hooks/useFacets';
 import {
-  useAcceptBand, useAcceptPreview, useAutotaggerLibrary, useBands, useCancelRun, useDrawSpotChecks, useLocalModels, useMarkPayloadSeen, usePayloadPreview,
-  useResumeRun, useRuns, useSpotCheckVerdict, useSpotChecks, useStartRun, useTrainLocal,
+  useAcceptBand, useAcceptPreview, useAgreement, useAutotaggerLibrary, useAutotaggerModule, useBands, useCancelRun, useDeleteDeciderPrice, useDrawSpotChecks,
+  useLocalModels, useMarkPayloadSeen, usePatchAutotaggerConfig, usePayloadPreview, useResumeRun, useRuns, useSetAutotaggerKey, useSetDeciderPrice,
+  useSpotCheckVerdict, useSpotChecks, useStartRun, useTrainLocal,
 } from '../../hooks/useAutotagger';
 import { fasterPace, useBatch, useBatches, useSetEnrichPace, useUndoBatch } from '../../hooks/useBatches';
 import { DeciderStepView, RunStepView, StepStripView } from './DeciderPanel';
 import { SpotCheckCardView, type Verdict } from './SpotCheckView';
 import { BandTableView, GatesPanelView } from './BandTable';
 import { AcceptBandDialogView } from './AcceptBandDialog';
+import { AgreementView } from './AgreementTables';
+import { AutotaggerSetupView } from './AutotaggerSetup';
+import { draftOf, patchOf, rebase, setupError, type SetupDraft } from './autotaggerDraft';
 import { BatchListView, RunListView } from './BatchList';
 import { Values } from './autotaggerParts';
 import { acceptableRun, deciderReady, defaultStep, stepTiles, type StartablePopulation, type StepId } from './autotaggerSteps';
@@ -35,8 +47,6 @@ import styles from './autotagger.module.css';
 
 export interface AutotaggerViewProps {
   owner: boolean;
-  /** the module is on */
-  enabled: boolean;
   library: AutotaggerLibraryView | null;
   models: LocalModelsView | null;
   /** the run of steps 2 to 4 */
@@ -81,8 +91,12 @@ export interface AutotaggerViewProps {
     undo?: string | null; drain?: boolean;
   };
   error?: string | null;
-  /** the link to Settings › Modules › Autotagger (the owner's) */
-  settings?: ReactNode;
+  /** step 1 as the owner sets it up (AutotaggerSetupView); without it, step 1 is read only */
+  setup?: ReactNode;
+  /** the module's runs and decisions, step 2 (the owner's) */
+  stats?: AutotaggerModuleView | null;
+  /** the decider's agreement with the owner, step 3 */
+  agreement: Agreement | null;
   /** listen for C, W and U (off when a story shows more than one screen) */
   keys?: boolean;
 }
@@ -96,14 +110,6 @@ export function AutotaggerView(p: AutotaggerViewProps) {
   const done = p.run?.state === 'done';
   const accepting = acceptableRun(p.run);
 
-  if (!p.enabled) {
-    return (
-      <div className={styles.panel}>
-        <Values rows={[['Autotagger', 'Off']]} />
-        {p.settings}
-      </div>
-    );
-  }
   if (!p.library) return <div className={styles.panel}><p className={styles.muted}>Loading…</p></div>;
 
   if (p.history) {
@@ -125,7 +131,7 @@ export function AutotaggerView(p: AutotaggerViewProps) {
   let body: ReactNode;
   switch (step) {
     case 'decider':
-      body = (
+      body = p.setup ?? (
         <DeciderStepView
           library={p.library}
           models={p.models}
@@ -137,7 +143,6 @@ export function AutotaggerView(p: AutotaggerViewProps) {
           {...(p.onTogglePreview ? { onTogglePreview: p.onTogglePreview } : {})}
           {...(p.onSeen ? { onSeen: p.onSeen } : {})}
           seenPending={!!pending.seen}
-          settings={p.settings}
         />
       );
       break;
@@ -153,6 +158,8 @@ export function AutotaggerView(p: AutotaggerViewProps) {
           onResume={p.onResume}
           onCancel={p.onCancel}
           pending={{ run: !!pending.run, resume: !!pending.resume, cancel: !!pending.cancel }}
+          stats={p.stats ?? null}
+          spentOther={p.stats ? p.library.spentOther : []}
         />
       );
       break;
@@ -173,10 +180,16 @@ export function AutotaggerView(p: AutotaggerViewProps) {
           />
           <div className={styles.side}>
             <GatesPanelView rows={p.bands} maxErrorRate={maxErrorRate} canAccept={p.owner && accepting} onGoToAccept={() => p.onStep('accept')} />
+            {p.agreement && <AgreementView agreement={p.agreement} />}
             {pastLink}
           </div>
         </div>
-      ) : <Values rows={[['Spot check', 'Run first']]} />;
+      ) : (
+        <>
+          <Values rows={[['Spot check', 'Run first']]} />
+          {p.agreement && <AgreementView agreement={p.agreement} />}
+        </>
+      );
       break;
     default:
       body = done && p.bands ? (
@@ -212,7 +225,14 @@ const detailOf = (err: unknown): string | null => {
   return e.detail ?? e.title ?? 'Failed';
 };
 
-/** The Autotagger tab of Library care, wired to the api. */
+
+/** An API error's detail, as the setup shows it. */
+const setupErrorOf = (err: unknown): string => {
+  const e = err as { detail?: string; title?: string } | null;
+  return setupError(e?.detail ?? e?.title);
+};
+
+/** The Autotagger tab of Library care, wired to the api; nothing while the module is off. */
 export function AutotaggerPanel() {
   const { libraryId } = useCurrentLibrary();
   const owner = useCan('system.manage');
@@ -221,6 +241,9 @@ export function AutotaggerPanel() {
   const models = useLocalModels(libraryId, enabled);
   const runs = useRuns(libraryId, enabled);
   const batches = useBatches(libraryId, enabled);
+  // GET /settings/autotagger is system.manage: an editor never asks for it
+  const mod = useAutotaggerModule(owner && enabled);
+  const agreement = useAgreement(libraryId, enabled);
 
   const [step, setStep] = useState<StepId | null>(null);
   const [band, setBand] = useState<BandId>('p99');
@@ -232,14 +255,27 @@ export function AutotaggerPanel() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
 
+  // the setup's draft: from the saved settings, rebased when they change under it (a key Set keeps Jev chosen)
+  const saved = library.data ?? null;
+  const [draft, setDraft] = useState<SetupDraft | null>(() => (saved ? draftOf(saved) : null));
+  const [base, setBase] = useState<AutotaggerLibraryView | null>(saved);
+  if (saved !== base) {
+    setBase(saved);
+    setDraft((d) => (saved ? (d && base ? rebase(d, base, saved) : draftOf(saved)) : null));
+  }
+  const [bad, setBad] = useState<keyof SetupDraft | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [setupErr, setSetupErr] = useState<string | null>(null);
+  const [savedNow, setSavedNow] = useState(false);
+
   const items = runs.data?.items ?? [];
   const run = (runId ? items.find((r) => r.id === runId) : items[0]) ?? null;
   const done = run?.state === 'done' ? run.id : null;
   const bands = useBands(libraryId, done);
   const checks = useSpotChecks(libraryId, done, band);
   const check = useMemo(() => checks.data?.find((c) => !answered.has(c.id)) ?? null, [checks.data, answered]);
-  const jev = library.data?.config.decider === 'jev';
-  const preview = usePayloadPreview(libraryId, owner && enabled && jev && previewOpen && !!library.data?.keySet);
+  // the request the saved settings make, while Jev is drafted and a key is stored
+  const preview = usePayloadPreview(libraryId, owner && enabled && draft?.decider === 'jev' && !!saved?.keySet);
   const acceptPreview = useAcceptPreview(libraryId, done, owner ? acceptBand : null);
   const batch = useBatch(libraryId, openBatch);
 
@@ -253,6 +289,13 @@ export function AutotaggerPanel() {
   const accept = useAcceptBand(libraryId, done);
   const undo = useUndoBatch(libraryId);
   const pace = useSetEnrichPace(libraryId);
+  const patch = usePatchAutotaggerConfig(libraryId);
+  const setKey = useSetAutotaggerKey(libraryId);
+  const setPrice = useSetDeciderPrice();
+  const deletePrice = useDeleteDeciderPrice();
+  const { run: stepUp, dialog } = useStepUpAction();
+
+  if (!enabled) return null;
 
   const error = detailOf(start.error ?? resume.error ?? cancel.error ?? train.error ?? seen.error ?? draw.error ?? verdict.error ?? accept.error ?? undo.error ?? pace.error);
   const faster = acceptPreview.data ? fasterPace(acceptPreview.data.drain.limit) : null;
@@ -273,12 +316,71 @@ export function AutotaggerPanel() {
     if (ok) undo.mutate(batchId);
   };
 
+  /** Save: the one PATCH of what the draft changed (no step-up), or the field that is wrong. */
+  const onSave = async () => {
+    if (!saved || !draft) return;
+    const r = patchOf(draft, saved);
+    if ('field' in r) { setBad(r.field); return; }
+    setBad(null);
+    setSetupErr(null);
+    if (Object.keys(r.patch).length === 0) return;
+    try {
+      const next = await patch.mutateAsync(r.patch);
+      setDraft(draftOf(next));
+      setSavedNow(true);
+    } catch (e) {
+      setSetupErr(setupErrorOf(e));
+    }
+  };
+  /** The key (fresh step-up), Set, Replace or Forget; the draft is rebased, not reset. */
+  const onKey = async (key: string | null) => {
+    setSetupErr(null);
+    try {
+      await stepUp(key === null ? 'Forgetting the key' : 'Setting the key', () => setKey.mutateAsync(key));
+    } catch (e) {
+      setSetupErr(setupErrorOf(e));
+    }
+  };
+  /** A price, Add or Remove: its own instant action, never Save's and never the draft's. */
+  const priceAction = async (fn: () => Promise<unknown>) => {
+    setSetupErr(null);
+    try {
+      await fn();
+    } catch (e) {
+      setSetupErr(setupErrorOf(e));
+    }
+  };
+
+  const setup = !owner || mod.isError ? undefined : saved && draft && mod.data ? (
+    <AutotaggerSetupView
+      library={saved}
+      module={mod.data}
+      models={models.data ?? null}
+      draft={draft}
+      onDraft={(d) => { setDraft(d); setSavedNow(false); }}
+      bad={bad}
+      onSave={() => void onSave()}
+      onKey={(k) => void onKey(k)}
+      onPrice={(p: DeciderPrice) => void priceAction(() => setPrice.mutateAsync(p))}
+      onDeletePrice={(model) => void priceAction(() => deletePrice.mutateAsync(model))}
+      onTrain={() => train.mutate()}
+      preview={preview.data ?? null}
+      previewOpen={previewOpen}
+      onTogglePreview={() => setPreviewOpen((o) => !o)}
+      onSeen={() => seen.mutate()}
+      advancedOpen={advancedOpen}
+      onAdvanced={setAdvancedOpen}
+      pending={{ save: patch.isPending, key: setKey.isPending, price: setPrice.isPending || deletePrice.isPending, train: train.isPending, seen: seen.isPending }}
+      status={savedNow ? <span className={styles.muted}>✓ Saved</span> : null}
+      error={setupErr}
+    />
+  ) : <p className={styles.muted}>Loading…</p>;
+
   return (
     <>
       <AutotaggerView
         owner={owner}
-        enabled={enabled}
-        library={library.data ?? null}
+        library={saved}
         models={models.data ?? null}
         run={run}
         runs={items}
@@ -293,10 +395,6 @@ export function AutotaggerPanel() {
         onHistory={setHistory}
         population={population}
         onPopulation={setPopulation}
-        preview={preview.data ?? null}
-        previewOpen={previewOpen}
-        onTogglePreview={() => setPreviewOpen((o) => !o)}
-        onSeen={() => seen.mutate()}
         batches={batches.data?.items ?? []}
         batchDetail={batch.data ?? null}
         onOpenBatch={setOpenBatch}
@@ -326,8 +424,11 @@ export function AutotaggerPanel() {
           undo: undo.isPending ? undo.variables ?? null : null, drain: pace.isPending,
         }}
         error={error}
-        settings={owner ? <LinkButton to="/settings/modules/$module" params={{ module: 'autotagger' }} variant="quiet" size="sm">Settings</LinkButton> : null}
+        setup={setup}
+        stats={owner ? mod.data ?? null : null}
+        agreement={agreement.data ?? null}
       />
+      {dialog}
     </>
   );
 }
