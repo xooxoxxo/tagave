@@ -183,11 +183,11 @@ describe('the setup form', () => {
 
   it('Payload and Seen need a key', () => {
     const html = view({ library: LIBRARY_NOT_SEEN, previewOpen: true, preview: PAYLOAD });
-    expect(button(html, 'Payload')).not.toBe('');
+    expect(button(html, 'Hide')).not.toBe('');
     expect(button(html, 'Seen')).not.toBe('');
     expect(html).toContain('aria-label="Request"');
     const none = view({ library: LIBRARY_NO_KEY, previewOpen: true, preview: PAYLOAD });
-    expect(button(none, 'Payload')).toBe('');
+    expect(button(none, 'Hide')).toBe('');
     expect(button(none, 'Seen')).toBe('');
   });
 
