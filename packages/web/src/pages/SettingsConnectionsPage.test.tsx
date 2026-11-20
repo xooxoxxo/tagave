@@ -10,7 +10,7 @@ import { ConnectionsPanel, problem, returnError, type ConnectionsPanelProps } fr
 
 const link: McLinkView = {
   id: 'l1',
-  remoteUrl: 'http://192.168.1.20:8080',
+  remoteUrl: 'http://reviews.example.com:8080',
   service: 'review-gatherer',
   state: 'active',
   capabilities: [
@@ -28,7 +28,7 @@ const link: McLinkView = {
 };
 const noop = () => undefined;
 const render = (p: Partial<ConnectionsPanelProps>) => renderToStaticMarkup(
-  <ConnectionsPanel view={{ links: [link], ownUrl: 'http://192.168.1.10:3000' }} onAdd={noop} onSync={noop} onReapprove={noop} onEditUrl={() => true} onRevoke={noop} {...p} />,
+  <ConnectionsPanel view={{ links: [link], ownUrl: 'http://music.example.com' }} onAdd={noop} onSync={noop} onReapprove={noop} onEditUrl={() => true} onRevoke={noop} {...p} />,
 );
 
 describe('ConnectionsPanel', () => {
@@ -39,13 +39,13 @@ describe('ConnectionsPanel', () => {
     expect(html).toContain('Not granted');
     expect(html).toContain('Available');
     expect(html).toContain('Linked');
-    for (const label of ['>Sync<', 'Re-approve', '>Edit<', 'Revoke']) expect(html).toContain(label);
+    for (const label of ['>Sync<', 'Re-approve', '>Save address<', 'Revoke']) expect(html).toContain(label);
   });
 
   it('offers Link back with this tagave’s address once there is a link, never before', () => {
-    expect(render({})).toContain('http://192.168.1.10:3000');
+    expect(render({})).toContain('http://music.example.com');
     expect(render({})).toContain('Link back');
-    const empty = render({ view: { links: [], ownUrl: 'http://192.168.1.10:3000' } });
+    const empty = render({ view: { links: [], ownUrl: 'http://music.example.com' } });
     expect(empty).not.toContain('Link back');
     expect(empty).toContain('Add connection');
   });
@@ -95,9 +95,47 @@ describe('ConnectionsPanel', () => {
   });
 });
 
-describe('on the module page', () => {
-  it('leaves the heading to Settings › Modules › Music Connections', () => {
-    expect(render({ view: { links: [], ownUrl: null } })).toContain('>Music Connections</h2>');
-    expect(render({ view: { links: [], ownUrl: null }, heading: false })).not.toContain('<h2');
+/** The <section> of a group, by its title. */
+const group = (html: string, title: string) => {
+  const start = html.indexOf(`<section aria-label="${title}"`);
+  return start < 0 ? '' : html.slice(start, html.indexOf('</section>', start));
+};
+const visible = (html: string) => html.replace(/<div[^>]*hidden=""[^>]*>[\s\S]*?<\/div>/g, '');
+const button = (html: string, label: string) => new RegExp(`<button[^>]*>(?:(?!</button>)[\\s\\S])*>${label}<`).exec(html)?.[0] ?? '';
+
+describe('Your settings › Connections on the settings layout', () => {
+  it('no heading of its own: the section carries it', () => {
+    expect(render({ view: { links: [], ownUrl: null } })).not.toContain('<h2');
+    expect(render({})).not.toContain('<h2');
+  });
+
+  it("a connection's address has one Save, disabled until changed", () => {
+    const html = group(render({}), 'review-gatherer');
+    expect(html).toMatch(/<input[^>]*type="url"[^>]*value="http:\/\/reviews.example.com:8080"/);
+    expect(html.match(/>Save address</g)).toHaveLength(1);
+    expect(button(html, 'Save address')).toContain('disabled=""');
+    // its state as the group's meta
+    expect(html).toContain('Linked');
+  });
+
+  it('Add is an action, not a Save', () => {
+    const add = group(render({}), 'Add connection');
+    expect(add).toMatch(/<button[^>]*type="submit"[^>]*>(?:(?!<\/button>)[\s\S])*>Add</);
+    expect(add).not.toMatch(/>Save/);
+    expect(add).toContain('>Address<');
+  });
+
+  it("Link back's sentence sits behind ?", () => {
+    const html = render({});
+    expect(html).toContain('Add this address in the other app');
+    expect(visible(html)).not.toContain('Add this address in the other app');
+    expect(group(html, 'Link back')).toContain('http://music.example.com');
+    expect(group(html, 'Link back')).toContain('>Copy<');
+  });
+
+  it('none yet reads as a value', () => {
+    const html = render({ view: { links: [], ownUrl: null } });
+    expect(html).toContain('No connections yet');
+    expect(html).not.toContain('<p');
   });
 });

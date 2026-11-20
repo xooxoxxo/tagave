@@ -29,7 +29,7 @@ describe('Your settings', () => {
     const tsx = source('./YouPage.tsx');
     expect(tsx.match(/<h2/g)).toHaveLength(1);
     expect(tsx).toContain('<h2>{current.label}</h2>');
-    for (const file of ['./YouAppearance.tsx', './SettingsAccountPage.tsx', './SettingsSecurityPage.tsx', '../themes/ThemeSetting.tsx']) {
+    for (const file of ['./YouAppearance.tsx', './SettingsAccountPage.tsx', './SettingsSecurityPage.tsx', '../themes/ThemeSetting.tsx', './SettingsListeningPage.tsx', './SettingsDjPage.tsx', './SettingsListenElsewherePage.tsx', './SettingsConnectionsPage.tsx']) {
       const body = source(file);
       expect(body, file).not.toMatch(/<h2/);
       expect(body, file).not.toContain('modeSetting');
@@ -57,6 +57,14 @@ describe('Your settings', () => {
     expect(tsx).not.toMatch(/NotAvailable/);
     expect(tsx).toMatch(/youGate\(/);
     expect(tsx).toMatch(/<Navigate\b[^>]*to="\/you\/\$section" params=\{\{ section: 'account' \}\}[^>]*\breplace\b[^>]*\/>/);
+  });
+
+  it('no module section passes heading', () => {
+    const tsx = source('./YouPage.tsx');
+    expect(tsx).not.toContain('heading={false}');
+    for (const file of ['./SettingsListeningPage.tsx', './SettingsListenElsewherePage.tsx', './SettingsConnectionsPage.tsx']) {
+      expect(source(file), file).not.toMatch(/\bheading\??:/);
+    }
   });
 
   it('the routes render YouPage, its own lazy chunk', () => {

@@ -30,9 +30,8 @@ describe('ListeningSettingsView', () => {
     const html = renderToStaticMarkup(<ListeningSettingsView {...props(base)} />);
     expect(html).toContain('Connect Last.fm');
     expect(html).toContain('Connect ListenBrainz');
-    expect(html).toContain('Set password');
-    expect(html).toContain('<strong');
-    expect(html).toContain('anna');
+    expect(html).toMatch(/>Set<\/span>/);
+    expect(html).toContain('>anna<');
   });
   it('sends people to the owner when Last.fm has no API key', () => {
     const html = renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, lastfmAvailable: false })} />);
@@ -42,7 +41,7 @@ describe('ListeningSettingsView', () => {
   it('shows a connection, what waits and the last problem', () => {
     const data = { ...base, services: [{ ...base.services[0]!, connected: true, accountName: 'anna-fm', pending: 2, lastError: 'Service Offline', lastErrorAt: '2026-10-16T10:00:00Z' }, base.services[1]!] };
     const html = renderToStaticMarkup(<ListeningSettingsView {...props(data)} />);
-    expect(html).toContain('anna-fm · Nothing sent yet');
+    expect(html).toContain('Connected · anna-fm');
     expect(html).toContain('Nothing sent yet · 2 waiting');
     expect(html).toContain('Service Offline');
     expect(html).toContain('Disconnect');
@@ -71,6 +70,81 @@ describe('ListeningSettingsView', () => {
     const data = { ...base, services: [base.services[0]!, { ...base.services[1]!, connected: true, accountName: 'anna-lb' }] };
     expect(renderToStaticMarkup(<ListeningSettingsView {...props(data)} listenbrainzQueued={12} />)).toContain('12 recent plays queued');
     expect(renderToStaticMarkup(<ListeningSettingsView {...props(data)} />)).not.toContain('recent plays queued');
+  });
+});
+
+const shared: ListeningView['account'] = { kind: 'shared', username: null, phonePassword: false, serverScrobbles: false, state: null, lastError: null };
+const own: ListeningView['account'] = { kind: 'own', username: 'robin', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null };
+const lastfmOn: ListeningView = { ...base, services: [{ ...base.services[0]!, connected: true, accountName: 'robin-fm' }, base.services[1]!] };
+/** The markup with every closed help region taken out. */
+const visible = (html: string) => html.replace(/<div[^>]*hidden=""[^>]*>[\s\S]*?<\/div>/g, '');
+/** The <form> around the first match of `marker`. */
+const formAround = (html: string, marker: string) => {
+  const at = html.indexOf(marker);
+  const start = html.lastIndexOf('<form', at);
+  return start < 0 ? '' : html.slice(start, html.indexOf('</form>', at) + 7);
+};
+/** The <section> of a group, by its title. */
+const group = (html: string, title: string) => {
+  const start = html.indexOf(`<section aria-label="${title}"`);
+  return start < 0 ? '' : html.slice(start, html.indexOf('</section>', start));
+};
+
+describe('Your settings › Listening on the settings layout', () => {
+  it('groups Player account, Scrobbling, Recently played, in order', () => {
+    const html = renderToStaticMarkup(<ListeningSettingsView {...props(base)} />);
+    const at = (title: string) => html.indexOf(`<section aria-label="${title}"`);
+    expect(at('Player account')).toBeGreaterThan(-1);
+    expect(at('Player account')).toBeLessThan(at('Scrobbling'));
+    expect(at('Scrobbling')).toBeLessThan(at('Recently played'));
+    expect(html).not.toMatch(/<h2/);
+  });
+
+  it('the phone password is its own action', () => {
+    const html = renderToStaticMarkup(<ListeningSettingsView {...props(base)} />);
+    const form = formAround(html, 'Phone password');
+    expect(form).toContain('type="password"');
+    expect(form).toMatch(/>Set<\/span>/);
+    expect(form).not.toMatch(/>Save</);
+    const set = renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, account: { ...base.account, phonePassword: true } })} />);
+    expect(formAround(set, 'Phone password')).toMatch(/>Replace<\/span>/);
+    expect(formAround(set, 'Phone password')).toMatch(/>Forget<\/span>/);
+    // the own login never carries it
+    const mine = renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, account: own })} />);
+    expect(mine).not.toContain('Phone password');
+    expect(formAround(mine, 'Server scrobbles')).toMatch(/>Save</);
+  });
+
+  it('the own login: User name, Password and Server scrobbles join one Save', () => {
+    const html = renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, account: shared })} />);
+    const form = formAround(html, 'Server scrobbles');
+    for (const label of ['>User name<', '>Password<', '>Server scrobbles<', '>Add login<']) expect(form).toContain(label);
+    expect(form).toMatch(/role="radiogroup" aria-label="Server scrobbles"/);
+    // nothing typed yet: Add login waits
+    expect(form).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Add login/);
+  });
+
+  it('Loves saves at once', () => {
+    const html = renderToStaticMarkup(<ListeningSettingsView {...props(lastfmOn)} />);
+    const scrobbling = group(html, 'Scrobbling');
+    expect(scrobbling).toMatch(/role="radiogroup" aria-label="Loves on Last.fm"/);
+    expect(scrobbling).not.toMatch(/>Save</);
+    const saved = renderToStaticMarkup(<ListeningSettingsView {...props(lastfmOn)} saves={{ loves: { state: 'saved' } }} />);
+    expect(group(saved, 'Scrobbling')).toContain('✓ Saved');
+    const failed = renderToStaticMarkup(<ListeningSettingsView {...props(lastfmOn)} saves={{ loves: { state: 'failed' } }} />);
+    expect(group(failed, 'Scrobbling')).toMatch(/role="alert">Not saved</);
+  });
+
+  it('no hint paragraphs', () => {
+    const mine = renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, account: own })} />);
+    expect(mine).not.toContain('User name: ');
+    expect(mine).toMatch(/<input[^>]*value="robin"/);
+    expect(mine).not.toContain('<p');
+    const lb = visible(renderToStaticMarkup(<ListeningSettingsView {...props(base)} />));
+    expect(lb).not.toContain('Get your token');
+    expect(renderToStaticMarkup(<ListeningSettingsView {...props(base)} />)).toContain('Get your token');
+    const off = renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, lastfmAvailable: false })} />);
+    expect(off).toContain('Not set up on this server');
   });
 });
 

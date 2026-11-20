@@ -72,7 +72,7 @@ describe('Settings › Modules › Listen elsewhere', () => {
     const html = renderToStaticMarkup(<ListenElsewhereView platforms={[]} onChange={onChange} />);
     expect(html.match(/type="checkbox"/g)).toHaveLength(8);
     expect(html).not.toContain('checked');
-    for (const name of ['Qobuz', 'Spotify', 'Apple Music', 'YouTube Music', 'Tidal', 'Bandcamp', 'Amazon Music', 'Deezer']) expect(html).toContain(`<span>${name}</span>`);
+    for (const name of ['Qobuz', 'Spotify', 'Apple Music', 'YouTube Music', 'Tidal', 'Bandcamp', 'Amazon Music', 'Deezer']) expect(html).toContain(`>${name}</span>`);
     const ticked = renderToStaticMarkup(<ListenElsewhereView platforms={['qobuz', 'tidal']} onChange={onChange} />);
     expect(ticked.match(/checked=""/g)).toHaveLength(2);
   });
