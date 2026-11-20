@@ -822,7 +822,7 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
   if (devApp) {
     if (!facets.data) return null;
     if (!owner || !(facets.data.devApps ?? []).includes(devApp.id)) return <NotAvailable inline />;
-    return <><h2>{devApp.name}</h2><BooksSwitch /></>;
+    return <BooksSwitch />;
   }
   const known = MODULE_PAGES.find((p) => p.slug === slug);
   const extra = !known ? catalogue.data?.modules.find((m) => moduleSlug(m.id) === slug) : undefined;
@@ -831,15 +831,12 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
     if (owner && catalogue.isLoading) return null;
     return <NotAvailable inline />;
   }
-  const heading = <h2>{entry.name}</h2>;
-
   switch (entry.id) {
     case 'player': {
       const installed = caps.data ? !!caps.data.player?.installed : null;
       if (!owner) return null;
       return (
         <>
-          {heading}
           <CatalogueSwitch id="player" name="Player" />
           <SettingsPlaybackContent />
           {/* each person's own part, once a player server answers (Not set up says it already) */}
@@ -849,9 +846,9 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
     }
     case 'lidarr':
       if (!owner) return <NotAvailable inline />;
-      return <>{heading}<LidarrSwitch /><LidarrSettings /></>;
+      return <><LidarrSwitch /><LidarrSettings /></>;
     default:
       if (!owner) return <NotAvailable inline />;
-      return <>{heading}<CatalogueSwitch id={entry.id} name={entry.name} /></>;
+      return <CatalogueSwitch id={entry.id} name={entry.name} />;
   }
 }

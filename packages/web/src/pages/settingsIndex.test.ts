@@ -2,6 +2,7 @@
  * Settings search: a static index of the labels each server section shows,
  * filtered to the sections the role can see (spec §3).
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { SETTINGS_INDEX, searchSettings } from './settingsIndex';
 import { SERVER_SECTIONS, settingsNav } from './settingsSections';
@@ -55,5 +56,31 @@ describe('searchSettings', () => {
 
   it('nothing matches', () => {
     expect(searchSettings('zzz nothing', owner)).toEqual([]);
+  });
+});
+
+/** The files each section renders (SettingsPage.tsx), read as text. */
+const SECTION_FILES: Record<string, string[]> = {
+  library: ['./SettingsScanRootsPage.tsx', '../components/naming/NamingSettings.tsx', '../components/naming/DropPoolSettings.tsx', './SettingsDeletingPage.tsx'],
+  'tag-writing': ['./SettingsTagWritesPage.tsx'],
+  following: ['./SettingsFollowRulesPage.tsx'],
+};
+const sourceOf = (section: string) => SECTION_FILES[section]!.map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
+
+describe('the index matches the pages', () => {
+  for (const section of Object.keys(SECTION_FILES)) {
+    it(`every indexed label is on its page: ${section}`, () => {
+      const text = sourceOf(section);
+      const labels = SETTINGS_INDEX.filter((e) => e.section === section).map((e) => e.label);
+      expect(labels.length).toBeGreaterThan(1);
+      const missing = labels.filter((l) => !text.includes(`title="${l}"`) && !text.includes(`label="${l}"`));
+      expect(missing, `not on the ${section} page`).toEqual([]);
+    });
+  }
+
+  it('search finds a row', () => {
+    expect(searchSettings('separator', owner)).toEqual([{ section: 'tag-writing', label: 'Tag writing', matches: ['Separator'] }]);
+    expect(searchSettings('auto-follow at', owner)).toEqual([{ section: 'following', label: 'Follow rules', matches: ['Auto-follow at'] }]);
+    expect(searchSettings('folder link', owner)).toEqual([{ section: 'library', label: 'Library', matches: ['Folder link'] }]);
   });
 });

@@ -1,194 +1,27 @@
-.container {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
-
-.content {
+/* Settings › Tag writing: the Tag writes and Default write policy groups (SettingsGroup). */
+.page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xl);
-}
-
-.section {
-  margin-bottom: 3rem;
-}
-
-.sectionTitle {
-  font-size: 1.25rem;
-  margin: 0 0 1.5rem 0;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.5rem;
-}
-
-.pageHint {
-  font-size: 0.9375rem;
-  color: var(--text-secondary);
-  margin: 0 0 1.5rem 0;
-  line-height: 1.6;
-  background: var(--surface-info);
-  padding: 1rem;
-  border-radius: var(--r-inner);
-  border: 1px solid var(--border);
-}
-
-.statusList {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.statusRow {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--r-inner);
-  background: var(--bg-secondary);
-}
-
-.statusDot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-}
-
-.on {
-  background: var(--success);
-}
-
-.off {
-  background: var(--text-secondary);
-  opacity: 0.5;
-}
-
-.statusText {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  flex: 1 1 auto;
+  gap: var(--space-lg);
   min-width: 0;
-  color: var(--text-primary);
 }
 
-.statusText span {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
+/* a row's value: quiet, wraps rather than pushing the label out */
+.value,
+.problem {
+  min-width: 0;
+  font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
+  text-align: right;
 }
+.value { color: var(--ink-2); }
+.problem { color: var(--danger); }
 
-.warning {
-  margin: 1rem 0 0 0;
-  font-size: 0.875rem;
-  color: var(--error);
-  line-height: 1.5;
-}
+/* the separator, a few characters */
+.field { width: 6rem; font-family: var(--font-mono); }
 
-.fieldGroup {
-  margin-bottom: 2rem;
-}
+/* the group's Save, under its rows */
+.save { padding-inline: var(--space-md); }
 
-.label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: var(--text-primary);
-}
-
-.hint {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  margin: 0 0 0.75rem 0;
-  line-height: 1.5;
-}
-
-.radioGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.radioLabel {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--r-inner);
-  cursor: pointer;
-  color: var(--text-primary);
-  transition: border-color var(--transition-normal), background-color var(--transition-normal);
-}
-
-.radioLabel:hover {
-  background: var(--bg-secondary);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .radioLabel {
-    transition: none;
-  }
-}
-
-.radioActive {
-  border-color: var(--accent);
-  background: var(--bg-secondary);
-}
-
-.radio {
-  margin-top: 0.2rem;
-  accent-color: var(--accent);
-}
-
-.radioText {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.radioText span {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.select,
-.input {
-  width: 100%;
-  max-width: 400px;
-  padding: 0.75rem;
-  font-size: 1rem;
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.success {
-  color: var(--success);
-  font-weight: 500;
-}
-
-.error {
-  color: var(--error);
-  font-weight: 500;
-}
-
-.steps {
-  margin: 0;
-  padding-left: 1.25rem;
-  color: var(--text-primary);
-  line-height: 1.8;
-}
-
-.steps a {
-  color: var(--accent);
-}
-
-.howTo { display: inline-block; margin-top: var(--space-4, 1rem); font-size: .875rem; }
+/* a value and its link, together on the right of a row */
+.inline { display: flex; align-items: center; gap: var(--space-md); min-width: 0; }

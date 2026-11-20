@@ -78,6 +78,26 @@ describe('Settings is the server’s', () => {
   });
 });
 
+describe('one heading style', () => {
+  it("one h2 per section, the frame's", () => {
+    // the section's name (or the module's on a module page), once, by the frame
+    expect(page.match(/<h2>\{heading\}<\/h2>/g)).toHaveLength(1);
+    expect(page).toMatch(/const heading = moduleName \?\? current/);
+    for (const label of ['People', 'Modules', 'Backups', 'Status', 'Setup checklist']) expect(page).not.toContain(`<h2>${label}</h2>`);
+    const pages = ['./SettingsScanRootsPage.tsx', '../components/naming/NamingSettings.tsx', '../components/naming/DropPoolSettings.tsx', './SettingsDeletingPage.tsx', './SettingsTagWritesPage.tsx', './SettingsFollowRulesPage.tsx', './SettingsGenresPage.tsx'];
+    for (const file of pages) {
+      const body = source(file);
+      expect(body, file).not.toMatch(/<h2/);
+      expect(body, file).not.toContain('sectionTitle');
+    }
+  });
+
+  it('a module page and Updates render no heading of their own', () => {
+    expect(source('./SettingsModulesPage.tsx')).not.toMatch(/<h2/);
+    expect(source('./SettingsUpdatesPage.tsx')).not.toMatch(/<h2>Updates/);
+  });
+});
+
 describe('Settings search', () => {
   it('the field names itself Search settings', async () => {
     const html = await nav('');

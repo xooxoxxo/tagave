@@ -1,22 +1,26 @@
 /**
- * Settings › Tag writing (M2, spec §12.8 + M2 plan Q5): the library
- * master switch for writing tags to files, and the default write policy new
- * plans start from. Writes also need a writable scan root (Settings › Music
- * folders);
- * the worker re-checks both per file when a plan applies.
+ * Settings › Tag writing (M2, spec §12.8 + M2 plan Q5): the library's
+ * switch for writing tags to files, and the default write policy new plans
+ * start from. Writes also need a writable music folder (Settings › Library);
+ * the worker re-checks both per file when a plan applies. Tag writes, the
+ * preset and the MP3 tags are single choices, each saved when changed (Tag
+ * writes asks first before it turns on); the separator is typed and saved
+ * with its Save. A choice sends the stored policy with that one change, so
+ * a typed but unsaved separator stays in its draft. TagWritingView is the
+ * section alone, driven by props (stories, tests).
  */
-import { useEffect, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import type { PatchLibrarySettings, TagPolicies } from '@tagave/shared';
 import { docsUrl } from '../utils/docs';
-import type { TagPolicies } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useScanRoots } from '../hooks/useLibrary';
-import { Button, LinkButton, confirmDialog } from '../components/ui';
+import { Input, LinkButton, SaveStatus, SegmentedControl, Select, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, useSaveFlash, useSettingsDraft, type SaveFlash, type SaveState } from '../components/ui';
 import styles from './SettingsTagWritesPage.module.css';
 
 type Preset = TagPolicies['preset'];
 
 const PRESETS: Array<{ id: Preset; title: string }> = [
-  { id: 'canonical_ids_and_fill', title: 'Canonical IDs + fill (recommended)' },
+  { id: 'canonical_ids_and_fill', title: 'Canonical IDs + fill' },
   { id: 'fill_blanks_only', title: 'Fill blanks only' },
   { id: 'overwrite_all', title: 'Overwrite all' },
   { id: 'custom', title: 'Custom' },
@@ -24,187 +28,137 @@ const PRESETS: Array<{ id: Preset; title: string }> = [
 
 const DEFAULT_POLICY: TagPolicies = { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' };
 
-const samePolicy = (a: TagPolicies, b: TagPolicies) =>
-  a.preset === b.preset && a.id3Version === b.id3Version && a.multiValueSeparator === b.multiValueSeparator;
+const ON_OFF = [{ value: 'off' as const, label: 'Off' }, { value: 'on' as const, label: 'On' }];
 
-/**
- * Content component for embedding in SettingsPage
- */
+/** The three fields this page sets, as today's Save sent them. */
+const policyOf = (p: TagPolicies): TagPolicies => ({ preset: p.preset, id3Version: p.id3Version, multiValueSeparator: p.multiValueSeparator });
+
+export interface SaveOutcome {
+  state: SaveState;
+  detail?: string | null;
+}
+
+export interface TagWritingViewProps {
+  enabled: boolean;
+  /** the writable music folders' paths; null while they load */
+  writable: string[] | null;
+  /** the stored policy */
+  policy: TagPolicies;
+  /** the separator as typed */
+  separator: string;
+  onWrites: (on: boolean) => void;
+  /** one choice of the policy changed */
+  onPolicy: (patch: Partial<TagPolicies>) => void;
+  onSeparator: (value: string) => void;
+  onSaveSeparator: () => void;
+  /** the separator's save is on its way */
+  saving?: boolean;
+  writesStatus?: SaveOutcome;
+  policyStatus?: SaveOutcome;
+  separatorStatus?: SaveOutcome;
+  /** the way to Settings › Library (a router link; left out in tests) */
+  editFolders?: ReactNode;
+}
+
+export function TagWritingView({ enabled, writable, policy, separator, onWrites, onPolicy, onSeparator, onSaveSeparator, saving = false, writesStatus, policyStatus, separatorStatus, editFolders }: TagWritingViewProps) {
+  const folders = writable === null ? 'Checking' : writable.length === 0 ? (enabled ? 'No folder allows writes' : 'None') : writable.join(', ');
+  const noFolder = enabled && writable?.length === 0;
+  const dirty = separator !== policy.multiValueSeparator && separator.length > 0;
+  const status = (s?: SaveOutcome) => <SaveStatus state={s?.state ?? null} detail={s?.detail ?? null} />;
+  return (
+    <div className={styles.page}>
+      <SettingsGroup title="Tag writes" status={status(writesStatus)}>
+        <SettingsRow as="div" label="Tag writes" help="Nothing is written until you apply a tag plan">
+          <SegmentedControl label="Tag writes" value={enabled ? 'on' : 'off'} onChange={(v) => onWrites(v === 'on')} options={ON_OFF} />
+        </SettingsRow>
+        <SettingsRow as="div" label="Writable folders">
+          <span className={styles.inline}>
+            <span className={noFolder ? styles.problem : styles.value}>{folders}</span>
+            {editFolders}
+          </span>
+        </SettingsRow>
+      </SettingsGroup>
+
+      <form onSubmit={(e) => { e.preventDefault(); if (dirty && !saving) onSaveSeparator(); }} noValidate>
+        <SettingsGroup
+          title="Default write policy"
+          help={<a href={docsUrl('tag-correction.md')} target="_blank" rel="noreferrer">How to</a>}
+          status={status(policyStatus)}
+          after={policy.id3Version === '2.3'
+            ? <div className={styles.save}><SettingsSave type="submit" dirty={dirty} pending={saving} onSave={() => undefined} state={separatorStatus?.state ?? null} detail={separatorStatus?.detail ?? null} /></div>
+            : undefined}
+        >
+          <SettingsRow label="Preset" help="Canonical IDs + fill is recommended">
+            <Select dense value={policy.preset} onChange={(e) => onPolicy({ preset: e.currentTarget.value as Preset })}>
+              {PRESETS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+            </Select>
+          </SettingsRow>
+          <SettingsRow label="MP3 tags" help="ID3v2.4 is UTF-8 and recommended; ID3v2.3 is for older players">
+            <Select dense value={policy.id3Version} onChange={(e) => onPolicy({ id3Version: e.currentTarget.value as TagPolicies['id3Version'] })}>
+              <option value="2.4">ID3v2.4</option>
+              <option value="2.3">ID3v2.3</option>
+            </Select>
+          </SettingsRow>
+          {policy.id3Version === '2.3' && (
+            <SettingsRow label="Separator" help="Between the values of a field with more than one, in ID3v2.3">
+              <Input dense className={styles.field} value={separator} spellCheck={false} autoComplete="off" onChange={(e) => onSeparator(e.currentTarget.value)} />
+            </SettingsRow>
+          )}
+        </SettingsGroup>
+      </form>
+    </div>
+  );
+}
+
+const detailOf = (err: unknown): string | null => (err as { detail?: string } | null)?.detail ?? null;
+
+/** Settings › Tag writing, connected. */
 export function SettingsTagWritesContent() {
-  return <SettingsTagWritesContentInner />;
-}
-
-/**
- * Full page component (for backward compatibility / direct navigation)
- */
-export function SettingsTagWritesPage() {
-  return <SettingsTagWritesContentInner />;
-}
-
-function SettingsTagWritesContentInner() {
   const { libraryId } = useCurrentLibrary();
   const settings = useLibrarySettings(libraryId);
   const roots = useScanRoots(libraryId);
   const update = useUpdateLibrarySettings(libraryId);
+  const writesFlash = useSaveFlash();
+  const policyFlash = useSaveFlash();
+  const separatorFlash = useSaveFlash();
+  const stored = policyOf(settings.data?.tagPolicy ?? DEFAULT_POLICY);
+  const base = useMemo(() => ({ separator: stored.multiValueSeparator }), [stored.multiValueSeparator]);
+  const { draft, set } = useSettingsDraft(base);
+  const [last, setLast] = useState<'writes' | 'policy' | 'separator' | null>(null);
+  if (!settings.data) return null;
 
-  const [policy, setPolicy] = useState<TagPolicies>(DEFAULT_POLICY);
-  const [saved, setSaved] = useState<TagPolicies>(DEFAULT_POLICY);
-  const [toggling, setToggling] = useState(false);
-
-  useEffect(() => {
-    if (!settings.data) return;
-    const stored = settings.data.tagPolicy ?? DEFAULT_POLICY;
-    setPolicy(stored);
-    setSaved(stored);
-  }, [settings.data]);
-
-  const enabled = settings.data?.tagWritesEnabled === true;
-  const rootList = roots.data ?? [];
-  const writableRoots = rootList.filter((r) => r.writable);
-  const policyChanged = !samePolicy(policy, saved);
-
-  const toggleWrites = async () => {
-    if (!enabled) {
-      const ok = await confirmDialog({
-        title: 'Enable tag writes for this library?',
-        message: 'Nothing is written until you apply a tag plan.',
-        confirmLabel: 'Turn on',
-      });
-      if (!ok) return;
-    }
-    setToggling(true);
-    try {
-      await update.mutateAsync({ tagWritesEnabled: !enabled });
-    } finally {
-      setToggling(false);
-    }
+  const send = (data: PatchLibrarySettings, part: 'writes' | 'policy' | 'separator') => {
+    const flash: SaveFlash = { writes: writesFlash, policy: policyFlash, separator: separatorFlash }[part];
+    setLast(part);
+    flash.clear();
+    update.mutate(data, { onSuccess: () => flash.saved(), onError: (err) => flash.failed(detailOf(err)) });
   };
+  // while a choice saves, it shows as chosen
+  const sending = update.isPending ? update.variables : undefined;
+  const enabled = sending?.tagWritesEnabled ?? settings.data.tagWritesEnabled === true;
+  const shown = sending?.tagPolicy ? policyOf(sending.tagPolicy) : stored;
+  const separator = (draft ?? base).separator;
 
-  const savePolicy = async () => {
-    const next: TagPolicies = {
-      preset: policy.preset,
-      id3Version: policy.id3Version,
-      multiValueSeparator: policy.multiValueSeparator,
-    };
-    await update.mutateAsync({ tagPolicy: next });
-    setSaved(next);
+  const onWrites = async (on: boolean) => {
+    if (on && !(await confirmDialog({ title: 'Turn on tag writes for this library?', message: 'Nothing is written until you apply a tag plan.', confirmLabel: 'Turn on' }))) return;
+    send({ tagWritesEnabled: on }, 'writes');
   };
-
-  if (settings.isLoading) return <div className={styles.container}>Loading settings...</div>;
-
-  const errorText = update.isError
-    ? ((update.error as { detail?: string; message?: string })?.detail ?? (update.error as Error)?.message ?? 'Failed to save')
-    : null;
 
   return (
-    <div className={styles.content}>
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Tag preferences</h2>
-
-        <div className={styles.statusList}>
-          <div className={styles.statusRow}>
-            <span className={`${styles.statusDot} ${enabled ? styles.on : styles.off}`} />
-            <div className={styles.statusText}>
-              <strong>Tag writes</strong>
-              <span>{enabled ? 'On' : 'Off'}</span>
-            </div>
-            <Button
-              variant={enabled ? 'secondary' : 'primary'}
-              onClick={toggleWrites}
-              disabled={toggling || update.isPending}
-            >
-              {toggling ? 'Saving...' : enabled ? 'Turn off' : 'Turn on'}
-            </Button>
-          </div>
-
-          <div className={styles.statusRow}>
-            <span className={`${styles.statusDot} ${writableRoots.length ? styles.on : styles.off}`} />
-            <div className={styles.statusText}>
-              <strong>Writable folders</strong>
-              <span>
-                {roots.isLoading
-                  ? 'Checking…'
-                  : writableRoots.length === 0
-                    ? 'None'
-                    : writableRoots.map((r) => r.path).join(', ')}
-              </span>
-            </div>
-            <LinkButton variant="secondary" size="sm" to="/settings/library" aria-label="Edit music folders">
-              Edit
-            </LinkButton>
-          </div>
-        </div>
-
-        {enabled && writableRoots.length === 0 && (
-          <p className={styles.warning}>No folder allows writes</p>
-        )}
-      </div>
-
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Default write policy</h2>
-
-        <div className={styles.fieldGroup}>
-          <div className={styles.radioGroup}>
-            {PRESETS.map((p) => (
-              <label key={p.id} className={`${styles.radioLabel} ${policy.preset === p.id ? styles.radioActive : ''}`}>
-                <input
-                  type="radio"
-                  name="preset"
-                  className={styles.radio}
-                  checked={policy.preset === p.id}
-                  onChange={() => setPolicy({ ...policy, preset: p.id })}
-                />
-                <span className={styles.radioText}>
-                  <strong>{p.title}</strong>
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div className={styles.fieldGroup}>
-          <label htmlFor="id3Version" className={styles.label}>
-            MP3 tags
-          </label>
-
-          <select
-            id="id3Version"
-            className={styles.select}
-            value={policy.id3Version}
-            onChange={(e) => setPolicy({ ...policy, id3Version: e.target.value as TagPolicies['id3Version'] })}
-          >
-            <option value="2.4">ID3v2.4 (UTF-8, recommended)</option>
-            <option value="2.3">ID3v2.3 (legacy players)</option>
-          </select>
-        </div>
-
-        {policy.id3Version === '2.3' && (
-          <div className={styles.fieldGroup}>
-            <label htmlFor="separator" className={styles.label}>
-              Separator
-            </label>
-            <input
-              id="separator"
-              className={styles.input}
-              value={policy.multiValueSeparator}
-              onChange={(e) => setPolicy({ ...policy, multiValueSeparator: e.target.value })}
-            />
-          </div>
-        )}
-
-        <div className={styles.actions}>
-          <Button type="button" onClick={savePolicy} disabled={!policyChanged || update.isPending}>
-            {update.isPending && !toggling ? 'Saving...' : 'Save'}
-          </Button>
-          <Button variant="quiet" type="button" onClick={() => setPolicy(saved)} disabled={!policyChanged}>
-            Reset
-          </Button>
-          {update.isSuccess && !policyChanged && <span className={styles.success}>Saved</span>}
-          {errorText && <span className={styles.error}>{errorText}</span>}
-        </div>
-      </div>
-
-      <a className={styles.howTo} href={docsUrl('tag-correction.md')} target="_blank" rel="noreferrer">How to</a>
-    </div>
+    <TagWritingView
+      enabled={enabled}
+      writable={roots.data ? roots.data.filter((r) => r.writable).map((r) => r.path) : roots.isError ? [] : null}
+      policy={shown}
+      separator={separator}
+      onWrites={(on) => void onWrites(on)}
+      onPolicy={(patch) => send({ tagPolicy: { ...stored, ...patch } }, 'policy')}
+      onSeparator={(v) => set({ separator: v })}
+      onSaveSeparator={() => send({ tagPolicy: { ...stored, multiValueSeparator: separator } }, 'separator')}
+      saving={update.isPending && last === 'separator'}
+      writesStatus={writesFlash}
+      policyStatus={policyFlash}
+      separatorStatus={separatorFlash}
+      editFolders={<LinkButton variant="secondary" size="sm" to="/settings/library" aria-label="Edit music folders">Edit</LinkButton>}
+    />
   );
 }

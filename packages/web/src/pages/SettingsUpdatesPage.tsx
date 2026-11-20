@@ -183,10 +183,10 @@ function ReleaseArticle({ release, open }: { release: ReleaseNote; open: boolean
 export function SettingsUpdatesPage() {
   const { libraryId } = useCurrentLibrary();
   const { data, isLoading } = useUpdates(libraryId);
-  if (isLoading) return <><h2>Updates</h2><p className={styles.muted}>Loading…</p></>;
+  if (isLoading) return <p className={styles.muted}>Loading…</p>;
   // A failed refetch keeps the last answer: during an in-app update the app
   // restarts and this page must stay put.
-  if (!data) return <><h2>Updates</h2><Banner tone="danger">Could not load update status.</Banner></>;
+  if (!data) return <Banner tone="danger">Could not load update status.</Banner>;
   return <UpdatesContent data={data} libraryId={libraryId} />;
 }
 
@@ -250,7 +250,6 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
 
   return (
     <>
-    <h2>Updates</h2>
     <div className={styles.page}>
       {target && data.updateAvailable && (
         <Banner tone="info">

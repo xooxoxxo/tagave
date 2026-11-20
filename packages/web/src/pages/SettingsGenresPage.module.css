@@ -1,110 +1,63 @@
-.container {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-}
-
-.content {
+/* Library care › Genre mapping: the map as one typed group, then Effective genres and Raw tags (SettingsGroup). */
+.page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xl);
+  gap: var(--space-lg);
+  min-width: 0;
 }
 
-.section {
-  margin-bottom: 3rem;
-}
-
-.sectionTitle {
-  font-size: 1.25rem;
-  margin: 0 0 1.5rem 0;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.5rem;
-}
-
-.fieldGroup {
-  margin-bottom: 2rem;
-}
-
-.label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: var(--text-primary);
-}
-
-.hint {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  margin: 0 0 0.75rem 0;
-  line-height: 1.5;
-}
-
-.ignoredCount {
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.input {
-  width: 100%;
-  max-width: 400px;
-  padding: 0.75rem;
-  font-size: 1rem;
-}
-
+/* a long text in a row: it takes the rest of the row */
 .textarea {
-  width: 100%;
-  padding: 0.75rem;
-  font-size: 0.9375rem;
-  line-height: 1.5;
-  resize: vertical;
-  border-radius: var(--r-inner);
+  width: min(24rem, calc(100vw - 6rem));
+  max-width: 100%;
+  min-width: 0;
+  margin-block: var(--space-sm);
   font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  resize: vertical;
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
+.number { width: 5rem; }
+
+/* the aliases, then how many of their lines were not read */
+.stack { display: flex; flex-direction: column; align-items: flex-end; padding-bottom: var(--space-sm); }
+
+.value {
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
 }
 
-.success {
-  color: var(--success);
-  font-weight: 500;
-}
+/* the group's Save and Reset, under its rows */
+.buttons { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); padding-inline: var(--space-md); }
 
-.error {
-  color: var(--error);
-  font-weight: 500;
-}
-
-.histogramContainer {
+.histogram {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-sm);
+  padding-inline: var(--space-md);
 }
 
 .histogramRow {
   display: grid;
-  grid-template-columns: 120px 1fr 60px;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) 3rem;
+  gap: var(--space-md);
   align-items: center;
 }
 
 .genreLabel {
-  font-weight: 500;
-  color: var(--text-primary);
+  color: var(--ink);
+  font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .barContainer {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--mist);
   border-radius: var(--r-inner);
-  height: 24px;
+  height: 12px;
   overflow: hidden;
 }
 
@@ -118,64 +71,36 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bar {
-    transition: none;
-  }
+  .bar { transition: none; }
 }
 
 .count {
   text-align: right;
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  font-weight: 500;
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
-.tableContainer {
-  overflow-x: auto;
-}
+.tableContainer { overflow-x: auto; }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid var(--border);
-  border-radius: var(--r-inner);
-  overflow: hidden;
-  background: var(--bg-secondary);
-}
-
-.table thead {
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
 }
 
 .table th {
-  padding: 0.75rem;
+  padding: var(--space-sm) var(--space-md);
   text-align: left;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font: var(--type-label);
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
 }
 
 .table td {
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-primary);
-  font-size: 0.9rem;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
 }
 
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.table tbody tr:hover {
-  background: var(--bg-tertiary);
-}
-
-.emptyMessage {
-  color: var(--text-secondary);
-  font-style: italic;
-  padding: 2rem;
-  text-align: center;
-}
+.table tbody tr:last-child td { border-bottom: none; }

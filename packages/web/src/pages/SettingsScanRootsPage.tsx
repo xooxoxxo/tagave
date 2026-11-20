@@ -1,413 +1,266 @@
 /**
- * Settings page for scan roots management (LIB-1)
- * Add, edit, enable/disable scan roots
+ * Settings › Library › Music folders (LIB-1): a group per music folder (its
+ * name, its path in the head), then Add music folder. Scanning and Tag
+ * writes are Off and On, saved when changed (Tag writes asks first before
+ * it allows writes); the folder link is typed and saved with its Save; Scan,
+ * Check and Remove are actions. MusicFoldersView is the section alone,
+ * driven by props (stories); SettingsScanRootsContent connects it.
  */
-
-import { useId, useState } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
 import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, type ScanRoot } from '@tagave/shared';
-import { Button, confirmDialog } from '../components/ui';
+import { Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, sentence, useSaveFlash, useSettingsDraft } from '../components/ui';
 import { shortDate } from '../utils/time';
 import styles from './SettingsScanRootsPage.module.css';
 
-/**
- * Content component for embedding in SettingsPage
- */
-export function SettingsScanRootsContent() {
-  return <SettingsScanRootsContentInner />;
+const ON_OFF = [{ value: 'off' as const, label: 'Off' }, { value: 'on' as const, label: 'On' }];
+
+/** 21600 → "6 h", 600 → "10 min", 90 → "90 s" */
+export function rescanLabel(seconds: number): string {
+  if (seconds >= 3600 && seconds % 3600 === 0) return `${seconds / 3600} h`;
+  if (seconds >= 60 && seconds % 60 === 0) return `${seconds / 60} min`;
+  return `${seconds} s`;
 }
 
-/**
- * Full page component (for backward compatibility / direct navigation)
- */
-export function SettingsScanRootsPage() {
-  return <SettingsScanRootsContentInner />;
-}
-
-function SettingsScanRootsContentInner() {
-  const { libraryId } = useCurrentLibrary();
-  const { data: scanRoots = [], isLoading } = useScanRoots(libraryId);
-  const createMutation = useCreateScanRoot(libraryId);
-  const updateMutation = useUpdateScanRoot(libraryId);
-  const deleteMutation = useDeleteScanRoot(libraryId);
-  const startScanMutation = useStartScan(libraryId);
-  const validateMutation = useValidateScanRoot(libraryId);
-
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [pendingRootIds, setPendingRootIds] = useState<Set<string>>(new Set());
-  const [formData, setFormData] = useState({
-    path: '',
-    displayName: '',
-    writable: true,
-    pollIntervalS: 21600, // 6 hours
-  });
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const isPending = (rootId: string) => pendingRootIds.has(rootId);
-
-  const withPending = (rootId: string, fn: () => void) => {
-    setPendingRootIds((prev) => new Set(prev).add(rootId));
-    fn();
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type, checked } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : type === 'number' ? Number(value) : value,
-    }));
-  };
-
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.path.trim()) {
-      newErrors.path = 'Path is required';
-    } else if (!formData.path.startsWith('/')) {
-      newErrors.path = 'Path must be absolute (start with /)';
-    }
-
-    if (!formData.displayName.trim()) {
-      newErrors.displayName = 'Display name is required';
-    }
-
-    if (formData.pollIntervalS < 60) {
-      newErrors.pollIntervalS = 'Poll interval must be at least 60 seconds';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleAddRoot = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-
-    createMutation.mutate(
-      {
-        path: formData.path,
-        displayName: formData.displayName,
-        writable: formData.writable,
-        pollIntervalS: formData.pollIntervalS,
-        enabled: true,
-      },
-      {
-        onSuccess: () => {
-          setFormData({ path: '', displayName: '', writable: true, pollIntervalS: 21600 });
-          setShowAddForm(false);
-          setErrors({});
-        },
-      }
-    );
-  };
-
-  const clearPending = (rootId: string) => () =>
-    setPendingRootIds((prev) => {
-      const next = new Set(prev);
-      next.delete(rootId);
-      return next;
-    });
-
-  const handleToggleEnabled = (root: ScanRoot) => {
-    withPending(root.id, () => {
-      updateMutation.mutate({ rootId: root.id, data: { enabled: !root.enabled } }, { onSettled: clearPending(root.id) });
-    });
-  };
-
-  // Tag writes need both the owner's intent (writable) and the worker's probe
-  // (probeWritable); the toggle only turns writes on for a validated,
-  // probed-writable root. Turning them off is always allowed.
-  const canEnableWrites = (root: ScanRoot) => root.validationStatus === 'ok' && root.probeWritable !== false;
-
-  const writableHint = (root: ScanRoot): string => {
-    if (root.writable) return 'Stop tag plans from writing files under this root';
-    if (root.validationStatus !== 'ok') return 'The path must be validated by the worker first';
-    if (root.probeWritable === false) return 'The worker reports this mount as read-only. Remount it read-write and re-check';
-    return 'Allow tag plans to write files under this root (writes are journaled and revertible)';
-  };
-
-  const handleToggleWritable = async (root: ScanRoot) => {
-    if (!root.writable && !(await confirmDialog({ title: 'Allow tag writes under this folder?', message: <><p><code>{root.path}</code></p><p>Every write can be reverted.</p></>, confirmLabel: 'Allow writes' }))) return;
-    withPending(root.id, () => {
-      updateMutation.mutate({ rootId: root.id, data: { writable: !root.writable } }, { onSettled: clearPending(root.id) });
-    });
-  };
-
-  const handleDelete = async (rootId: string) => {
-    if (await confirmDialog({ title: 'Remove this folder?', message: 'Your files stay on disk.', confirmLabel: 'Delete', tone: 'danger' })) {
-      withPending(rootId, () => {
-        deleteMutation.mutate(rootId, { onSettled: clearPending(rootId) });
-      });
-    }
-  };
-
-  const handleStartScan = (rootId: string) => {
-    withPending(rootId, () => {
-      startScanMutation.mutate(rootId, { onSettled: clearPending(rootId) });
-    });
-  };
-
-  const handleValidate = (rootId: string) => {
-    withPending(rootId, () => {
-      validateMutation.mutate(rootId, { onSettled: clearPending(rootId) });
-    });
-  };
-
-  if (!libraryId) {
-    return <div className={styles.container}>Loading...</div>;
+/** What the worker found at the folder, as a word, and whether it is a problem. */
+export function folderCheck(root: ScanRoot): { text: string; problem: boolean } {
+  switch (root.validationStatus) {
+    case 'pending': return { text: 'Pending', problem: false };
+    case 'missing': return { text: 'Missing', problem: true };
+    case 'not_directory': return { text: 'Not a directory', problem: true };
+    case 'unreadable': return { text: 'Unreadable', problem: true };
+    default: break;
   }
+  if (root.validationMessage === SCAN_ROOT_EMPTY_MESSAGE) return { text: 'Empty', problem: true };
+  if (root.lastStatus === 'aborted') return { text: 'Unreachable', problem: true };
+  // the probe warning: writes are allowed but the worker sees a read-only mount
+  if (root.probeWritable === false) return root.writable ? { text: 'Mount is read-only', problem: true } : { text: 'Read-only mount', problem: false };
+  return { text: 'OK', problem: false };
+}
 
+/** The worker has checked the folder and may write there. */
+const canEnableWrites = (root: ScanRoot) => root.validationStatus === 'ok' && root.probeWritable !== false;
+
+export interface NewMusicFolder {
+  path: string;
+  displayName: string;
+  pollIntervalS: number;
+}
+
+export interface MusicFoldersViewProps {
+  roots: ScanRoot[];
+  /** the folders are still loading */
+  loading?: boolean;
+  /** a folder whose action is on its way */
+  pending?: (rootId: string) => boolean;
+  /** a change to one folder; resolves to null once saved, else the API's detail ('' for none) */
+  onUpdate: (root: ScanRoot, data: Partial<ScanRoot>) => Promise<string | null>;
+  onScan: (root: ScanRoot) => void;
+  onCheck: (root: ScanRoot) => void;
+  onRemove: (root: ScanRoot) => void;
+  adding?: boolean;
+  addError?: string | null;
+  /** resolves true once the folder is added (the form then empties) */
+  onAdd: (folder: NewMusicFolder) => Promise<boolean> | boolean;
+}
+
+export function MusicFoldersView({ roots, loading = false, pending = () => false, onUpdate, onScan, onCheck, onRemove, adding = false, addError = null, onAdd }: MusicFoldersViewProps) {
   return (
-    <div className={styles.content}>
-        <h2 className={styles.sectionTitle}>Music folders</h2>
-
-        {/* Add form */}
-      {!showAddForm ? (
-        <Button className={styles.addButton} onClick={() => setShowAddForm(true)}>
-          Add folder
-        </Button>
+    <div className={styles.page}>
+      {loading ? null : roots.length === 0 ? (
+        <SettingsGroup title="Music folders" meta="No music folders" />
       ) : (
-        <form onSubmit={handleAddRoot} className={styles.form}>
-          <div className={styles.field}>
-            <label htmlFor="path">Path</label>
-            <input
-              id="path"
-              type="text"
-              name="path"
-              value={formData.path}
-              onChange={handleInputChange}
-              placeholder="/music"
-              disabled={createMutation.isPending}
-            />
-            {errors.path && <span className={styles.error}>{errors.path}</span>}
-          </div>
-
-          <div className={styles.field}>
-            <label htmlFor="displayName">Name</label>
-            <input
-              id="displayName"
-              type="text"
-              name="displayName"
-              value={formData.displayName}
-              onChange={handleInputChange}
-              placeholder="My Music Library"
-              disabled={createMutation.isPending}
-            />
-            {errors.displayName && <span className={styles.error}>{errors.displayName}</span>}
-          </div>
-
-          <div className={styles.field}>
-            <label>
-              <input
-                type="checkbox"
-                name="writable"
-                checked={formData.writable}
-                onChange={handleInputChange}
-                disabled={createMutation.isPending}
-              />
-              Writable
-            </label>
-          </div>
-
-          <div className={styles.field}>
-            <label htmlFor="pollIntervalS">Rescan every (seconds)</label>
-            <input
-              id="pollIntervalS"
-              type="number"
-              name="pollIntervalS"
-              value={formData.pollIntervalS}
-              onChange={handleInputChange}
-              min="60"
-              step="60"
-              disabled={createMutation.isPending}
-            />
-            {errors.pollIntervalS && (
-              <span className={styles.error}>{errors.pollIntervalS}</span>
-            )}
-          </div>
-
-          <div className={styles.formActions}>
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Adding...' : 'Add'}
-            </Button>
-            <Button variant="quiet" type="button" onClick={() => setShowAddForm(false)}>
-              Cancel
-            </Button>
-          </div>
-
-          {createMutation.error && (
-            <div className={styles.serverError}>
-              {(createMutation.error as any)?.detail || 'Failed to add scan root'}
-            </div>
-          )}
-        </form>
+        roots.map((root) => (
+          <FolderGroup key={root.id} root={root} busy={pending(root.id)} onUpdate={onUpdate} onScan={onScan} onCheck={onCheck} onRemove={onRemove} />
+        ))
       )}
-
-
-      {/* Roots list */}
-      {isLoading ? (
-        <div className={styles.loading}>Loading scan roots...</div>
-      ) : scanRoots.length === 0 ? (
-        <div className={styles.emptyState}>
-          <p>No music folders</p>
-        </div>
-      ) : (
-        <div className={styles.rootsList}>
-          {scanRoots.map((root) => (
-            <div key={root.id} className={styles.rootCard}>
-              <div className={styles.rootHeader}>
-                <div className={styles.rootTitleArea}>
-                  <h3 className={styles.rootTitle}>{root.displayName}</h3>
-                  <p className={styles.rootPath}>{root.path}</p>
-                </div>
-                <div className={styles.rootMeta}>
-                  {root.validationStatus === 'pending' && (
-                    <span className={`${styles.badge} ${styles.validationPending}`} title="Waiting for worker validation">
-                      Pending validation
-                    </span>
-                  )}
-                  {root.validationStatus === 'ok' && root.validationMessage === SCAN_ROOT_EMPTY_MESSAGE && (
-                    <span
-                      className={`${styles.badge} ${styles.validationError}`}
-                      title="The worker sees nothing in this folder, so scans find no music. Check that Docker shares it with the worker."
-                    >
-                      Empty
-                    </span>
-                  )}
-                  {root.validationStatus === 'ok' && root.validationMessage !== SCAN_ROOT_EMPTY_MESSAGE && root.probeWritable === false && (
-                    <span className={`${styles.badge} ${styles.validationOk}`} title="Mounted read-only">Read-only mount</span>
-                  )}
-                  {root.lastStatus === 'aborted' && root.validationStatus === 'ok' && root.validationMessage !== SCAN_ROOT_EMPTY_MESSAGE && (
-                    <span className={`${styles.badge} ${styles.validationError}`} title="The last scan stopped before reading anything: nothing was marked missing">
-                      Unreachable
-                    </span>
-                  )}
-                  {root.validationStatus === 'missing' && (
-                    <span className={`${styles.badge} ${styles.validationError}`} title={root.validationMessage || 'Path does not exist'}>
-                      Missing
-                    </span>
-                  )}
-                  {root.validationStatus === 'not_directory' && (
-                    <span className={`${styles.badge} ${styles.validationError}`} title={root.validationMessage || 'Path is not a directory'}>
-                      Not a directory
-                    </span>
-                  )}
-                  {root.validationStatus === 'unreadable' && (
-                    <span className={`${styles.badge} ${styles.validationError}`} title={root.validationMessage || 'Path is not readable'}>
-                      Unreadable
-                    </span>
-                  )}
-                  {!root.writable && root.probeWritable !== false && <span className={styles.badge}>Read-only</span>}
-                  {!root.enabled && <span className={styles.badge}>Disabled</span>}
-                </div>
-              </div>
-
-              <div className={styles.rootStats}>
-                <span>{(root.albumsFound ?? 0).toLocaleString()} {root.albumsFound === 1 ? 'album' : 'albums'}</span>
-                <span>{(root.tracksFound ?? 0).toLocaleString()} {root.tracksFound === 1 ? 'track' : 'tracks'}</span>
-                {root.lastScanAt && (
-                  <span>Scanned {shortDate(root.lastScanAt, { time: false })}</span>
-                )}
-              </div>
-
-              <div className={styles.rootActions}>
-                <Button
-                  size="sm"
-                  variant={root.enabled ? 'secondary' : 'primary'}
-                  onClick={() => handleToggleEnabled(root)}
-                  disabled={isPending(root.id)}
-                >
-                  {isPending(root.id) ? (root.enabled ? 'Disabling...' : 'Enabling...') : (root.enabled ? 'Disable' : 'Enable')}
-                </Button>
-                {root.validationStatus !== 'ok' && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleValidate(root.id)}
-                    disabled={isPending(root.id)}
-                  >
-                    {isPending(root.id) ? 'Checking...' : 'Re-check'}
-                  </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleStartScan(root.id)}
-                  disabled={isPending(root.id) || root.lastStatus === 'scanning' || root.validationStatus !== 'ok'}
-                  title={root.validationStatus !== 'ok' ? 'Path must be validated first' : ''}
-                >
-                  {root.lastStatus === 'scanning' || isPending(root.id) ? 'Scanning...' : 'Scan'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleToggleWritable(root)}
-                  disabled={isPending(root.id) || (!root.writable && !canEnableWrites(root))}
-                  title={writableHint(root)}
-                >
-                  {isPending(root.id) ? 'Saving...' : root.writable ? 'Make read-only' : 'Allow writes'}
-                </Button>
-                <Button
-                  variant="quiet-danger"
-                  size="sm"
-                  onClick={() => handleDelete(root.id)}
-                  disabled={isPending(root.id)}
-                >
-                  {isPending(root.id) ? 'Deleting...' : 'Delete'}
-                </Button>
-              </div>
-              <FolderLinkField
-                root={root}
-                saving={isPending(root.id)}
-                onSave={(folderLink) => withPending(root.id, () => {
-                  updateMutation.mutate({ rootId: root.id, data: { folderLink } }, { onSettled: clearPending(root.id) });
-                })}
-              />
-              {root.writable && root.probeWritable === false && (
-                <p className={styles.rootWarning}>
-                  Mount is read-only
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <AddMusicFolder adding={adding} error={addError} onAdd={onAdd} />
     </div>
   );
 }
 
-/**
- * "Open folder" link base for albums under this root: where the owner's own
- * computer sees this folder. The album page then links each album folder as
- * this base plus the folder path (URL-encoded).
- */
-function FolderLinkField({ root, saving, onSave }: { root: ScanRoot; saving: boolean; onSave: (link: string | null) => void }) {
-  const id = useId();
-  const saved = root.folderLink ?? '';
-  const [value, setValue] = useState(saved);
-  const problem = folderLinkBaseProblem(value);
+interface FolderGroupProps {
+  root: ScanRoot;
+  busy: boolean;
+  onUpdate: MusicFoldersViewProps['onUpdate'];
+  onScan: (root: ScanRoot) => void;
+  onCheck: (root: ScanRoot) => void;
+  onRemove: (root: ScanRoot) => void;
+}
 
-  const dirty = value.trim() !== saved.trim();
-  return (
-    <div className={styles.folderLink}>
-      <label htmlFor={id} className={styles.folderLinkLabel}>Folder link</label>
-      <div className={styles.folderLinkRow}>
-        <input
-          id={id}
-          className={styles.folderLinkInput}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="smb://nas/music/ or file:///Volumes/music/"
-          aria-invalid={problem ? true : undefined}
-          aria-describedby={problem ? `${id}-help` : undefined}
-          spellCheck={false}
-          autoCapitalize="off"
-        />
-        <Button size="sm" variant="secondary" disabled={!dirty || !!problem || saving} onClick={() => onSave(value.trim() || null)}>
-          {saving ? 'Saving...' : value.trim() || !saved ? 'Save' : 'Remove'}
-        </Button>
-      </div>
-      {problem && <p id={`${id}-help`} className={styles.error}>{problem}</p>}
+function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: FolderGroupProps) {
+  const choice = useSaveFlash();
+  const linkFlash = useSaveFlash();
+  const base = useMemo(() => ({ folderLink: root.folderLink ?? '' }), [root.folderLink]);
+  const { draft, set } = useSettingsDraft(base);
+  const link = (draft ?? base).folderLink;
+  const problem = folderLinkBaseProblem(link);
+  const dirty = link.trim() !== base.folderLink.trim() && !problem;
+  const [saving, setSaving] = useState(false);
+  const check = folderCheck(root);
+  const scanning = root.lastStatus === 'scanning';
+  const writesLocked = !root.writable && !canEnableWrites(root);
+
+  const change = async (data: Partial<ScanRoot>) => {
+    choice.clear();
+    const failed = await onUpdate(root, data);
+    if (failed === null) choice.saved(); else choice.failed(failed || null);
+  };
+  const setWrites = async (on: boolean) => {
+    if (on && !(await confirmDialog({ title: 'Allow tag writes under this folder?', message: <><p><code>{root.path}</code></p><p>Every write can be reverted.</p></>, confirmLabel: 'Allow writes' }))) return;
+    await change({ writable: on });
+  };
+  const saveLink = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!dirty || saving) return;
+    setSaving(true);
+    linkFlash.clear();
+    const failed = await onUpdate(root, { folderLink: link.trim() || null });
+    setSaving(false);
+    if (failed === null) linkFlash.saved(); else linkFlash.failed(failed || null);
+  };
+
+  const found = [
+    `${(root.albumsFound ?? 0).toLocaleString()} ${root.albumsFound === 1 ? 'album' : 'albums'}`,
+    `${(root.tracksFound ?? 0).toLocaleString()} ${root.tracksFound === 1 ? 'track' : 'tracks'}`,
+    ...(root.lastScanAt ? [`Scanned ${shortDate(root.lastScanAt, { time: false })}`] : []),
+  ].join(' · ');
+
+  const actions = (
+    <div className={styles.actions}>
+      <SettingsSave type="submit" dirty={dirty} pending={saving} onSave={() => undefined} state={linkFlash.state} detail={linkFlash.detail} label={link.trim() || !base.folderLink ? 'Save link' : 'Remove link'} />
+      <Button variant="secondary" size="sm" onClick={() => onScan(root)} loading={scanning} disabled={busy || root.validationStatus !== 'ok'}>Scan</Button>
+      <Button variant="secondary" size="sm" onClick={() => onCheck(root)} disabled={busy}>Check</Button>
+      <Button variant="quiet-danger" size="sm" onClick={() => onRemove(root)} disabled={busy}>Remove</Button>
     </div>
+  );
+
+  return (
+    <form onSubmit={(e) => void saveLink(e)} noValidate>
+      <SettingsGroup title={root.displayName} meta={<code className={styles.path}>{root.path}</code>} status={<SaveStatus state={choice.state} detail={choice.detail} />} after={actions}>
+        <SettingsRow as="div" label="Scanning">
+          <SegmentedControl label="Scanning" value={root.enabled ? 'on' : 'off'} onChange={(v) => void change({ enabled: v === 'on' })} options={ON_OFF} />
+        </SettingsRow>
+        <SettingsRow as="div" label="Tag writes" help={writesLocked ? 'On once the worker has checked the folder and sees a read-write mount. Every write can be reverted.' : 'Tag plans write files under this folder. Every write can be reverted.'}>
+          <SegmentedControl
+            label="Tag writes"
+            value={root.writable ? 'on' : 'off'}
+            onChange={(v) => void setWrites(v === 'on')}
+            options={[ON_OFF[0]!, { ...ON_OFF[1]!, disabled: writesLocked }]}
+          />
+        </SettingsRow>
+        <SettingsRow as="div" label="Rescan every" value={<span className={styles.value}>{rescanLabel(root.pollIntervalS)}</span>} />
+        <SettingsRow as="div" label="Found" value={<span className={styles.value}>{found}</span>} />
+        <SettingsRow as="div" label="Check" value={<span className={check.problem ? styles.problem : styles.value}>{check.text}</span>} />
+        <SettingsRow
+          label="Folder link"
+          help="Where your own computer sees this folder. An album's Open folder link is this plus the album's folder."
+          value={problem ? <span className={styles.problem}>{problem}</span> : undefined}
+        >
+          <Input
+            dense
+            className={styles.field}
+            value={link}
+            onChange={(e) => set({ folderLink: e.currentTarget.value })}
+            placeholder="smb://nas/music/"
+            aria-invalid={problem ? true : undefined}
+            spellCheck={false}
+            autoCapitalize="off"
+          />
+        </SettingsRow>
+      </SettingsGroup>
+    </form>
+  );
+}
+
+const EMPTY_FOLDER: NewMusicFolder = { path: '', displayName: '', pollIntervalS: 21600 };
+
+/** Why a new folder cannot be added, per field. */
+function folderProblems(f: NewMusicFolder): Partial<Record<keyof NewMusicFolder, string>> {
+  const out: Partial<Record<keyof NewMusicFolder, string>> = {};
+  if (!f.path.trim()) out.path = 'Path is required';
+  else if (!f.path.trim().startsWith('/')) out.path = 'Path must start with /';
+  if (!f.displayName.trim()) out.displayName = 'Name is required';
+  if (!(f.pollIntervalS >= 60)) out.pollIntervalS = 'At least 60 seconds';
+  return out;
+}
+
+function AddMusicFolder({ adding, error, onAdd }: { adding: boolean; error: string | null; onAdd: MusicFoldersViewProps['onAdd'] }) {
+  const [folder, setFolder] = useState<NewMusicFolder>(EMPTY_FOLDER);
+  const [problems, setProblems] = useState<Partial<Record<keyof NewMusicFolder, string>>>({});
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const found = folderProblems(folder);
+    setProblems(found);
+    if (Object.keys(found).length > 0) return;
+    if (await onAdd({ ...folder, path: folder.path.trim(), displayName: folder.displayName.trim() })) setFolder(EMPTY_FOLDER);
+  };
+  const problemOf = (key: keyof NewMusicFolder) => (problems[key] ? <span className={styles.problem} role="alert">{problems[key]}</span> : undefined);
+  const ready = !!folder.path.trim() && !!folder.displayName.trim();
+  return (
+    <form onSubmit={(e) => void submit(e)} noValidate>
+      <SettingsGroup
+        title="Add music folder"
+        after={(
+          <div className={styles.actions}>
+            <Button type="submit" size="sm" loading={adding} disabled={!ready}>Add</Button>
+            {error && <span className={styles.problem} role="alert">{sentence(error)}</span>}
+          </div>
+        )}
+      >
+        <SettingsRow label="Path" value={problemOf('path')}>
+          <Input dense className={styles.field} value={folder.path} placeholder="/music" spellCheck={false} autoCapitalize="off" disabled={adding} onChange={(e) => setFolder({ ...folder, path: e.currentTarget.value })} />
+        </SettingsRow>
+        <SettingsRow label="Name" value={problemOf('displayName')}>
+          <Input dense className={styles.field} value={folder.displayName} placeholder="Music" disabled={adding} onChange={(e) => setFolder({ ...folder, displayName: e.currentTarget.value })} />
+        </SettingsRow>
+        <SettingsRow label="Rescan every (seconds)" value={problemOf('pollIntervalS')}>
+          <Input dense className={styles.number} type="number" min={60} step={60} value={folder.pollIntervalS} disabled={adding} onChange={(e) => setFolder({ ...folder, pollIntervalS: Number(e.currentTarget.value) })} />
+        </SettingsRow>
+      </SettingsGroup>
+    </form>
+  );
+}
+
+const detailOf = (err: unknown): string => (err as { detail?: string } | null)?.detail ?? '';
+
+/** Settings › Library's Music folders, connected. */
+export function SettingsScanRootsContent() {
+  const { libraryId } = useCurrentLibrary();
+  const { data: roots = [], isLoading } = useScanRoots(libraryId);
+  const create = useCreateScanRoot(libraryId);
+  const update = useUpdateScanRoot(libraryId);
+  const remove = useDeleteScanRoot(libraryId);
+  const scan = useStartScan(libraryId);
+  const validate = useValidateScanRoot(libraryId);
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+
+  if (!libraryId) return null;
+
+  const run = (rootId: string, go: (done: () => void) => void) => {
+    setBusy((prev) => new Set(prev).add(rootId));
+    go(() => setBusy((prev) => { const next = new Set(prev); next.delete(rootId); return next; }));
+  };
+
+  return (
+    <MusicFoldersView
+      roots={roots}
+      loading={isLoading}
+      pending={(id) => busy.has(id)}
+      onUpdate={(root, data) => new Promise((resolve) => run(root.id, (done) => update.mutate({ rootId: root.id, data }, {
+        onSuccess: () => resolve(null),
+        onError: (err) => resolve(detailOf(err)),
+        onSettled: done,
+      })))}
+      onScan={(root) => run(root.id, (done) => scan.mutate(root.id, { onSettled: done }))}
+      onCheck={(root) => run(root.id, (done) => validate.mutate(root.id, { onSettled: done }))}
+      onRemove={(root) => void (async () => {
+        if (!(await confirmDialog({ title: 'Remove this folder?', message: 'Your files stay on disk.', confirmLabel: 'Remove', tone: 'danger' }))) return;
+        run(root.id, (done) => remove.mutate(root.id, { onSettled: done }));
+      })()}
+      adding={create.isPending}
+      addError={create.error ? detailOf(create.error) || 'Not added' : null}
+      onAdd={(f) => new Promise((resolve) => create.mutate({ ...f, writable: true, enabled: true }, { onSuccess: () => resolve(true), onError: () => resolve(false) }))}
+    />
   );
 }

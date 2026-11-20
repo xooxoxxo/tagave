@@ -23,7 +23,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Settings › Library › Drop pool: Off | On, the folder, and one line with what the file worker last found there: Ready · the folder, Can’t reach the music folder (the worker does not see the music share), or Folder missing.',
+        component: 'Settings › Library › Drop pool, one group: Off and On (saved when changed, the outcome in the head), the folder (typed, with its Save), what the file worker last found there (Ready · the folder, Can’t reach the music folder, or Folder missing), then the counts.',
       },
     },
   },
@@ -35,5 +35,7 @@ type Story = StoryObj<typeof meta>;
 export const Ready: Story = {};
 export const Unreachable: Story = { args: { view: { ...base, state: 'unreachable' } } };
 export const Missing: Story = { args: { view: { ...base, state: 'missing' } } };
+export const Off: Story = { tags: ['no-shot'], args: { view: { ...base, enabled: false, state: null } } };
+export const NotSaved: Story = { name: 'Not saved', tags: ['no-shot'], args: { state: 'failed', detail: 'the folder is read-only' } };
 export const ReadyPhone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
 export const UnreachablePhone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { view: { ...base, state: 'unreachable' } } };
