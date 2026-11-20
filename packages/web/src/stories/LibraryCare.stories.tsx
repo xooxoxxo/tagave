@@ -54,12 +54,12 @@ type Story = StoryObj<typeof meta>;
 const phone = { globals: { viewport: { value: 'phone' } } } satisfies Story;
 
 /** An editor on Background activity: no owner tabs. */
-export const Editor: Story = { tags: ['viewport-1440', 'no-shot'], args: { who: EDITOR, tab: 'activity' } };
+export const Editor: Story = { tags: ['viewport-1440'], args: { who: EDITOR, tab: 'activity' } };
 /** The owner on Genre mapping: every tab. */
-export const Owner: Story = { tags: ['viewport-1440', 'no-shot'], args: { who: OWNER, tab: 'genres' } };
+export const Owner: Story = { tags: ['viewport-1440'], args: { who: OWNER, tab: 'genres' } };
 /** Maintenance on. */
-export const MaintenanceOn: Story = { name: 'Maintenance on', tags: ['viewport-1440', 'no-shot'], args: { who: OWNER, tab: 'review', maintenance: true } };
+export const MaintenanceOn: Story = { name: 'Maintenance on', tags: ['viewport-1440'], args: { who: OWNER, tab: 'review', maintenance: true } };
 
-export const PhoneEditor: Story = { ...phone, name: 'Phone, editor', tags: ['phone', 'no-shot'], args: { who: EDITOR, tab: 'activity' } };
-export const PhoneOwner: Story = { ...phone, name: 'Phone, owner', tags: ['phone', 'no-shot'], args: { who: OWNER, tab: 'genres' } };
-export const PhoneMaintenanceOn: Story = { ...phone, name: 'Phone, Maintenance on', tags: ['phone', 'no-shot'], args: { who: OWNER, tab: 'review', maintenance: true } };
+export const PhoneEditor: Story = { ...phone, name: 'Phone, editor', tags: ['phone'], args: { who: EDITOR, tab: 'activity' } };
+export const PhoneOwner: Story = { ...phone, name: 'Phone, owner', tags: ['phone'], args: { who: OWNER, tab: 'genres' } };
+export const PhoneMaintenanceOn: Story = { ...phone, name: 'Phone, Maintenance on', tags: ['phone'], args: { who: OWNER, tab: 'review', maintenance: true } };
