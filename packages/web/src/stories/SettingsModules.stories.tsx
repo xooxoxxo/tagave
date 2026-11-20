@@ -26,8 +26,6 @@ const switchFor = (rows: ModuleRowView[]) => (slug: string) => {
 const meta = {
   title: 'Settings/Modules',
   component: ModulesListView,
-  // No screenshot baseline yet: render one on the CI runner (DESIGN.md) and drop `no-shot`.
-  tags: ['no-shot'],
   args: { rows: ROWS, switchFor: switchFor(ROWS) },
   parameters: {
     docs: {

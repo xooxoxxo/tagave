@@ -163,28 +163,28 @@ export const PhoneAcceptDialog: Story = { tags: ['phone'], globals: { viewport: 
 export const PhoneBatches: Story = { ...phone, tags: ['phone', 'shot-full'], args: { history: true, batchDetail: BATCH_DETAIL } };
 
 /** Step 1, the owner's setup: the decider, its block, the spot-check gate, Advanced, one Save. */
-export const SetupLocal: Story = { tags: ['no-shot'], args: { step: 'decider', run: null, runs: [], bands: null } };
+export const SetupLocal: Story = { args: { step: 'decider', run: null, runs: [], bands: null } };
 /** Jev with its key set and the payload seen. */
-export const SetupJev: Story = { tags: ['no-shot'], args: { step: 'decider', library: LIBRARY_JEV } };
+export const SetupJev: Story = { args: { step: 'decider', library: LIBRARY_JEV } };
 /** Jev drafted over a saved local library with no key: Save waits for the key. */
-export const SetupJevNoKey: Story = { tags: ['no-shot'], args: { step: 'decider', run: null, runs: [], bands: null, draft: { decider: 'jev' } } };
+export const SetupJevNoKey: Story = { args: { step: 'decider', run: null, runs: [], bands: null, draft: { decider: 'jev' } } };
 /** A model with no price: Price needed in the Jev block. */
-export const SetupPriceNeeded: Story = { tags: ['no-shot'], args: { step: 'decider', library: LIBRARY_JEV, module: MODULE_NO_PRICES } };
+export const SetupPriceNeeded: Story = { args: { step: 'decider', library: LIBRARY_JEV, module: MODULE_NO_PRICES } };
 /** The only price in another currency than the cap's. */
-export const SetupPriceOtherCurrency: Story = { tags: ['no-shot'], args: { step: 'decider', library: LIBRARY_JEV, module: MODULE_PRICE_EUR } };
-export const SetupAdvanced: Story = { tags: ['no-shot'], args: { step: 'decider', library: LIBRARY_JEV, advancedOpen: true } };
-export const SetupPayloadNotSeen: Story = { tags: ['no-shot'], args: { step: 'decider', library: LIBRARY_NOT_SEEN, run: null, runs: [], bands: null, preview: PAYLOAD, previewOpen: true } };
+export const SetupPriceOtherCurrency: Story = { args: { step: 'decider', library: LIBRARY_JEV, module: MODULE_PRICE_EUR } };
+export const SetupAdvanced: Story = { args: { step: 'decider', library: LIBRARY_JEV, advancedOpen: true } };
+export const SetupPayloadNotSeen: Story = { args: { step: 'decider', library: LIBRARY_NOT_SEEN, run: null, runs: [], bands: null, preview: PAYLOAD, previewOpen: true } };
 /** An editor's step 1: the decider as read, the key Set without its hint, no form. */
-export const EditorDecider: Story = { tags: ['no-shot'], args: { owner: false, step: 'decider', library: LIBRARY_JEV } };
+export const EditorDecider: Story = { args: { owner: false, step: 'decider', library: LIBRARY_JEV } };
 /** Step 2 with the owner's run stats above the last run. */
-export const RunWithStats: Story = { tags: ['no-shot'], args: { step: 'run', stats: MODULE } };
+export const RunWithStats: Story = { args: { step: 'run', stats: MODULE } };
 /** Step 3: Agreement under the gates. */
-export const SpotCheckAgreement: Story = { tags: ['no-shot'], args: { agreement: AGREEMENT } };
+export const SpotCheckAgreement: Story = { args: { agreement: AGREEMENT } };
 
-export const PhoneSetupLocal: Story = { ...phone, tags: ['phone', 'shot-full', 'no-shot'], args: { step: 'decider', run: null, runs: [], bands: null } };
-export const PhoneSetupJev: Story = { ...phone, tags: ['phone', 'shot-full', 'no-shot'], args: { step: 'decider', library: LIBRARY_JEV } };
-export const PhoneSetupJevNoKey: Story = { ...phone, tags: ['phone', 'shot-full', 'no-shot'], args: { step: 'decider', run: null, runs: [], bands: null, draft: { decider: 'jev' } } };
-export const PhoneSpotCheckAgreement: Story = { ...phone, tags: ['phone', 'shot-full', 'no-shot'], args: { agreement: AGREEMENT } };
+export const PhoneSetupLocal: Story = { ...phone, tags: ['phone', 'shot-full'], args: { step: 'decider', run: null, runs: [], bands: null } };
+export const PhoneSetupJev: Story = { ...phone, tags: ['phone', 'shot-full'], args: { step: 'decider', library: LIBRARY_JEV } };
+export const PhoneSetupJevNoKey: Story = { ...phone, tags: ['phone', 'shot-full'], args: { step: 'decider', run: null, runs: [], bands: null, draft: { decider: 'jev' } } };
+export const PhoneSpotCheckAgreement: Story = { ...phone, tags: ['phone', 'shot-full'], args: { agreement: AGREEMENT } };
 
 /** The album page's line: who decided the match. */
 export const Provenance: Story = {
