@@ -7,7 +7,7 @@
  * token off: the brand tokens stay, and Adaptive's cover colours are
  * AdaptiveColour's.
  */
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ThemeChoice, UserPrefsView } from '@tagave/shared';
 import { api } from '../services/api';
@@ -27,6 +27,24 @@ let lastSent: ThemeChoice | null = null;
 /** A change made here is still on its way to the server. */
 const unsaved = () => saveTimer !== null || saving > 0;
 
+/** The last save did not reach the server (Appearance shows `Not saved`); the next one that does clears it. */
+let saveFailed = false;
+const failedListeners = new Set<() => void>();
+function setSaveFailed(next: boolean) {
+  if (saveFailed === next) return;
+  saveFailed = next;
+  for (const fn of failedListeners) fn();
+}
+
+/** Whether the theme's last save failed: the choice still applies here, but will not follow the person. */
+export function useThemeSaveFailed(): boolean {
+  return useSyncExternalStore(
+    (cb) => { failedListeners.add(cb); return () => { failedListeners.delete(cb); }; },
+    () => saveFailed,
+    () => false,
+  );
+}
+
 /** The person's theme plus a setter: it applies at once, and is saved to the server shortly after (the editor's slider sends one save, not one per step). */
 export function useThemeChoice(): [ThemeChoice, (next: ThemeChoice) => void] {
   const choice = useThemeChoiceValue();
@@ -39,7 +57,7 @@ export function useThemeChoice(): [ThemeChoice, (next: ThemeChoice) => void] {
       saving += 1;
       lastSent = next;
       void api.put<UserPrefsView>('/me/prefs', { theme: next })
-        .catch(() => undefined)
+        .then(() => setSaveFailed(false), () => setSaveFailed(true))
         .finally(() => {
           saving -= 1;
           // the last save in: the server's copy is what this browser shows

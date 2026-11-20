@@ -12,25 +12,11 @@
   min-width: 0;
 }
 
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-}
-
+/* Settings › People's own headings until it moves onto the settings layout */
 .title {
   margin: 0;
   font-size: var(--font-size-lg);
   color: var(--ink);
-}
-
-.hint {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-relaxed);
 }
 
 .muted {
@@ -39,58 +25,27 @@
   font-size: var(--font-size-sm);
 }
 
-.methods {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--line);
-}
-
-.methods li {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--font-size-sm);
-}
-
-.list {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: 0.55rem 0;
-  border-bottom: 1px solid var(--line);
+/* a row's value: quiet, wraps rather than pushing the control out */
+.value {
   min-width: 0;
-  font-size: var(--font-size-sm);
-}
-
-.item > div {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.badge {
-  margin-left: 0.5rem;
-  padding: 0.05rem 0.45rem;
-  border-radius: 999px;
-  background: var(--surface-2, var(--surface));
-  border: 1px solid var(--line);
-  font-size: var(--font-size-xs);
   color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
+/* a typed field in a row */
+.field { width: 14rem; max-width: 100%; min-width: 0; }
+
+/* a wrong field's value, beside it */
+.fieldError {
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+/* a flow under a group's rows (set up, confirm your password) */
 .form {
   display: flex;
   flex-direction: column;
@@ -101,14 +56,11 @@
 
 .actions {
   display: flex;
+  align-items: center;
   gap: var(--space-xs);
   flex-wrap: wrap;
 }
 
-.check {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: var(--font-size-sm);
-  color: var(--ink-2);
+@media (max-width: 720px) {
+  .field { width: 10rem; }
 }
