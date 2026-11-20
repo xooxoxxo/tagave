@@ -1,27 +1,38 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
-import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, YourPart, mcDeleted, turnOffKey, type CatalogueModuleViewProps, type OffChoice, type TurnOffChoice } from '../pages/SettingsModulesPage';
+import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, YourPart, mcDeleted, moduleLink, turnOffKey, type CatalogueModuleViewProps, type ModuleRowView, type OffChoice, type TurnOffChoice } from '../pages/SettingsModulesPage';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from './modulesFixtures';
+
+/** A row as moduleRows makes it: the control and link follow from the module. */
+const listRow = (slug: string, id: string, name: string, on: boolean, hasPage: boolean): ModuleRowView =>
+  ({ slug, name, state: on ? 'On' : 'Off', on, control: hasPage ? 'page' : 'switch', link: moduleLink({ id, slug, name, on, hasPage }) });
+
+const ROWS: ModuleRowView[] = [
+  listRow('player', 'player', 'Player', true, true),
+  listRow('autotagger', 'autotagger', 'Autotagger', true, false),
+  listRow('dj', 'dj', 'DJ', true, false),
+  listRow('lidarr', 'lidarr', 'Lidarr', false, true),
+  listRow('playlists', 'playlists', 'Playlists', false, false),
+];
+
+const META: Record<string, string> = { autotagger: '4 runs · 212 decisions', dj: '1,204 of 1,310 tracks analysed', playlists: '0 playlists · 0 people' };
+/** each switched row's Off | On, as the page renders it (Off asks first in the app) */
+const switchFor = (rows: ModuleRowView[]) => (slug: string) => {
+  const r = rows.find((x) => x.slug === slug)!;
+  return <ModuleSwitchView name={r.name} on={r.on} meta={META[slug] ?? null} onSwitch={() => undefined} />;
+};
 
 const meta = {
   title: 'Settings/Modules',
   component: ModulesListView,
   // No screenshot baseline yet: render one on the CI runner (DESIGN.md) and drop `no-shot`.
   tags: ['no-shot'],
-  args: {
-    rows: [
-      { slug: 'player', name: 'Player', state: 'On', on: true },
-      { slug: 'lidarr', name: 'Lidarr', state: 'On', on: true },
-      { slug: 'listen-elsewhere', name: 'Listen elsewhere', state: 'On', on: true },
-      { slug: 'music-connections', name: 'Music Connections', state: 'Off', on: false },
-      { slug: 'playlists', name: 'Playlists', state: 'On', on: true },
-    ],
-  },
+  args: { rows: ROWS, switchFor: switchFor(ROWS) },
   parameters: {
     docs: {
       description: {
-        component: 'Settings › Modules (the owner’s): one row per module with its state; each opens Settings › Modules › <module>, which starts with the module’s Off | On and holds the server’s part. Each person’s part is a row away, in Your settings.',
+        component: 'Settings › Modules (the owner’s): one row per module, its name, its Off | On and a link to where it lives. A module with a page of its own (Player, Lidarr, Books, a catalogue module) shows its state and switches on that page; every other one switches in its row. While a module is on its row links its place (the Autotagger’s setup in Library care, each person’s part in Your settings); while it is off, nothing.',
       },
     },
   },
@@ -32,6 +43,9 @@ type Story = StoryObj<typeof meta>;
 
 export const List: Story = {};
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
+const AUTOTAGGER_OFF = ROWS.map((r) => (r.slug === 'autotagger' ? listRow('autotagger', 'autotagger', 'Autotagger', false, false) : r));
+/** The Autotagger off: its Off | On, no link (a module that is off shows nowhere else). */
+export const AutotaggerOff: Story = { args: { rows: AUTOTAGGER_OFF, switchFor: switchFor(AUTOTAGGER_OFF) } };
 
 const noop = () => undefined;
 const page = (p: Partial<CatalogueModuleViewProps>) => <><h2>Player</h2><CatalogueModuleView view={BASE_VIEW} id="player" name="Player" onSwitch={noop} onDismiss={noop} {...p} /></>;

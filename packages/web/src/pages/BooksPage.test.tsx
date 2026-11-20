@@ -35,7 +35,7 @@ describe('Books', () => {
     expect(slugs(true, null)).toEqual(slugs(true));
     // the flag: the owner's last row, with its state
     expect(slugs(true, { books: false }).at(-1)).toBe('books');
-    expect(moduleRows({ owner: true, enabled, devApps: { books: true } })!.at(-1)).toEqual({ slug: 'books', name: 'Books', state: 'On', on: true });
+    expect(moduleRows({ owner: true, enabled, devApps: { books: true } })!.at(-1)).toEqual({ slug: 'books', name: 'Books', state: 'On', on: true, control: 'page', link: { label: 'Books', to: '/settings/modules/books' } });
     // anyone else: never
     expect(slugs(false, { books: true })).not.toContain('books');
   });

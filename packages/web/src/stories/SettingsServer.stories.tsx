@@ -10,7 +10,7 @@ import type { Role } from '@tagave/shared';
 import { PageShell } from '../components/ui';
 import { SectionNav } from '../components/settings/SectionNav';
 import { SettingsSearch } from '../components/settings/SettingsSearch';
-import { ModulesListView } from '../pages/SettingsModulesPage';
+import { ModuleSwitchView, ModulesListView, moduleLink, type ModuleRowView } from '../pages/SettingsModulesPage';
 import { searchSettings } from '../pages/settingsIndex';
 import { settingsNav } from '../pages/settingsSections';
 import { settingsNavItems } from '../pages/settingsNavItems';
@@ -49,15 +49,19 @@ function ServerSettings({ role, section, query = '', updateAvailable = false, co
   );
 }
 
+const moduleRow = (slug: string, id: string, name: string, on: boolean, hasPage: boolean): ModuleRowView =>
+  ({ slug, name, state: on ? 'On' : 'Off', on, control: hasPage ? 'page' : 'switch', link: moduleLink({ id, slug, name, on, hasPage }) });
+const MODULE_ROWS: ModuleRowView[] = [
+  moduleRow('player', 'player', 'Player', true, true),
+  moduleRow('lidarr', 'lidarr', 'Lidarr', false, true),
+  moduleRow('listen-elsewhere', 'listen-links', 'Listen elsewhere', true, false),
+  moduleRow('music-connections', 'mc', 'Music Connections', true, false),
+  moduleRow('playlists', 'playlists', 'Playlists', true, false),
+];
+
 const modules = <>
   <h2>Modules</h2>
-  <ModulesListView rows={[
-    { slug: 'player', name: 'Player', state: 'On', on: true },
-    { slug: 'lidarr', name: 'Lidarr', state: 'Off', on: false },
-    { slug: 'listen-elsewhere', name: 'Listen elsewhere', state: 'On', on: true },
-    { slug: 'music-connections', name: 'Music Connections', state: 'On', on: true },
-    { slug: 'playlists', name: 'Playlists', state: 'On', on: true },
-  ]} />
+  <ModulesListView rows={MODULE_ROWS} switchFor={(slug) => { const r = MODULE_ROWS.find((x) => x.slug === slug)!; return <ModuleSwitchView name={r.name} on={r.on} onSwitch={() => undefined} />; }} />
   <h2 id="integrations" className={page.modeSetting}>Integrations</h2>
 </>;
 
