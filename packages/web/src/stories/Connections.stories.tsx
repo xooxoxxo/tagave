@@ -29,6 +29,7 @@ const view = (links: McLinkView[]) => ({ links, ownUrl: 'http://music.example.co
 const meta = {
   title: 'Pages/Settings › Modules › Music Connections',
   component: ConnectionsPanel,
+  // The older stories have no baseline yet; the settings layout's stories opt in with `!no-shot`.
   tags: ['no-shot'],
   args: {
     view: view([linked]),
@@ -74,12 +75,12 @@ export const Refused: Story = {
 const second: McLinkView = { ...linked, id: '6f1c2a3e-0000-4000-8000-000000000002', remoteUrl: 'http://wantlist.example.com', service: 'wantlist', failures: 2, lastError: 'remote answered 502' };
 export const DesktopTwoLinks: Story = {
   name: 'Desktop, two links and an error',
-  tags: ['viewport-1440'],
+  tags: ['viewport-1440', '!no-shot'],
   args: { view: view([linked, second]), linkErrors: { [second.id]: 'The address could not be changed.' } },
 };
 export const PhoneTwoLinks: Story = {
   name: 'Phone, two links and an error',
-  tags: ['phone'],
+  tags: ['phone', '!no-shot'],
   globals: { viewport: { value: 'phone' } },
   args: { view: view([linked, second]), linkErrors: { [second.id]: 'The address could not be changed.' } },
 };

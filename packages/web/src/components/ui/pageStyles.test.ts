@@ -79,7 +79,9 @@ describe('h1 and h2 classes', () => {
  * and no page styles a heading (the section's h2 is the frame's, a group's
  * h3 is SettingsGroup's). The frame (SettingsPage.module.css) may hide its
  * own h2 on a phone and during an update; release notes rendered from
- * Markdown (.markdown) are content, not settings headings.
+ * Markdown (.markdown) are content, not settings headings. A class counts as
+ * used only when named statically (styles.x or styles['x']): one picked at
+ * runtime (styles[variant]) would read as dead.
  */
 describe('settings CSS', () => {
   const settingsModules = [
