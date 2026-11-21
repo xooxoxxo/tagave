@@ -1,16 +1,19 @@
 /**
  * Settings › People (owner): who can sign in and with which role, invite
  * links, set-password links, turning sign-in off, removing someone (keeping
- * or deleting their data). Invites, role changes, resets and removal ask the
- * owner to confirm it is them when the last sign-in is older than five
- * minutes (useStepUpAction). No email is sent: the owner copies the link.
- * The sign-in service (your own login service) is its own section below
- * (SettingsPage renders it after this page).
+ * or deleting their data), as groups (spec §6): People, Invite, Open links.
+ * A role saves when changed, after its confirm, its outcome in People's
+ * head; Invite, a new set-password link, turning sign-in off and removing
+ * are actions. Invites, role changes, resets and removal ask the owner to
+ * confirm it is them when the last sign-in is older than five minutes
+ * (useStepUpAction). No email is sent: the owner copies the link. The
+ * sign-in service's groups follow (SettingsPage renders SignInService
+ * after this page).
  */
-import { useState, type FormEvent } from 'react';
-import { ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, type InviteLinkResponse, type Role, type UserView } from '@tagave/shared';
-import { Banner, Button, Select, TextField, confirmDialog } from '../components/ui';
-import { LinkPanel, PendingLinkRow, UserRow, usersListStyles as list } from '../components/users/UsersList';
+import { useState } from 'react';
+import { ROLE_DESCRIPTIONS, ROLE_LABELS, type InviteLinkResponse, type Role, type UserView } from '@tagave/shared';
+import { Banner, Button, HelpToggle, SaveStatus, SegmentedControl, confirmDialog, useSaveFlash } from '../components/ui';
+import { InviteGroup, LinkPanel, OpenLinksGroup, PendingLinkRow, PeopleGroup, UserRow, usersListStyles as list } from '../components/users/UsersList';
 import { useStepUpAction } from '../components/users/useStepUpAction';
 import { useOidcButton } from '../services/oidc';
 import { useChangeUser, useInviteUser, useRemoveUser, useResetSignIn, useRevokeInvite, useUsers } from '../hooks/useUsers';
@@ -39,6 +42,7 @@ export function SettingsUsersPage() {
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [clearFactors, setClearFactors] = useState(false);
   const [resetLink, setResetLink] = useState<InviteLinkResponse | null>(null);
+  const roleSaved = useSaveFlash();
 
   if (isLoading) return <p className={styles.muted}>Loading people…</p>;
   if (error || !data) return <Banner tone="danger">Couldn’t load users.</Banner>;
@@ -54,8 +58,7 @@ export function SettingsUsersPage() {
     }
   };
 
-  const onInvite = async (e: FormEvent) => {
-    e.preventDefault();
+  const onInvite = async () => {
     const body = { email: email.trim(), role };
     const res = await attempt(`Invite ${body.email}`, 'Could not make the invite link.', () => invite.mutateAsync(body));
     if (res) {
@@ -71,7 +74,14 @@ export function SettingsUsersPage() {
       message: <p>{ROLE_DESCRIPTIONS[next]}</p>,
       confirmLabel: `Make ${ROLE_LABELS[next].toLowerCase()}`,
     });
-    if (ok) await attempt(`Change ${u.name}'s role`, 'Could not change the role.', () => change.mutateAsync({ userId: u.id, role: next }));
+    if (!ok) return;
+    // a role is a setting: its outcome shows in People's head
+    roleSaved.clear();
+    try {
+      if (await run(`Change ${u.name}'s role`, () => change.mutateAsync({ userId: u.id, role: next }))) roleSaved.saved();
+    } catch (err) {
+      roleSaved.failed(errorText(err, ''));
+    }
   };
 
   const onToggleDisabled = async (u: UserView) => {
@@ -115,82 +125,75 @@ export function SettingsUsersPage() {
     <div className={styles.page}>
       {problem && <Banner tone="danger">{problem}</Banner>}
 
-      <section className={styles.section} aria-labelledby="users-people">
-        <h3 id="users-people" className={styles.title}>People</h3>
-        <ul className={list.list}>
-          {data.users.map((u) => (
-            <UserRow
-              key={u.id}
-              user={u}
-              busy={busy}
-              service={service}
-              actions={{
-                onRole: (r) => void onRole(u, r),
-                onToggleDisabled: () => void onToggleDisabled(u),
-                onResetSignIn: () => openReset(u),
-                onRemove: (choice) => void onRemove(u, choice),
-              }}
-            >
-              {resetFor === u.id && (resetLink ? (
-                <LinkPanel
-                  title={`Set-password link for ${u.name}`}
-                  link={resetLink.link}
-                  expiresAt={resetLink.invite.expiresAt}
-                  onDone={() => { setResetFor(null); setResetLink(null); }}
-                />
-              ) : (
-                <div className={list.linkPanel}>
-                  <p className={list.linkTitle}>New set-password link for {u.name}</p>
-                  <p className={list.hint}>Signs them out everywhere.</p>
-                  <label className={list.check}>
-                    <input type="checkbox" checked={clearFactors} onChange={(e) => setClearFactors(e.target.checked)} />
-                    <span>Also remove passkeys and authenticator</span>
-                  </label>
-                  <div className={list.buttons}>
-                    <Button size="sm" onClick={() => void onMakeReset(u)} loading={reset.isPending}>Make link</Button>
-                    <Button size="sm" variant="quiet" onClick={() => setResetFor(null)}>Cancel</Button>
-                  </div>
+      <PeopleGroup status={<SaveStatus state={roleSaved.state} detail={roleSaved.detail} />}>
+        {data.users.map((u) => (
+          <UserRow
+            key={u.id}
+            user={u}
+            busy={busy}
+            service={service}
+            actions={{
+              onRole: (r) => void onRole(u, r),
+              onToggleDisabled: () => void onToggleDisabled(u),
+              onResetSignIn: () => openReset(u),
+              onRemove: (choice) => void onRemove(u, choice),
+            }}
+          >
+            {resetFor === u.id && (resetLink ? (
+              <LinkPanel
+                title={`Set-password link for ${u.name}`}
+                link={resetLink.link}
+                expiresAt={resetLink.invite.expiresAt}
+                onDone={() => { setResetFor(null); setResetLink(null); }}
+              />
+            ) : (
+              <div className={list.linkPanel}>
+                <div className={list.linkHead}>
+                  <span className={list.linkTitle}>New set-password link for {u.name}</span>
+                  <HelpToggle label="New set-password link">Signs them out everywhere.</HelpToggle>
                 </div>
-              ))}
-            </UserRow>
-          ))}
-        </ul>
-      </section>
+                <div className={list.choice}>
+                  <span aria-hidden="true">Remove passkeys and authenticator</span>
+                  <SegmentedControl
+                    label="Remove passkeys and authenticator"
+                    value={clearFactors ? 'on' : 'off'}
+                    onChange={(v) => setClearFactors(v === 'on')}
+                    options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}
+                  />
+                </div>
+                <div className={list.actions}>
+                  <Button size="sm" onClick={() => void onMakeReset(u)} loading={reset.isPending}>Make link</Button>
+                  <Button size="sm" variant="quiet" onClick={() => setResetFor(null)}>Cancel</Button>
+                </div>
+              </div>
+            ))}
+          </UserRow>
+        ))}
+      </PeopleGroup>
 
-      <section className={styles.section} aria-labelledby="users-invite">
-        <h3 id="users-invite" className={styles.title}>Invite</h3>
-        {made ? (
+      <InviteGroup
+        email={email}
+        role={role}
+        onEmail={setEmail}
+        onRole={setRole}
+        onInvite={() => void onInvite()}
+        pending={invite.isPending}
+        made={made ? (
           <LinkPanel
             title={`Invite link for ${made.invite.email} (${ROLE_LABELS[made.invite.role]})`}
             link={made.link}
             expiresAt={made.invite.expiresAt}
             onDone={() => setMade(null)}
           />
-        ) : (
-          <form className={list.form} onSubmit={(e) => void onInvite(e)}>
-            <TextField label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
-            <div className={list.field}>
-              <label htmlFor="invite-role" className={list.fieldLabel}>Role</label>
-              <Select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-              </Select>
-            </div>
-            <div>
-              <Button type="submit" disabled={!email.trim()} loading={invite.isPending}>Invite</Button>
-            </div>
-          </form>
-        )}
-      </section>
+        ) : null}
+      />
 
       {data.invites.length > 0 && (
-        <section className={styles.section} aria-labelledby="users-links">
-          <h3 id="users-links" className={styles.title}>Open links</h3>
-          <ul className={list.list}>
-            {data.invites.map((i) => (
-              <PendingLinkRow key={i.id} invite={i} busy={busy} onRevoke={() => void attempt('Revoke the link', 'Could not revoke the link.', () => revoke.mutateAsync(i.id))} />
-            ))}
-          </ul>
-        </section>
+        <OpenLinksGroup>
+          {data.invites.map((i) => (
+            <PendingLinkRow key={i.id} invite={i} busy={busy} onRevoke={() => void attempt('Revoke the link', 'Could not revoke the link.', () => revoke.mutateAsync(i.id))} />
+          ))}
+        </OpenLinksGroup>
       )}
 
       {dialog}

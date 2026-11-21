@@ -12,13 +12,6 @@
   min-width: 0;
 }
 
-/* Settings › People's own headings until it moves onto the settings layout */
-.title {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  color: var(--ink);
-}
-
 .muted {
   margin: 0;
   color: var(--ink-3);

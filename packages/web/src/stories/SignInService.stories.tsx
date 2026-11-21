@@ -14,11 +14,11 @@ const configured: OidcSettingsResponse = {
 };
 const empty: OidcSettingsResponse = { settings: null, redirectUri: configured.redirectUri, active: false, secretUnreadable: false };
 
-function Form({ view }: { view: OidcSettingsResponse }) {
-  const [draft, setDraft] = useState(draftFrom(view));
+function Form({ view, join = null, group }: { view: OidcSettingsResponse; join?: 'saved' | 'failed' | null; group?: string }) {
+  const [draft, setDraft] = useState(() => ({ ...draftFrom(view), ...(group !== undefined ? { joinGroup: group } : {}) }));
   return (
-    <div style={{ maxWidth: 640, padding: 24 }}>
-      <SignInServiceForm view={view} draft={draft} onChange={setDraft} onTest={noop} onSave={noop} />
+    <div style={{ maxWidth: 850, padding: 24, display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <SignInServiceForm view={view} draft={draft} onChange={setDraft} onTest={noop} onSave={noop} onInstant={noop} onSaveGroup={noop} join={{ state: join }} />
     </div>
   );
 }
@@ -32,7 +32,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Sign in with your own login service (OpenID Connect): the owner\'s settings in Settings › Users (the secret shown only as set), each person\'s link in Settings › Account, and the invite page\'s second way to accept.',
+        component: 'Sign in with your own login service (OpenID Connect): the owner\'s groups in Settings › People (Sign-in service with one Save, the client secret its own Set and Forget once saved; Join, whose choices save when changed once the service is saved), each person\'s link in Your settings › Account, and the invite page\'s second way to accept.',
       },
     },
   },
@@ -43,6 +43,12 @@ type Story = StoryObj<typeof meta>;
 export const Settings: Story = {};
 export const SettingsEmpty: Story = { args: { view: empty } };
 export const SettingsNotReachable: Story = { args: { view: { ...configured, active: false, secretUnreadable: true } } };
+/** A saved service: Sign-in button just flipped, ✓ Saved in Join's head. */
+export const SettingsJoinSaved: Story = { name: 'Settings, join saved', tags: ['no-shot'], args: { view: configured, join: 'saved' } };
+/** A Group typed: its own Save waits no more. */
+export const SettingsGroupChanged: Story = { name: 'Settings, group changed', tags: ['no-shot'], args: { view: configured, group: 'friends' } };
+export const SettingsPhone: Story = { name: 'Settings, phone', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { view: configured } };
+export const SettingsEmptyPhone: Story = { name: 'Settings empty, phone', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { view: empty } };
 
 export const AccountNotLinked: Story = {
   render: () => <div style={{ maxWidth: 640, padding: 24 }}><OidcLinkPanel view={{ name: 'Zitadel', linked: false, linkedAt: null, canUnlink: false }} onLink={noop} onUnlink={noop} /></div>,

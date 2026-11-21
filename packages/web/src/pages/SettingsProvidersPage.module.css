@@ -1,74 +1,38 @@
-.container {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
+/* Settings › Modules › Integrations: one group (SettingsGroup); a row's value, its controls, the attribution under the rows. */
+.value,
+.valueOff,
+.danger {
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
-.section {
-  margin-bottom: 3rem;
-}
+.value { color: var(--ink-2); }
+.valueOff { color: var(--ink-3); }
+.danger { color: var(--danger); }
 
-.sectionTitle {
-  font-size: 1.25rem;
-  margin: 0 0 1.5rem 0;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 0.5rem;
-}
-
-.fieldGroup {
-  margin-bottom: 2rem;
-}
-
-.label {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: var(--text-primary);
-}
-
-.hint {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  margin: 0 0 0.75rem 0;
-  line-height: 1.5;
-}
-
-.input {
-  width: 100%;
-  max-width: 400px;
-  padding: 0.75rem;
-  font-size: 1rem;
-}
-
-.tokenConfigured {
+.control {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--r-inner);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-xs) var(--space-sm);
+  min-width: 0;
 }
 
-.tokenHint {
-  flex: 1;
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
+/* a typed field in a row */
+.field { width: 14rem; max-width: 100%; min-width: 0; }
+
+.attribution {
+  margin: 0;
+  padding-inline: var(--space-md);
+  color: var(--ink-3);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-relaxed);
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.success {
-  color: var(--success-color);
-  font-weight: 500;
-}
-
-.error {
-  color: var(--error-color);
-  font-weight: 500;
+@media (max-width: 720px) {
+  .field { width: 10rem; }
 }

@@ -1,14 +1,17 @@
 /**
- * Settings › Modules › Player, the owner's part (it was Settings › Modules › Player):
- * whether a player server is connected (the bundled Navidrome or one the
- * owner already runs), a scan on demand, the bring-your-own form,
- * Scrobbling (the Last.fm API key tagave signs scrobbles with), and the
- * quality this device asks for (kept in this browser). Everyone's own
- * account and scrobbling follow on the same page (SettingsListeningPage).
+ * Settings › Modules › Player, the owner's part, after its Module group:
+ * Player server (whether one is connected, the bundled Navidrome or one
+ * the owner already runs, and a scan on demand), Your own server (address,
+ * user and password, one Save that tests then connects), Quality (what
+ * this device asks for, kept in this browser, applied at once) and
+ * Scrobbling (the Last.fm API key and shared secret tagave signs scrobbles
+ * with: a secret pair with its own Save, Replace and Forget). Quality and
+ * Scrobbling show only while a player server answers. Each person's own
+ * account and scrobbling live in Your settings › Listening.
  */
 import { useEffect, useState, type FormEvent } from 'react';
 import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
-import { Badge, Banner, Button, Collapse, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
+import { Badge, Banner, Button, Input, SaveStatus, SegmentedControl, Select, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
 import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
@@ -47,44 +50,44 @@ export function SettingsPlaybackContent() {
   const cap = settings.data?.capability ?? caps.data?.player;
   const status = playerStatus(cap);
   const scan = useScanPlayer(libraryId);
+  const installed = !!cap?.installed;
 
   return (
     <>
-      <div className={styles.status} role="status">
-        <Badge tone={status.tone}>{status.label}</Badge>
-        {status.detail && <span className={styles.statusDetail}>{status.detail}</span>}
-      </div>
-
-      {owner && cap?.installed && (
-        <div className={styles.row}>
-          <Button variant="secondary" size="sm" loading={scan.isPending} onClick={() => scan.mutate()}>Scan</Button>
-          <ScanLine lastScan={settings.data?.lastScan ?? null} justAsked={scan.isSuccess} />
-        </div>
-      )}
-      {scan.isError && <p className={styles.error} role="alert">{problem(scan.error, 'The scan could not be started.')}</p>}
-
-      {cap?.installed && settings.data?.bundled && (
-        <p className={styles.hint}>Subsonic port 4533</p>
-      )}
+      <SettingsGroup
+        title="Player server"
+        help={installed && settings.data?.bundled ? 'Phone and desktop apps reach the bundled player on Subsonic port 4533' : null}
+        after={owner && settings.isError ? <Banner tone="danger">Couldn’t load playback settings. {problem(settings.error, '')}</Banner> : null}
+      >
+        <SettingsRow as="div" label="Player server" value={<span className={styles.values} role="status">
+          <Badge tone={status.tone}>{status.label}</Badge>
+          {status.detail && <span className={styles.value}>{status.detail}</span>}
+        </span>} />
+        {owner && installed && (
+          <SettingsRow as="div" label="Last scan" value={<ScanValue lastScan={settings.data?.lastScan ?? null} justAsked={scan.isSuccess} error={scan.isError ? problem(scan.error, 'The scan could not be started.') : null} />}>
+            <Button variant="secondary" size="sm" loading={scan.isPending} onClick={() => scan.mutate()}>Scan</Button>
+          </SettingsRow>
+        )}
+      </SettingsGroup>
 
       {owner && settings.data && !settings.data.bundled && <OwnServerForm libraryId={libraryId} settings={settings.data} />}
-      {owner && settings.isError && <Banner tone="danger">Couldn’t load playback settings. {problem(settings.error, '')}</Banner>}
 
-      {owner && cap?.installed && <ScrobblingSettings libraryId={libraryId} />}
+      {installed && <QualitySetting />}
 
-      <QualitySetting />
+      {owner && installed && <ScrobblingSettings libraryId={libraryId} />}
     </>
   );
 }
 
-function ScanLine({ lastScan, justAsked }: { lastScan: PlayerSettingsView['lastScan']; justAsked: boolean }) {
-  if (justAsked) return <span className={styles.muted}>Scan requested</span>;
-  if (!lastScan) return null;
-  if (lastScan.state === 'failed') return <span className={styles.error}>Last scan failed{lastScan.error ? `: ${lastScan.error}` : ''}</span>;
-  return <span className={styles.muted}>Last scan {when(lastScan.requestedAt)}</span>;
+function ScanValue({ lastScan, justAsked, error }: { lastScan: PlayerSettingsView['lastScan']; justAsked: boolean; error: string | null }) {
+  if (error) return <span className={styles.danger} role="alert">{error}</span>;
+  if (justAsked) return <span className={styles.value} role="status">Requested</span>;
+  if (!lastScan) return <span className={styles.value}>None yet</span>;
+  if (lastScan.state === 'failed') return <span className={styles.danger}>Failed{lastScan.error ? `: ${lastScan.error}` : ''}</span>;
+  return <span className={styles.value}>{when(lastScan.requestedAt)}</span>;
 }
 
-/** Bring your own server: address, user and password; Save tests the connection first. */
+/** Bring your own server: address, user and password; one Save, which tests the connection first. */
 function OwnServerForm({ libraryId, settings }: { libraryId: string | undefined; settings: PlayerSettingsView }) {
   const saved = settings.external;
   const [url, setUrl] = useState(saved?.url ?? '');
@@ -95,9 +98,11 @@ function OwnServerForm({ libraryId, settings }: { libraryId: string | undefined;
   const remove = useRemovePlayerServer(libraryId);
   // the saved values arrive (or change) after the first render
   useEffect(() => { setUrl(saved?.url ?? ''); setUsername(saved?.username ?? ''); }, [saved?.url, saved?.username]);
+  const dirty = url !== (saved?.url ?? '') || username !== (saved?.username ?? '') || !!password;
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (!dirty || save.isPending) return;
     const body = { url, username, ...(password ? { password } : {}) };
     const parsed = savePlayerServerSchema.safeParse(body);
     if (!parsed.success) {
@@ -118,23 +123,32 @@ function OwnServerForm({ libraryId, settings }: { libraryId: string | undefined;
     if (ok) remove.mutate(undefined, { onSuccess: () => { setUrl(''); setUsername(''); setPassword(''); } });
   };
 
-  // never any characters of the password (QA 2026-10-26 Q-36)
-  const hint = saved ? 'Saved' : undefined;
+  const failed = invalid ?? (save.isError ? problem(save.error, 'The server did not accept these details.') : remove.isError ? problem(remove.error, 'The server could not be removed.') : null);
 
   return (
-    <form className={styles.form} onSubmit={onSubmit} noValidate>
-      <h3 className={styles.subTitle}>Your own server</h3>
-
-      <TextField label="Server address" type="url" inputMode="url" autoComplete="url" placeholder="http://navidrome:4533" value={url} onChange={(e) => setUrl(e.currentTarget.value)} required error={invalid ?? undefined} />
-      <TextField label="User name" autoComplete="username" value={username} onChange={(e) => setUsername(e.currentTarget.value)} required />
-      <TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} hint={hint} />
-      {save.isError && <p className={styles.error} role="alert">{problem(save.error, 'The server did not accept these details.')}</p>}
-      {remove.isError && <p className={styles.error} role="alert">{problem(remove.error, 'The server could not be removed.')}</p>}
-      {save.isSuccess && !save.isPending && <p className={styles.muted} role="status">Connected</p>}
-      <div className={styles.row}>
-        <Button type="submit" loading={save.isPending}>Save</Button>
-        {saved && <Button variant="quiet-danger" onClick={() => void onRemove()} disabled={remove.isPending}>Remove</Button>}
-      </div>
+    <form onSubmit={onSubmit} noValidate>
+      <SettingsGroup
+        title="Your own server"
+        help="A Navidrome or other Subsonic server you already run"
+        after={(
+          <div className={`${styles.actions} ${styles.footer}`}>
+            <SettingsSave type="submit" dirty={dirty} pending={save.isPending} state={failed ? 'failed' : null} detail={failed} onSave={() => undefined} />
+            {save.isSuccess && !save.isPending && !dirty && <span className={styles.value} role="status">Connected</span>}
+            {saved && <Button size="sm" variant="quiet-danger" onClick={() => void onRemove()} disabled={remove.isPending}>Remove</Button>}
+          </div>
+        )}
+      >
+        <SettingsRow label="Server address">
+          <Input dense className={styles.field} type="url" inputMode="url" autoComplete="url" placeholder="http://navidrome:4533" value={url} onChange={(e) => setUrl(e.currentTarget.value)} required aria-invalid={invalid ? true : undefined} />
+        </SettingsRow>
+        <SettingsRow label="User name">
+          <Input dense className={styles.field} autoComplete="username" value={username} onChange={(e) => setUsername(e.currentTarget.value)} required />
+        </SettingsRow>
+        {/* never any characters of the password (QA 2026-10-26 Q-36) */}
+        <SettingsRow label="Password" value={<span className={styles.value}>{saved ? 'Set' : 'Not set'}</span>}>
+          <Input dense className={styles.field} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} />
+        </SettingsRow>
+      </SettingsGroup>
     </form>
   );
 }
@@ -147,27 +161,25 @@ const FORMATS: Array<{ value: PlayerQuality['format']; label: string }> = [
   { value: 'mp3', label: 'MP3' },
 ];
 
-/** The quality this device asks for, in this browser's storage. */
+/** The quality this device asks for, in this browser's storage: applied at once, nothing to save on the server. */
 function QualitySetting() {
   const [quality, setQuality] = usePlayerQuality();
   return (
-    <>
-      <h3 className={styles.subTitle}>Quality</h3>
-      <div className={styles.quality}>
+    <SettingsGroup title="Quality" help="What this device asks the player for, kept in this browser">
+      <SettingsRow as="div" label="Format">
         <SegmentedControl label="Format" value={quality.format} onChange={(format) => setQuality({ format })} options={FORMATS} />
-        <label className={styles.bitrate}>
-          <span className={styles.bitrateLabel}>Bitrate</span>
-          <Select
-            dense
-            value={String(quality.bitrate)}
-            disabled={quality.format === 'original'}
-            onChange={(e) => setQuality({ bitrate: Number(e.currentTarget.value) })}
-          >
-            {STREAM_BITRATES.map((b) => <option key={b} value={b}>{b} kbps</option>)}
-          </Select>
-        </label>
-      </div>
-    </>
+      </SettingsRow>
+      <SettingsRow label="Bitrate">
+        <Select
+          dense
+          value={String(quality.bitrate)}
+          disabled={quality.format === 'original'}
+          onChange={(e) => setQuality({ bitrate: Number(e.currentTarget.value) })}
+        >
+          {STREAM_BITRATES.map((b) => <option key={b} value={b}>{b} kbps</option>)}
+        </Select>
+      </SettingsRow>
+    </SettingsGroup>
   );
 }
 
@@ -181,9 +193,9 @@ function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
   const connect = useConnectLastfm();
   const onRemove = async () => {
     const ok = await confirmDialog({
-      title: 'Remove the Last.fm API key?',
+      title: 'Forget the Last.fm API key?',
       message: 'Last.fm scrobbles wait until a key is added again.',
-      confirmLabel: 'Remove',
+      confirmLabel: 'Forget',
       tone: 'danger',
     });
     if (ok) remove.mutate();
@@ -213,17 +225,30 @@ export interface ScrobblingSettingsPanelProps {
   saved?: boolean;
   error?: string | null;
   onSave: (body: SaveLastfmApp) => void;
+  /** Forget the stored key (only one saved here, not one from .env) */
   onRemove: () => void;
-  /** the signed-in person's own Last.fm: their account name, or null when not connected; null/absent hides the line */
+  /** the signed-in person's own Last.fm: their account name, or null when not connected; null/absent hides the row */
   you?: { lastfmAccount: string | null } | null;
   connecting?: boolean;
   connectError?: string | null;
   onConnect?: () => void;
-  /** stories: start with the Replace form open */
+  /** stories: start with the Replace fields open */
   initialReplacing?: boolean;
 }
 
-/** The owner's half of scrobbling: the Last.fm application, and whether the owner's own Last.fm is connected. */
+const KEY_STEPS = (
+  <ol className={styles.steps}>
+    <li>Open <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">last.fm/api/account/create</a> and sign in.</li>
+    <li>Enter any application name; leave the other fields empty.</li>
+    <li>Submit, then copy the API key and shared secret here.</li>
+  </ol>
+);
+
+/**
+ * The owner's half of scrobbling: the Last.fm application (a secret pair:
+ * API key and shared secret, with its own Save, Replace and Forget), and
+ * whether the owner's own Last.fm is connected.
+ */
 export function ScrobblingSettingsPanel({
   view, saving = false, saved = false, error = null, onSave, onRemove, you = null, connecting = false, connectError = null, onConnect, initialReplacing = false,
 }: ScrobblingSettingsPanelProps) {
@@ -231,68 +256,61 @@ export function ScrobblingSettingsPanel({
   const configured = !!lastfm?.configured;
   const [replacing, setReplacing] = useState(initialReplacing);
   useEffect(() => { if (saved) setReplacing(false); }, [saved]);
+  const editing = !!view && (!configured || replacing);
   return (
-    <section className={styles.scrobbling} aria-labelledby="playback-scrobbling">
-      <h3 id="playback-scrobbling" className={styles.subTitle}>Scrobbling</h3>
-      {!view ? <p className={styles.muted}>Loading…</p> : configured && !replacing ? (
-        <>
-          <div className={styles.keyLine}>
-            <span className={styles.keyText}>Last.fm · API key …{lastfm?.apiKeyHint}{lastfm?.source === 'env' ? ' · from .env' : ''}</span>
-          </div>
-          {error && <p className={styles.error} role="alert">{error}</p>}
-          <div className={styles.row}>
+    <SettingsGroup title="Scrobbling" help={KEY_STEPS} status={!editing && error ? <SaveStatus state="failed" detail={error} /> : null}>
+      {!view ? <SettingsRow as="div" label="Last.fm" value={<span className={styles.value}>Loading</span>} /> : editing ? (
+        <LastfmKeyFields replacing={configured} saving={saving} saved={saved} error={error} onSave={onSave} onCancel={() => setReplacing(false)} />
+      ) : (
+        <SettingsRow as="div" label="Last.fm" value={<span className={styles.value}>Set · ••••{lastfm?.apiKeyHint}{lastfm?.source === 'env' ? ' · from .env' : ''}</span>}>
+          <span className={styles.actions}>
             <Button variant="secondary" size="sm" onClick={() => setReplacing(true)}>Replace</Button>
-            {lastfm?.source === 'settings' && <Button variant="quiet-danger" size="sm" onClick={onRemove} disabled={saving}>Remove</Button>}
-          </div>
-        </>
-      ) : (
-        <LastfmKeyForm replacing={configured} saving={saving} saved={saved} error={error} onSave={onSave} onCancel={() => setReplacing(false)} />
+            {lastfm?.source === 'settings' && <Button variant="quiet-danger" size="sm" onClick={onRemove} disabled={saving}>Forget</Button>}
+          </span>
+        </SettingsRow>
       )}
-      {configured && you && (you.lastfmAccount !== null ? (
-        <p className={styles.hint}>Your Last.fm: {you.lastfmAccount}</p>
-      ) : (
-        <div className={styles.youLine}>
-          <span className={styles.youText}>Your Last.fm</span>
-          <Button size="sm" loading={connecting} onClick={onConnect}>Connect</Button>
-          {connectError && <p className={styles.error} role="alert">{connectError}</p>}
-        </div>
-      ))}
-    </section>
+      {configured && you && (
+        <SettingsRow
+          as="div"
+          label="Your Last.fm"
+          value={you.lastfmAccount !== null
+            ? <span className={styles.value}>Connected · {you.lastfmAccount}</span>
+            : connectError ? <span className={styles.danger} role="alert">{connectError}</span> : <span className={styles.value}>Not connected</span>}
+        >
+          {you.lastfmAccount === null && <Button size="sm" loading={connecting} onClick={onConnect}>Connect</Button>}
+        </SettingsRow>
+      )}
+    </SettingsGroup>
   );
 }
 
-function LastfmKeyForm({ replacing, saving, saved, error, onSave, onCancel }: { replacing: boolean; saving: boolean; saved: boolean; error: string | null; onSave: (body: SaveLastfmApp) => void; onCancel: () => void }) {
+/** The API key and shared secret, sent together with their own Save (never part of another Save). */
+function LastfmKeyFields({ replacing, saving, saved, error, onSave, onCancel }: { replacing: boolean; saving: boolean; saved: boolean; error: string | null; onSave: (body: SaveLastfmApp) => void; onCancel: () => void }) {
   const [apiKey, setApiKey] = useState('');
   const [secret, setSecret] = useState('');
   const [invalid, setInvalid] = useState<string | null>(null);
-  const [howOpen, setHowOpen] = useState(false);
   useEffect(() => { if (saved) { setApiKey(''); setSecret(''); } }, [saved]);
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
+  const send = () => {
     const parsed = saveLastfmAppSchema.safeParse({ apiKey, secret });
     if (!parsed.success) { setInvalid(parsed.error.issues[0]?.message ?? 'Check both values.'); return; }
     setInvalid(null);
     onSave(parsed.data);
   };
+  const failed = invalid ?? error;
   return (
-    <form className={styles.form} onSubmit={submit} noValidate>
-
-      <div>
-        <Button variant="quiet" size="sm" aria-expanded={howOpen} aria-controls="lastfm-key-steps" onClick={() => setHowOpen((o) => !o)}>How to</Button>
-        <Collapse open={howOpen} id="lastfm-key-steps">
-          <ol className={styles.steps}>
-            <li>Open <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">last.fm/api/account/create</a> and sign in.</li>
-            <li>Enter any application name; leave the other fields empty.</li>
-            <li>Submit, then copy the API key and shared secret here.</li>
-          </ol>
-        </Collapse>
-      </div>
-      <TextField label="API key" autoComplete="off" spellCheck={false} value={apiKey} onChange={(e) => setApiKey(e.currentTarget.value)} />
-      <TextField label="Shared secret" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.currentTarget.value)} error={invalid ?? error ?? undefined} />
-      <div className={styles.row}>
-        <Button type="submit" loading={saving} disabled={!apiKey || !secret}>Save</Button>
-        {replacing && <Button variant="quiet" onClick={onCancel} disabled={saving}>Cancel</Button>}
-      </div>
-    </form>
+    <>
+      <SettingsRow label="API key">
+        <Input dense className={styles.field} autoComplete="off" spellCheck={false} value={apiKey} onChange={(e) => setApiKey(e.currentTarget.value)} />
+      </SettingsRow>
+      <SettingsRow label="Shared secret">
+        <Input dense className={styles.field} type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.currentTarget.value)} onKeyDown={(e) => { if (e.key === 'Enter' && apiKey && secret) { e.preventDefault(); send(); } }} />
+      </SettingsRow>
+      <SettingsRow as="div" label="Last.fm app" value={failed ? <SaveStatus state="failed" detail={failed} /> : null}>
+        <span className={styles.actions}>
+          <SettingsSave dirty={!!apiKey && !!secret} pending={saving} onSave={send} />
+          {replacing && <Button size="sm" variant="quiet" onClick={onCancel} disabled={saving}>Cancel</Button>}
+        </span>
+      </SettingsRow>
+    </>
   );
 }

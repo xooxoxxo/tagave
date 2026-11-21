@@ -20,7 +20,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { can, moduleCommand, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
-import { Banner, Button, ChevronRightIcon, SegmentedControl, confirmDialog, updateConfirm } from '../components/ui';
+import { Banner, Button, ChevronRightIcon, SegmentedControl, SettingsGroup, SettingsRow, confirmDialog, updateConfirm } from '../components/ui';
 import { StepList, RunLog, clock, sentence, useNow } from '../components/InAppUpdate';
 import { StepUpDialog } from '../components/StepUpDialog';
 import { useStepUpAction } from '../components/users/useStepUpAction';
@@ -276,9 +276,25 @@ export interface ModuleSwitchViewProps {
   meta?: ReactNode;
   error?: string | null;
   onSwitch: (on: boolean) => void;
+  /** 'stack' (default) in a Modules row; 'row' on the module's page, a settings row named after the module */
+  layout?: 'stack' | 'row';
 }
 
-export function ModuleSwitchView({ name, label, on, disabled = false, meta = null, error = null, onSwitch }: ModuleSwitchViewProps) {
+export function ModuleSwitchView({ name, label, on, disabled = false, meta = null, error = null, onSwitch, layout = 'stack' }: ModuleSwitchViewProps) {
+  if (layout === 'row') {
+    return (
+      <SettingsRow
+        as="div"
+        label={name}
+        value={(meta || error) ? <span className={styles.rowValues}>
+          {meta && <span className={styles.rowValue}>{meta}</span>}
+          {error && <span className={styles.rowError} role="alert">{error}</span>}
+        </span> : null}
+      >
+        <SegmentedControl label={name} value={on ? 'on' : 'off'} onChange={(v) => { if (!disabled) onSwitch(v === 'on'); }} options={ON_OFF(disabled)} />
+      </SettingsRow>
+    );
+  }
   return (
     <div className={styles.switch}>
       {label && <span className={styles.switchLabel} aria-hidden="true">{label}</span>}
@@ -413,8 +429,8 @@ export function CatalogueModuleView({ view, id, name, disconnected = false, pend
   const m = view.modules.find((x) => x.id === id);
   const run = view.run && view.run.module === id && view.run.id !== dismissed ? view.run : null;
   const busy = view.run?.status === 'running';
-  if (view.mode === 'unreachable') return <Banner tone="danger">Updater not answering. {sentence(view.error)}</Banner>;
-  if (!m) return <Banner tone="warning">Catalogue not verified. {sentence(view.problem)}</Banner>;
+  if (view.mode === 'unreachable') return <ModuleGroup after={<Banner tone="danger">Updater not answering. {sentence(view.error)}</Banner>} />;
+  if (!m) return <ModuleGroup after={<Banner tone="warning">Catalogue not verified. {sentence(view.problem)}</Banner>} />;
   const moving = m.state === 'installing' || m.state === 'removing';
   const command = view.mode === 'command';
   const canSwitch = view.mode === 'updater' && view.verified && m.available && !busy && !moving && !pending;
@@ -422,14 +438,16 @@ export function CatalogueModuleView({ view, id, name, disconnected = false, pend
     `${size(m.estimate.memoryMb)} memory · ${size(m.estimate.diskMb)} disk${m.roles.includes('app') ? '' : ' · one-computer installs'}`,
     m.state !== 'on' && m.state !== 'off' ? STATE_LABEL[m.state] : null,
   ].filter(Boolean).join(' · ');
+  const after = (run || (m.state === 'failed' && m.lastError) || (!m.available && m.reason) || (command && m.available)) ? <>
+    {m.state === 'failed' && m.lastError && <p className={styles.error}>{sentence(m.lastError)}</p>}
+    {!m.available && m.reason && <p className={styles.meta}>{m.reason}</p>}
+    {command && m.available && <CommandLine command={moduleCommand(isOn(m) ? 'disable' : 'enable', m.id)} />}
+    {run && <ModuleRunView run={run} disconnected={disconnected} onDismiss={() => onDismiss(run.id)} />}
+  </> : null;
   return (
-    <>
-      {run && <ModuleRunView run={run} disconnected={disconnected} onDismiss={() => onDismiss(run.id)} />}
-      <ModuleSwitchView name={name} on={isOn(m)} disabled={!canSwitch} meta={meta} error={error} onSwitch={(on) => onSwitch(m, on)} />
-      {m.state === 'failed' && m.lastError && <p className={styles.error}>{sentence(m.lastError)}</p>}
-      {!m.available && m.reason && <p className={styles.meta}>{m.reason}</p>}
-      {command && m.available && <CommandLine command={moduleCommand(isOn(m) ? 'disable' : 'enable', m.id)} />}
-    </>
+    <ModuleGroup after={after}>
+      <ModuleSwitchView layout="row" name={name} on={isOn(m)} disabled={!canSwitch} meta={meta} error={error} onSwitch={(on) => onSwitch(m, on)} />
+    </ModuleGroup>
   );
 }
 
@@ -504,8 +522,8 @@ function CatalogueSwitch({ id, name }: { id: string; name: string }) {
     if (ok) await withStepUp(m, 'disable', choice);
   };
 
-  if (modules.isLoading) return <p className={styles.hint}>Loading…</p>;
-  if (!modules.data) return <Banner tone="danger">Modules not loaded. {sentence((modules.error as { detail?: string } | null)?.detail)}</Banner>;
+  if (modules.isLoading) return <ModuleGroup after={<p className={styles.hint}>Loading…</p>} />;
+  if (!modules.data) return <ModuleGroup after={<Banner tone="danger">Modules not loaded. {sentence((modules.error as { detail?: string } | null)?.detail)}</Banner>} />;
   return (
     <>
       <CatalogueModuleView
@@ -570,6 +588,7 @@ export function SettingOffChoices({ kept, deleted, before = null, keepFills = fa
 interface SettingSwitchProps extends Pick<SettingOffChoicesProps, 'kept' | 'deleted' | 'before' | 'keepFills'> {
   name: string;
   label?: string;
+  layout?: 'stack' | 'row';
   on: boolean;
   meta: string | null;
   pending: boolean;
@@ -578,7 +597,7 @@ interface SettingSwitchProps extends Pick<SettingOffChoicesProps, 'kept' | 'dele
 }
 
 /** Off | On for a module that is a setting; Off asks first and can delete its data (the API turns it off then). */
-function SettingSwitch({ name, label, on, meta, pending, kept, deleted, before = null, keepFills = false, setOn, removeData }: SettingSwitchProps) {
+function SettingSwitch({ name, label, layout = 'stack', on, meta, pending, kept, deleted, before = null, keepFills = false, setOn, removeData }: SettingSwitchProps) {
   const { run, dialog } = useStepUpAction();
   const [error, setError] = useState<string | null>(null);
   const act = async (verb: string, fn: () => Promise<unknown>) => {
@@ -610,7 +629,7 @@ function SettingSwitch({ name, label, on, meta, pending, kept, deleted, before =
   };
   return (
     <>
-      <ModuleSwitchView name={name} label={label} on={on} disabled={pending} meta={meta} error={error} onSwitch={(v) => void onSwitch(v)} />
+      <ModuleSwitchView name={name} label={label} layout={layout} on={on} disabled={pending} meta={meta} error={error} onSwitch={(v) => void onSwitch(v)} />
       {dialog}
     </>
   );
@@ -683,6 +702,7 @@ function PlaylistsSwitch() {
   );
 }
 
+/** Lidarr's page: its Off | On, a row named after it (it gets missing albums). */
 function LidarrSwitch() {
   const mod = useLidarrSettings();
   const setOn = useSetLidarrModule();
@@ -692,7 +712,7 @@ function LidarrSwitch() {
   return (
     <SettingSwitch
       name="Lidarr"
-      label="Get missing albums"
+      layout="row"
       on={v.enabled}
       meta={`${v.open} getting`}
       pending={setOn.isPending || remove.isPending}
@@ -784,6 +804,7 @@ function BooksSwitch() {
     <>
       <ModuleSwitchView
         name="Books"
+        layout="row"
         on={v.enabled}
         disabled={setOn.isPending}
         meta={`${plural(v.folders, 'folder', 'folders')} · ${plural(v.works, 'work', 'works')} · ${plural(v.files, 'file', 'files')}`}
@@ -799,13 +820,15 @@ function BooksSwitch() {
 
 /** The person's part of a module, in Your settings: a row that opens it. */
 export function YourPart({ group, label, to }: { group: string; label: string; to: string }) {
-  return <LinkRow group={group} label={label} to={to} className={styles.part} />;
+  return <LinkRow group={group} label={label} to={to} />;
 }
 
 /**
- * One module's page, the owner's: its Off | On, then the server's part (the
+ * One module's page, the owner's, under the frame's heading (the module's
+ * name): its first group is Module, one row named after the module with
+ * its Off | On (the run log under it), then the server's part (the
  * player's server, scan, scrobbling key and quality; Lidarr; Books; a
- * module the catalogue adds). The player's Listening lives in Your settings
+ * module the catalogue adds), each group only while the module is on. The player's Listening lives in Your settings
  * and a row links to it, so nothing is set in two places. A module switched
  * in its Modules row (the Autotagger, DJ, Listen elsewhere, Music
  * Connections, Playlists, Similar artists) has no page: its old address
@@ -822,7 +845,7 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
   if (devApp) {
     if (!facets.data) return null;
     if (!owner || !(facets.data.devApps ?? []).includes(devApp.id)) return <NotAvailable inline />;
-    return <BooksSwitch />;
+    return <ModuleGroup><BooksSwitch /></ModuleGroup>;
   }
   const known = MODULE_PAGES.find((p) => p.slug === slug);
   const extra = !known ? catalogue.data?.modules.find((m) => moduleSlug(m.id) === slug) : undefined;
@@ -846,9 +869,14 @@ export function SettingsModuleContent({ slug }: { slug: string }) {
     }
     case 'lidarr':
       if (!owner) return <NotAvailable inline />;
-      return <><LidarrSwitch /><LidarrSettings /></>;
+      return <><ModuleGroup><LidarrSwitch /></ModuleGroup><LidarrSettings /></>;
     default:
       if (!owner) return <NotAvailable inline />;
       return <CatalogueSwitch id={entry.id} name={entry.name} />;
   }
+}
+
+/** A module page's first group: the module's row (its Off | On or state), the run log and notes under it. */
+function ModuleGroup({ children, after = null }: { children?: ReactNode; after?: ReactNode }) {
+  return <SettingsGroup title="Module" after={after}>{children}</SettingsGroup>;
 }

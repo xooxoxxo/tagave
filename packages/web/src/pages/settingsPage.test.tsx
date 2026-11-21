@@ -66,8 +66,15 @@ describe('Settings is the server’s', () => {
 
   it('Modules holds Integrations', () => {
     expect(branch('modules')).toContain('<SettingsProvidersPage />');
-    expect(branch('modules')).toContain('id="integrations"');
+    expect(branch('modules').indexOf('<SettingsModulesContent />')).toBeLessThan(branch('modules').indexOf('<SettingsProvidersPage />'));
+    // the anchor is the Integrations group's own (IntegrationsView)
+    expect(source('./SettingsProvidersPage.tsx')).toContain('id="integrations"');
     expect(hasBranch('providers')).toBe(false);
+  });
+
+  it('Modules has no Integrations heading', () => {
+    expect(page).not.toMatch(/<h2 id="integrations"/);
+    expect(branch('modules')).not.toMatch(/<h2/);
   });
 
   it('People and Tag writing are renamed', () => {
@@ -90,6 +97,22 @@ describe('one heading style', () => {
       expect(body, file).not.toMatch(/<h2/);
       expect(body, file).not.toContain('sectionTitle');
     }
+  });
+
+  it('the frame names a module page', () => {
+    // Settings › Modules › Player: the h2 reads Player, not Modules
+    expect(page).toMatch(/const moduleName = moduleSlug \? \[\.\.\.MODULE_PAGES, \.\.\.DEV_APP_PAGES\]\.find\(\(m\) => m\.slug === moduleSlug\)\?\.name/);
+    expect(page).toMatch(/\{heading && <h2>\{heading\}<\/h2>\}/);
+  });
+
+  it('People, Modules, Updates and Status render groups, no heading of their own', () => {
+    const pages = ['./SettingsUsersPage.tsx', '../components/users/UsersList.tsx', '../components/users/SignInService.tsx', './SettingsProvidersPage.tsx', './SettingsModulesPage.tsx', './SettingsPlaybackPage.tsx', '../components/LidarrSettings.tsx', './SettingsUpdatesPage.tsx', './Settings/SystemStatus.tsx', './SettingsStoragePage.tsx'];
+    for (const file of pages) {
+      const body = source(file);
+      expect(body, file).not.toMatch(/<h2|<h3/);
+      expect(body, file).not.toMatch(/headingClassName|modeSetting|sectionTitle|styles\.title\b|styles\.subTitle\b/);
+    }
+    for (const value of ['people', 'modules', 'status']) expect(branch(value), value).not.toMatch(/<h2|modeSetting|headingClassName/);
   });
 
   it('a module page and Updates render no heading of their own', () => {
