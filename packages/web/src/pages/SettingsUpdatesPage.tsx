@@ -109,7 +109,7 @@ export function RunningNow({ app, workers, updating, now = Date.now() }: { app: 
   return (
     // seven columns never fit a phone; the table scrolls inside its own box
     // instead of pushing the whole page sideways
-    <div className={styles.tableScroll}>
+    <div className={styles.tableScroll} role="region" aria-label="Running now" tabIndex={0}>
     <table className={styles.table}>
       <thead>
         <tr><th>Process</th><th>Version</th><th>Build</th><th>Built</th><th>Queues</th><th>Last seen</th><th>Loop lag</th></tr>
