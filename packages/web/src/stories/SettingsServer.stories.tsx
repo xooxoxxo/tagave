@@ -6,8 +6,17 @@
  */
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState, type ReactNode } from 'react';
-import type { DropPoolView, NamingView, Role, ScanRoot } from '@tagave/shared';
-import { LinkButton, PageShell } from '../components/ui';
+import type { DropPoolView, InviteView, NamingView, OidcSettingsResponse, Role, ScanRoot, StorageOverview, UserView } from '@tagave/shared';
+import { LinkButton, PageShell, SettingsGroup } from '../components/ui';
+import { InviteGroup, OpenLinksGroup, PeopleGroup, PendingLinkRow, UserRow } from '../components/users/UsersList';
+import { SignInServiceForm, draftFrom } from '../components/users/SignInService';
+import { IntegrationsView } from '../pages/SettingsProvidersPage';
+import { LidarrSettingsForm, draftOf } from '../components/LidarrSettings';
+import { RunningNow, UpdateChecksView } from '../pages/SettingsUpdatesPage';
+import { SystemStatusView } from '../pages/Settings/SystemStatus';
+import { StorageView, TagChangeCleanupView } from '../pages/SettingsStoragePage';
+import { LIDARR_VIEW } from './lidarrFixtures';
+import { APP_BUILD, FEED, WORKER_OLD, WORKER_SAME } from './updatesFixtures';
 import { DropPoolSettingsView } from '../components/naming/DropPoolSettings';
 import { NamingSettingsView } from '../components/naming/NamingSettings';
 import { MusicFoldersView } from '../pages/SettingsScanRootsPage';
@@ -30,14 +39,16 @@ interface Args {
   query?: string;
   updateAvailable?: boolean;
   content?: ReactNode;
+  /** the frame's heading when it is not the section's (a module page names the module) */
+  heading?: string;
 }
 
-function ServerSettings({ role, section, query = '', updateAvailable = false, content = null }: Args) {
+function ServerSettings({ role, section, query = '', updateAvailable = false, content = null, heading }: Args) {
   const [q, setQ] = useState(query);
   const visible = settingsNav(role);
   const searchable = visible.length > 1;
   const hits = searchSettings(searchable ? q : '', visible);
-  const label = visible.find((s) => s.value === section)?.label;
+  const label = heading ?? visible.find((s) => s.value === section)?.label;
   return (
     <PageShell title="Settings" sticky>
       <div className={page.layout} data-view={section ? 'section' : 'list'}>
@@ -65,12 +76,96 @@ const MODULE_ROWS: ModuleRowView[] = [
   moduleRow('playlists', 'playlists', 'Playlists', true, false),
 ];
 
+const noop = () => undefined;
+
+const integrations = (
+  <IntegrationsView
+    settings={{ contactString: 'robin@example.com', discogsTokenSet: true, discogsTokenHint: 'a1b2', acoustidKeySet: false, acoustidKeyHint: null, fingerprintingEnabled: false }}
+    contact="robin@example.com"
+    onContact={noop}
+    onSaveContact={noop}
+    onSetSecret={noop}
+    onForgetSecret={noop}
+    onFingerprinting={noop}
+    onLinkDiscogs={noop}
+    linking={{ queued: true }}
+  />
+);
+
 const modules = <>
   <ModulesListView rows={MODULE_ROWS} switchFor={(slug) => { const r = MODULE_ROWS.find((x) => x.slug === slug)!; return <ModuleSwitchView name={r.name} on={r.on} onSwitch={() => undefined} />; }} />
-  <h2 id="integrations" className={page.modeSetting}>Integrations</h2>
+  {integrations}
 </>;
 
-const noop = () => undefined;
+/** Settings › Modules › Lidarr: the Module group, then Connection and Library (only while it is on). */
+const lidarrPage = <>
+  <SettingsGroup title="Module"><ModuleSwitchView layout="row" name="Lidarr" on meta="2 getting" onSwitch={noop} /></SettingsGroup>
+  <LidarrSettingsForm view={LIDARR_VIEW} draft={draftOf(LIDARR_VIEW)} tested={null} error={null} onChange={noop} onTest={noop} onSave={noop} onDisconnect={noop} rootCheck={{ reach: 'writable', path: '/data/music/_Inbox', mountPath: '/data/music', error: null }} />
+</>;
+/** Lidarr off: its page holds the Module group alone. */
+const lidarrOff = <>
+  <SettingsGroup title="Module"><ModuleSwitchView layout="row" name="Lidarr" on={false} onSwitch={noop} /></SettingsGroup>
+  <LidarrSettingsForm view={{ ...LIDARR_VIEW, enabled: false }} draft={draftOf(LIDARR_VIEW)} tested={null} error={null} onChange={noop} onTest={noop} onSave={noop} onDisconnect={noop} />
+</>;
+
+const day = (days: number) => new Date(Date.UTC(2026, 10, 16) - days * 86_400_000).toISOString();
+const PEOPLE: UserView[] = [
+  { id: '00000000-0000-4000-8000-000000000001', name: 'Robin', email: 'robin@example.com', role: 'owner', status: 'active', createdAt: day(200), lastSeenAt: day(0), password: true, twoFactor: true, passkeys: 1, oidc: false, isSelf: true },
+  { id: '00000000-0000-4000-8000-000000000002', name: 'Kim', email: 'kim@example.com', role: 'editor', status: 'active', createdAt: day(30), lastSeenAt: day(2), password: true, twoFactor: false, passkeys: 0, oidc: true, isSelf: false },
+];
+const LINKS: InviteView[] = [
+  { id: '00000000-0000-4000-8000-000000000010', purpose: 'invite', email: 'sam@example.com', role: 'listener', userId: null, createdAt: day(1), expiresAt: day(-6), expired: false, createdBy: 'Robin' },
+];
+const OIDC: OidcSettingsResponse = {
+  settings: { name: 'Pocket ID', issuer: 'https://auth.example.com', clientId: 'tagave', secretSet: true, enabled: true, joinEnabled: true, joinGroup: 'music', updatedAt: day(10) },
+  redirectUri: 'https://music.example.com/api/auth/callback/oidc',
+  active: true,
+  secretUnreadable: false,
+};
+const userActions = { onRole: noop, onToggleDisabled: noop, onResetSignIn: noop, onRemove: noop };
+const people = <>
+  <PeopleGroup>{PEOPLE.map((u) => <UserRow key={u.id} user={u} actions={userActions} service="Pocket ID" />)}</PeopleGroup>
+  <InviteGroup email="" role="listener" onEmail={noop} onRole={noop} onInvite={noop} />
+  <OpenLinksGroup>{LINKS.map((i) => <PendingLinkRow key={i.id} invite={i} onRevoke={noop} />)}</OpenLinksGroup>
+  <SignInServiceForm view={OIDC} draft={draftFrom(OIDC)} onChange={noop} onTest={noop} onSave={noop} />
+</>;
+
+const updates = <>
+  <SettingsGroup title="Running now" after={<RunningNow app={APP_BUILD} workers={[WORKER_SAME, WORKER_OLD]} updating={false} now={Date.parse('2026-11-04T12:00:00Z')} />} />
+  <UpdateChecksView feed={FEED} url="" onUrl={noop} onEnabled={noop} onSaveUrl={noop} onCheck={noop} />
+</>;
+
+const GB = 1024 ** 3;
+const STORAGE: StorageOverview = {
+  checkedAt: '2026-11-04T08:00:00.000Z',
+  database: { totalBytes: 2 * GB, categories: [
+    { key: 'library', label: 'Library', description: 'Albums, tracks and their files', bytes: 1.2 * GB, tables: [{ name: 'files', bytes: 0.8 * GB }] },
+    { key: 'jobs', label: 'Background work', description: 'Queued and finished jobs', bytes: 0.3 * GB, tables: [{ name: 'job', bytes: 0.3 * GB }] },
+  ] },
+  folders: [
+    { key: 'cache', label: 'Cache', path: '/cache', bytes: 3 * GB, files: 48211, exists: true, truncated: false, error: null },
+    { key: 'backups', label: 'Backups', path: '/backups', bytes: 5 * GB, files: 12, exists: true, truncated: false, error: null },
+  ],
+  disk: {
+    status: 'pass', warnPct: 85, failPct: 95, checkedAt: '2026-11-04T08:00:00.000Z',
+    filesystems: [{ totalBytes: 100 * GB, usedBytes: 40 * GB, freeBytes: 60 * GB, usedPct: 40, status: 'pass', paths: [{ key: 'backups', label: 'Backups', path: '/backups' }, { key: 'cache', label: 'Cache', path: '/cache' }] }],
+    unmeasured: [{ key: 'database', label: 'Database', path: null, reason: 'Postgres runs in its own container' }],
+  },
+};
+const status = <>
+  <SystemStatusView
+    data={{ ok: true, checkedAt: '2026-11-04T08:00:00.000Z', checks: [
+      { id: 'database', title: 'Database', status: 'pass', detail: 'Postgres 17' },
+      { id: 'contact', title: 'Contact', status: 'warn', detail: 'Not set', remediation: 'Set it in Settings › Modules › Integrations.' },
+    ] }}
+    onRecheck={noop}
+  />
+  <StorageView
+    data={STORAGE}
+    onRefresh={noop}
+    cleanup={<TagChangeCleanupView scope="archived" onScope={noop} preview={{ scope: 'archived', plans: 3, bytes: 4 * 1024 * 1024, revertible: { plans: 1, bytes: 1024 * 1024 } }} onRun={noop} />}
+  />
+</>;
 const at = '2026-11-01T10:00:00.000Z';
 const root = (over: Partial<ScanRoot>): ScanRoot => ({
   id: '11111111-1111-4111-8111-111111111111', libraryId: '22222222-2222-4222-8222-222222222222', path: '/music', displayName: 'Music',
@@ -131,7 +226,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: 'Settings: the server’s sections only (an editor sees Tag writing and Follow rules). The search filters the list by section and row labels; a hit lists the labels it matched.',
+        component: 'Settings: the server’s sections only (an editor sees Tag writing and Follow rules). The search filters the list by section and row labels; a hit lists the labels it matched. Each section is its one heading, then groups.',
       },
     },
   },
@@ -159,6 +254,17 @@ export const TagWriting: Story = { name: 'Tag writing', tags: ['viewport-1440', 
 /** Follow rules: a tick saves, Auto-follow at waits for its Save. */
 export const FollowRules: Story = { name: 'Follow rules', tags: ['viewport-1440', 'no-shot'], args: { role: 'editor', section: 'following', content: followRules } };
 
+/** People: People, Invite, Open links, then the sign-in service's two groups. */
+export const People: Story = { tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'people', content: people } };
+/** Settings › Modules › Lidarr: the frame names the module; Module, Connection, Library. */
+export const ModulePage: Story = { name: 'Module page', tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrPage } };
+/** Lidarr off: the Module group alone, nothing else of Lidarr. */
+export const ModulePageOff: Story = { name: 'Module page, off', tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrOff } };
+/** Updates: Running now, Update checks. */
+export const Updates: Story = { tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'updates', content: updates } };
+/** Status: System status, then Storage, Database, Folders, Free space, Tag change cleanup. */
+export const Status: Story = { tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'status', content: status } };
+
 export const PhoneOwner: Story = { ...phone, name: 'Phone, owner', tags: ['phone'], args: { role: 'owner', section: null } };
 export const PhoneEditor: Story = { ...phone, name: 'Phone, editor', tags: ['phone'], args: { role: 'editor', section: null } };
 export const PhoneSearchHit: Story = { ...phone, name: 'Phone, search hit', tags: ['phone'], args: { role: 'owner', section: null, query: 'drop' } };
@@ -167,3 +273,8 @@ export const PhoneUpdateOnUpdates: Story = { ...phone, name: 'Phone, update on U
 export const PhoneLibrary: Story = { ...phone, name: 'Phone, Library', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'library', content: library } };
 export const PhoneTagWriting: Story = { ...phone, name: 'Phone, Tag writing', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'tag-writing', content: tagWriting } };
 export const PhoneFollowRules: Story = { ...phone, name: 'Phone, Follow rules', tags: ['phone', 'no-shot'], args: { role: 'editor', section: 'following', content: followRules } };
+export const PhoneModules: Story = { ...phone, name: 'Phone, Modules', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'modules', content: modules } };
+export const PhonePeople: Story = { ...phone, name: 'Phone, People', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'people', content: people } };
+export const PhoneModulePage: Story = { ...phone, name: 'Phone, module page', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrPage } };
+export const PhoneUpdates: Story = { ...phone, name: 'Phone, Updates', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'updates', content: updates } };
+export const PhoneStatus: Story = { ...phone, name: 'Phone, Status', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'status', content: status } };

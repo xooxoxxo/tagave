@@ -101,11 +101,11 @@ export function SettingsPage() {
         {section === 'library' && <><SettingsScanRootsContent /><NamingSettings /><DropPoolSettings /><SettingsDeletingContent /></>}
         {section === 'tag-writing' && <SettingsTagWritesContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
-        {section === 'people' && <><SettingsUsersPage /><SignInService headingClassName={styles.modeSetting} /></>}
-        {section === 'modules' && (moduleSlug ? <SettingsModuleContent slug={moduleSlug} /> : <><SettingsModulesContent /><h2 id="integrations" className={styles.modeSetting}>Integrations</h2><SettingsProvidersPage /></>)}
+        {section === 'people' && <><SettingsUsersPage /><SignInService /></>}
+        {section === 'modules' && (moduleSlug ? <SettingsModuleContent slug={moduleSlug} /> : <><SettingsModulesContent /><SettingsProvidersPage /></>)}
         {section === 'backups' && <SettingsBackupsPage />}
         {section === 'updates' && <SettingsUpdatesPage />}
-        {section === 'status' && <><SystemStatus /><h2 className={styles.modeSetting}>Storage</h2><SettingsStorageContent /></>}
+        {section === 'status' && <><SystemStatus /><SettingsStorageContent /></>}
         {section === 'setup-checklist' && <SetupChecklistContent />}
         </>}
       </div>

@@ -1,11 +1,15 @@
 /**
- * Settings › Status: how much room tagave takes on this server. The
- * database by kind of data (bars show each group's share of the database),
- * the folders the app owns, and the cleanup of finished tag changes.
+ * Settings › Status, after System status: how much room tagave takes on
+ * this server, as groups (spec §6): Storage (the total), Database by kind
+ * of data (bars show each group's share of the database), the Folders the
+ * app owns, Free space on each disk, and Tag change cleanup (an action).
+ * What a row is (a folder's path, a disk's folders) sits behind its `?`.
+ * StorageView, DiskSpace and TagChangeCleanupView draw from props (stories,
+ * tests); SettingsStorageContent connects them.
  */
-import { useRef, useState } from 'react';
-import { PROBLEM_TYPES, type DiskSpaceView, type TagChangeCleanupPreview, type TagChangeCleanupScope } from '@tagave/shared';
-import { Badge, Banner, Button, LinkButton, SegmentedControl, confirmDialog, showToast } from '../components/ui';
+import { useRef, useState, type ReactNode } from 'react';
+import { PROBLEM_TYPES, type DiskSpaceView, type StorageOverview, type TagChangeCleanupPreview, type TagChangeCleanupScope } from '@tagave/shared';
+import { Badge, Banner, Button, LinkButton, SegmentedControl, SettingsGroup, SettingsRow, confirmDialog, showToast } from '../components/ui';
 import { diskNoticeText, pathsLabel } from '../components/DiskSpaceNotice';
 import { useStorage, useTagChangeCleanup, useTagChangeCleanupPreview } from '../hooks/useStorage';
 import { formatBytes } from '../utils/format';
@@ -19,6 +23,11 @@ function Bar({ share }: { share: number }) {
   // a sliver stays visible for anything above zero
   const pct = share <= 0 ? 0 : Math.max(0.6, Math.min(100, share * 100));
   return <span className={styles.track} aria-hidden="true"><span className={styles.fill} style={{ width: `${pct}%` }} /></span>;
+}
+
+/** A row's value: its bar, then its size. */
+function Size({ share, children }: { share: number; children: ReactNode }) {
+  return <span className={styles.size}><Bar share={share} /><span>{children}</span></span>;
 }
 
 /**
@@ -38,113 +47,101 @@ export function storageErrorText(error: unknown): string {
   return `Could not measure storage: the server answered ${status}.${detail}`;
 }
 
+export interface StorageViewProps {
+  data: StorageOverview;
+  refreshing?: boolean;
+  onRefresh: () => void;
+  /** Tag change cleanup's group, last */
+  cleanup: ReactNode;
+}
+
+export function StorageView({ data, refreshing = false, onRefresh, cleanup }: StorageViewProps) {
+  const db = data.database;
+  const folderTotal = data.folders.reduce((n, f) => n + f.bytes, 0);
+  const grand = db.totalBytes + folderTotal;
+  return (
+    <div className={styles.page}>
+      <SettingsGroup title="Storage" meta={shortDate(data.checkedAt)}>
+        <SettingsRow as="div" label="Total" value={<span className={styles.total}>{formatBytes(grand)}</span>}>
+          <Button variant="secondary" size="sm" loading={refreshing} onClick={onRefresh}>Refresh</Button>
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title="Database" meta={formatBytes(db.totalBytes)}>
+        {db.categories.map((c) => (
+          <SettingsRow
+            key={c.key}
+            as="div"
+            label={c.label}
+            help={<>{c.description}{c.tables.length > 0 && <span className={styles.tables}>{c.tables.map((t) => `${t.name} ${formatBytes(t.bytes)}`).join(' · ')}</span>}</>}
+            value={<Size share={db.totalBytes > 0 ? c.bytes / db.totalBytes : 0}>{formatBytes(c.bytes)}</Size>}
+          />
+        ))}
+      </SettingsGroup>
+
+      <SettingsGroup title="Folders" meta={formatBytes(folderTotal)}>
+        {data.folders.map((f) => (
+          <SettingsRow
+            key={f.key}
+            as="div"
+            label={f.label}
+            help={<><code className={styles.path}>{f.path}</code>{f.exists && <> · {f.files.toLocaleString()} {f.files === 1 ? 'file' : 'files'}{f.truncated ? ', counting stopped early' : ''}</>}</>}
+            value={f.error
+              ? <span className={styles.error}>{f.error}</span>
+              : <Size share={grand > 0 ? f.bytes / grand : 0}>{f.exists ? `${formatBytes(f.bytes)}${f.truncated ? '+' : ''}` : 'Not there'}</Size>}
+          >
+            {f.key === 'backups' && <LinkButton to="/settings/$section" params={{ section: 'backups' }} variant="quiet" size="sm">Manage</LinkButton>}
+          </SettingsRow>
+        ))}
+      </SettingsGroup>
+
+      <DiskSpace disk={data.disk} />
+
+      {cleanup}
+    </div>
+  );
+}
+
 export function SettingsStorageContent() {
   const { data, isLoading, error, refetch, isFetching } = useStorage();
 
   if (isLoading) return <p className={styles.muted}>Measuring…</p>;
   if (error || !data) return <Banner tone="danger">{storageErrorText(error)}</Banner>;
-
-  const db = data.database;
-  const folderTotal = data.folders.reduce((n, f) => n + f.bytes, 0);
-  const grand = db.totalBytes + folderTotal;
-  const checked = shortDate(data.checkedAt);
-
-  return (
-    <div className={styles.page}>
-      <div className={styles.summary}>
-        <p className={styles.total}><span className={styles.totalValue}>{formatBytes(grand)}</span></p>
-        <div className={styles.refresh}>
-          <span className={styles.muted}>{checked}</span>
-          <Button variant="secondary" size="sm" loading={isFetching} onClick={() => void refetch()}>Refresh</Button>
-        </div>
-      </div>
-
-      <DiskSpace disk={data.disk} />
-
-      <section className={styles.section} aria-labelledby="storage-db">
-        <div className={styles.head}>
-          <h3 id="storage-db" className={styles.title}>Database</h3>
-          <span className={styles.size}>{formatBytes(db.totalBytes)}</span>
-        </div>
-        <ul className={styles.rows}>
-          {db.categories.map((c) => (
-            <li key={c.key} className={styles.row}>
-              <div className={styles.rowHead}>
-                <span className={styles.label} title={[c.description, ...c.tables.map((t) => `${t.name}: ${formatBytes(t.bytes)}`)].join('\n')}>{c.label}</span>
-                <span className={styles.size}>{formatBytes(c.bytes)}</span>
-              </div>
-              <Bar share={db.totalBytes > 0 ? c.bytes / db.totalBytes : 0} />
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className={styles.section} aria-labelledby="storage-folders">
-        <div className={styles.head}>
-          <h3 id="storage-folders" className={styles.title}>Folders</h3>
-          <span className={styles.size}>{formatBytes(folderTotal)}</span>
-        </div>
-        <ul className={styles.rows}>
-          {data.folders.map((f) => (
-            <li key={f.key} className={styles.row}>
-              <div className={styles.rowHead}>
-                <span className={styles.label}>{f.label}</span>
-                <span className={styles.size}>{f.exists ? `${formatBytes(f.bytes)}${f.truncated ? '+' : ''}` : 'Not there'}</span>
-              </div>
-              <Bar share={grand > 0 ? f.bytes / grand : 0} />
-              <p className={styles.description}>
-                <code className={styles.path}>{f.path}</code>
-                {f.exists && <> · {f.files.toLocaleString()} {f.files === 1 ? 'file' : 'files'}{f.truncated ? ', counting stopped early' : ''}</>}
-              </p>
-              {f.error && <p className={styles.error}>{f.error}</p>}
-              {f.key === 'backups' && <LinkButton to="/settings/$section" params={{ section: 'backups' }} variant="quiet" size="sm">Manage backups</LinkButton>}
-            </li>
-          ))}
-        </ul>
-
-      </section>
-
-      <TagChangeCleanup />
-    </div>
-  );
+  return <StorageView data={data} refreshing={isFetching} onRefresh={() => void refetch()} cleanup={<TagChangeCleanup />} />;
 }
 
 const DISK_BADGE = { warn: { tone: 'warning', label: 'Filling up' }, fail: { tone: 'danger', label: 'Almost full' } } as const;
 
 /**
  * Free space on each disk tagave writes (the doctor's disk check): the
- * fullest first, with the folders on it. Bars show how full each disk is.
+ * fullest first, its folders behind its `?`. Bars show how full each disk is.
  */
 export function DiskSpace({ disk }: { disk: DiskSpaceView | null | undefined }) {
   const notice = diskNoticeText(disk);
   return (
-    <section className={styles.section} aria-labelledby="storage-disk">
-      <div className={styles.head}>
-        <h3 id="storage-disk" className={styles.title}>Free space</h3>
-      </div>
-      {!disk ? <p className={styles.muted}>Free space could not be read</p> : <>
-        {notice && <Banner tone={notice.tone}>{notice.text} Never delete Docker volumes. <a href={docsUrl('operations.md#disk-space')} target="_blank" rel="noreferrer">How to</a></Banner>}
-        <ul className={styles.rows}>
-          {disk.filesystems.map((f) => (
-            <li key={f.paths.map((p) => p.key).join('+')} className={styles.row}>
-              <div className={styles.rowHead}>
-                <span className={styles.label}>
-                  {pathsLabel(f.paths.map((p) => p.label))}
-                  {f.status !== 'pass' && <> <Badge tone={DISK_BADGE[f.status].tone}>{DISK_BADGE[f.status].label}</Badge></>}
-                </span>
-                <span className={styles.size}>{formatBytes(f.freeBytes)} free</span>
-              </div>
-              <Bar share={f.usedPct / 100} />
-              <p className={styles.description}>
-                {f.paths.map((p, i) => <span key={p.key}>{i > 0 && ', '}<code className={styles.path}>{p.path}</code></span>)}
-              </p>
-            </li>
-          ))}
-        </ul>
-        {disk.unmeasured.map((u) => <p key={u.key} className={styles.muted} title={u.reason}>{u.label}: not measured</p>)}
-
+    <SettingsGroup
+      title="Free space"
+      meta={disk ? null : 'Could not be read'}
+      after={notice && <Banner tone={notice.tone}>{notice.text} Never delete Docker volumes. <a href={docsUrl('operations.md#disk-space')} target="_blank" rel="noreferrer">How to</a></Banner>}
+    >
+      {disk && <>
+        {disk.filesystems.map((f) => (
+          <SettingsRow
+            key={f.paths.map((p) => p.key).join('+')}
+            as="div"
+            label={pathsLabel(f.paths.map((p) => p.label))}
+            help={f.paths.map((p, i) => <span key={p.key}>{i > 0 && ', '}<code className={styles.path}>{p.path}</code></span>)}
+            value={<>
+              {f.status !== 'pass' && <Badge tone={DISK_BADGE[f.status].tone}>{DISK_BADGE[f.status].label}</Badge>}
+              <Size share={f.usedPct / 100}>{formatBytes(f.freeBytes)} free</Size>
+            </>}
+          />
+        ))}
+        {disk.unmeasured.map((u) => (
+          <SettingsRow key={u.key} as="div" label={u.label} help={u.reason} value={<span className={styles.muted}>Not measured</span>} />
+        ))}
       </>}
-    </section>
+    </SettingsGroup>
   );
 }
 
@@ -173,6 +170,49 @@ function CleanupChoice({ preview, onChange }: { preview: TagChangeCleanupPreview
   </>;
 }
 
+export interface TagChangeCleanupViewProps {
+  scope: TagChangeCleanupScope;
+  onScope: (scope: TagChangeCleanupScope) => void;
+  /** what the scope would delete; null while counting or when it could not count */
+  preview: TagChangeCleanupPreview | null;
+  counting?: boolean;
+  pending?: boolean;
+  onRun: () => void;
+}
+
+/** "3 plans · 1.2 MB · 2 plans revertible (300 KB) kept", or None. */
+function cleanupValue(p: TagChangeCleanupPreview): string {
+  if (p.plans === 0 && p.revertible.plans === 0) return 'None';
+  return [
+    `${plansText(p.plans)} · ${formatBytes(p.bytes)}`,
+    p.revertible.plans > 0 ? `${plansText(p.revertible.plans)} revertible (${formatBytes(p.revertible.bytes)}) kept` : null,
+  ].filter(Boolean).join(' · ');
+}
+
+/** Tag change cleanup: which finished plans, how many, and Delete (an action that asks first). */
+export function TagChangeCleanupView({ scope, onScope, preview, counting = false, pending = false, onRun }: TagChangeCleanupViewProps) {
+  const nothing = !!preview && preview.plans === 0 && preview.revertible.plans === 0;
+  return (
+    <SettingsGroup title="Tag change cleanup">
+      <SettingsRow as="div" label="Which plans">
+        <SegmentedControl
+          label="Which plans"
+          value={scope}
+          onChange={onScope}
+          options={[{ value: 'archived', label: 'Archived' }, { value: 'finished', label: 'All finished' }]}
+        />
+      </SettingsRow>
+      <SettingsRow
+        as="div"
+        label="To delete"
+        value={<span className={preview ? styles.size : styles.muted}>{counting ? 'Counting' : preview ? cleanupValue(preview) : 'Not counted'}</span>}
+      >
+        <Button variant="quiet-danger" size="sm" onClick={onRun} disabled={!preview || nothing || pending} loading={pending}>Delete</Button>
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
 function TagChangeCleanup() {
   const [scope, setScope] = useState<TagChangeCleanupScope>('archived');
   const preview = useTagChangeCleanupPreview(scope);
@@ -198,27 +238,5 @@ function TagChangeCleanup() {
     }
   };
 
-  const nothing = !!p && p.plans === 0 && p.revertible.plans === 0;
-  return (
-    <section className={styles.section} aria-labelledby="storage-cleanup">
-      <h3 id="storage-cleanup" className={styles.title}>Tag change cleanup</h3>
-
-      <SegmentedControl
-        label="Which plans"
-        value={scope}
-        onChange={setScope}
-        options={[{ value: 'archived', label: 'Archived' }, { value: 'finished', label: 'All finished' }]}
-      />
-      {preview.isLoading ? <p className={styles.muted}>Counting…</p>
-        : preview.error || !p ? <Banner tone="danger">Could not count the tag changes.</Banner>
-        : nothing ? <p className={styles.muted}>{scope === 'archived' ? 'No archived plans.' : 'No finished plans.'}</p>
-        : <p className={styles.hint}>
-            <strong>{plansText(p.plans)}</strong> · {formatBytes(p.bytes)}
-            {p.revertible.plans > 0 && <> · {plansText(p.revertible.plans)} revertible ({formatBytes(p.revertible.bytes)}) kept</>}
-          </p>}
-      <div>
-        <Button variant="quiet-danger" onClick={() => void run()} disabled={!p || nothing || cleanup.isPending} loading={cleanup.isPending}>Clean up…</Button>
-      </div>
-    </section>
-  );
+  return <TagChangeCleanupView scope={scope} onScope={setScope} preview={preview.error ? null : p ?? null} counting={preview.isLoading} pending={cleanup.isPending} onRun={() => void run()} />;
 }

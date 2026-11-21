@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { InviteView, UserView } from '@tagave/shared';
-import { LinkPanel, PendingLinkRow, UserRow, usersListStyles } from '../components/users/UsersList';
+import { InviteGroup, LinkPanel, OpenLinksGroup, PeopleGroup, PendingLinkRow, UserRow } from '../components/users/UsersList';
+import { SaveStatus } from '../components/ui';
 
 const noop = () => undefined;
 const actions = { onRole: noop, onToggleDisabled: noop, onResetSignIn: noop, onRemove: noop };
@@ -20,7 +21,7 @@ const links: InviteView[] = [
 ];
 
 function People() {
-  return <ul className={usersListStyles.list}>{people.map((u) => <UserRow key={u.id} user={u} actions={actions} />)}</ul>;
+  return <PeopleGroup>{people.map((u) => <UserRow key={u.id} user={u} actions={actions} />)}</PeopleGroup>;
 }
 
 const meta = {
@@ -31,7 +32,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Settings › Users, the drawn parts: a person (name, email, how they sign in, last visit, role and the owner\'s menu), an open link, and the one-time link panel shown right after an invite or set-password link is made. SettingsUsersPage wires them to the API.',
+        component: 'Settings › People, the drawn parts as settings groups: People (a person: name, email, how they sign in, last visit, role and the owner\'s menu; a role saves when changed), Invite (an action), Open links, and the one-time link panel shown right after an invite or set-password link is made. SettingsUsersPage wires them to the API.',
       },
     },
   },
@@ -42,7 +43,29 @@ type Story = StoryObj<typeof meta>;
 export const PeopleList: Story = {};
 
 export const OpenLinks: Story = {
-  render: () => <ul className={usersListStyles.list}>{links.map((i) => <PendingLinkRow key={i.id} invite={i} onRevoke={noop} />)}</ul>,
+  render: () => <OpenLinksGroup>{links.map((i) => <PendingLinkRow key={i.id} invite={i} onRevoke={noop} />)}</OpenLinksGroup>,
+};
+
+/** A role just changed: ✓ Saved in People's head. */
+export const RoleSaved: Story = {
+  name: 'Role saved',
+  tags: ['no-shot'],
+  render: () => <PeopleGroup status={<SaveStatus state="saved" />}>{people.slice(0, 3).map((u) => <UserRow key={u.id} user={u} actions={actions} />)}</PeopleGroup>,
+};
+
+export const Invite: Story = {
+  tags: ['no-shot'],
+  render: () => <div style={{ maxWidth: 850 }}><InviteGroup email="kim@example.com" role="listener" onEmail={noop} onRole={noop} onInvite={noop} /></div>,
+};
+
+export const InviteMade: Story = {
+  name: 'Invite made',
+  tags: ['no-shot'],
+  render: () => (
+    <div style={{ maxWidth: 850 }}>
+      <InviteGroup email="" role="listener" onEmail={noop} onRole={noop} onInvite={noop} made={<LinkPanel title="Invite link for kim@example.com (Listener)" link="https://music.example.com/invite/Q2hhbmdlIHRoaXMgdG9rZW4gaW4gYSBzdG9yeQ" expiresAt={at(-7)} onDone={noop} />} />
+    </div>
+  ),
 };
 
 export const InviteLink: Story = {
@@ -55,3 +78,4 @@ export const InviteLink: Story = {
 
 
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
+export const InvitePhone: Story = { ...Invite, name: 'Invite, phone', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } } };

@@ -17,17 +17,18 @@ export const SETTINGS_INDEX: readonly IndexEntry[] = [
   ...['Tag writes', 'Writable folders', 'Default write policy', 'Preset', 'MP3 tags', 'Separator'].map((label) => ({ section: 'tag-writing', label })),
   // SettingsFollowRulesPage
   ...['Include', 'Exclude', 'Auto-follow', 'Auto-follow at'].map((label) => ({ section: 'following', label })),
-  // SettingsUsersPage, SignInService
-  ...['Users', 'Invite', 'Open links', 'Sign-in service'].map((label) => ({ section: 'people', label })),
+  // SettingsUsersPage (UsersList), SignInService
+  ...['People', 'Invite', 'Email', 'Role', 'Open links'].map((label) => ({ section: 'people', label })),
+  ...['Sign-in service', 'Name', 'Issuer', 'Client ID', 'Client secret', 'Redirect URI', 'Join', 'Sign-in button', 'Anyone can join', 'Group'].map((label) => ({ section: 'people', label })),
   // one row per module, then SettingsProvidersPage
   ...MODULE_PAGES.map((m) => ({ section: 'modules', label: m.name })),
-  ...['Integrations', 'Contact', 'Discogs token', 'AcoustID key'].map((label) => ({ section: 'modules', label })),
+  ...['Integrations', 'Contact', 'Discogs token', 'AcoustID key', 'Fingerprinting', 'Discogs IDs'].map((label) => ({ section: 'modules', label })),
   // SettingsBackupsPage group titles
   ...['Scheduled backups', 'Before update', 'Manual', 'Before restore'].map((label) => ({ section: 'backups', label })),
   // SettingsUpdatesPage
-  ...['What’s new', 'Running now', 'Update checks'].map((label) => ({ section: 'updates', label })),
+  ...['What’s new', 'Running now', 'Update checks', 'Last check', 'Feed'].map((label) => ({ section: 'updates', label })),
   // SystemStatus, SettingsStoragePage
-  ...['System status', 'Storage', 'Database', 'Folders', 'Free space', 'Tag change cleanup'].map((label) => ({ section: 'status', label })),
+  ...['System status', 'Checks', 'Storage', 'Total', 'Database', 'Folders', 'Free space', 'Tag change cleanup', 'Which plans'].map((label) => ({ section: 'status', label })),
 ];
 
 export type SearchHit = { section: string; label: string; matches: string[] };

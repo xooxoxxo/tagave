@@ -134,13 +134,10 @@ export function SetupChecklistContent() {
           />
           <Button
             onClick={handleSaveContactString}
-            disabled={
-              contactString === settings?.contactString ||
-              !contactString ||
-              updateSettings.isPending
-            }
+            loading={updateSettings.isPending}
+            disabled={contactString === settings?.contactString || !contactString}
           >
-            {updateSettings.isPending ? 'Saving...' : 'Save'}
+            Save
           </Button>
         </div>
       </div>
@@ -265,9 +262,9 @@ export function SetupChecklistContent() {
                 variant="quiet"
                 size="sm"
                 onClick={handleClearDiscogsToken}
-                disabled={updateSettings.isPending}
+                loading={updateSettings.isPending}
               >
-                {updateSettings.isPending ? 'Clearing...' : 'Clear'}
+                Clear
               </Button>
             </>
           ) : (
@@ -290,9 +287,10 @@ export function SetupChecklistContent() {
                   />
                   <Button
                     onClick={handleSaveDiscogsToken}
-                    disabled={!discogsToken || updateSettings.isPending}
+                    loading={updateSettings.isPending}
+                    disabled={!discogsToken}
                   >
-                    {updateSettings.isPending ? 'Saving...' : 'Save'}
+                    Save
                   </Button>
                 </>
               )}
@@ -321,9 +319,9 @@ export function SetupChecklistContent() {
                 variant="quiet"
                 size="sm"
                 onClick={handleClearAcoustidKey}
-                disabled={updateSettings.isPending}
+                loading={updateSettings.isPending}
               >
-                {updateSettings.isPending ? 'Clearing...' : 'Clear'}
+                Clear
               </Button>
             </>
           ) : (
@@ -346,9 +344,10 @@ export function SetupChecklistContent() {
                   />
                   <Button
                     onClick={handleSaveAcoustidKey}
-                    disabled={!acoustidKey || updateSettings.isPending}
+                    loading={updateSettings.isPending}
+                    disabled={!acoustidKey}
                   >
-                    {updateSettings.isPending ? 'Saving...' : 'Save'}
+                    Save
                   </Button>
                 </>
               )}

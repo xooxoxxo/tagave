@@ -1,215 +1,213 @@
 /**
- * Provider settings page (spec PLT-4): Discogs token, contact string, and enrichment controls
+ * Settings › Modules › Integrations (owner), under the Modules list: one
+ * group, anchored at `#integrations` (Collection's Connect Discogs lands
+ * here). The Contact saves with its own Save and sends nothing else; the
+ * Discogs token and the AcoustID key are secrets with their own Set /
+ * Replace / Forget, never part of a Save; Fingerprinting saves when
+ * changed and waits for an AcoustID key. Link Discogs IDs is an action.
+ * The Discogs attribution stays in view, as Discogs's API terms ask.
+ * IntegrationsView is the page alone, driven by props (stories, tests);
+ * SettingsProvidersPage connects it.
  */
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { LibrarySettingsView } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useEnrichSweep } from '../hooks/useLibrary';
-import { useFingerprintStats } from '../hooks/useFingerprint';
-import { Button } from '../components/ui';
+import { useFingerprintStats, type FingerprintStats } from '../hooks/useFingerprint';
+import { Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, useSaveFlash, useSettingsDraft, type SaveState } from '../components/ui';
+import { SecretRow } from '../components/settings/SecretRow';
 import styles from './SettingsProvidersPage.module.css';
+
+export type IntegrationSecret = 'discogsToken' | 'acoustidKey';
+
+/** A save's progress and outcome. */
+export interface IntegrationSave {
+  pending?: boolean;
+  state?: SaveState;
+  detail?: string | null;
+}
+
+export interface IntegrationsViewProps {
+  settings: Pick<LibrarySettingsView, 'contactString' | 'discogsTokenSet' | 'discogsTokenHint' | 'acoustidKeySet' | 'acoustidKeyHint' | 'fingerprintingEnabled'>;
+  /** the Contact's draft */
+  contact: string;
+  onContact: (value: string) => void;
+  onSaveContact: (body: { contactString: string }) => void;
+  contactStatus?: IntegrationSave;
+  secrets?: Partial<Record<IntegrationSecret, IntegrationSave>>;
+  onSetSecret: (key: IntegrationSecret, value: string) => void;
+  onForgetSecret: (key: IntegrationSecret) => void;
+  onFingerprinting: (on: boolean) => void;
+  fingerprintStatus?: IntegrationSave;
+  stats?: FingerprintStats | null;
+  linking?: { pending?: boolean; queued?: boolean; error?: string | null };
+  onLinkDiscogs: () => void;
+}
+
+const ON_OFF = (disabled: boolean) => [{ value: 'off' as const, label: 'Off', disabled }, { value: 'on' as const, label: 'On', disabled }];
+
+/** "1,204 of 1,300 looked up · 87 with candidates · …" */
+export function lookupsValue(s: FingerprintStats): string {
+  const n = (x: number) => x.toLocaleString();
+  const queued = s.queue.fingerprintWaiting + s.queue.lookupWaiting;
+  return [
+    `${n(s.albums.lookedUp)} of ${n(s.albums.lookedUp + s.albums.remaining)} looked up`,
+    `${n(s.albums.withCandidates)} with candidates`,
+    s.albums.matchedViaAcoustid > 0 ? `${n(s.albums.matchedViaAcoustid)} matched` : null,
+    `${n(s.files.fingerprinted)} files${s.files.failed ? ` (${s.files.failed} failed)` : ''}`,
+    queued > 0 ? `${queued} queued` : null,
+  ].filter(Boolean).join(' · ');
+}
+
+/** "Paused until 14:05: rate limited", the key's kind named when it is a user key. */
+export function pausedValue(p: NonNullable<FingerprintStats['provider']>): string {
+  const until = new Date(p.parkedUntil).toLocaleTimeString();
+  const key = /invalid api key/i.test(p.reason ?? '') ? '. Use an application key, not a user key' : '';
+  return `Paused until ${until}${p.reason ? `: ${p.reason}` : ''}${key}`;
+}
+
+/** The Integrations group alone (no hooks: stories and tests render it, a test calls its Save). */
+export function IntegrationsView({
+  settings, contact, onContact, onSaveContact, contactStatus = {}, secrets = {}, onSetSecret, onForgetSecret,
+  onFingerprinting, fingerprintStatus = {}, stats = null, linking = {}, onLinkDiscogs,
+}: IntegrationsViewProps) {
+  const typed = contact.trim();
+  // the API needs three characters and cannot clear the contact
+  const dirty = typed.length >= 3 && typed !== (settings.contactString ?? '');
+  const keySet = settings.acoustidKeySet;
+  return (
+    <SettingsGroup
+      id="integrations"
+      title="Integrations"
+      status={<SaveStatus state={fingerprintStatus.state ?? null} detail={fingerprintStatus.detail ?? null} />}
+      after={<p className={styles.attribution}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</p>}
+    >
+      <SettingsRow as="div" label="Contact" help="Sent with requests to MusicBrainz and Discogs, which ask for a way to reach you">
+        <span className={styles.control}>
+          <Input
+            dense
+            className={styles.field}
+            aria-label="Contact"
+            placeholder="you@example.com"
+            autoComplete="email"
+            value={contact}
+            onChange={(e) => onContact(e.currentTarget.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && dirty) { e.preventDefault(); onSaveContact({ contactString: typed }); } }}
+          />
+          <SettingsSave dirty={dirty} pending={!!contactStatus.pending} state={contactStatus.state ?? null} detail={contactStatus.detail ?? null} onSave={() => onSaveContact({ contactString: typed })} />
+        </span>
+      </SettingsRow>
+      <SecretRow
+        label="Discogs token"
+        help={<a href="https://www.discogs.com/settings/developers" target="_blank" rel="noreferrer">Get a token</a>}
+        set={settings.discogsTokenSet}
+        hint={settings.discogsTokenHint}
+        placeholder="Discogs API token"
+        minLength={10}
+        pending={secrets.discogsToken?.pending}
+        state={secrets.discogsToken?.state}
+        detail={secrets.discogsToken?.detail}
+        onSet={(v) => onSetSecret('discogsToken', v)}
+        onForget={() => onForgetSecret('discogsToken')}
+      />
+      <SecretRow
+        label="AcoustID key"
+        help={<a href="https://acoustid.org/new-application" target="_blank" rel="noreferrer">Get a key</a>}
+        set={keySet}
+        hint={settings.acoustidKeyHint}
+        placeholder="AcoustID application key"
+        minLength={8}
+        pending={secrets.acoustidKey?.pending}
+        state={secrets.acoustidKey?.state}
+        detail={secrets.acoustidKey?.detail}
+        onSet={(v) => onSetSecret('acoustidKey', v)}
+        onForget={() => onForgetSecret('acoustidKey')}
+      />
+      <SettingsRow
+        as="div"
+        label="Fingerprinting"
+        help="Fingerprint unidentified albums and look them up on AcoustID"
+        value={keySet ? null : <span className={styles.valueOff}>Needs an AcoustID key</span>}
+      >
+        <SegmentedControl
+          label="Fingerprinting"
+          value={settings.fingerprintingEnabled ? 'on' : 'off'}
+          onChange={(v) => { if (keySet && !fingerprintStatus.pending) onFingerprinting(v === 'on'); }}
+          options={ON_OFF(!keySet || !!fingerprintStatus.pending)}
+        />
+      </SettingsRow>
+      {stats && <SettingsRow as="div" label="Lookups" value={<span className={styles.value}>{lookupsValue(stats)}</span>} />}
+      {stats?.provider && <SettingsRow as="div" label="AcoustID" value={<span className={styles.danger} role="alert">{pausedValue(stats.provider)}</span>} />}
+      <SettingsRow as="div" label="Discogs IDs">
+        <span className={styles.control}>
+          {linking.queued && <span className={styles.value} role="status">Queued</span>}
+          {linking.error && <span className={styles.danger} role="alert">{linking.error}</span>}
+          <Button size="sm" variant="secondary" loading={!!linking.pending} onClick={onLinkDiscogs}>Link Discogs IDs</Button>
+        </span>
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
+const problem = (err: unknown, fallback: string) => {
+  const e = err as { detail?: string; title?: string; message?: string } | null;
+  return e?.detail || e?.title || e?.message || fallback;
+};
+
+/** One save's progress and its `✓ Saved` / `Not saved`. */
+function useSave() {
+  const flash = useSaveFlash();
+  const [pending, setPending] = useState(false);
+  const go = async (fn: () => Promise<unknown>): Promise<boolean> => {
+    flash.clear();
+    setPending(true);
+    try {
+      await fn();
+      flash.saved();
+      return true;
+    } catch (err) {
+      flash.failed(problem(err, ''));
+      return false;
+    } finally {
+      setPending(false);
+    }
+  };
+  const status: IntegrationSave = { pending, state: flash.state, detail: flash.detail };
+  return { status, go };
+}
 
 export function SettingsProvidersPage() {
   const { libraryId } = useCurrentLibrary();
-  const { data: settings, isLoading } = useLibrarySettings(libraryId);
-  const updateSettings = useUpdateLibrarySettings(libraryId);
-  const { data: fpStats } = useFingerprintStats(libraryId, !!settings?.acoustidKeySet);
+  const { data: settings } = useLibrarySettings(libraryId);
+  const update = useUpdateLibrarySettings(libraryId);
+  const { data: stats } = useFingerprintStats(libraryId, !!settings?.acoustidKeySet);
   const enrichSweep = useEnrichSweep(libraryId);
+  const base = useMemo(() => (settings ? { contactString: settings.contactString ?? '' } : null), [settings]);
+  const { draft, set } = useSettingsDraft(base);
+  const contact = useSave();
+  const discogs = useSave();
+  const acoustid = useSave();
+  const fingerprint = useSave();
+  const secretSave = { discogsToken: discogs, acoustidKey: acoustid };
 
-  const [contactString, setContactString] = useState('');
-  const [discogsToken, setDiscogsToken] = useState('');
-  const [acoustidKey, setAcoustidKey] = useState('');
-  const [showTokenConfig, setShowTokenConfig] = useState(false);
-  const [showAcoustidConfig, setShowAcoustidConfig] = useState(false);
-  // settings arrive after the first render; seed the field once they do
-  useEffect(() => {
-    setContactString(settings?.contactString ?? '');
-  }, [settings?.contactString]);
-
-  if (isLoading) return <div className={styles.container}>Loading settings...</div>;
-
-  const handleSave = async () => {
-    const update: Record<string, any> = {};
-    if (contactString !== settings?.contactString) {
-      update.contactString = contactString || undefined;
-    }
-    if (discogsToken) {
-      update.discogsToken = discogsToken;
-    }
-    if (acoustidKey) {
-      update.acoustidKey = acoustidKey;
-    }
-    if (Object.keys(update).length > 0) {
-      await updateSettings.mutateAsync(update);
-      setDiscogsToken('');
-      setAcoustidKey('');
-    }
-  };
-
-  const handleClearToken = async () => {
-    await updateSettings.mutateAsync({ discogsToken: null });
-  };
-
-  const handleClearAcoustidKey = async () => {
-    await updateSettings.mutateAsync({ acoustidKey: null });
-  };
+  // nothing until the settings arrive, as the other sections
+  if (!settings || !draft) return null;
 
   return (
-    <div className={styles.container}>
-      {/* rendered inside the Settings shell (SettingsPage → PageShell tabs); no page header here */}
-      <div className={styles.section}>
-        <div className={styles.fieldGroup}>
-          <label htmlFor="contactString" className={styles.label}>
-            Contact
-          </label>
-          <input
-            id="contactString"
-            type="text"
-            className={styles.input}
-            placeholder="you@example.com"
-            required
-            value={contactString}
-            onChange={(e) => setContactString(e.target.value)}
-          />
-        </div>
-
-        <div className={styles.fieldGroup}>
-          <label className={styles.label}>Discogs token</label>
-          {settings?.discogsTokenSet ? (
-            <div className={styles.tokenConfigured}>
-              <span className={styles.tokenHint}>
-                Saved{settings.discogsTokenHint ? ` ••••${settings.discogsTokenHint}` : ''}
-              </span>
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={handleClearToken}
-                disabled={updateSettings.isPending}
-              >
-                {updateSettings.isPending ? 'Clearing...' : 'Clear'}
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowTokenConfig(!showTokenConfig)}
-            >
-              {showTokenConfig ? 'Cancel' : 'Add token'}
-            </Button>
-          )}
-          {!settings?.discogsTokenSet && <a className={styles.hint} href="https://www.discogs.com/settings/developers" target="_blank" rel="noreferrer">Get a token</a>}
-          {showTokenConfig && (
-            <input
-              type="password"
-              className={styles.input}
-              placeholder="Paste your Discogs API token"
-              value={discogsToken}
-              onChange={(e) => setDiscogsToken(e.target.value)}
-            />
-          )}
-          <p className={styles.hint}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</p>
-        </div>
-
-        <div className={styles.fieldGroup}>
-          <label className={styles.label}>AcoustID key</label>
-          {settings?.acoustidKeySet ? (
-            <div className={styles.tokenConfigured}>
-              <span className={styles.tokenHint}>
-                Saved{settings.acoustidKeyHint ? ` ••••${settings.acoustidKeyHint}` : ''}
-              </span>
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={handleClearAcoustidKey}
-                disabled={updateSettings.isPending}
-              >
-                {updateSettings.isPending ? 'Clearing...' : 'Clear'}
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowAcoustidConfig(!showAcoustidConfig)}
-            >
-              {showAcoustidConfig ? 'Cancel' : 'Add key'}
-            </Button>
-          )}
-          {!settings?.acoustidKeySet && <a className={styles.hint} href="https://acoustid.org/new-application" target="_blank" rel="noreferrer">Get a key</a>}
-          {showAcoustidConfig && (
-            <input
-              type="password"
-              className={styles.input}
-              placeholder="Paste your AcoustID API key"
-              value={acoustidKey}
-              onChange={(e) => setAcoustidKey(e.target.value)}
-            />
-          )}
-        </div>
-
-        <div className={styles.fieldGroup}>
-          <label className={styles.label}>
-            <input
-              type="checkbox"
-              checked={!!settings?.fingerprintingEnabled}
-              disabled={!settings?.acoustidKeySet || updateSettings.isPending}
-              onChange={(e) => updateSettings.mutate({ fingerprintingEnabled: e.target.checked })}
-            />{' '}
-            Fingerprint unidentified albums
-          </label>
-          {!settings?.acoustidKeySet && <p className={styles.hint}>Needs an AcoustID key</p>}
-          {fpStats && (
-            <p className={styles.hint}>
-              {fpStats.albums.lookedUp.toLocaleString()} of {(fpStats.albums.lookedUp + fpStats.albums.remaining).toLocaleString()} looked up
-              {' · '}{fpStats.albums.withCandidates.toLocaleString()} with candidates
-              {fpStats.albums.matchedViaAcoustid > 0 ? ` · ${fpStats.albums.matchedViaAcoustid.toLocaleString()} matched` : ''}
-              {' · '}{fpStats.files.fingerprinted.toLocaleString()} files{fpStats.files.failed ? ` (${fpStats.files.failed} failed)` : ''}
-              {fpStats.queue.fingerprintWaiting + fpStats.queue.lookupWaiting > 0 ? ` · ${fpStats.queue.fingerprintWaiting + fpStats.queue.lookupWaiting} queued` : ''}
-            </p>
-          )}
-          {fpStats?.provider && (
-            <p className={styles.error} role="alert">
-              AcoustID paused until {new Date(fpStats.provider.parkedUntil).toLocaleTimeString()}
-              {fpStats.provider.reason ? `: ${fpStats.provider.reason}` : ''}
-              {/invalid api key/i.test(fpStats.provider.reason ?? '') ? '. Use an application key, not a user key.' : ''}
-            </p>
-          )}
-        </div>
-
-        <div className={styles.actions}>
-          <Button
-            onClick={handleSave}
-            disabled={(!discogsToken && !acoustidKey && contactString === settings?.contactString) || updateSettings.isPending}
-          >
-            {updateSettings.isPending ? 'Saving...' : 'Save'}
-          </Button>
-          {updateSettings.isSuccess && <span className={styles.success}>Saved</span>}
-          {updateSettings.isError && (
-            <span className={styles.error}>
-              {(updateSettings.error as { detail?: string; message?: string })?.detail ??
-                (updateSettings.error as Error)?.message ?? 'Failed to save'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className={styles.section}>
-
-        <Button
-          variant="secondary"
-          onClick={() => enrichSweep.mutate()}
-          disabled={enrichSweep.isPending}
-        >
-          {enrichSweep.isPending ? 'Queued...' : 'Link Discogs IDs'}
-        </Button>
-        {enrichSweep.isSuccess && <span className={styles.success}>Queued</span>}
-        {enrichSweep.isError && (
-          <span className={styles.error}>
-            {(enrichSweep.error as { detail?: string; message?: string })?.detail ??
-              (enrichSweep.error as Error)?.message ?? 'Failed to queue'}
-          </span>
-        )}
-      </div>
-    </div>
+    <IntegrationsView
+      settings={settings}
+      contact={draft.contactString}
+      onContact={(v) => set({ contactString: v })}
+      onSaveContact={(body) => void contact.go(() => update.mutateAsync(body))}
+      contactStatus={contact.status}
+      secrets={{ discogsToken: discogs.status, acoustidKey: acoustid.status }}
+      onSetSecret={(key, value) => void secretSave[key].go(() => update.mutateAsync({ [key]: value }))}
+      onForgetSecret={(key) => void secretSave[key].go(() => update.mutateAsync({ [key]: null }))}
+      onFingerprinting={(on) => void fingerprint.go(() => update.mutateAsync({ fingerprintingEnabled: on }))}
+      fingerprintStatus={fingerprint.status}
+      stats={stats ?? null}
+      linking={{ pending: enrichSweep.isPending, queued: enrichSweep.isSuccess, error: enrichSweep.isError ? problem(enrichSweep.error, 'Not queued') : null }}
+      onLinkDiscogs={() => enrichSweep.mutate()}
+    />
   );
 }

@@ -6,8 +6,12 @@
  * switch. The server checks the official release feed on its own at most
  * every 12 hours. With the opt-in updater installed, the page also starts
  * an update and follows it (InAppUpdate); without it, it shows the command.
+ * Groups under the frame's one heading (spec §6): What’s new, the update,
+ * Running now, Update checks. Update checks is Off | On and saves when
+ * changed; the feed URL saves with its own Save. Release notes and the
+ * guide's steps are content, under their group's head.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { docsUrl } from '../utils/docs';
 import ReactMarkdown from 'react-markdown';
 import type { BuildInfoView, InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@tagave/shared';
@@ -15,7 +19,7 @@ import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
 import { restartingOn, useUpdater, type SeenUpdaterView } from '../hooks/useUpdater';
 import { InAppUpdate, RunView, useNow, useShownRun } from '../components/InAppUpdate';
-import { Banner, Button } from '../components/ui';
+import { Banner, Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, useSaveFlash, useSettingsDraft, type SaveState } from '../components/ui';
 import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
 import { shortDate } from '../utils/time';
 import styles from './SettingsUpdatesPage.module.css';
@@ -180,6 +184,72 @@ function ReleaseArticle({ release, open }: { release: ReleaseNote; open: boolean
   );
 }
 
+/** A save's progress and outcome. */
+export interface UpdatesSave {
+  pending?: boolean;
+  state?: SaveState;
+  detail?: string | null;
+}
+
+export interface UpdateChecksViewProps {
+  feed: UpdatesStatus['feed'];
+  /** the feed URL's draft; empty: the official feed */
+  url: string;
+  onUrl: (url: string) => void;
+  onEnabled: (on: boolean) => void;
+  onSaveUrl: (url: string | null) => void;
+  onCheck: () => void;
+  checking?: boolean;
+  enabledStatus?: UpdatesSave;
+  urlStatus?: UpdatesSave;
+}
+
+const ON_OFF = (disabled: boolean) => [{ value: 'off' as const, label: 'Off', disabled }, { value: 'on' as const, label: 'On', disabled }];
+
+/** Update checks: Off | On (saved when changed), the last check with Check now, the feed URL with its Save. */
+export function UpdateChecksView({ feed, url, onUrl, onEnabled, onSaveUrl, onCheck, checking = false, enabledStatus = {}, urlStatus = {} }: UpdateChecksViewProps) {
+  const typed = url.trim();
+  const dirty = typed !== (feed.custom ? feed.url ?? '' : '');
+  const last = feed.lastCheckedAt ? <span title={fullDate(feed.lastCheckedAt)}>{when(feed.lastCheckedAt)}</span> : 'Not checked yet';
+  return (
+    <SettingsGroup
+      title="Update checks"
+      help="The server checks the release feed on its own at most every 12 hours"
+      status={<SaveStatus state={enabledStatus.state ?? null} detail={enabledStatus.detail ?? null} />}
+    >
+      {feed.lockedByServer ? (
+        <SettingsRow as="div" label="Update checks" help="Set on the server" value={<span className={styles.value}>{feed.enabled ? <><code>TAGAVE_UPDATE_FEED</code> · <code>{feed.url}</code></> : <>Off · <code>TAGAVE_UPDATE_FEED=off</code></>}</span>} />
+      ) : (
+        <SettingsRow as="div" label="Update checks">
+          <SegmentedControl label="Update checks" value={feed.enabled ? 'on' : 'off'} onChange={(v) => { if (!enabledStatus.pending) onEnabled(v === 'on'); }} options={ON_OFF(!!enabledStatus.pending)} />
+        </SettingsRow>
+      )}
+      {feed.enabled && (
+        <SettingsRow as="div" label="Last check" value={<span className={feed.error ? styles.danger : styles.value}>{last}{feed.error ? ` · Failed: ${feed.error}` : ''}</span>}>
+          <Button variant="secondary" size="sm" loading={checking} onClick={onCheck}>Check now</Button>
+        </SettingsRow>
+      )}
+      {!feed.lockedByServer && feed.enabled && (
+        <SettingsRow as="div" label="Feed" help="A GitHub releases API URL; empty for the official feed">
+          <span className={styles.control}>
+            <Input
+              dense
+              className={styles.input}
+              aria-label="Feed"
+              placeholder={feed.defaultUrl}
+              spellCheck={false}
+              value={url}
+              onChange={(e) => onUrl(e.currentTarget.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && dirty) { e.preventDefault(); onSaveUrl(typed || null); } }}
+            />
+            <SettingsSave dirty={dirty} pending={!!urlStatus.pending} state={urlStatus.state ?? null} detail={urlStatus.detail ?? null} onSave={() => onSaveUrl(typed || null)} />
+          </span>
+        </SettingsRow>
+      )}
+    </SettingsGroup>
+  );
+}
+
 export function SettingsUpdatesPage() {
   const { libraryId } = useCurrentLibrary();
   const { data, isLoading } = useUpdates(libraryId);
@@ -200,8 +270,24 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   const attention = attentionReleases(feed.newer);
   const [readFor, setReadFor] = useState<string | null>(null);
   const confirmed = attention.length === 0 || readFor === target?.version;
-  const [feedUrl, setFeedUrl] = useState(feed.custom ? feed.url ?? '' : '');
-  useEffect(() => { setFeedUrl(feed.custom ? feed.url ?? '' : ''); }, [feed.custom, feed.url]);
+  const feedBase = useMemo(() => ({ url: feed.custom ? feed.url ?? '' : '' }), [feed.custom, feed.url]);
+  const feedDraft = useSettingsDraft(feedBase);
+  const enabledFlash = useSaveFlash();
+  const urlFlash = useSaveFlash();
+  const [feedPending, setFeedPending] = useState<'enabled' | 'url' | null>(null);
+  const saveFeed = async (which: 'enabled' | 'url', body: { enabled: boolean } | { url: string | null }) => {
+    const flash = which === 'enabled' ? enabledFlash : urlFlash;
+    flash.clear();
+    setFeedPending(which);
+    try {
+      await setFeed.mutateAsync(body);
+      flash.saved();
+    } catch {
+      flash.failed(which === 'url' ? 'Use a GitHub releases API URL' : null);
+    } finally {
+      setFeedPending(null);
+    }
+  };
 
   const detected: InstallMethod = install.method;
   const [primary, ...others] = guideOrder(detected).map((m) => updateGuide(m, install, target?.version ?? null));
@@ -228,10 +314,10 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
 
   const manual = confirmed ? (
       <div className={styles.guide}>
-        <h3 className={styles.subTitle}>
-          {primary!.title}
+        <p className={styles.guideTitle}>
+          <strong>{primary!.title}</strong>
           {detected !== 'unknown' && <span className={styles.detected}>this server</span>}
-        </h3>
+        </p>
         <GuideSteps guide={primary!} />
         <details className={styles.more}>
           <summary>Roll back</summary>
@@ -273,95 +359,61 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
       )}
 
       {feed.newer.length > 0 && (
-        <section className={styles.section} aria-labelledby="updates-new">
-          <h3 id="updates-new" className={styles.title}>What’s new</h3>
-          {feed.newer.map((r) => <ReleaseArticle key={r.tag} release={r} open={r.requiresAttention || r === target} />)}
-        </section>
+        <SettingsGroup title="What’s new" after={feed.newer.map((r) => <ReleaseArticle key={r.tag} release={r} open={r.requiresAttention || r === target} />)} />
       )}
 
-      <section className={styles.section} aria-labelledby="updates-update">
-        <h3 id="updates-update" className={styles.title}>{inApp ? 'Update this server' : target ? `Update to ${target.version}` : 'How to update'}</h3>
-        {attention.length > 0 && target && (
-          <Banner tone="warning">
-            <p className={styles.gateText}>
-              {attention.length === 1 ? attention[0]!.tag : attention.map((r) => r.tag).join(', ')}{' '}<strong>requires attention</strong>
-            </p>
-            <label className={styles.gateCheck}>
-              <input type="checkbox" checked={confirmed} onChange={(e) => setReadFor(e.target.checked ? target.version : null)} />
-              I have read the notes
-            </label>
-          </Banner>
-        )}
-        {inApp && uv ? (
-          <>
-            <InAppUpdate view={uv} disconnected={disconnected} current={app.version} releases={feed.newer} confirmed={confirmed} upToDate={upToDate} />
-            <details className={styles.more}>
-              <summary>Update by hand</summary>
+      <SettingsGroup
+        title={inApp ? 'Update this server' : target ? `Update to ${target.version}` : 'How to update'}
+        meta={!inApp && !target && upToDate ? `Up to date · ${app.version}` : null}
+        after={<>
+          {attention.length > 0 && target && (
+            <Banner tone="warning">
+              <p className={styles.gateText}>
+                {attention.length === 1 ? attention[0]!.tag : attention.map((r) => r.tag).join(', ')}{' '}<strong>requires attention</strong>
+              </p>
+              <label className={styles.gateCheck}>
+                <input type="checkbox" checked={confirmed} onChange={(e) => setReadFor(e.target.checked ? target.version : null)} />
+                I have read the notes
+              </label>
+            </Banner>
+          )}
+          {inApp && uv ? (
+            <>
+              <InAppUpdate view={uv} disconnected={disconnected} current={app.version} releases={feed.newer} confirmed={confirmed} upToDate={upToDate} />
+              <details className={styles.more}>
+                <summary>Update by hand</summary>
+                {manual}
+              </details>
+            </>
+          ) : (
+            <>
+              {uv?.installed && !uv.reachable && (
+                <Banner tone="warning">
+                  The updater does not answer ({uv.error}).
+                </Banner>
+              )}
               {manual}
-            </details>
-          </>
-        ) : (
-          <>
-            {uv?.installed && !uv.reachable && (
-              <Banner tone="warning">
-                The updater does not answer ({uv.error}).
-              </Banner>
-            )}
-            {!target && upToDate && <p className={styles.hint}>Up to date · {app.version}</p>}
-            {manual}
-            {uv && !uv.installed && (
-              <a className={styles.hint} href={docsUrl('install.md#updating-from-the-app-optional-updater')} target="_blank" rel="noreferrer">Update from this page</a>
-            )}
-          </>
-        )}
-      </section>
+              {uv && !uv.installed && (
+                <a className={styles.hint} href={docsUrl('install.md#updating-from-the-app-optional-updater')} target="_blank" rel="noreferrer">Update from this page</a>
+              )}
+            </>
+          )}
+        </>}
+      />
 
-      <section className={styles.section} aria-labelledby="updates-running">
-        <h3 id="updates-running" className={styles.title}>Running now</h3>
-        <RunningNow app={app} workers={workers} updating={updating} now={current} />
-      </section>
+      <SettingsGroup title="Running now" after={<RunningNow app={app} workers={workers} updating={updating} now={current} />} />
 
-      <section className={styles.section} aria-labelledby="updates-checks">
-        <h3 id="updates-checks" className={styles.title}>Update checks</h3>
-        {feed.lockedByServer ? (
-          <p className={styles.hint}>
-            {feed.enabled ? <><code>TAGAVE_UPDATE_FEED</code>: <code>{feed.url}</code></> : <>Off (<code>TAGAVE_UPDATE_FEED=off</code>)</>}
-          </p>
-        ) : (
-          <label className={styles.gateCheck}>
-            <input type="checkbox" checked={feed.enabled} disabled={setFeed.isPending} onChange={(e) => setFeed.mutate({ enabled: e.target.checked })} />
-            Auto-check
-          </label>
-        )}
-        <div className={styles.row}>
-          <Button variant="secondary" size="sm" disabled={!feed.enabled || check.isPending} onClick={() => check.mutate()}>
-            {check.isPending ? 'Checking…' : 'Check now'}
-          </Button>
-          <span className={styles.muted}>
-            {!feed.enabled ? 'Off'
-              : feed.lastCheckedAt ? <span title={fullDate(feed.lastCheckedAt)}>{when(feed.lastCheckedAt)}</span> : 'Not checked yet'}
-            {feed.enabled && feed.error ? ` · Failed: ${feed.error}` : ''}
-          </span>
-        </div>
-        {!feed.lockedByServer && feed.enabled && (
-          <details className={styles.more} open={feed.custom}>
-            <summary>Release feed</summary>
-            <div className={styles.row}>
-              <input
-                className={styles.input}
-                aria-label="Release feed URL"
-                placeholder={feed.defaultUrl}
-                value={feedUrl}
-                onChange={(e) => setFeedUrl(e.target.value)}
-              />
-              <Button size="sm" disabled={setFeed.isPending || feedUrl.trim() === (feed.custom ? feed.url ?? '' : '')} onClick={() => setFeed.mutate({ url: feedUrl.trim() || null })}>
-                Save
-              </Button>
-            </div>
-            {setFeed.isError && <p className={styles.error}>Use a GitHub releases API URL</p>}
-          </details>
-        )}
-      </section>
+      <UpdateChecksView
+        feed={feed}
+        url={feedDraft.draft?.url ?? ''}
+        onUrl={(url) => feedDraft.set({ url })}
+        onEnabled={(enabled) => void saveFeed('enabled', { enabled })}
+        onSaveUrl={(url) => void saveFeed('url', { url })}
+        onCheck={() => check.mutate()}
+        checking={check.isPending}
+        enabledStatus={{ pending: feedPending === 'enabled', state: enabledFlash.state, detail: enabledFlash.detail }}
+        urlStatus={{ pending: feedPending === 'url', state: urlFlash.state, detail: urlFlash.detail }}
+      />
     </div>
     </>
   );

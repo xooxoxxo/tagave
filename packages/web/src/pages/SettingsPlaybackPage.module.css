@@ -1,98 +1,42 @@
-/* Settings › Modules › Player: the same rhythm as the other settings sections. */
-.description {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: 0.9375rem;
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-sm) var(--space-md);
-  min-width: 0;
-}
-
-.statusDetail {
-  min-width: 0;
-  color: var(--ink-2);
-  font-size: 0.9375rem;
-  overflow-wrap: anywhere;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.subTitle {
-  margin: var(--space-lg) 0 0;
-  font-size: 1rem;
-  color: var(--ink);
-}
-
-.hint {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: 0.875rem;
-  line-height: 1.55;
-}
-
-.muted {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: 0.875rem;
-}
-
-.error {
-  margin: 0;
-  color: var(--danger);
-  font-size: 0.875rem;
-  overflow-wrap: anywhere;
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  max-width: 34rem;
-  min-width: 0;
-}
-
-.quality {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-md) var(--space-lg);
-  min-width: 0;
-}
-
-.bitrate {
+/* Settings › Modules › Player: groups (SettingsGroup); a row's value, its controls. */
+.values {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-sm);
-}
-
-.bitrateLabel {
-  font-size: 0.875rem;
-  color: var(--ink-2);
-}
-
-.scrobbling {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-xs) var(--space-sm);
   min-width: 0;
 }
 
+.value,
+.danger {
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.value { color: var(--ink-2); }
+.danger { color: var(--danger); }
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+/* under a group's rows */
+.footer { padding-inline: var(--space-md); }
+
+/* a typed field in a row */
+.field { width: 16rem; max-width: 100%; min-width: 0; }
+
+/* the steps to get a Last.fm key, behind Scrobbling's ? */
 .steps {
-  margin: var(--space-sm) 0 0;
+  margin: 0;
   padding-left: 1.25rem;
-  max-width: 40rem;
-  color: var(--ink-2);
-  font-size: 0.875rem;
   line-height: 1.6;
 }
 
@@ -100,28 +44,6 @@
   margin-top: 2px;
 }
 
-.keyLine,
-.youLine {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-sm) var(--space-md);
-  min-width: 0;
-}
-
-.keyText {
-  min-width: 0;
-  color: var(--ink);
-  font-size: 0.9375rem;
-  overflow-wrap: anywhere;
-}
-
-.youText {
-  min-width: 0;
-  color: var(--ink-2);
-  font-size: 0.875rem;
-}
-
-.youLine .error {
-  flex-basis: 100%;
+@media (max-width: 720px) {
+  .field { width: 10rem; }
 }

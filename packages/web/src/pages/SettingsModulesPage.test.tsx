@@ -13,6 +13,8 @@ import type { ModulesView } from '@tagave/shared';
 import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, mcDeleted, moduleLink, moduleRows, turnOffKey, type ModuleRowView, type OffChoice } from './SettingsModulesPage';
 import { MOVED_SECTIONS, moduleSlug } from './moduleSettings';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from '../stories/modulesFixtures';
+import { LidarrSettingsForm, draftOf } from '../components/LidarrSettings';
+import { LIDARR_VIEW } from '../stories/lidarrFixtures';
 
 const page = (view: ModulesView, id = 'player', dismissed: string | null = null) =>
   renderToStaticMarkup(<CatalogueModuleView view={view} id={id} name="Player" dismissed={dismissed} onSwitch={() => undefined} onDismiss={() => undefined} />);
@@ -271,5 +273,36 @@ describe('Settings › Modules › Player (a catalogue module)', () => {
   it('the confirm key: Turn off; with Delete its data On, Turn off and delete in the danger tone', () => {
     expect(turnOffKey(false)).toEqual({ confirmLabel: 'Turn off', tone: 'primary' });
     expect(turnOffKey(true)).toEqual({ confirmLabel: 'Turn off and delete', tone: 'danger' });
+  });
+});
+
+describe('a module page on the settings layout', () => {
+  const src = readFileSync(new URL('./SettingsModulesPage.tsx', import.meta.url), 'utf8');
+  const content = src.slice(src.indexOf('export function SettingsModuleContent'));
+
+  it('a module page opens with its Module group', () => {
+    expect(content).not.toMatch(/<h2/);
+    expect(content).toContain('title="Module"');
+    // a catalogue module: one row named after the module, its Off | On, the run under it
+    const html = page({ ...BASE_VIEW, run: playerRun('running'), modules: [{ ...PLAYER, state: 'installing' }, DUMMY] });
+    expect(html).toMatch(/^<section aria-label="Module"/);
+    expect(html).toMatch(/<span[^>]*>Player<\/span>/);
+    expect(html.indexOf('role="radiogroup"')).toBeLessThan(html.indexOf('Turning on Player'));
+  });
+
+  it("Lidarr's groups only while it is on", () => {
+    const form = (enabled: boolean) => renderToStaticMarkup(<LidarrSettingsForm view={{ ...LIDARR_VIEW, enabled }} draft={draftOf(LIDARR_VIEW)} tested={null} error={null} onChange={() => undefined} onTest={() => undefined} onSave={() => undefined} onDisconnect={() => undefined} />);
+    expect(form(false)).toBe('');
+    const on = form(true);
+    expect(on).toMatch(/<section aria-label="Connection"/);
+    expect(on).toMatch(/<section aria-label="Library"/);
+    expect(on.indexOf('aria-label="Connection"')).toBeLessThan(on.indexOf('aria-label="Library"'));
+    // one Save for the whole connection, its choices inside it
+    expect(on.match(/>Save</g)).toHaveLength(1);
+    expect(on).not.toMatch(/<h2/);
+  });
+
+  it('Your listening only while a player answers', () => {
+    expect(content).toMatch(/installed && <YourPart group="Listening" label="Your listening" to="\/you\/listening" \/>/);
   });
 });

@@ -108,67 +108,51 @@
   font-size: var(--font-size-sm);
 }
 
-.hint {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-relaxed);
-}
-
-.form {
+/* a one-time link's title and its `?` */
+.linkHead {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  max-width: 32rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs) var(--space-sm);
 }
 
-.field {
+/* a choice inside a link panel: its label, then Off | On */
+.choice {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.fieldLabel {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs) var(--space-md);
   color: var(--ink);
-}
-
-.check {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
-  color: var(--ink-2);
   font-size: var(--font-size-sm);
 }
 
-.check input {
-  margin-top: 3px;
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-inline: var(--space-md);
 }
 
-/* Settings › Users › Sign-in service: a section of its own */
-.serviceSection {
+.linkPanel .actions { padding-inline: 0; }
+
+/* a row's controls (the redirect URI and Copy) */
+.control {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
+  align-items: center;
+  gap: var(--space-xs);
   min-width: 0;
 }
 
-.titleRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-}
+/* a typed field in a row */
+.field { width: 16rem; max-width: 100%; min-width: 0; }
 
-.titleRow > h2 {
-  margin: 0;
-}
-
-.buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
+.value {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 640px) {
@@ -184,4 +168,6 @@
     flex-direction: column;
     align-items: stretch;
   }
+
+  .field { width: 10rem; }
 }

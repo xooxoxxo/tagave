@@ -151,21 +151,21 @@ describe('Your settings › Listening on the settings layout', () => {
 describe('ScrobblingSettingsPanel', () => {
   const unset = { lastfm: { configured: false, source: null, apiKeyHint: null }, listenbrainz: { available: true as const } };
   const set = { lastfm: { configured: true, source: 'settings' as const, apiKeyHint: '105a' }, listenbrainz: { available: true as const } };
-  it('asks for a key in one sentence, with the steps behind a disclosure', () => {
+  it('asks for a key, with the steps behind the group’s ?', () => {
     const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={unset} onSave={noop} onRemove={noop} />);
-    expect(html).toContain('>How to<');
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toMatch(/<section aria-label="Scrobbling"/);
+    expect(html).toMatch(/aria-label="Help: Scrobbling" aria-expanded="false"/);
+    expect(html).toMatch(/hidden="">[\s\S]*last\.fm\/api\/account\/create/);
     expect(html).not.toContain('Application name');
     expect(html).toContain('API key');
     expect(html).toContain('>Save<');
   });
-  it('shows a saved key read-only, by its last four characters, with Replace and Remove', () => {
+  it('shows a saved key as Set, by its last four characters, with Replace and Forget', () => {
     const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} onSave={noop} onRemove={noop} />);
-    expect(html).toContain('Last.fm · API key …105a');
+    expect(html).toContain('Set · ••••105a');
     expect(html).toContain('>Replace<');
-    expect(html).toContain('>Remove<');
+    expect(html).toContain('>Forget<');
     expect(html).not.toContain('<input');
-    expect(html).not.toContain('>How to<');
   });
   it('opens the fields with Cancel on Replace', () => {
     const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} initialReplacing onSave={noop} onRemove={noop} />);
@@ -174,15 +174,15 @@ describe('ScrobblingSettingsPanel', () => {
   });
   it('a key from .env cannot be removed here', () => {
     const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={{ ...set, lastfm: { ...set.lastfm, source: 'env', apiKeyHint: '3f9a' } }} onSave={noop} onRemove={noop} />);
-    expect(html).toContain('…3f9a · from .env');
-    expect(html).not.toContain('>Remove<');
+    expect(html).toContain('••••3f9a · from .env');
+    expect(html).not.toContain('>Forget<');
   });
   it('offers Connect when the owner’s own Last.fm is not connected', () => {
     const off = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} you={{ lastfmAccount: null }} onSave={noop} onRemove={noop} onConnect={noop} />);
     expect(off).toContain('Your Last.fm');
     expect(off).toContain('>Connect<');
     const on = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} you={{ lastfmAccount: 'anna-fm' }} onSave={noop} onRemove={noop} />);
-    expect(on).toContain('Your Last.fm: anna-fm');
+    expect(on).toContain('Connected · anna-fm');
     expect(on).not.toContain('>Connect<');
     // no key yet: nothing to connect to
     expect(renderToStaticMarkup(<ScrobblingSettingsPanel view={unset} you={{ lastfmAccount: null }} onSave={noop} onRemove={noop} />)).not.toContain('isn’t connected');

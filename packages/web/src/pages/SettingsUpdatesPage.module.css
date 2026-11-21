@@ -1,4 +1,4 @@
-/* Settings › Updates: the same section rhythm, headings and table as Backups. */
+/* Settings › Updates: groups (SettingsGroup), the notes, guide and table under their heads. */
 .page {
   display: flex;
   flex-direction: column;
@@ -6,23 +6,36 @@
   min-width: 0;
 }
 
-.section {
+/* the guide's way to update, first */
+.guideTitle {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--space-sm);
-  min-width: 0;
-}
-
-.title {
-  margin: 0;
-  font-size: var(--font-size-lg);
+  margin: 0 0 var(--space-xs);
   color: var(--ink);
-}
-
-.subTitle {
-  margin: var(--space-md) 0 var(--space-xs);
   font-size: var(--font-size-base);
-  color: var(--ink);
+}
+
+/* a row's value, and its controls */
+.value,
+.danger {
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.value { color: var(--ink-2); }
+.danger { color: var(--danger); }
+
+.control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-xs) var(--space-sm);
+  min-width: 0;
 }
 
 .muted {
@@ -45,12 +58,6 @@
 
 /* the update steps: plain flow, so the gaps come from the paragraphs */
 .guide .hint { margin-bottom: var(--space-sm); }
-
-.error {
-  margin: 0;
-  color: var(--danger-ink);
-  font-size: var(--font-size-xs);
-}
 
 .bannerRow {
   display: flex;
@@ -125,18 +132,10 @@
   text-overflow: ellipsis;
 }
 
-.row {
-  display: flex;
-  gap: var(--space-sm);
-  align-items: center;
-  flex-wrap: wrap;
-}
+.input { width: 20rem; max-width: 100%; min-width: 0; }
 
-.input {
-  flex: 1 1 320px;
-  min-width: 0;
-  padding: 0.5rem 0.75rem;
-  font-size: var(--font-size-sm);
+@media (max-width: 720px) {
+  .input { width: 11rem; }
 }
 
 .release {

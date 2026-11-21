@@ -1,12 +1,16 @@
 /**
- * Settings › People, the parts that only draw: a person's row (name, email,
- * role, how they sign in, when they were last here, the owner's controls),
- * a pending link's row, and the one-time link panel. SettingsUsersPage
- * wires them to the API; the stories render them with fixtures.
+ * Settings › People, the parts that only draw, as settings groups (spec
+ * §6): People (a person's row: name, email, role, how they sign in, when
+ * they were last here, the owner's controls; the list under the group's
+ * head as Backups lists its files), Invite (Email, Role, Invite: an
+ * action), Open links, and the one-time link panel. A person's role saves
+ * when changed (after its confirm), its outcome in People's head.
+ * SettingsUsersPage wires them to the API; the stories render them with
+ * fixtures.
  */
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ROLES, ROLE_LABELS, type InviteView, type Role, type UserView } from '@tagave/shared';
-import { Badge, Button, Input, Menu, Select, showToast, type BadgeTone, type MenuItem } from '../ui';
+import { Badge, Button, HelpToggle, Input, Menu, Select, SettingsGroup, SettingsRow, showToast, type BadgeTone, type MenuItem } from '../ui';
 import { shortDate } from '../../utils/time';
 import styles from './UsersList.module.css';
 
@@ -118,6 +122,55 @@ export function PendingLinkRow({ invite, onRevoke, busy = false }: { invite: Inv
   );
 }
 
+/** People: everyone who can sign in, the list under the head; `status` the last role change's outcome. */
+export function PeopleGroup({ status = null, children }: { status?: ReactNode; children: ReactNode }) {
+  return <SettingsGroup title="People" status={status} after={<ul className={styles.list}>{children}</ul>} />;
+}
+
+export interface InviteGroupProps {
+  email: string;
+  role: Role;
+  onEmail: (email: string) => void;
+  onRole: (role: Role) => void;
+  onInvite: () => void;
+  pending?: boolean;
+  /** the link just made (LinkPanel), in place of the fields */
+  made?: ReactNode;
+}
+
+/** Invite: an email and a role, then Invite (an action: it makes a one-time link, nothing is saved). */
+export function InviteGroup({ email, role, onEmail, onRole, onInvite, pending = false, made = null }: InviteGroupProps) {
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (email.trim() && !pending) onInvite();
+  };
+  return (
+    <form noValidate onSubmit={submit}>
+      <SettingsGroup
+        title="Invite"
+        help="No email is sent: copy the link and send it yourself"
+        after={made ?? <div className={styles.actions}><Button type="submit" size="sm" disabled={!email.trim()} loading={pending}>Invite</Button></div>}
+      >
+        {!made && <>
+          <SettingsRow label="Email">
+            <Input dense className={styles.field} type="email" required value={email} onChange={(e) => onEmail(e.target.value)} autoComplete="off" />
+          </SettingsRow>
+          <SettingsRow label="Role">
+            <Select dense className={styles.roleSelect} value={role} onChange={(e) => onRole(e.target.value as Role)}>
+              {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+            </Select>
+          </SettingsRow>
+        </>}
+      </SettingsGroup>
+    </form>
+  );
+}
+
+/** Open links: invites and set-password links not used yet. */
+export function OpenLinksGroup({ children }: { children: ReactNode }) {
+  return <SettingsGroup title="Open links" after={<ul className={styles.list}>{children}</ul>} />;
+}
+
 /** The one-time link, shown once right after it is made. */
 export function LinkPanel({ title, link, expiresAt, onDone }: { title: ReactNode; link: string; expiresAt: string; onDone: () => void }) {
   const input = useRef<HTMLInputElement>(null);
@@ -134,16 +187,18 @@ export function LinkPanel({ title, link, expiresAt, onDone }: { title: ReactNode
   };
   return (
     <div className={styles.linkPanel} role="status">
-      <p className={styles.linkTitle}>{title}</p>
+      <div className={styles.linkHead}>
+        <span className={styles.linkTitle}>{title}</span>
+        <HelpToggle label="One-time link">Works once. Not shown again.</HelpToggle>
+      </div>
       <div className={styles.linkRow}>
         <Input ref={input} dense readOnly value={link} aria-label="One-time link" onFocus={(e) => e.currentTarget.select()} className={styles.linkInput} />
         <Button size="sm" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy link'}</Button>
       </div>
-      <p className={styles.hint}>Works once, until {day(expiresAt)}. Not shown again.</p>
+      <span className={styles.meta}>Until {day(expiresAt)}</span>
       <div><Button variant="quiet" size="sm" onClick={onDone}>Done</Button></div>
     </div>
   );
 }
-
 
 export const usersListStyles = styles;

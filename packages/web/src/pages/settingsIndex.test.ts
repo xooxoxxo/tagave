@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { SETTINGS_INDEX, searchSettings } from './settingsIndex';
 import { SERVER_SECTIONS, settingsNav } from './settingsSections';
+import { MODULE_PAGES } from './moduleSettings';
 
 const owner = settingsNav('owner');
 
@@ -64,14 +65,20 @@ const SECTION_FILES: Record<string, string[]> = {
   library: ['./SettingsScanRootsPage.tsx', '../components/naming/NamingSettings.tsx', '../components/naming/DropPoolSettings.tsx', './SettingsDeletingPage.tsx'],
   'tag-writing': ['./SettingsTagWritesPage.tsx'],
   following: ['./SettingsFollowRulesPage.tsx'],
+  people: ['./SettingsUsersPage.tsx', '../components/users/UsersList.tsx', '../components/users/SignInService.tsx'],
+  modules: ['./SettingsModulesPage.tsx', './SettingsProvidersPage.tsx'],
+  updates: ['./SettingsUpdatesPage.tsx'],
+  status: ['./Settings/SystemStatus.tsx', './SettingsStoragePage.tsx'],
 };
+/** Labels a page draws from data, not from its source: the Modules list's one row per module (moduleRows). */
+const FROM_DATA: Record<string, readonly string[]> = { modules: MODULE_PAGES.map((m) => m.name) };
 const sourceOf = (section: string) => SECTION_FILES[section]!.map((f) => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
 
 describe('the index matches the pages', () => {
   for (const section of Object.keys(SECTION_FILES)) {
     it(`every indexed label is on its page: ${section}`, () => {
       const text = sourceOf(section);
-      const labels = SETTINGS_INDEX.filter((e) => e.section === section).map((e) => e.label);
+      const labels = SETTINGS_INDEX.filter((e) => e.section === section && !FROM_DATA[section]?.includes(e.label)).map((e) => e.label);
       expect(labels.length).toBeGreaterThan(1);
       const missing = labels.filter((l) => !text.includes(`title="${l}"`) && !text.includes(`label="${l}"`));
       expect(missing, `not on the ${section} page`).toEqual([]);
@@ -82,5 +89,15 @@ describe('the index matches the pages', () => {
     expect(searchSettings('separator', owner)).toEqual([{ section: 'tag-writing', label: 'Tag writing', matches: ['Separator'] }]);
     expect(searchSettings('auto-follow at', owner)).toEqual([{ section: 'following', label: 'Follow rules', matches: ['Auto-follow at'] }]);
     expect(searchSettings('folder link', owner)).toEqual([{ section: 'library', label: 'Library', matches: ['Folder link'] }]);
+  });
+
+  it('search finds Fingerprinting under Modules', () => {
+    expect(searchSettings('fingerprinting', owner)).toEqual([{ section: 'modules', label: 'Modules', matches: ['Fingerprinting'] }]);
+  });
+
+  it('search finds the new group titles', () => {
+    expect(searchSettings('sign-in button', owner)).toEqual([{ section: 'people', label: 'People', matches: ['Sign-in button'] }]);
+    expect(searchSettings('feed', owner)).toEqual([{ section: 'updates', label: 'Updates', matches: ['Feed'] }]);
+    expect(searchSettings('which plans', owner)).toEqual([{ section: 'status', label: 'Status', matches: ['Which plans'] }]);
   });
 });
