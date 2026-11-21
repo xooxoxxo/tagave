@@ -2,6 +2,7 @@
  * Settings › Modules › Player: what each state offers, and that it never shows a
  * secret.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ListeningView } from '@tagave/shared';
@@ -113,6 +114,19 @@ describe('Your settings › Listening on the settings layout', () => {
     const mine = renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, account: own })} />);
     expect(mine).not.toContain('Phone password');
     expect(formAround(mine, 'Server scrobbles')).toMatch(/>Save</);
+  });
+
+  it('Forget reports like Set: ✓ Saved, or Not saved as an alert', () => {
+    // once forgotten the row reads Not set and its group says it saved
+    const forgotten = formAround(renderToStaticMarkup(<ListeningSettingsView {...props(base)} saves={{ phone: { state: 'saved' } }} />), 'Phone password');
+    expect(forgotten).toContain('Not set');
+    expect(forgotten).toMatch(/role="status"[^>]*>✓ Saved</);
+    const failed = formAround(renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, account: { ...base.account, phonePassword: true } })} errors={{ phone: 'Not saved' }} />), 'Phone password');
+    expect(failed).toMatch(/role="alert"[^>]*>Not saved</);
+    // the connected page: Forget's mutation reports its outcome, its failure says Not saved
+    const page = readFileSync(new URL('./SettingsListeningPage.tsx', import.meta.url), 'utf8');
+    expect(page).toMatch(/onClearPhonePassword=\{\(\) => \{ phoneSave\.clear\(\); phone\.reset\(\); clearPhone\.mutate\(undefined, \{ onSuccess: \(\) => phoneSave\.saved\(\) \}\); \}\}/);
+    expect(page).toMatch(/clearPhone\.isError \? problem\(clearPhone\.error, 'Not saved'\)/);
   });
 
   it('the own login: User name, Password and Server scrobbles join one Save', () => {
