@@ -9,7 +9,7 @@
  * IntegrationsView is the page alone, driven by props (stories, tests);
  * SettingsProvidersPage connects it.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LibrarySettingsView } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useEnrichSweep } from '../hooks/useLibrary';
@@ -149,6 +149,14 @@ export function IntegrationsView({
   );
 }
 
+/**
+ * The group's empty shell while the settings load, so `#integrations` is in
+ * the page from the first render and a link landing on it has somewhere to go.
+ */
+export function IntegrationsPending() {
+  return <SettingsGroup id="integrations" title="Integrations" />;
+}
+
 const problem = (err: unknown, fallback: string) => {
   const e = err as { detail?: string; title?: string; message?: string } | null;
   return e?.detail || e?.title || e?.message || fallback;
@@ -190,8 +198,18 @@ export function SettingsProvidersPage() {
   const fingerprint = useSave();
   const secretSave = { discogsToken: discogs, acoustidKey: acoustid };
 
-  // nothing until the settings arrive, as the other sections
-  if (!settings || !draft) return null;
+  // a link to #integrations lands before the settings arrive: once they
+  // do and the group has grown, bring it into view again (one time)
+  const landed = useRef(false);
+  const ready = !!settings && !!draft;
+  useEffect(() => {
+    if (!ready || landed.current) return;
+    landed.current = true;
+    if (window.location.hash === '#integrations') document.getElementById('integrations')?.scrollIntoView?.();
+  }, [ready]);
+
+  // the anchor only until the settings arrive
+  if (!settings || !draft) return <IntegrationsPending />;
 
   return (
     <IntegrationsView

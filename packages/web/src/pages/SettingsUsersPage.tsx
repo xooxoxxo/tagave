@@ -75,7 +75,9 @@ export function SettingsUsersPage() {
       confirmLabel: `Make ${ROLE_LABELS[next].toLowerCase()}`,
     });
     if (!ok) return;
-    // a role is a setting: its outcome shows in People's head
+    // a role is a setting: its outcome shows in People's head, and an
+    // earlier invite or revoke problem no longer applies
+    setProblem(null);
     roleSaved.clear();
     try {
       if (await run(`Change ${u.name}'s role`, () => change.mutateAsync({ userId: u.id, role: next }))) roleSaved.saved();
