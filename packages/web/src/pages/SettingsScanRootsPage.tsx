@@ -1,8 +1,8 @@
 /**
  * Settings › Library › Music folders (LIB-1): a group per music folder (its
- * name, its path in the head), then Add music folder. Scanning and Tag
- * writes are Off and On, saved when changed (Tag writes asks first before
- * it allows writes); the folder link is typed and saved with its Save; Scan,
+ * name, its path in the head), then Add music folder, whose Tag writes
+ * choice joins Add. A folder's Scanning and Tag writes are Off and On, saved
+ * when changed (Tag writes asks first before it allows writes); the folder link is typed and saved with its Save; Scan,
  * Check and Remove are actions. MusicFoldersView is the section alone,
  * driven by props (stories); SettingsScanRootsContent connects it.
  */
@@ -22,13 +22,14 @@ export function rescanLabel(seconds: number): string {
   return `${seconds} s`;
 }
 
-/** What the worker found at the folder, as a word, and whether it is a problem. */
-export function folderCheck(root: ScanRoot): { text: string; problem: boolean } {
+/** What the worker found at the folder, as a word, whether it is a problem, and the worker's own words for it. */
+export function folderCheck(root: ScanRoot): { text: string; problem: boolean; help?: string | undefined } {
+  const help = root.validationMessage || undefined;
   switch (root.validationStatus) {
     case 'pending': return { text: 'Pending', problem: false };
-    case 'missing': return { text: 'Missing', problem: true };
-    case 'not_directory': return { text: 'Not a directory', problem: true };
-    case 'unreadable': return { text: 'Unreadable', problem: true };
+    case 'missing': return { text: 'Missing', problem: true, help };
+    case 'not_directory': return { text: 'Not a directory', problem: true, help };
+    case 'unreadable': return { text: 'Unreadable', problem: true, help };
     default: break;
   }
   if (root.validationMessage === SCAN_ROOT_EMPTY_MESSAGE) return { text: 'Empty', problem: true };
@@ -45,6 +46,8 @@ export interface NewMusicFolder {
   path: string;
   displayName: string;
   pollIntervalS: number;
+  /** tag plans may write under it */
+  writable: boolean;
 }
 
 export interface MusicFoldersViewProps {
@@ -151,7 +154,7 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
         </SettingsRow>
         <SettingsRow as="div" label="Rescan every" value={<span className={styles.value}>{rescanLabel(root.pollIntervalS)}</span>} />
         <SettingsRow as="div" label="Found" value={<span className={styles.value}>{found}</span>} />
-        <SettingsRow as="div" label="Check" value={<span className={check.problem ? styles.problem : styles.value}>{check.text}</span>} />
+        <SettingsRow as="div" label="Check" help={check.help} value={<span className={check.problem ? styles.problem : styles.value} role={check.problem ? 'alert' : undefined}>{check.text}</span>} />
         <SettingsRow
           label="Folder link"
           help="Where your own computer sees this folder. An album's Open folder link is this plus the album's folder."
@@ -173,11 +176,13 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
   );
 }
 
-const EMPTY_FOLDER: NewMusicFolder = { path: '', displayName: '', pollIntervalS: 21600 };
+const EMPTY_FOLDER: NewMusicFolder = { path: '', displayName: '', pollIntervalS: 21600, writable: true };
+
+type FolderField = 'path' | 'displayName' | 'pollIntervalS';
 
 /** Why a new folder cannot be added, per field. */
-function folderProblems(f: NewMusicFolder): Partial<Record<keyof NewMusicFolder, string>> {
-  const out: Partial<Record<keyof NewMusicFolder, string>> = {};
+function folderProblems(f: NewMusicFolder): Partial<Record<FolderField, string>> {
+  const out: Partial<Record<FolderField, string>> = {};
   if (!f.path.trim()) out.path = 'Path is required';
   else if (!f.path.trim().startsWith('/')) out.path = 'Path must start with /';
   if (!f.displayName.trim()) out.displayName = 'Name is required';
@@ -187,7 +192,7 @@ function folderProblems(f: NewMusicFolder): Partial<Record<keyof NewMusicFolder,
 
 function AddMusicFolder({ adding, error, onAdd }: { adding: boolean; error: string | null; onAdd: MusicFoldersViewProps['onAdd'] }) {
   const [folder, setFolder] = useState<NewMusicFolder>(EMPTY_FOLDER);
-  const [problems, setProblems] = useState<Partial<Record<keyof NewMusicFolder, string>>>({});
+  const [problems, setProblems] = useState<Partial<Record<FolderField, string>>>({});
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const found = folderProblems(folder);
@@ -195,7 +200,7 @@ function AddMusicFolder({ adding, error, onAdd }: { adding: boolean; error: stri
     if (Object.keys(found).length > 0) return;
     if (await onAdd({ ...folder, path: folder.path.trim(), displayName: folder.displayName.trim() })) setFolder(EMPTY_FOLDER);
   };
-  const problemOf = (key: keyof NewMusicFolder) => (problems[key] ? <span className={styles.problem} role="alert">{problems[key]}</span> : undefined);
+  const problemOf = (key: FolderField) => (problems[key] ? <span className={styles.problem} role="alert">{problems[key]}</span> : undefined);
   const ready = !!folder.path.trim() && !!folder.displayName.trim();
   return (
     <form onSubmit={(e) => void submit(e)} noValidate>
@@ -216,6 +221,9 @@ function AddMusicFolder({ adding, error, onAdd }: { adding: boolean; error: stri
         </SettingsRow>
         <SettingsRow label="Rescan every (seconds)" value={problemOf('pollIntervalS')}>
           <Input dense className={styles.number} type="number" min={60} step={60} value={folder.pollIntervalS} disabled={adding} onChange={(e) => setFolder({ ...folder, pollIntervalS: Number(e.currentTarget.value) })} />
+        </SettingsRow>
+        <SettingsRow as="div" label="Tag writes" help="Tag plans write files under this folder. Every write can be reverted.">
+          <SegmentedControl label="Tag writes" value={folder.writable ? 'on' : 'off'} onChange={(v) => setFolder({ ...folder, writable: v === 'on' })} options={ON_OFF.map((o) => ({ ...o, disabled: adding }))} />
         </SettingsRow>
       </SettingsGroup>
     </form>
@@ -260,7 +268,7 @@ export function SettingsScanRootsContent() {
       })()}
       adding={create.isPending}
       addError={create.error ? detailOf(create.error) || 'Not added' : null}
-      onAdd={(f) => new Promise((resolve) => create.mutate({ ...f, writable: true, enabled: true }, { onSuccess: () => resolve(true), onError: () => resolve(false) }))}
+      onAdd={(f) => new Promise((resolve) => create.mutate({ ...f, enabled: true }, { onSuccess: () => resolve(true), onError: () => resolve(false) }))}
     />
   );
 }
