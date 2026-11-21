@@ -89,7 +89,7 @@ describe('one heading style', () => {
   it("one h2 per section, the frame's", () => {
     // the section's name (or the module's on a module page), once, by the frame
     expect(page.match(/<h2>\{heading\}<\/h2>/g)).toHaveLength(1);
-    expect(page).toMatch(/const heading = moduleName \?\? current/);
+    expect(page).toMatch(/const heading = shown \? \(moduleSlug \? moduleName : current\?\.label \?\? null\) : null/);
     for (const label of ['People', 'Modules', 'Backups', 'Status', 'Setup checklist']) expect(page).not.toContain(`<h2>${label}</h2>`);
     const pages = ['./SettingsScanRootsPage.tsx', '../components/naming/NamingSettings.tsx', '../components/naming/DropPoolSettings.tsx', './SettingsDeletingPage.tsx', './SettingsTagWritesPage.tsx', './SettingsFollowRulesPage.tsx', './SettingsGenresPage.tsx'];
     for (const file of pages) {
@@ -113,6 +113,21 @@ describe('one heading style', () => {
       expect(body, file).not.toMatch(/headingClassName|modeSetting|sectionTitle|styles\.title\b|styles\.subTitle\b/);
     }
     for (const value of ['people', 'modules', 'status']) expect(branch(value), value).not.toMatch(/<h2|modeSetting|headingClassName/);
+  });
+
+  it('the heading comes only with its section', () => {
+    // no name while the role or a module's state loads, none over Not available
+    expect(page).toMatch(/const shown = role !== null && !waiting && allowed;/);
+    // the h2 is the heading's only use: the frame never names the section otherwise
+    expect(page.match(/\{heading && /g)).toHaveLength(1);
+    // the phone's top bar does not name a waiting module either
+    expect(page).toMatch(/usePhoneSubpage\(view === 'section' \? \(waiting \? null : moduleName\)/);
+  });
+
+  it('an unknown module slug is never a heading', () => {
+    const name = page.slice(page.indexOf('const moduleName ='), page.indexOf('\n', page.indexOf('const moduleName =')));
+    expect(name).not.toMatch(/\?\? moduleSlug\b/);
+    expect(name).toMatch(/\?\? null : null;$/);
   });
 
   it('a module page and Updates render no heading of their own', () => {
