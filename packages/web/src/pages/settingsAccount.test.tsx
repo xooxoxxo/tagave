@@ -14,10 +14,10 @@ const render = (over: Partial<AccountViewProps> = {}) => renderToStaticMarkup(<A
 const saveButton = (html: string) => /<button[^>]*>(?:(?!<\/button>)[\s\S])*Save(<\/span>)?<\/button>/.exec(html)?.[0] ?? '';
 
 describe('Your settings › Account', () => {
-  it('Account is one group: Name, Email, Role', () => {
+  it('Profile is one group: Name, Email, Role', () => {
     const html = render();
-    expect(html).toMatch(/<section aria-label="Account"/);
-    expect(html).toMatch(/<h3[^>]*>Account<\/h3>/);
+    expect(html).toMatch(/<section aria-label="Profile"/);
+    expect(html).toMatch(/<h3[^>]*>Profile<\/h3>/);
     const name = html.indexOf('>Name<');
     const email = html.indexOf('>Email<');
     const role = html.indexOf('>Role<');
