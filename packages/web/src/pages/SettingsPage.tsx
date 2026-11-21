@@ -49,8 +49,8 @@ import styles from './SettingsPage.module.css';
  * goes to the module's place while it is on and, while it is off, to
  * Settings › Modules for the owner and the nearest page for anyone else.
  * The section's one h2 is the frame's: its nav label, or the module's name
- * on a module page; the pages render groups (SettingsGroup) under it, never
- * a heading of their own.
+ * on a module page, shown only with the section it heads. The pages render
+ * groups (SettingsGroup) under it, never a heading of their own.
  */
 export function SettingsPage() {
   const role = useRole();
@@ -65,11 +65,13 @@ export function SettingsPage() {
   const allowed = !!current && can(role, current.permission);
   // Settings › Modules › <module>: a page of its own under Modules
   const moduleSlug = section === 'modules' ? parts[3] || null : null;
-  const moduleName = moduleSlug ? [...MODULE_PAGES, ...DEV_APP_PAGES].find((m) => m.slug === moduleSlug)?.name ?? moduleRows?.find((r) => r.slug === moduleSlug)?.name ?? moduleSlug : null;
+  const moduleName = moduleSlug ? [...MODULE_PAGES, ...DEV_APP_PAGES].find((m) => m.slug === moduleSlug)?.name ?? moduleRows?.find((r) => r.slug === moduleSlug)?.name ?? null : null;
   // On a phone /settings is the list of sections and each section its own
   // page: the top bar shows a back key to the list and the section's name.
   const view = parts[2] ? 'section' : 'list';
-  usePhoneSubpage(view === 'section' ? moduleName ?? current?.label ?? null : null, moduleSlug ? '/settings/modules' : '/settings');
+  // a module row's address, its module still loading: nothing yet, not even its name
+  const waiting = moduleRowOf(location.pathname) !== null;
+  usePhoneSubpage(view === 'section' ? (waiting ? null : moduleName) ?? current?.label ?? null : null, moduleSlug && !waiting ? '/settings/modules' : '/settings');
   const { libraryId } = useCurrentLibrary();
   // the release feed is the owner's: nobody else is asked about it
   const updateAvailable = useUpdateAvailable(can(role, 'system.manage') ? libraryId : undefined);
@@ -82,9 +84,10 @@ export function SettingsPage() {
   const modules = moduleStates(facets.data ? Object.fromEntries(facets.data.modules.map((m) => [m.id, m.enabled])) : facets.isError ? {} : null);
   const moved = role && redirectFor(location.pathname, location.search as Record<string, unknown>, { owner: can(role, 'system.manage'), hasSettings: visible.length > 0, editor: can(role, 'library.edit'), modules });
   if (moved) return <Navigate to={moved.to as never} search={moved.search as never} hash={location.hash} replace />;
-  // a module row's address, its module still loading: nothing yet
-  const waiting = moduleRowOf(location.pathname) !== null;
-  const heading = moduleName ?? current?.label ?? null;
+  // the heading only with the section it heads: none while the role or a
+  // module's state loads, over Not available, or for an unknown module
+  const shown = role !== null && !waiting && allowed;
+  const heading = shown ? (moduleSlug ? moduleName : current?.label ?? null) : null;
   return <PageShell title="Settings" sticky>
     <div className={styles.layout} data-view={view}>
       <SectionNav
