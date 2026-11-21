@@ -38,9 +38,9 @@ export const SamePaths: Story = {
   />,
 };
 /** A Save that failed: the server's sentence beside Save. */
-export const NotSaved: Story = { name: 'Not saved', tags: ['no-shot'], render: () => <Form rootCheck={check('writable')} error="Lidarr did not answer" /> };
+export const NotSaved: Story = { name: 'Not saved', render: () => <Form rootCheck={check('writable')} error="Lidarr did not answer" /> };
 /** A new connection: Connection only until Test finds the folders and profiles. */
-export const NewConnection: Story = { name: 'New connection', tags: ['no-shot'], render: () => <Form v={{ ...view, connection: null }} rootCheck={null} /> };
-export const NewConnectionPhone: Story = { name: 'New connection, phone', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, render: () => <Form v={{ ...view, connection: null }} rootCheck={null} /> };
+export const NewConnection: Story = { name: 'New connection', render: () => <Form v={{ ...view, connection: null }} rootCheck={null} /> };
+export const NewConnectionPhone: Story = { name: 'New connection, phone', tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => <Form v={{ ...view, connection: null }} rootCheck={null} /> };
 export const CantSeePhone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => <Form rootCheck={check('unseen')} /> };
 export const CanWritePhone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => <Form rootCheck={check('writable')} /> };

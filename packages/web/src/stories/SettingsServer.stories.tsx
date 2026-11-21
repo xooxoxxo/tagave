@@ -248,33 +248,33 @@ export const NoMatch: Story = { name: 'No match', tags: ['viewport-1440'], args:
 export const UpdateOnUpdates: Story = { name: 'Update on Updates', tags: ['viewport-1440'], args: { role: 'owner', section: 'updates', updateAvailable: true } };
 
 /** Library: a group per music folder, then Naming, Drop pool and Deleting. */
-export const Library: Story = { tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'library', content: library } };
+export const Library: Story = { tags: ['viewport-1440'], args: { role: 'owner', section: 'library', content: library } };
 /** Tag writing: Tag writes Off and On, the policy's choices saved at once, the separator typed. */
-export const TagWriting: Story = { name: 'Tag writing', tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'tag-writing', content: tagWriting } };
+export const TagWriting: Story = { name: 'Tag writing', tags: ['viewport-1440'], args: { role: 'owner', section: 'tag-writing', content: tagWriting } };
 /** Follow rules: a tick saves, Auto-follow at waits for its Save. */
-export const FollowRules: Story = { name: 'Follow rules', tags: ['viewport-1440', 'no-shot'], args: { role: 'editor', section: 'following', content: followRules } };
+export const FollowRules: Story = { name: 'Follow rules', tags: ['viewport-1440'], args: { role: 'editor', section: 'following', content: followRules } };
 
 /** People: People, Invite, Open links, then the sign-in service's two groups. */
-export const People: Story = { tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'people', content: people } };
+export const People: Story = { tags: ['viewport-1440'], args: { role: 'owner', section: 'people', content: people } };
 /** Settings › Modules › Lidarr: the frame names the module; Module, Connection, Library. */
-export const ModulePage: Story = { name: 'Module page', tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrPage } };
+export const ModulePage: Story = { name: 'Module page', tags: ['viewport-1440'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrPage } };
 /** Lidarr off: the Module group alone, nothing else of Lidarr. */
-export const ModulePageOff: Story = { name: 'Module page, off', tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrOff } };
+export const ModulePageOff: Story = { name: 'Module page, off', tags: ['viewport-1440'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrOff } };
 /** Updates: Running now, Update checks. */
-export const Updates: Story = { tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'updates', content: updates } };
+export const Updates: Story = { tags: ['viewport-1440'], args: { role: 'owner', section: 'updates', content: updates } };
 /** Status: System status, then Storage, Database, Folders, Free space, Tag change cleanup. */
-export const Status: Story = { tags: ['viewport-1440', 'no-shot'], args: { role: 'owner', section: 'status', content: status } };
+export const Status: Story = { tags: ['viewport-1440'], args: { role: 'owner', section: 'status', content: status } };
 
 export const PhoneOwner: Story = { ...phone, name: 'Phone, owner', tags: ['phone'], args: { role: 'owner', section: null } };
 export const PhoneEditor: Story = { ...phone, name: 'Phone, editor', tags: ['phone'], args: { role: 'editor', section: null } };
 export const PhoneSearchHit: Story = { ...phone, name: 'Phone, search hit', tags: ['phone'], args: { role: 'owner', section: null, query: 'drop' } };
 export const PhoneNoMatch: Story = { ...phone, name: 'Phone, no match', tags: ['phone'], args: { role: 'owner', section: null, query: 'zzz' } };
 export const PhoneUpdateOnUpdates: Story = { ...phone, name: 'Phone, update on Updates', tags: ['phone'], args: { role: 'owner', section: null, updateAvailable: true } };
-export const PhoneLibrary: Story = { ...phone, name: 'Phone, Library', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'library', content: library } };
-export const PhoneTagWriting: Story = { ...phone, name: 'Phone, Tag writing', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'tag-writing', content: tagWriting } };
-export const PhoneFollowRules: Story = { ...phone, name: 'Phone, Follow rules', tags: ['phone', 'no-shot'], args: { role: 'editor', section: 'following', content: followRules } };
-export const PhoneModules: Story = { ...phone, name: 'Phone, Modules', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'modules', content: modules } };
-export const PhonePeople: Story = { ...phone, name: 'Phone, People', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'people', content: people } };
-export const PhoneModulePage: Story = { ...phone, name: 'Phone, module page', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrPage } };
-export const PhoneUpdates: Story = { ...phone, name: 'Phone, Updates', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'updates', content: updates } };
-export const PhoneStatus: Story = { ...phone, name: 'Phone, Status', tags: ['phone', 'no-shot'], args: { role: 'owner', section: 'status', content: status } };
+export const PhoneLibrary: Story = { ...phone, name: 'Phone, Library', tags: ['phone'], args: { role: 'owner', section: 'library', content: library } };
+export const PhoneTagWriting: Story = { ...phone, name: 'Phone, Tag writing', tags: ['phone'], args: { role: 'owner', section: 'tag-writing', content: tagWriting } };
+export const PhoneFollowRules: Story = { ...phone, name: 'Phone, Follow rules', tags: ['phone'], args: { role: 'editor', section: 'following', content: followRules } };
+export const PhoneModules: Story = { ...phone, name: 'Phone, Modules', tags: ['phone'], args: { role: 'owner', section: 'modules', content: modules } };
+export const PhonePeople: Story = { ...phone, name: 'Phone, People', tags: ['phone'], args: { role: 'owner', section: 'people', content: people } };
+export const PhoneModulePage: Story = { ...phone, name: 'Phone, module page', tags: ['phone'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrPage } };
+export const PhoneUpdates: Story = { ...phone, name: 'Phone, Updates', tags: ['phone'], args: { role: 'owner', section: 'updates', content: updates } };
+export const PhoneStatus: Story = { ...phone, name: 'Phone, Status', tags: ['phone'], args: { role: 'owner', section: 'status', content: status } };

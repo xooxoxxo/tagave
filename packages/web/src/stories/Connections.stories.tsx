@@ -74,12 +74,12 @@ export const Refused: Story = {
 const second: McLinkView = { ...linked, id: '6f1c2a3e-0000-4000-8000-000000000002', remoteUrl: 'http://wantlist.example.com', service: 'wantlist', failures: 2, lastError: 'remote answered 502' };
 export const DesktopTwoLinks: Story = {
   name: 'Desktop, two links and an error',
-  tags: ['viewport-1440', 'no-shot'],
+  tags: ['viewport-1440'],
   args: { view: view([linked, second]), linkErrors: { [second.id]: 'The address could not be changed.' } },
 };
 export const PhoneTwoLinks: Story = {
   name: 'Phone, two links and an error',
-  tags: ['phone', 'no-shot'],
+  tags: ['phone'],
   globals: { viewport: { value: 'phone' } },
   args: { view: view([linked, second]), linkErrors: { [second.id]: 'The address could not be changed.' } },
 };

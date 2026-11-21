@@ -70,9 +70,9 @@ const failed = { args: { title: 'Connection', meta: null, after: <SettingsSave d
 const instantAt = (width?: number): NonNullable<Story['render']> => (args) => <Stack {...(width ? { width } : {})}><SettingsGroup {...args}><InstantRows /></SettingsGroup></Stack>;
 const typedAt = (width?: number): NonNullable<Story['render']> => (args) => <Stack {...(width ? { width } : {})}><SettingsGroup {...args}><TypedRows /></SettingsGroup></Stack>;
 
-export const InstantChoiceSaved: Story = { ...instant, name: 'Instant choice saved', render: instantAt(560), tags: ['no-shot'] };
-export const TypedGroupChanged: Story = { ...changed, name: 'Typed group, changed', render: typedAt(560), tags: ['no-shot'] };
-export const TypedGroupFailed: Story = { ...failed, name: 'Typed group, failed', render: typedAt(560), tags: ['no-shot'] };
-export const PhoneInstantChoiceSaved: Story = { ...instant, ...onPhone, name: 'Phone instant choice saved', render: instantAt(), tags: ['phone', 'no-shot'] };
-export const PhoneTypedGroupChanged: Story = { ...changed, ...onPhone, name: 'Phone typed group, changed', render: typedAt(), tags: ['phone', 'no-shot'] };
-export const PhoneTypedGroupFailed: Story = { ...failed, ...onPhone, name: 'Phone typed group, failed', render: typedAt(), tags: ['phone', 'no-shot'] };
+export const InstantChoiceSaved: Story = { ...instant, name: 'Instant choice saved', render: instantAt(560) };
+export const TypedGroupChanged: Story = { ...changed, name: 'Typed group, changed', render: typedAt(560) };
+export const TypedGroupFailed: Story = { ...failed, name: 'Typed group, failed', render: typedAt(560) };
+export const PhoneInstantChoiceSaved: Story = { ...instant, ...onPhone, name: 'Phone instant choice saved', render: instantAt(), tags: ['phone'] };
+export const PhoneTypedGroupChanged: Story = { ...changed, ...onPhone, name: 'Phone typed group, changed', render: typedAt(), tags: ['phone'] };
+export const PhoneTypedGroupFailed: Story = { ...failed, ...onPhone, name: 'Phone typed group, failed', render: typedAt(), tags: ['phone'] };

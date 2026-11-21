@@ -88,9 +88,9 @@ const genreMapping = (
   />
 );
 /** Genre mapping on the settings layout: the map with its one Save and Reset, then the preview's groups. */
-export const GenreMapping: Story = { name: 'Genre mapping', tags: ['viewport-1440', 'no-shot'], args: { who: OWNER, tab: 'genres', body: genreMapping } };
+export const GenreMapping: Story = { name: 'Genre mapping', tags: ['viewport-1440'], args: { who: OWNER, tab: 'genres', body: genreMapping } };
 
 export const PhoneEditor: Story = { ...phone, name: 'Phone, editor', tags: ['phone'], args: { who: EDITOR, tab: 'activity' } };
 export const PhoneOwner: Story = { ...phone, name: 'Phone, owner', tags: ['phone'], args: { who: OWNER, tab: 'genres' } };
 export const PhoneMaintenanceOn: Story = { ...phone, name: 'Phone, Maintenance on', tags: ['phone'], args: { who: OWNER, tab: 'review', maintenance: true } };
-export const PhoneGenreMapping: Story = { ...phone, name: 'Phone, Genre mapping', tags: ['phone', 'no-shot'], args: { who: OWNER, tab: 'genres', body: genreMapping } };
+export const PhoneGenreMapping: Story = { ...phone, name: 'Phone, Genre mapping', tags: ['phone'], args: { who: OWNER, tab: 'genres', body: genreMapping } };

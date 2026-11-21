@@ -128,6 +128,25 @@ Accessibility and fallbacks: reduced motion turns every transform off. Forced-co
 - **Collapse:** the accordion motion. A one-row grid whose track animates from `0fr` to `1fr` (240–260ms, ease-out) while the content fades in and settles 4px, so the content below is pushed smoothly and never jumps. Closed content is `inert`; children mount on first open; reduced motion switches instantly.
 - **EmptyState:** a headline in the display face plus one sentence about the next useful step. Keep "nothing here" separate from "failed to load".
 
+## Settings
+
+Every page in Your settings, Settings and Library care's settings tabs is built from three primitives in `components/ui`.
+
+- **SettingsGroup:** a head in the label style (title, an optional `?`, a save status, a meta value on the right), then its rows on one surface, divided by hairlines. `id` gives a link an anchor (`/settings/modules#integrations`).
+- **SettingsRow:** the label on the left, one compact control or a value on the right.
+- **HelpToggle:** help sits behind a `?`, never inline. A row or group holds labels and values only.
+
+A section is one `h2`, its nav label, rendered by the frame (`SettingsPage`, `YouPage`; a module page uses the module's name), then groups. Pages render no heading of their own and their CSS styles none; a test checks that and that no settings class is dead.
+
+The save model (`SaveStatus`, `SettingsSave`, `useSaveFlash`, `useSettingsDraft`):
+
+- A single choice (Off/On, a segmented control, a select, one checkbox of a list) saves when changed and shows `✓ Saved` in its group's head.
+- Typed fields save with one Save per group, disabled until the draft differs from what is saved, its status beside it. A choice inside a connection not saved yet joins that Save.
+- A failure says `Not saved` or the server's sentence, as an alert, and keeps the draft.
+- Secrets keep their own Set, Replace and Forget, never part of a group's Save. Actions (Add folder, Scan, Back up now) are buttons, not settings.
+
+An empty value is a word (`Unknown`, `Not set`, `None`), never a dash or a blank.
+
 ## Brand mark
 
 The mark is an agave rosette resting in a dew-glass orb: a tall centre leaf, two rising leaves and two low ones on a small base. Its colours are the dew tokens, so it follows the theme like the primary button: a deep drop with a white plant in light mode and a lit drop with a dark plant in dark mode. It reads at 16px.
@@ -172,7 +191,7 @@ Maintenance is an app-wide mode (the wrench toggle in the bar, the Library care 
 
 ## Adoption
 
-Every page uses this system: navigation, Home, the album grid and album page, artists, search, Library care, tag changes and the plan wizard, background activity, every settings section, setup, onboarding and sign-in. Some page CSS still uses the legacy token names; they resolve to the palette, so rename them when you touch a rule. When you add or change a page:
+Every page uses this system: navigation, Home, the album grid and album page, artists, search, Library care, tag changes and the plan wizard, background activity, every settings section (on `SettingsGroup` and `SettingsRow`), setup, onboarding and sign-in. Some page CSS still uses the legacy token names; they resolve to the palette, so rename them when you touch a rule. When you add or change a page:
 
 1. Use the primitives for every action: one primary drop per view, clear bubbles for the rest, quiet text buttons for dismiss and cancel. Destructive triggers are quiet danger text; the red drop lives only in the confirm dialog.
 2. Filters and suggestions are chips (surface to mist, the active one dew-tinted). In the album filter rail every row is checkbox, left-aligned label, then the count flush right in tabular figures, and a row shows a tooltip only when its label is cut off; fields take the global recessed pill, so a page class only sizes them.
