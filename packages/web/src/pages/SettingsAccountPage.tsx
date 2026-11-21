@@ -36,7 +36,7 @@ export function AccountView({ name, email, role, draft, onDraft, onSave, pending
   return (
     // Enter in Name submits only while there is a new name
     <form onSubmit={(e) => { e.preventDefault(); if (dirty && !pending) onSave(); }}>
-      <SettingsGroup title="Account" after={<SettingsSave type="submit" dirty={dirty} pending={pending} onSave={onSave} state={state} detail={detail} />}>
+      <SettingsGroup title="Profile" after={<SettingsSave type="submit" dirty={dirty} pending={pending} onSave={onSave} state={state} detail={detail} />}>
         <SettingsRow label="Name">
           <Input dense className={styles.field} value={draft} maxLength={255} autoComplete="name" onChange={(e) => onDraft(e.target.value)} />
         </SettingsRow>
