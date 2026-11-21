@@ -49,18 +49,15 @@ export const OpenLinks: Story = {
 /** A role just changed: ✓ Saved in People's head. */
 export const RoleSaved: Story = {
   name: 'Role saved',
-  tags: ['no-shot'],
   render: () => <PeopleGroup status={<SaveStatus state="saved" />}>{people.slice(0, 3).map((u) => <UserRow key={u.id} user={u} actions={actions} />)}</PeopleGroup>,
 };
 
 export const Invite: Story = {
-  tags: ['no-shot'],
   render: () => <div style={{ maxWidth: 850 }}><InviteGroup email="kim@example.com" role="listener" onEmail={noop} onRole={noop} onInvite={noop} /></div>,
 };
 
 export const InviteMade: Story = {
   name: 'Invite made',
-  tags: ['no-shot'],
   render: () => (
     <div style={{ maxWidth: 850 }}>
       <InviteGroup email="" role="listener" onEmail={noop} onRole={noop} onInvite={noop} made={<LinkPanel title="Invite link for kim@example.com (Listener)" link="https://music.example.com/invite/Q2hhbmdlIHRoaXMgdG9rZW4gaW4gYSBzdG9yeQ" expiresAt={at(-7)} onDone={noop} />} />
@@ -78,4 +75,4 @@ export const InviteLink: Story = {
 
 
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
-export const InvitePhone: Story = { ...Invite, name: 'Invite, phone', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } } };
+export const InvitePhone: Story = { ...Invite, name: 'Invite, phone', tags: ['phone'], globals: { viewport: { value: 'phone' } } };

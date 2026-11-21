@@ -30,5 +30,5 @@ export const YouNotConnected: Story = { name: 'Ready, your Last.fm not connected
 export const Replacing: Story = { name: 'Replace open', args: { view: ready, initialReplacing: true } };
 export const FromEnv: Story = { name: 'Key from .env', args: { view: { lastfm: { configured: true, source: 'env', apiKeyHint: '77c1' }, listenbrainz: { available: true } } } };
 export const Refused: Story = { args: { error: 'The shared secret does not belong to this API key' } };
-export const ReadyPhone: Story = { name: 'Ready, phone', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { view: ready, you: { lastfmAccount: 'anna-fm' } } };
-export const NotSetUpPhone: Story = { name: 'Not set up, phone', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } } };
+export const ReadyPhone: Story = { name: 'Ready, phone', tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { view: ready, you: { lastfmAccount: 'anna-fm' } } };
+export const NotSetUpPhone: Story = { name: 'Not set up, phone', tags: ['phone'], globals: { viewport: { value: 'phone' } } };

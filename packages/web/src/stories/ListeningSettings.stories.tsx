@@ -87,11 +87,11 @@ const shared = { kind: 'shared', username: null, phonePassword: false, serverScr
 const notSetUp = { ...connected, lastfmAvailable: false, services: connected.services.map((s) => ({ ...s, connected: false, accountName: null, lastOkAt: null, pending: 0 })) };
 
 /** Desktop and phone, side by side in the story list. */
-export const DesktopSharedAccount: Story = { name: 'Desktop, shared account', tags: ['viewport-1440', 'no-shot'], args: { data: { ...connected, account: shared } } };
-export const DesktopOwnLogin: Story = { name: 'Desktop, own login', tags: ['viewport-1440', 'no-shot'], args: { data: { ...connected, account: { kind: 'own', username: 'robin', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null } } } };
-export const DesktopLastfmConnected: Story = { name: 'Desktop, Last.fm connected, Loves saved', tags: ['viewport-1440', 'no-shot'], args: { saves: { loves: { state: 'saved' } } } };
-export const DesktopNotSetUp: Story = { name: 'Desktop, Last.fm not set up', tags: ['viewport-1440', 'no-shot'], args: { data: notSetUp, history: { plays: [], listens: [] } } };
-export const PhoneSharedAccount: Story = { name: 'Phone, shared account', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { data: { ...connected, account: shared } } };
-export const PhoneOwnLogin: Story = { name: 'Phone, own login', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { data: { ...connected, account: { kind: 'own', username: 'robin', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null } } } };
-export const PhoneLastfmConnected: Story = { name: 'Phone, Last.fm connected', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: {} };
-export const PhoneNotSetUp: Story = { name: 'Phone, Last.fm not set up', tags: ['phone', 'no-shot'], globals: { viewport: { value: 'phone' } }, args: { data: notSetUp, history: { plays: [], listens: [] } } };
+export const DesktopSharedAccount: Story = { name: 'Desktop, shared account', tags: ['viewport-1440'], args: { data: { ...connected, account: shared } } };
+export const DesktopOwnLogin: Story = { name: 'Desktop, own login', tags: ['viewport-1440'], args: { data: { ...connected, account: { kind: 'own', username: 'robin', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null } } } };
+export const DesktopLastfmConnected: Story = { name: 'Desktop, Last.fm connected, Loves saved', tags: ['viewport-1440'], args: { saves: { loves: { state: 'saved' } } } };
+export const DesktopNotSetUp: Story = { name: 'Desktop, Last.fm not set up', tags: ['viewport-1440'], args: { data: notSetUp, history: { plays: [], listens: [] } } };
+export const PhoneSharedAccount: Story = { name: 'Phone, shared account', tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { data: { ...connected, account: shared } } };
+export const PhoneOwnLogin: Story = { name: 'Phone, own login', tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { data: { ...connected, account: { kind: 'own', username: 'robin', phonePassword: false, serverScrobbles: true, state: 'active', lastError: null } } } };
+export const PhoneLastfmConnected: Story = { name: 'Phone, Last.fm connected', tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: {} };
+export const PhoneNotSetUp: Story = { name: 'Phone, Last.fm not set up', tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { data: notSetUp, history: { plays: [], listens: [] } } };

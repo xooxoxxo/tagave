@@ -16,6 +16,11 @@ const walk = (dir: string): string[] =>
     if (entry.isDirectory()) return entry.name === 'ui' ? [] : walk(path);
     return [path];
   });
+const walkAll = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? walkAll(path) : [path];
+  });
 const files = [...walk(join(src, 'pages')), ...walk(join(src, 'components'))];
 const cssFiles = files.filter(f => f.endsWith('.module.css'));
 const tsxFiles = files.filter(f => f.endsWith('.tsx') && !f.endsWith('.test.tsx'));
@@ -64,6 +69,84 @@ describe('h1 and h2 classes', () => {
   }
 
   it('never set a weight above 400 (Urbanist is loaded at 200 to 400)', () => {
+    expect(offenders).toEqual([]);
+  });
+});
+
+/*
+ * The settings pages are built from SettingsGroup and SettingsRow, so their
+ * own CSS is only what is left over: a class nothing uses any more is dead,
+ * and no page styles a heading (the section's h2 is the frame's, a group's
+ * h3 is SettingsGroup's). The frame (SettingsPage.module.css) may hide its
+ * own h2 on a phone and during an update; release notes rendered from
+ * Markdown (.markdown) are content, not settings headings.
+ */
+describe('settings CSS', () => {
+  const settingsModules = [
+    'pages/SettingsPage.module.css',
+    'pages/SettingsSecurityPage.module.css',
+    'pages/SettingsListeningPage.module.css',
+    'pages/SettingsDjPage.module.css',
+    'pages/SettingsListenElsewherePage.module.css',
+    'pages/SettingsConnectionsPage.module.css',
+    'pages/SettingsScanRootsPage.module.css',
+    'components/naming/Naming.module.css',
+    'pages/SettingsDeletingPage.module.css',
+    'pages/SettingsTagWritesPage.module.css',
+    'pages/SettingsFollowRulesPage.module.css',
+    'pages/SettingsGenresPage.module.css',
+    'components/users/UsersList.module.css',
+    'pages/SettingsProvidersPage.module.css',
+    'pages/SettingsPlaybackPage.module.css',
+    'components/LidarrSettings.module.css',
+    'pages/SettingsUpdatesPage.module.css',
+    'pages/Settings/SystemStatus.module.css',
+    'pages/SettingsStoragePage.module.css',
+    'pages/SettingsBackupsPage.module.css',
+    'pages/SettingsModulesPage.module.css',
+  ];
+  const sources = walkAll(src).filter(f => /\.(tsx?|jsx?)$/.test(f) && !/\.test\./.test(f));
+  const importersOf = (cssFile: string) =>
+    sources.flatMap(file => {
+      const source = readFileSync(file, 'utf8');
+      return [...source.matchAll(/import\s+([A-Za-z_$][\w$]*)\s+from\s+'([^']+\.module\.css)'/g)]
+        .filter(m => resolve(dirname(file), m[2]!) === cssFile)
+        .map(m => ({ name: m[1]!, source }));
+    });
+  const definedClasses = (source: string) => {
+    const selectors = [...source.matchAll(/([^{}]+)\{/g)].map(m => m[1]!).filter(s => !s.trim().startsWith('@'));
+    const names = new Set<string>();
+    for (const selector of selectors) {
+      const local = selector.replace(/:global\([^)]*\)/g, '');
+      for (const m of local.matchAll(/\.(-?[_A-Za-z][\w-]*)/g)) names.add(m[1]!);
+    }
+    return [...names];
+  };
+
+  it('finds every settings page module', () => {
+    expect(settingsModules.filter(f => !cssFiles.includes(join(src, f)))).toEqual([]);
+  });
+
+  it.each(settingsModules.map(f => [f]))('%s has no dead class', file => {
+    const cssFile = join(src, file);
+    const importers = importersOf(cssFile);
+    expect(importers.length).toBeGreaterThan(0);
+    const used = (name: string) =>
+      importers.some(({ name: id, source }) => {
+        const escaped = name.replace(/[-]/g, '\\-');
+        return new RegExp(`\\b${id}\\.${escaped}\\b(?!-)`).test(source) || new RegExp(`\\b${id}\\[['"\`]${escaped}['"\`]\\]`).test(source);
+      });
+    expect(definedClasses(css(cssFile)).filter(name => !used(name))).toEqual([]);
+  });
+
+  it.each(settingsModules.map(f => [f]))('%s styles no heading', file => {
+    const frame = file === 'pages/SettingsPage.module.css';
+    const offenders = [...css(join(src, file)).matchAll(/([^{}]+)\{/g)]
+      .flatMap(m => m[1]!.split(','))
+      .map(s => s.trim())
+      .filter(s => !s.startsWith('@') && /(^|[\s>+~(])h[23]\b/.test(s))
+      .filter(s => !(frame && /> \.content > h2:first-child$/.test(s)))
+      .filter(s => !/^\.markdown\s+h[23]$/.test(s));
     expect(offenders).toEqual([]);
   });
 });

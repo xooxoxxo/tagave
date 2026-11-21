@@ -85,5 +85,5 @@ export function YouLayout({ view, items, current, children }: { view: 'list' | '
 
 /** The owner's player server stays in Settings › Modules › Player. */
 export function PlayerServerRow() {
-  return <LinkRow group="Server" label="Player server" to="/settings/modules/player" className={styles.modeSetting} />;
+  return <LinkRow group="Server" label="Player server" to="/settings/modules/player" />;
 }
