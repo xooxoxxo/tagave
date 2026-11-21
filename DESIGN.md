@@ -140,7 +140,7 @@ A section is one `h2`, its nav label, rendered by the frame (`SettingsPage`, `Yo
 
 The save model (`SaveStatus`, `SettingsSave`, `useSaveFlash`, `useSettingsDraft`):
 
-- A single choice (Off/On, a segmented control, a select, one checkbox of a list) saves when changed and shows `✓ Saved` in its group's head.
+- A single choice (Off/On, a segmented control, a select, one checkbox of a list) saves when changed and shows `✓ Saved` in its group's head, except a device pref (Appearance), which applies at once on this device and shows only `Not saved` when the server save after it fails, as the theme does.
 - Typed fields save with one Save per group, disabled until the draft differs from what is saved, its status beside it. A choice inside a connection not saved yet joins that Save.
 - A failure says `Not saved` or the server's sentence, as an alert, and keeps the draft.
 - Secrets keep their own Set, Replace and Forget, never part of a group's Save. Actions (Add folder, Scan, Back up now) are buttons, not settings.
