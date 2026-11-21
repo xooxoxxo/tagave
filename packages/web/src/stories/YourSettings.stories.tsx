@@ -22,6 +22,8 @@ import { youNav, type YouModules } from '../pages/youSections';
 
 const noop = () => undefined;
 const at = (min: number) => new Date(Date.UTC(2026, 9, 16, 19, 30) - min * 60_000).toISOString();
+/** "Last sent 3 min ago" is counted from the real clock: a fixed date would read a day older each day. */
+const recent = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
 const NONE: YouModules = { player: false, dj: false, listenElsewhere: false, connections: false };
 const ALL: YouModules = { player: true, dj: true, listenElsewhere: true, connections: true };
@@ -31,7 +33,7 @@ const listening: ListeningView = {
   account: { kind: 'bundled', username: 'robin', phonePassword: true, serverScrobbles: false, state: 'active', lastError: null },
   lastfmAvailable: true,
   services: [
-    { service: 'lastfm', connected: true, accountName: 'robin-fm', connectedAt: at(9000), lastOkAt: at(3), lastError: null, lastErrorAt: null, pending: 0, loves: true },
+    { service: 'lastfm', connected: true, accountName: 'robin-fm', connectedAt: at(9000), lastOkAt: recent(3), lastError: null, lastErrorAt: null, pending: 0, loves: true },
     { service: 'listenbrainz', connected: false, accountName: null, connectedAt: null, lastOkAt: null, lastError: null, lastErrorAt: null, pending: 0, loves: false },
   ],
   lastPollAt: at(1),
@@ -149,15 +151,15 @@ export const EveryModuleOn: Story = {
 export const AppearanceSection: Story = { name: 'Appearance', tags: ['viewport-1440'], args: { modules: ALL, section: 'appearance', content: <Appearance /> } };
 
 /** Account: Name, Email, Role, the login service, then Security with the authenticator off. */
-export const AccountSection: Story = { name: 'Account', tags: ['viewport-1440', 'no-shot'], args: { modules: NONE, section: 'account', content: <Account status={security()} /> } };
+export const AccountSection: Story = { name: 'Account', tags: ['viewport-1440'], args: { modules: NONE, section: 'account', content: <Account status={security()} /> } };
 /** A new name typed: Save is on. */
-export const AccountNameChanged: Story = { name: 'Account, name changed', tags: ['viewport-1440', 'no-shot'], args: { modules: NONE, section: 'account', content: <Account draft="Robin Doe" status={security()} /> } };
+export const AccountNameChanged: Story = { name: 'Account, name changed', tags: ['viewport-1440'], args: { modules: NONE, section: 'account', content: <Account draft="Robin Doe" status={security()} /> } };
 /** Security: the authenticator on, 7 backup codes left, two trusted devices. */
-export const SecuritySection: Story = { name: 'Security', tags: ['viewport-1440', 'no-shot'], args: { modules: NONE, section: 'account', content: <Account securityOnly /> } };
+export const SecuritySection: Story = { name: 'Security', tags: ['viewport-1440'], args: { modules: NONE, section: 'account', content: <Account securityOnly /> } };
 
 export const PhoneListener: Story = { ...phone, name: 'Phone, listener', tags: ['phone'], args: { modules: NONE, section: null } };
 export const PhoneEveryModuleOn: Story = { ...phone, name: 'Phone, every module on', tags: ['phone'], args: { modules: ALL, section: null } };
 export const PhoneAppearance: Story = { ...phone, name: 'Phone, Appearance', tags: ['phone'], args: { modules: ALL, section: 'appearance', content: <Appearance /> } };
-export const PhoneAccount: Story = { ...phone, name: 'Phone, Account', tags: ['phone', 'no-shot'], args: { modules: NONE, section: 'account', content: <Account status={security()} /> } };
-export const PhoneAccountNameChanged: Story = { ...phone, name: 'Phone, Account, name changed', tags: ['phone', 'no-shot'], args: { modules: NONE, section: 'account', content: <Account draft="Robin Doe" status={security()} /> } };
-export const PhoneSecurity: Story = { ...phone, name: 'Phone, Security', tags: ['phone', 'no-shot'], args: { modules: NONE, section: 'account', content: <Account securityOnly /> } };
+export const PhoneAccount: Story = { ...phone, name: 'Phone, Account', tags: ['phone'], args: { modules: NONE, section: 'account', content: <Account status={security()} /> } };
+export const PhoneAccountNameChanged: Story = { ...phone, name: 'Phone, Account, name changed', tags: ['phone'], args: { modules: NONE, section: 'account', content: <Account draft="Robin Doe" status={security()} /> } };
+export const PhoneSecurity: Story = { ...phone, name: 'Phone, Security', tags: ['phone'], args: { modules: NONE, section: 'account', content: <Account securityOnly /> } };

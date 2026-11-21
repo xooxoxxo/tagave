@@ -27,7 +27,7 @@ function People() {
 const meta = {
   title: 'Components/Users',
   component: People,
-  // No screenshot baselines yet: render them on the CI runner (DESIGN.md) and drop `no-shot`.
+  // The older stories have no baseline yet; the settings layout's stories opt in with `!no-shot`.
   tags: ['no-shot'],
   parameters: {
     docs: {
@@ -48,15 +48,18 @@ export const OpenLinks: Story = {
 
 /** A role just changed: ✓ Saved in People's head. */
 export const RoleSaved: Story = {
+  tags: ['!no-shot'],
   name: 'Role saved',
   render: () => <PeopleGroup status={<SaveStatus state="saved" />}>{people.slice(0, 3).map((u) => <UserRow key={u.id} user={u} actions={actions} />)}</PeopleGroup>,
 };
 
 export const Invite: Story = {
+  tags: ['!no-shot'],
   render: () => <div style={{ maxWidth: 850 }}><InviteGroup email="kim@example.com" role="listener" onEmail={noop} onRole={noop} onInvite={noop} /></div>,
 };
 
 export const InviteMade: Story = {
+  tags: ['!no-shot'],
   name: 'Invite made',
   render: () => (
     <div style={{ maxWidth: 850 }}>
@@ -75,4 +78,4 @@ export const InviteLink: Story = {
 
 
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
-export const InvitePhone: Story = { ...Invite, name: 'Invite, phone', tags: ['phone'], globals: { viewport: { value: 'phone' } } };
+export const InvitePhone: Story = { ...Invite, name: 'Invite, phone', tags: ['phone', '!no-shot'], globals: { viewport: { value: 'phone' } } };

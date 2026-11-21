@@ -8,7 +8,7 @@ const noop = () => undefined;
 const meta = {
   title: 'Settings/Updates',
   component: RunningNow,
-  // No screenshot baseline yet: render one on the CI runner (DESIGN.md) and drop `no-shot`.
+  // The older stories have no baseline yet; the settings layout's stories opt in with `!no-shot`.
   tags: ['no-shot'],
   args: { app: APP_BUILD, workers: [WORKER_SAME, WORKER_OLD], updating: false, now: NOW },
   parameters: { docs: { description: { component: 'Running now: the app and every worker with its build. A worker on another build reads Updating while an update runs and for two minutes after it ends, Older build (the warning) otherwise. Update checks: Off and On saves when changed, the feed URL with its own Save.' } } },
@@ -28,9 +28,9 @@ const checks = (over: Partial<Parameters<typeof UpdateChecksView>[0]> = {}) => (
 );
 
 /** Update checks on, just turned on: ✓ Saved in the head. */
-export const UpdateChecks: Story = { name: 'Update checks', tags: ['viewport-1440'], render: () => checks({ enabledStatus: { state: 'saved' } }) };
+export const UpdateChecks: Story = { name: 'Update checks', tags: ['viewport-1440', '!no-shot'], render: () => checks({ enabledStatus: { state: 'saved' } }) };
 /** A feed URL typed: its Save waits no more; the last save failed. */
-export const UpdateChecksFeedChanged: Story = { name: 'Update checks, feed changed', tags: ['viewport-1440'], render: () => checks({ url: 'https://api.github.com/repos/robin/tagave/releases', urlStatus: { state: 'failed', detail: 'Use a GitHub releases API URL' } }) };
+export const UpdateChecksFeedChanged: Story = { name: 'Update checks, feed changed', tags: ['viewport-1440', '!no-shot'], render: () => checks({ url: 'https://api.github.com/repos/robin/tagave/releases', urlStatus: { state: 'failed', detail: 'Use a GitHub releases API URL' } }) };
 /** The server sets the feed: a value, no switch. */
-export const UpdateChecksLocked: Story = { name: 'Update checks, set on the server', tags: ['viewport-1440'], render: () => checks({ feed: { ...FEED, lockedByServer: true } }) };
-export const PhoneUpdateChecks: Story = { name: 'Phone, update checks', tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => checks({ url: 'https://api.github.com/repos/robin/tagave/releases' }) };
+export const UpdateChecksLocked: Story = { name: 'Update checks, set on the server', tags: ['viewport-1440', '!no-shot'], render: () => checks({ feed: { ...FEED, lockedByServer: true } }) };
+export const PhoneUpdateChecks: Story = { name: 'Phone, update checks', tags: ['phone', '!no-shot'], globals: { viewport: { value: 'phone' } }, render: () => checks({ url: 'https://api.github.com/repos/robin/tagave/releases' }) };

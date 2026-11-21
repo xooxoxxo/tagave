@@ -26,7 +26,7 @@ function Form({ view, join = null, group }: { view: OidcSettingsResponse; join?:
 const meta = {
   title: 'Components/Sign-in service',
   component: Form,
-  // No screenshot baselines yet: render them on the CI runner (DESIGN.md) and drop `no-shot`.
+  // The older stories have no baseline yet; the settings layout's stories opt in with `!no-shot`.
   tags: ['no-shot'],
   args: { view: configured },
   parameters: {
@@ -44,11 +44,11 @@ export const Settings: Story = {};
 export const SettingsEmpty: Story = { args: { view: empty } };
 export const SettingsNotReachable: Story = { args: { view: { ...configured, active: false, secretUnreadable: true } } };
 /** A saved service: Sign-in button just flipped, ✓ Saved in Join's head. */
-export const SettingsJoinSaved: Story = { name: 'Settings, join saved', args: { view: configured, join: 'saved' } };
+export const SettingsJoinSaved: Story = { tags: ['!no-shot'], name: 'Settings, join saved', args: { view: configured, join: 'saved' } };
 /** A Group typed: its own Save waits no more. */
-export const SettingsGroupChanged: Story = { name: 'Settings, group changed', args: { view: configured, group: 'friends' } };
-export const SettingsPhone: Story = { name: 'Settings, phone', tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { view: configured } };
-export const SettingsEmptyPhone: Story = { name: 'Settings empty, phone', tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { view: empty } };
+export const SettingsGroupChanged: Story = { tags: ['!no-shot'], name: 'Settings, group changed', args: { view: configured, group: 'friends' } };
+export const SettingsPhone: Story = { name: 'Settings, phone', tags: ['phone', '!no-shot'], globals: { viewport: { value: 'phone' } }, args: { view: configured } };
+export const SettingsEmptyPhone: Story = { name: 'Settings empty, phone', tags: ['phone', '!no-shot'], globals: { viewport: { value: 'phone' } }, args: { view: empty } };
 
 export const AccountNotLinked: Story = {
   render: () => <div style={{ maxWidth: 640, padding: 24 }}><OidcLinkPanel view={{ name: 'Zitadel', linked: false, linkedAt: null, canUnlink: false }} onLink={noop} onUnlink={noop} /></div>,
