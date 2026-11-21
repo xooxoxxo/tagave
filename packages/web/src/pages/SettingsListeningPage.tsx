@@ -470,7 +470,7 @@ export function SettingsListeningContent() {
           errors={{
             lastfm: lastfm.isError ? problem(lastfm.error, 'Last.fm could not be reached.') : null,
             listenbrainz: lb.isError ? problem(lb.error, 'ListenBrainz did not accept the token.') : null,
-            phone: phone.isError || clearPhone.isError ? problem(phone.error ?? clearPhone.error, 'The player did not take the password.') : null,
+            phone: phone.isError ? problem(phone.error, 'The player did not take the password.') : clearPhone.isError ? problem(clearPhone.error, 'Not saved') : null,
             account: saveOwn.isError || removeOwn.isError ? problem(saveOwn.error ?? removeOwn.error, 'The server did not accept these details.') : null,
           }}
           onConnectLastfm={() => lastfm.mutate()}
@@ -481,8 +481,9 @@ export function SettingsListeningContent() {
             lovesSave.clear();
             loves.mutate({ service, on }, { onSuccess: () => lovesSave.saved(), onError: (err) => lovesSave.failed(problem(err, '') || null) });
           }}
-          onSetPhonePassword={(p) => { phoneSave.clear(); phone.mutate(p, { onSuccess: () => phoneSave.saved() }); }}
-          onClearPhonePassword={() => { phoneSave.clear(); clearPhone.mutate(); }}
+          onSetPhonePassword={(p) => { phoneSave.clear(); clearPhone.reset(); phone.mutate(p, { onSuccess: () => phoneSave.saved() }); }}
+          // Forget reports like Set: ✓ Saved, or the failure as the group's alert
+          onClearPhonePassword={() => { phoneSave.clear(); phone.reset(); clearPhone.mutate(undefined, { onSuccess: () => phoneSave.saved() }); }}
           onSaveOwnAccount={(b) => { accountSave.clear(); saveOwn.mutate(b, { onSuccess: () => accountSave.saved() }); }}
           onRemoveOwnAccount={() => removeOwn.mutate()}
         />
