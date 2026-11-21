@@ -2,7 +2,37 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.32.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.32.0)
+## [v0.33.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.33.0)
+
+**Minor release (0.32 → 0.33).** Settings are redone: your own settings sit under your name, the server's under Settings, library upkeep in Library care, and every page uses one layout with one way of saving.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release. Old settings addresses and bookmarks open their new pages.
+
+### New
+
+- **The sidebar names you at the top:** your name opens your menu, with Your settings and, for the owner, Settings. Care is listed in the sidebar, and the phone sheet matches. ([e76e242](https://github.com/xooxoxxo/tagave/commit/e76e242), [72a62c4](https://github.com/xooxoxxo/tagave/commit/72a62c4), [0fe2950](https://github.com/xooxoxxo/tagave/commit/0fe2950), [1188116](https://github.com/xooxoxxo/tagave/commit/1188116))
+- **Your settings:** Account, Security and Appearance, plus Listening, DJ, Listen elsewhere and Connections when their module is on. ([6d6e667](https://github.com/xooxoxxo/tagave/commit/6d6e667), [7a3a9e3](https://github.com/xooxoxxo/tagave/commit/7a3a9e3))
+- **Settings is the server's:** Library, Tag writing, Follow rules, People, Modules, Backups, Updates and Status, with a search across every group and row. ([3fd9924](https://github.com/xooxoxxo/tagave/commit/3fd9924))
+- **Library care:** Autotagger, Genre mapping and Background activity are its tabs, and Maintenance sits in its header. ([ca64736](https://github.com/xooxoxxo/tagave/commit/ca64736), [3dfb0eb](https://github.com/xooxoxxo/tagave/commit/3dfb0eb))
+- **Autotagger setup in Library care:** step 1 is the setup, in the order you fill it: decider, the machine or Jev, the spot-check gate, then Advanced. One Save, which waits for the Jev key when Jev is picked. Run stats move to step 2 and agreement to step 3. ([4ac870d](https://github.com/xooxoxxo/tagave/commit/4ac870d), [6de8c1f](https://github.com/xooxoxxo/tagave/commit/6de8c1f))
+- **Modules:** one row per module with Off and On and Delete its data. A module that is off shows nowhere else in tagave. ([32cc56e](https://github.com/xooxoxxo/tagave/commit/32cc56e))
+- **One settings layout and one way of saving:** a single choice saves as you change it; typed fields save with one Save per group, which shows ✓ Saved or Not saved. Help sits behind "?". ([4eaed34](https://github.com/xooxoxxo/tagave/commit/4eaed34), [e6e50e3](https://github.com/xooxoxxo/tagave/commit/e6e50e3), [2572bf1](https://github.com/xooxoxxo/tagave/commit/2572bf1), [debfd6b](https://github.com/xooxoxxo/tagave/commit/debfd6b), [f99bb6b](https://github.com/xooxoxxo/tagave/commit/f99bb6b))
+- **Old addresses redirect:** every moved settings page, Jobs and the old Autotagger settings open their new home, keeping a picked job. ([3379fc2](https://github.com/xooxoxxo/tagave/commit/3379fc2))
+
+### Fixed
+
+- **Plain values instead of dashes:** an empty value reads as a word, such as Not checked, Unknown or Not mapped. ([4eaed34](https://github.com/xooxoxxo/tagave/commit/4eaed34))
+- **Add music folder** keeps its Tag writes choice. ([b730080](https://github.com/xooxoxxo/tagave/commit/b730080))
+- **Forget the phone password** reports ✓ Saved or Not saved. ([0ed71bb](https://github.com/xooxoxxo/tagave/commit/0ed71bb))
+- **Keyboard:** the scrolling tables in the Autotagger, Genre mapping and Updates take focus. ([2dcad41](https://github.com/xooxoxxo/tagave/commit/2dcad41), [0580466](https://github.com/xooxoxxo/tagave/commit/0580466))
+- **Links for people who aren't the owner:** an old Library care link sends a listener to Your settings, and links are checked for non-owners. ([236bd9d](https://github.com/xooxoxxo/tagave/commit/236bd9d), [aa2c094](https://github.com/xooxoxxo/tagave/commit/aa2c094))
+- **Smaller fixes:** the identity row and phone sheet, the payload button's Show and Hide, the Integrations link, a settings heading that showed before its page, and the Account page's first group, now Profile. ([fcc90d2](https://github.com/xooxoxxo/tagave/commit/fcc90d2), [eeae365](https://github.com/xooxoxxo/tagave/commit/eeae365), [823179d](https://github.com/xooxoxxo/tagave/commit/823179d), [fde96ec](https://github.com/xooxoxxo/tagave/commit/fde96ec), [8e05367](https://github.com/xooxoxxo/tagave/commit/8e05367), [88b55d5](https://github.com/xooxoxxo/tagave/commit/88b55d5), [7711ba6](https://github.com/xooxoxxo/tagave/commit/7711ba6), [4dfe89f](https://github.com/xooxoxxo/tagave/commit/4dfe89f))
+
+**All changes:** [v0.32.0...v0.33.0](https://github.com/xooxoxxo/tagave/compare/v0.32.0...v0.33.0)
+
+## [v0.32.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.32.0) (2026-11-15)
 
 **Minor release (0.31 → 0.32).** The autotagger gets its screens: a four-step tab in Library care and its settings in Settings › Modules. The album page shows who decided its match.
 
