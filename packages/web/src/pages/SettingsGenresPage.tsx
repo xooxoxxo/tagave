@@ -102,7 +102,7 @@ export function GenreMappingView({ whitelistText, aliasesText, maxGenres, ignore
             title="Raw tags"
             meta={preview.tags.length === 0 ? 'No tags' : null}
             after={preview.tags.length > 0 ? (
-              <div className={styles.tableContainer}>
+              <div className={styles.tableContainer} role="region" aria-label="Raw tags" tabIndex={0}>
                 <table className={styles.table}>
                   <thead>
                     <tr><th>Tag</th><th>Kind</th><th>Source</th><th>Count</th><th>Maps to</th></tr>
