@@ -176,6 +176,8 @@ export interface TagChangeCleanupViewProps {
   /** what the scope would delete; null while counting or when it could not count */
   preview: TagChangeCleanupPreview | null;
   counting?: boolean;
+  /** the count failed */
+  failed?: boolean;
   pending?: boolean;
   onRun: () => void;
 }
@@ -190,7 +192,7 @@ function cleanupValue(p: TagChangeCleanupPreview): string {
 }
 
 /** Tag change cleanup: which finished plans, how many, and Delete (an action that asks first). */
-export function TagChangeCleanupView({ scope, onScope, preview, counting = false, pending = false, onRun }: TagChangeCleanupViewProps) {
+export function TagChangeCleanupView({ scope, onScope, preview, counting = false, failed = false, pending = false, onRun }: TagChangeCleanupViewProps) {
   const nothing = !!preview && preview.plans === 0 && preview.revertible.plans === 0;
   return (
     <SettingsGroup title="Tag change cleanup">
@@ -205,7 +207,10 @@ export function TagChangeCleanupView({ scope, onScope, preview, counting = false
       <SettingsRow
         as="div"
         label="To delete"
-        value={<span className={preview ? styles.size : styles.muted}>{counting ? 'Counting' : preview ? cleanupValue(preview) : 'Not counted'}</span>}
+        value={counting ? <span className={styles.muted}>Counting</span>
+          : preview ? <span className={styles.size}>{cleanupValue(preview)}</span>
+          : failed ? <span className={styles.error} role="alert">Could not count</span>
+          : <span className={styles.muted}>Not counted</span>}
       >
         <Button variant="quiet-danger" size="sm" onClick={onRun} disabled={!preview || nothing || pending} loading={pending}>Delete</Button>
       </SettingsRow>
@@ -238,5 +243,5 @@ function TagChangeCleanup() {
     }
   };
 
-  return <TagChangeCleanupView scope={scope} onScope={setScope} preview={preview.error ? null : p ?? null} counting={preview.isLoading} pending={cleanup.isPending} onRun={() => void run()} />;
+  return <TagChangeCleanupView scope={scope} onScope={setScope} preview={preview.error ? null : p ?? null} counting={preview.isLoading} failed={!!preview.error} pending={cleanup.isPending} onRun={() => void run()} />;
 }

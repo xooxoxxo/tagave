@@ -59,7 +59,7 @@ export function SettingsPlaybackContent() {
         help={installed && settings.data?.bundled ? 'Phone and desktop apps reach the bundled player on Subsonic port 4533' : null}
         after={owner && settings.isError ? <Banner tone="danger">Couldn’t load playback settings. {problem(settings.error, '')}</Banner> : null}
       >
-        <SettingsRow as="div" label="Player server" value={<span className={styles.values} role="status">
+        <SettingsRow as="div" label="Connection" value={<span className={styles.values} role="status">
           <Badge tone={status.tone}>{status.label}</Badge>
           {status.detail && <span className={styles.value}>{status.detail}</span>}
         </span>} />

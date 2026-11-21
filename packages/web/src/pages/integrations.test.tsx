@@ -10,7 +10,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { LibrarySettingsView } from '@tagave/shared';
 import { SettingsSave } from '../components/ui';
-import { IntegrationsView, type IntegrationsViewProps } from './SettingsProvidersPage';
+import { readFileSync } from 'node:fs';
+import { IntegrationsPending, IntegrationsView, type IntegrationsViewProps } from './SettingsProvidersPage';
 
 const SETTINGS: Pick<LibrarySettingsView, 'contactString' | 'discogsTokenSet' | 'discogsTokenHint' | 'acoustidKeySet' | 'acoustidKeyHint' | 'fingerprintingEnabled'> = {
   contactString: 'robin@example.com',
@@ -51,6 +52,13 @@ describe('Settings › Modules › Integrations', () => {
     expect(html).toMatch(/<section id="integrations" aria-label="Integrations"/);
     expect(html.match(/<section /g)).toHaveLength(1);
     expect(html).not.toMatch(/<h2/);
+  });
+
+  it('the anchor is there while the settings load', () => {
+    expect(renderToStaticMarkup(<IntegrationsPending />)).toMatch(/^<section id="integrations" aria-label="Integrations"/);
+    const page = readFileSync(new URL('./SettingsProvidersPage.tsx', import.meta.url), 'utf8');
+    expect(page).toContain('if (!settings || !draft) return <IntegrationsPending />;');
+    expect(page).not.toMatch(/return null/);
   });
 
   it('the secrets are their own action', () => {

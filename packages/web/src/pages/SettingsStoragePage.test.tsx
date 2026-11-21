@@ -123,5 +123,7 @@ describe('Settings › Status › Storage on the settings layout', () => {
     expect(html).toContain('3 plans');
     expect(html).toMatch(/>Delete</);
     expect(renderToStaticMarkup(<TagChangeCleanupView scope="archived" onScope={() => undefined} preview={{ scope: 'archived', plans: 0, bytes: 0, revertible: { plans: 0, bytes: 0 } }} onRun={() => undefined} />)).toContain('None');
+    const failed = renderToStaticMarkup(<TagChangeCleanupView scope="archived" onScope={() => undefined} preview={null} failed onRun={() => undefined} />);
+    expect(failed).toMatch(/role="alert"[^>]*>Could not count</);
   });
 });
