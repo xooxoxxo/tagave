@@ -12,7 +12,7 @@ describe('workOf (Settings › Updates, Queues column)', () => {
     expect(workOf(['collection.sync'])).toBe('Discogs');
   });
 
-  it('shows a dash for none', () => {
-    expect(workOf([])).toBe('–');
+  it('says None for no queues', () => {
+    expect(workOf([])).toBe('None');
   });
 });

@@ -23,7 +23,29 @@ const stories = all.filter((f) => /\.stories\.tsx$/.test(f));
 
 /** A splitting regex, not copy. */
 const DASH_ALLOWED = new Set(['components/ui/CoverArt.tsx']);
-/** Matches the API's own detail for a missing key. */
+/**
+ * An en dash standing for "no value" (a string that is only `–`, or a JSX
+ * text that is only `–`): the design rule is a word ("Unknown", "None",
+ * "Never", "Not measured"). A dash inside a range ("1–4") is fine. The
+ * files below still show one outside the settings pages; a new one
+ * anywhere else, the settings pages included, fails here.
+ */
+const EMPTY_DASH_ALLOWED = new Set<string>([
+  // a mark, not a value: a skipped step's, a verdict's (aria-hidden beside its word)
+  'components/InAppUpdate.tsx',
+  'pages/QueuePage.tsx',
+  // not settings pages yet: release, track and deck tables
+  'components/MoveSheet.tsx',
+  'components/StarRating.tsx',
+  'components/dj/Deck.tsx',
+  'pages/AlbumEditionsPanel.tsx',
+  'pages/AlbumMatchTable.tsx',
+  'pages/AlbumTracks.tsx',
+  'pages/AlbumsPage.tsx',
+  'pages/ArtistsPage.tsx',
+]);
+const EMPTY_DASH = [/(['"`])\s*–\s*\1/, />\s*–\s*</];
+
 const OLD_COPY_ALLOWED = new Set(['pages/review/autotaggerDraft.ts']);
 const OLD_COPY = ['TypeSafe key', 'Maximum error rate', '* any', '· bytes'];
 
@@ -143,6 +165,22 @@ describe("the app's copy", () => {
   it('no em dash in the app\'s copy', () => {
     const found = app.filter((f) => !DASH_ALLOWED.has(rel(f))).flatMap((f) => hits(f, ['—']));
     expect(found, `em dashes in UI copy:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('no en dash as an empty value', () => {
+    const found = app.filter((f) => !EMPTY_DASH_ALLOWED.has(rel(f))).flatMap((f) => {
+      const lines = stripComments(readFileSync(f, 'utf8')).split('\n');
+      return lines.flatMap((line, n) => (EMPTY_DASH.some((re) => re.test(line)) ? [`${rel(f)}:${n + 1}: ${line.trim()}`] : []));
+    });
+    expect(found, `an en dash for an empty value (use a word):\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('the empty-value check sees a dash value, not a range', () => {
+    const dash = (line: string) => EMPTY_DASH.some((re) => re.test(line));
+    expect(dash("{w.version ?? '–'}")).toBe(true);
+    expect(dash('<td className={styles.dim}>–</td>')).toBe(true);
+    expect(dash('`${from}–${to}`')).toBe(false);
+    expect(dash("label: 'Artist A–Z'")).toBe(false);
   });
 
   it('no Autotagger copy from before the rename', () => {
