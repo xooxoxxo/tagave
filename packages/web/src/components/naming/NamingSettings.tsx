@@ -178,7 +178,6 @@ export function NamingSettingsView({ view, pending = false, onSave, onPreview, s
         </SettingsRow>
       </SettingsGroup>
 
-
       {shown.length > 0 ? (
         <SettingsGroup
           title="Examples"

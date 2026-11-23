@@ -46,6 +46,7 @@ const EMPTY_DASH_ALLOWED = new Set<string>([
 ]);
 const EMPTY_DASH = [/(['"`])\s*–\s*\1/, />\s*–\s*</];
 
+/** Matches the API's own detail for a missing key. */
 const OLD_COPY_ALLOWED = new Set(['pages/review/autotaggerDraft.ts']);
 const OLD_COPY = ['TypeSafe key', 'Maximum error rate', '* any', '· bytes'];
 

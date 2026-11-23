@@ -44,7 +44,7 @@ export const createScanRootSchema = z.object({
   displayName: z.string().describe('Human-readable name for the scan root'),
   writable: z.boolean().default(true).describe('Whether tag writes are permitted on this root'),
   enabled: z.boolean().default(true).describe('Whether scans will visit this root'),
-  pollIntervalS: z.number().int().positive().default(21600).describe('Polling interval in seconds (default 6 hours)'),
+  pollIntervalS: z.number().int().min(60, 'At least 60 seconds').default(21600).describe('Polling interval in seconds, at least 60 (default 6 hours)'),
 }).strict();
 
 export type CreateScanRootRequest = z.infer<typeof createScanRootSchema>;
