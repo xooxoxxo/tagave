@@ -60,7 +60,7 @@ export function folderPatch(base: FolderFields, draft: FolderFields): { patch: P
   const problem: Partial<Record<keyof FolderFields, string>> = {};
   const linkProblem = folderLinkBaseProblem(draft.folderLink);
   if (linkProblem) problem.folderLink = linkProblem;
-  if (!(Number.isInteger(draft.pollIntervalS) && draft.pollIntervalS >= MIN_RESCAN_S)) problem.pollIntervalS = 'At least 60 seconds';
+  if (draft.pollIntervalS !== base.pollIntervalS && !(Number.isInteger(draft.pollIntervalS) && draft.pollIntervalS >= MIN_RESCAN_S)) problem.pollIntervalS = 'At least 60 seconds';
   if (Object.keys(problem).length > 0) return { patch: null, problem };
   const patch: Partial<Pick<ScanRoot, 'folderLink' | 'pollIntervalS'>> = {};
   if (draft.folderLink.trim() !== base.folderLink.trim()) patch.folderLink = draft.folderLink.trim() || null;

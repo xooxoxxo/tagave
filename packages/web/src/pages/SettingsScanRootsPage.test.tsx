@@ -111,6 +111,9 @@ describe('a folder\'s Save: Folder link and Rescan every', () => {
   it('less than 60 seconds is a problem, not a save', () => {
     const base = { folderLink: '', pollIntervalS: 21600 };
     expect(folderPatch(base, { ...base, pollIntervalS: 30 })).toEqual({ patch: null, problem: { pollIntervalS: 'At least 60 seconds' } });
+    // a folder stored below 60 s still saves its link
+    const low = { ...base, pollIntervalS: 30 };
+    expect(folderPatch(low, { ...low, folderLink: 'smb://nas/music/' }).problem).toBeNull();
     expect(folderPatch(base, { ...base, pollIntervalS: Number.NaN }).problem).toEqual({ pollIntervalS: 'At least 60 seconds' });
     expect(folderPatch(base, { ...base, folderLink: 'not a link' }).problem?.folderLink).toBeTruthy();
   });
