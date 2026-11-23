@@ -35,16 +35,27 @@ describe('Settings › Library › Naming', () => {
     expect(html).not.toContain('—');
   });
 
-  it('groups Naming, Leave alone, Examples; one Save, Reset beside it', () => {
+  it('groups Naming, then Examples; one Save, Reset beside it', () => {
     const html = render();
     expect(html.indexOf('aria-label="Naming"')).toBeGreaterThan(-1);
-    expect(html.indexOf('aria-label="Naming"')).toBeLessThan(html.indexOf('aria-label="Leave alone"'));
-    expect(html.indexOf('aria-label="Leave alone"')).toBeLessThan(html.indexOf('aria-label="Examples"'));
+    expect(html.indexOf('aria-label="Naming"')).toBeLessThan(html.indexOf('aria-label="Examples"'));
     for (const label of ['Folder', 'File', 'Soundtrack', 'Compilation']) expect(html).toContain(`>${label}</span>`);
     expect(html.match(/>Save</g)).toHaveLength(1);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(<span[^>]*>)?Save</);
     expect(html).toContain('>Reset<');
     expect(html).not.toMatch(/<h2/);
+  });
+
+  it('Leave alone is a row of Naming, saved by its Save', () => {
+    const html = render({ view: { ...NAMING, rules: { ...NAMING.rules, leaveAlone: ['_Unsorted'] } } });
+    expect(html).not.toContain('<section aria-label="Leave alone"');
+    const naming = html.slice(html.indexOf('<section aria-label="Naming"'), html.indexOf('<section aria-label="Examples"'));
+    expect(naming).toContain('>Leave alone</span>');
+    expect(naming).toContain('_Unsorted');
+    expect(naming).toContain('aria-label="Remove _Unsorted"');
+    expect(naming).toContain('aria-label="Folder to leave alone"');
+    // the Save comes after every row it saves
+    expect(naming.indexOf('>Leave alone</span>')).toBeLessThan(naming.lastIndexOf('Save<'));
   });
 });
 

@@ -3,7 +3,8 @@
  * folder and its files. Until the owner saves, the rules shown are the ones
  * detected from the library (or the default). Examples follow the unsaved
  * rules as the owner types (POST naming/examples, debounced). The rules and
- * Leave alone are one draft, saved with the one Save (Reset drops it).
+ * Leave alone (a row of the Naming group: the folders kept, one to add) are
+ * one draft, saved with the group's one Save (Reset drops it).
  * NamingSettingsView is the section alone, driven by props (stories, tests).
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -161,21 +162,22 @@ export function NamingSettingsView({ view, pending = false, onSave, onPreview, s
         </SettingsRow>
         <SettingsRow label="Soundtrack" value={problemOf('special.0')}>{special(0)}</SettingsRow>
         <SettingsRow label="Compilation" value={problemOf('special.1')}>{special(1)}</SettingsRow>
-      </SettingsGroup>
-
-      <SettingsGroup title="Leave alone" help="Folders that start with one of these keep their place">
-        {rules.leaveAlone.map((p) => (
-          <SettingsRow key={p} as="div" label={p}>
-            <EmbossIconButton label={`Remove ${p}`} onClick={() => change({ leaveAlone: rules.leaveAlone.filter((x) => x !== p) })}><CloseIcon /></EmbossIconButton>
-          </SettingsRow>
-        ))}
-        <SettingsRow as="div" label="Add a folder">
-          <span className={styles.inline}>
-            <Input dense aria-label="Folder to leave alone" value={adding} spellCheck={false} autoComplete="off" className={`${styles.field} ${styles.mono}`} onChange={(e) => setAdding(e.currentTarget.value)} onKeyDown={onAddKey} />
-            <Button variant="secondary" size="sm" disabled={!adding.trim()} onClick={addLeaveAlone}>Add</Button>
+        <SettingsRow as="div" label="Leave alone" help="Folders that start with one of these keep their place">
+          <span className={styles.leaveAlone}>
+            {rules.leaveAlone.map((p) => (
+              <span key={p} className={styles.kept}>
+                <code className={styles.mono}>{p}</code>
+                <EmbossIconButton label={`Remove ${p}`} onClick={() => change({ leaveAlone: rules.leaveAlone.filter((x) => x !== p) })}><CloseIcon /></EmbossIconButton>
+              </span>
+            ))}
+            <span className={styles.inline}>
+              <Input dense aria-label="Folder to leave alone" value={adding} spellCheck={false} autoComplete="off" className={`${styles.field} ${styles.mono}`} onChange={(e) => setAdding(e.currentTarget.value)} onKeyDown={onAddKey} />
+              <Button variant="secondary" size="sm" disabled={!adding.trim()} onClick={addLeaveAlone}>Add</Button>
+            </span>
           </span>
         </SettingsRow>
       </SettingsGroup>
+
 
       {shown.length > 0 ? (
         <SettingsGroup
