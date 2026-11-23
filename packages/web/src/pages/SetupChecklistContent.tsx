@@ -1,380 +1,147 @@
 /**
- * The setup checklist: Home shows it on first run (setupChecklist.ts); Settings keeps its route, out of the nav
- * Extracted from OnboardingPage for reuse
+ * The setup checklist: Home shows it on first run (setupChecklist.ts);
+ * Settings keeps its route, out of the nav. Five steps, each a settings
+ * group with its state (Done, Required, Optional) in the head, built from
+ * the settings pages' own rows: Contact and the two keys are Modules ›
+ * Integrations' (Contact with its own Save; the keys as secret rows with
+ * Set / Replace / Forget), the music folder is Settings › Library's Add
+ * music folder, and First scan is an action. SetupChecklistView is the
+ * checklist alone, driven by props (tests); SetupChecklistContent connects it.
  */
-
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
+import type { LibrarySettingsView, ScanRoot } from '@tagave/shared';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useStartScan } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings } from '../hooks/useLibrary';
-import { Button } from '../components/ui';
+import { Badge, Button, SettingsGroup, SettingsRow, useSettingsDraft } from '../components/ui';
+import { AcoustidKeyRow, ContactRow, DiscogsTokenRow, useSave, type IntegrationSave, type IntegrationSecret } from './SettingsProvidersPage';
+import { AddMusicFolder, folderCheck, type MusicFoldersViewProps } from './SettingsScanRootsPage';
 import styles from './SetupChecklistContent.module.css';
 
+export interface SetupChecklistViewProps {
+  settings: Pick<LibrarySettingsView, 'contactString' | 'discogsTokenSet' | 'discogsTokenHint' | 'acoustidKeySet' | 'acoustidKeyHint' | 'onboardingCompletedAt'>;
+  roots: ScanRoot[];
+  /** the Contact's draft */
+  contact: string;
+  onContact: (value: string) => void;
+  onSaveContact: (body: { contactString: string }) => void;
+  contactStatus?: IntegrationSave;
+  secrets?: Partial<Record<IntegrationSecret, IntegrationSave>>;
+  onSetSecret: (key: IntegrationSecret, value: string) => void;
+  onForgetSecret: (key: IntegrationSecret) => void;
+  adding?: boolean;
+  addError?: string | null;
+  onAdd: MusicFoldersViewProps['onAdd'];
+  onStartScan: () => void;
+  starting?: boolean;
+}
+
+type StepState = 'done' | 'required' | 'optional';
+
+function StepBadge({ state }: { state: StepState }) {
+  if (state === 'done') return <Badge tone="success">Done</Badge>;
+  return state === 'required' ? <Badge tone="danger">Required</Badge> : <Badge tone="info">Optional</Badge>;
+}
+
+const stateOf = (done: boolean, required: boolean): StepState => (done ? 'done' : required ? 'required' : 'optional');
+
+export function SetupChecklistView({
+  settings, roots, contact, onContact, onSaveContact, contactStatus, secrets = {}, onSetSecret, onForgetSecret,
+  adding = false, addError = null, onAdd, onStartScan, starting = false,
+}: SetupChecklistViewProps) {
+  const checked = roots.filter((r) => r.validationStatus === 'ok');
+  const scanned = !!settings.onboardingCompletedAt;
+  return (
+    <div className={styles.checklist}>
+      <SettingsGroup title="Contact" meta={<StepBadge state={stateOf(!!settings.contactString, true)} />}>
+        <ContactRow stored={settings.contactString} contact={contact} onContact={onContact} onSaveContact={onSaveContact} status={contactStatus} />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Music folder"
+        meta={<StepBadge state={stateOf(checked.length > 0, true)} />}
+        after={<AddMusicFolder adding={adding} error={addError} onAdd={onAdd} />}
+      >
+        {roots.length > 0 && roots.map((root) => {
+          const check = folderCheck(root);
+          return (
+            <SettingsRow
+              key={root.id}
+              as="div"
+              label={root.displayName}
+              value={<span className={styles.folder}><code className={styles.path}>{root.path}</code><span className={check.problem ? styles.problem : styles.value}>{check.text}</span></span>}
+            />
+          );
+        })}
+      </SettingsGroup>
+
+      <SettingsGroup title="Discogs token" meta={<StepBadge state={stateOf(settings.discogsTokenSet, false)} />}>
+        <DiscogsTokenRow set={settings.discogsTokenSet} hint={settings.discogsTokenHint} status={secrets.discogsToken} onSet={(v) => onSetSecret('discogsToken', v)} onForget={() => onForgetSecret('discogsToken')} />
+      </SettingsGroup>
+
+      <SettingsGroup title="AcoustID key" meta={<StepBadge state={stateOf(settings.acoustidKeySet, false)} />}>
+        <AcoustidKeyRow set={settings.acoustidKeySet} hint={settings.acoustidKeyHint} status={secrets.acoustidKey} onSet={(v) => onSetSecret('acoustidKey', v)} onForget={() => onForgetSecret('acoustidKey')} />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="First scan"
+        meta={<StepBadge state={stateOf(scanned, true)} />}
+        after={scanned ? undefined : (
+          <div className={styles.actions}>
+            <Button size="sm" onClick={onStartScan} loading={starting} disabled={checked.length === 0 || starting}>Start scan</Button>
+          </div>
+        )}
+      />
+    </div>
+  );
+}
+
+const detailOf = (err: unknown): string => (err as { detail?: string } | null)?.detail ?? '';
+
+/** The setup checklist, connected. */
 export function SetupChecklistContent() {
   const { libraryId } = useCurrentLibrary();
   const { data: settings, isLoading: settingsLoading } = useLibrarySettings(libraryId);
-  const updateSettings = useUpdateLibrarySettings(libraryId);
-  const { data: scanRoots = [] } = useScanRoots(libraryId);
-  const createScanRoot = useCreateScanRoot(libraryId);
+  const update = useUpdateLibrarySettings(libraryId);
+  const { data: roots = [] } = useScanRoots(libraryId);
+  const create = useCreateScanRoot(libraryId);
   const startScan = useStartScan(libraryId);
+  const base = useMemo(() => (settings ? { contactString: settings.contactString ?? '' } : null), [settings]);
+  const { draft, set } = useSettingsDraft(base);
+  const contact = useSave();
+  const discogs = useSave();
+  const acoustid = useSave();
+  const secretSave = { discogsToken: discogs, acoustidKey: acoustid };
 
-  // Form states
-  const [contactString, setContactString] = useState('');
-  const [showAddRoot, setShowAddRoot] = useState(false);
-  const [rootPath, setRootPath] = useState('');
-  const [rootDisplayName, setRootDisplayName] = useState('');
-  const [rootWritable, setRootWritable] = useState(true);
-  const [discogsToken, setDiscogsToken] = useState('');
-  const [acoustidKey, setAcoustidKey] = useState('');
-  const [showDiscogsConfig, setShowDiscogsConfig] = useState(false);
-  const [showAcoustidConfig, setShowAcoustidConfig] = useState(false);
+  if (settingsLoading || !libraryId || !settings || !draft) return null;
 
-  // Initialize contact string from settings
-  useEffect(() => {
-    if (settings?.contactString) {
-      setContactString(settings.contactString);
-    }
-  }, [settings?.contactString]);
-
-  if (settingsLoading || !libraryId) {
-    return <div className={styles.container}>Loading setup...</div>;
-  }
-
-  const validatedRoots = scanRoots.filter((r) => r.validationStatus === 'ok');
-  const pendingRoots = scanRoots.filter((r) => r.validationStatus === 'pending');
-  const completedAt = settings?.onboardingCompletedAt;
-
-  // Step statuses
-  const step1Done = !!contactString;
-  const step2Done = scanRoots.length > 0 && scanRoots.some((r) => r.validationStatus === 'ok');
-  const step3Done = settings?.discogsTokenSet;
-  const step4Done = settings?.acoustidKeySet;
-  const step5Enabled = validatedRoots.length > 0;
-  const step5Done = completedAt;
-
-  const handleSaveContactString = async () => {
-    if (contactString !== settings?.contactString) {
-      await updateSettings.mutateAsync({ contactString });
-    }
-  };
-
-  const handleAddRoot = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!rootPath.trim() || !rootDisplayName.trim()) return;
-
-    await createScanRoot.mutateAsync({
-      path: rootPath,
-      displayName: rootDisplayName,
-      writable: rootWritable,
-      enabled: true,
-      pollIntervalS: 21600,
-    });
-
-    setRootPath('');
-    setRootDisplayName('');
-    setRootWritable(true);
-    setShowAddRoot(false);
-  };
-
-  const handleSaveDiscogsToken = async () => {
-    if (discogsToken) {
-      await updateSettings.mutateAsync({ discogsToken });
-      setDiscogsToken('');
-      setShowDiscogsConfig(false);
-    }
-  };
-
-  const handleClearDiscogsToken = async () => {
-    await updateSettings.mutateAsync({ discogsToken: null });
-  };
-
-  const handleSaveAcoustidKey = async () => {
-    if (acoustidKey) {
-      await updateSettings.mutateAsync({ acoustidKey });
-      setAcoustidKey('');
-      setShowAcoustidConfig(false);
-    }
-  };
-
-  const handleClearAcoustidKey = async () => {
-    await updateSettings.mutateAsync({ acoustidKey: null });
-  };
-
-  const handleStartFirstScan = async () => {
-    const rootToScan = validatedRoots.find((r) => !r.lastScanAt) || validatedRoots[0];
-    if (rootToScan) {
-      try {
-        await startScan.mutateAsync(rootToScan.id);
-        await updateSettings.mutateAsync({
-          onboardingCompletedAt: new Date().toISOString(),
-        });
-      } catch (error) {
-        // Error handling is implicit
-      }
+  const startFirstScan = async () => {
+    const checked = roots.filter((r) => r.validationStatus === 'ok');
+    const root = checked.find((r) => !r.lastScanAt) ?? checked[0];
+    if (!root) return;
+    try {
+      await startScan.mutateAsync(root.id);
+      await update.mutateAsync({ onboardingCompletedAt: new Date().toISOString() });
+    } catch {
+      // the scan's own state shows on Settings › Library
     }
   };
 
   return (
-    <div className={styles.checklist}>
-      {/* Step 1: Contact String */}
-      <div className={`${styles.step} ${step1Done ? styles.done : ''}`}>
-        <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>Contact email or URL</h3>
-          <span className={`${styles.pill} ${step1Done ? styles.completed : styles.required}`}>
-            {step1Done ? 'Done' : 'Required'}
-          </span>
-        </div>
-
-        <div className={styles.control}>
-          <input
-            type="text"
-            className={styles.input}
-            placeholder="you@example.com"
-            value={contactString}
-            onChange={(e) => setContactString(e.target.value)}
-          />
-          <Button
-            onClick={handleSaveContactString}
-            loading={updateSettings.isPending}
-            disabled={contactString === settings?.contactString || !contactString}
-          >
-            Save
-          </Button>
-        </div>
-      </div>
-
-      {/* Step 2: Scan Root */}
-      <div className={`${styles.step} ${step2Done ? styles.done : ''}`}>
-        <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>Music folder</h3>
-          <span className={`${styles.pill} ${step2Done ? styles.completed : styles.required}`}>
-            {step2Done ? 'Done' : 'Required'}
-          </span>
-        </div>
-
-
-        {/* Existing roots */}
-        {scanRoots.length > 0 && (
-          <div className={styles.rootsList}>
-            {scanRoots.map((root) => (
-              <div key={root.id} className={styles.rootItem}>
-                <div className={styles.rootInfo}>
-                  <span className={styles.rootName}>{root.displayName}</span>
-                  <span className={styles.rootPath}>{root.path}</span>
-                </div>
-                <span
-                  className={`${styles.validationPill} ${styles[root.validationStatus]}`}
-                >
-                  {root.validationStatus === 'pending' && 'Validating...'}
-                  {root.validationStatus === 'ok' && '✓'}
-                  {root.validationStatus === 'missing' && 'Path not found'}
-                  {root.validationStatus === 'not_directory' && 'Not a directory'}
-                  {root.validationStatus === 'unreadable' && 'Not readable'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Add form */}
-        {!showAddRoot ? (
-          <Button
-            onClick={() => setShowAddRoot(true)}
-            className={styles.addButton}
-          >
-            Add folder
-          </Button>
-        ) : (
-          <form onSubmit={handleAddRoot} className={styles.form}>
-            <div className={styles.field}>
-              <label className={styles.label}>Path</label>
-              <input
-                type="text"
-                placeholder="/music or /mnt/music"
-                value={rootPath}
-                onChange={(e) => setRootPath(e.target.value)}
-                className={styles.input}
-              />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.label}>Name</label>
-              <input
-                type="text"
-                placeholder="My Music"
-                value={rootDisplayName}
-                onChange={(e) => setRootDisplayName(e.target.value)}
-                className={styles.input}
-              />
-            </div>
-            <div className={styles.checkboxField}>
-              <input
-                type="checkbox"
-                id="writable"
-                checked={rootWritable}
-                onChange={(e) => setRootWritable(e.target.checked)}
-                className={styles.checkbox}
-              />
-              <label htmlFor="writable" className={styles.checkboxLabel}>
-                Allow tag writes
-              </label>
-            </div>
-            <div className={styles.formActions}>
-              <Button
-                type="submit"
-                disabled={!rootPath.trim() || !rootDisplayName.trim() || createScanRoot.isPending}
-              >
-                {createScanRoot.isPending ? 'Creating...' : 'Add'}
-              </Button>
-              <Button
-                variant="quiet"
-                type="button"
-                onClick={() => setShowAddRoot(false)}
-              >
-                Cancel
-              </Button>
-            </div>
-          </form>
-        )}
-
-        {pendingRoots.length > 0 && (
-          <p className={styles.note}>
-            Validating {pendingRoots.length} folder{pendingRoots.length > 1 ? 's' : ''}…
-          </p>
-        )}
-      </div>
-
-      {/* Step 3: Discogs Token */}
-      <div className={`${styles.step} ${step3Done ? styles.done : ''}`}>
-        <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>Discogs token</h3>
-          <span className={`${styles.pill} ${step3Done ? styles.completed : styles.optional}`}>
-            {step3Done ? 'Done' : 'Optional'}
-          </span>
-        </div>
-
-
-        <div className={styles.control}>
-          {settings?.discogsTokenSet ? (
-            <>
-              <span className={styles.configured}>
-                Saved{settings.discogsTokenHint ? ` ••••${settings.discogsTokenHint}` : ''}
-              </span>
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={handleClearDiscogsToken}
-                loading={updateSettings.isPending}
-              >
-                Clear
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setShowDiscogsConfig(!showDiscogsConfig)}
-              >
-                {showDiscogsConfig ? 'Cancel' : 'Add token'}
-              </Button>
-              {showDiscogsConfig && (
-                <>
-                  <input
-                    type="password"
-                    placeholder="Paste your Discogs API token"
-                    value={discogsToken}
-                    onChange={(e) => setDiscogsToken(e.target.value)}
-                    className={styles.input}
-                  />
-                  <Button
-                    onClick={handleSaveDiscogsToken}
-                    loading={updateSettings.isPending}
-                    disabled={!discogsToken}
-                  >
-                    Save
-                  </Button>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Step 4: AcoustID Key */}
-      <div className={`${styles.step} ${step4Done ? styles.done : ''}`}>
-        <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>AcoustID key</h3>
-          <span className={`${styles.pill} ${step4Done ? styles.completed : styles.optional}`}>
-            {step4Done ? 'Done' : 'Optional'}
-          </span>
-        </div>
-
-
-        <div className={styles.control}>
-          {settings?.acoustidKeySet ? (
-            <>
-              <span className={styles.configured}>
-                Saved{settings.acoustidKeyHint ? ` ••••${settings.acoustidKeyHint}` : ''}
-              </span>
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={handleClearAcoustidKey}
-                loading={updateSettings.isPending}
-              >
-                Clear
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setShowAcoustidConfig(!showAcoustidConfig)}
-              >
-                {showAcoustidConfig ? 'Cancel' : 'Add key'}
-              </Button>
-              {showAcoustidConfig && (
-                <>
-                  <input
-                    type="password"
-                    placeholder="Paste your AcoustID API key"
-                    value={acoustidKey}
-                    onChange={(e) => setAcoustidKey(e.target.value)}
-                    className={styles.input}
-                  />
-                  <Button
-                    onClick={handleSaveAcoustidKey}
-                    loading={updateSettings.isPending}
-                    disabled={!acoustidKey}
-                  >
-                    Save
-                  </Button>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Step 5: Start First Scan */}
-      <div className={`${styles.step} ${step5Done ? styles.done : ''}`}>
-        <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>First scan</h3>
-          <span className={`${styles.pill} ${step5Done ? styles.completed : styles.required}`}>
-            {step5Done ? 'Done' : 'Required'}
-          </span>
-        </div>
-
-        {/* done: the pill says so; a "Scanning…" beside it outlived the scan (QA Q-12) */}
-        {!step5Done && (
-          <Button
-            onClick={handleStartFirstScan}
-            disabled={!step5Enabled || startScan.isPending}
-          >
-            {startScan.isPending ? 'Starting…' : 'Start scan'}
-          </Button>
-        )}
-      </div>
-    </div>
+    <SetupChecklistView
+      settings={settings}
+      roots={roots}
+      contact={draft.contactString}
+      onContact={(v) => set({ contactString: v })}
+      onSaveContact={(body) => void contact.go(() => update.mutateAsync(body))}
+      contactStatus={contact.status}
+      secrets={{ discogsToken: discogs.status, acoustidKey: acoustid.status }}
+      onSetSecret={(key, value) => void secretSave[key].go(() => update.mutateAsync({ [key]: value }))}
+      onForgetSecret={(key) => void secretSave[key].go(() => update.mutateAsync({ [key]: null }))}
+      adding={create.isPending}
+      addError={create.error ? detailOf(create.error) || 'Not added' : null}
+      onAdd={(f) => new Promise((resolve) => create.mutate({ ...f, enabled: true }, { onSuccess: () => resolve(true), onError: () => resolve(false) }))}
+      onStartScan={() => void startFirstScan()}
+      starting={startScan.isPending}
+    />
   );
 }
