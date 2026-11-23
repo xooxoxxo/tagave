@@ -2,7 +2,7 @@
  * Settings › Library › Music folders (LIB-1): a group per music folder (its
  * name, its path in the head), then Add music folder, whose Allow writes
  * choice joins Add. A folder's Scanning and Allow writes are Off and On, saved
- * when changed (Allow writes asks first); the folder link is typed and saved with its Save; Scan,
+ * when changed (Allow writes asks first); Rescan every and the folder link are typed and saved together with the folder's one Save; Scan,
  * Check and Remove are actions. MusicFoldersView is the section alone,
  * driven by props (stories); SettingsScanRootsContent connects it.
  */
@@ -15,6 +15,8 @@ import styles from './SettingsScanRootsPage.module.css';
 
 /** The folder's own switch: the library's Tag writes (Settings › Tag writing) still has the last word. */
 export const ALLOW_WRITES_HELP = 'Tag plans may write files under this folder. Nothing is written while Tag writes is off in Tag writing. Every write can be reverted.';
+
+const RESCAN_HELP = 'In seconds, at least 60';
 
 const ON_OFF = [{ value: 'off' as const, label: 'Off' }, { value: 'on' as const, label: 'On' }];
 
@@ -40,6 +42,30 @@ export function folderCheck(root: ScanRoot): { text: string; problem: boolean; h
   // the probe warning: writes are allowed but the worker sees a read-only mount
   if (root.probeWritable === false) return root.writable ? { text: 'Mount is read-only', problem: true } : { text: 'Read-only mount', problem: false };
   return { text: 'OK', problem: false };
+}
+
+/** A folder's typed fields, saved together with its one Save. */
+export type FolderFields = {
+  folderLink: string;
+  pollIntervalS: number;
+};
+
+const MIN_RESCAN_S = 60;
+
+/**
+ * What the folder's Save sends: only what changed (null when nothing did),
+ * or why it cannot be sent. A blank link removes the stored one.
+ */
+export function folderPatch(base: FolderFields, draft: FolderFields): { patch: Partial<Pick<ScanRoot, 'folderLink' | 'pollIntervalS'>> | null; problem: Partial<Record<keyof FolderFields, string>> | null } {
+  const problem: Partial<Record<keyof FolderFields, string>> = {};
+  const linkProblem = folderLinkBaseProblem(draft.folderLink);
+  if (linkProblem) problem.folderLink = linkProblem;
+  if (!(Number.isInteger(draft.pollIntervalS) && draft.pollIntervalS >= MIN_RESCAN_S)) problem.pollIntervalS = 'At least 60 seconds';
+  if (Object.keys(problem).length > 0) return { patch: null, problem };
+  const patch: Partial<Pick<ScanRoot, 'folderLink' | 'pollIntervalS'>> = {};
+  if (draft.folderLink.trim() !== base.folderLink.trim()) patch.folderLink = draft.folderLink.trim() || null;
+  if (draft.pollIntervalS !== base.pollIntervalS) patch.pollIntervalS = draft.pollIntervalS;
+  return { patch: Object.keys(patch).length > 0 ? patch : null, problem: null };
 }
 
 /** The worker has checked the folder and may write there. */
@@ -96,12 +122,12 @@ interface FolderGroupProps {
 
 function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: FolderGroupProps) {
   const choice = useSaveFlash();
-  const linkFlash = useSaveFlash();
-  const base = useMemo(() => ({ folderLink: root.folderLink ?? '' }), [root.folderLink]);
+  const saveFlash = useSaveFlash();
+  const base = useMemo<FolderFields>(() => ({ folderLink: root.folderLink ?? '', pollIntervalS: root.pollIntervalS }), [root.folderLink, root.pollIntervalS]);
   const { draft, set } = useSettingsDraft(base);
-  const link = (draft ?? base).folderLink;
-  const problem = folderLinkBaseProblem(link);
-  const dirty = link.trim() !== base.folderLink.trim() && !problem;
+  const fields = draft ?? base;
+  const { patch, problem } = folderPatch(base, fields);
+  const dirty = patch !== null;
   const [saving, setSaving] = useState(false);
   const check = folderCheck(root);
   const scanning = root.lastStatus === 'scanning';
@@ -116,14 +142,14 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
     if (on && !(await confirmDialog({ title: 'Allow writes under this folder?', message: <><p><code>{root.path}</code></p><p>Every write can be reverted.</p></>, confirmLabel: 'Allow writes' }))) return;
     await change({ writable: on });
   };
-  const saveLink = async (e: FormEvent) => {
+  const save = async (e: FormEvent) => {
     e.preventDefault();
-    if (!dirty || saving) return;
+    if (!patch || saving) return;
     setSaving(true);
-    linkFlash.clear();
-    const failed = await onUpdate(root, { folderLink: link.trim() || null });
+    saveFlash.clear();
+    const failed = await onUpdate(root, patch);
     setSaving(false);
-    if (failed === null) linkFlash.saved(); else linkFlash.failed(failed || null);
+    if (failed === null) saveFlash.saved(); else saveFlash.failed(failed || null);
   };
 
   const found = [
@@ -134,7 +160,7 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
 
   const actions = (
     <div className={styles.actions}>
-      <SettingsSave type="submit" dirty={dirty} pending={saving} onSave={() => undefined} state={linkFlash.state} detail={linkFlash.detail} label={link.trim() || !base.folderLink ? 'Save link' : 'Remove link'} />
+      <SettingsSave type="submit" dirty={dirty} pending={saving} onSave={() => undefined} state={saveFlash.state} detail={saveFlash.detail} />
       <Button variant="secondary" size="sm" onClick={() => onScan(root)} loading={scanning} disabled={busy || root.validationStatus !== 'ok'}>Scan</Button>
       <Button variant="secondary" size="sm" onClick={() => onCheck(root)} disabled={busy}>Check</Button>
       <Button variant="quiet-danger" size="sm" onClick={() => onRemove(root)} disabled={busy}>Remove</Button>
@@ -142,7 +168,7 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
   );
 
   return (
-    <form onSubmit={(e) => void saveLink(e)} noValidate>
+    <form onSubmit={(e) => void save(e)} noValidate>
       <SettingsGroup title={root.displayName} meta={<code className={styles.path}>{root.path}</code>} status={<SaveStatus state={choice.state} detail={choice.detail} />} after={actions}>
         <SettingsRow as="div" label="Scanning">
           <SegmentedControl label="Scanning" value={root.enabled ? 'on' : 'off'} onChange={(v) => void change({ enabled: v === 'on' })} options={ON_OFF} />
@@ -155,21 +181,32 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
             options={[ON_OFF[0]!, { ...ON_OFF[1]!, disabled: writesLocked }]}
           />
         </SettingsRow>
-        <SettingsRow as="div" label="Rescan every" value={<span className={styles.value}>{rescanLabel(root.pollIntervalS)}</span>} />
+        <SettingsRow label="Rescan every" help={RESCAN_HELP} value={problem?.pollIntervalS ? <span className={styles.problem}>{problem.pollIntervalS}</span> : <span className={styles.value}>{rescanLabel(fields.pollIntervalS)}</span>}>
+          <Input
+            dense
+            className={styles.number}
+            type="number"
+            min={MIN_RESCAN_S}
+            step={60}
+            value={Number.isNaN(fields.pollIntervalS) ? '' : fields.pollIntervalS}
+            aria-invalid={problem?.pollIntervalS ? true : undefined}
+            onChange={(e) => set({ pollIntervalS: e.currentTarget.value === '' ? Number.NaN : Number(e.currentTarget.value) })}
+          />
+        </SettingsRow>
         <SettingsRow as="div" label="Found" value={<span className={styles.value}>{found}</span>} />
         <SettingsRow as="div" label="Check" help={check.help} value={<span className={check.problem ? styles.problem : styles.value} role={check.problem ? 'alert' : undefined}>{check.text}</span>} />
         <SettingsRow
           label="Folder link"
           help="Where your own computer sees this folder. An album's Open folder link is this plus the album's folder."
-          value={problem ? <span className={styles.problem}>{problem}</span> : undefined}
+          value={problem?.folderLink ? <span className={styles.problem}>{problem.folderLink}</span> : undefined}
         >
           <Input
             dense
             className={styles.field}
-            value={link}
+            value={fields.folderLink}
             onChange={(e) => set({ folderLink: e.currentTarget.value })}
             placeholder="smb://nas/music/"
-            aria-invalid={problem ? true : undefined}
+            aria-invalid={problem?.folderLink ? true : undefined}
             spellCheck={false}
             autoCapitalize="off"
           />
@@ -222,7 +259,7 @@ export function AddMusicFolder({ adding, error, onAdd }: { adding: boolean; erro
         <SettingsRow label="Name" value={problemOf('displayName')}>
           <Input dense className={styles.field} value={folder.displayName} placeholder="Music" disabled={adding} onChange={(e) => setFolder({ ...folder, displayName: e.currentTarget.value })} />
         </SettingsRow>
-        <SettingsRow label="Rescan every (seconds)" value={problemOf('pollIntervalS')}>
+        <SettingsRow label="Rescan every" help={RESCAN_HELP} value={problemOf('pollIntervalS')}>
           <Input dense className={styles.number} type="number" min={60} step={60} value={folder.pollIntervalS} disabled={adding} onChange={(e) => setFolder({ ...folder, pollIntervalS: Number(e.currentTarget.value) })} />
         </SettingsRow>
         <SettingsRow as="div" label="Allow writes" help={ALLOW_WRITES_HELP}>
