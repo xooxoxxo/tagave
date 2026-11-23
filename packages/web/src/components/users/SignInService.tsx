@@ -17,7 +17,7 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { OidcSettingsRequest, OidcSettingsResponse, OidcTestResult } from '@tagave/shared';
-import { Badge, Banner, Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, showToast, useSaveFlash, type SaveState } from '../ui';
+import { Badge, Banner, Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, askFirst, confirmDialog, showToast, useSaveFlash, type SaveState } from '../ui';
 import { SecretRow } from '../settings/SecretRow';
 import { api } from '../../services/api';
 import { OIDC_LINK_KEY, OIDC_PUBLIC_KEY, OIDC_SETTINGS_KEY, testOidcIssuer } from '../../services/oidc';
@@ -317,7 +317,10 @@ export function SignInService() {
     setDraft(keep ? { ...draftFrom(fresh), joinGroup: current.joinGroup } : null);
   };
 
-  const onInstant = (patch: InstantPatch) => void put('clientSecret' in patch ? 'secret' : 'join', instantRequest(view, patch));
+  const onInstant = (patch: InstantPatch) => void (async () => {
+    if (patch.clientSecret === null && !(await askFirst('forgetClientSecret'))) return;
+    await put('clientSecret' in patch ? 'secret' : 'join', instantRequest(view, patch));
+  })();
   const onSaveGroup = (joinGroup: string) => void put('group', instantRequest(view, { joinGroup }));
   const progress = (which: keyof typeof flashes) => ({ pending: pending === which, state: flashes[which].state, detail: flashes[which].detail });
 

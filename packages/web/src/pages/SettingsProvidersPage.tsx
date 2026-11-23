@@ -14,7 +14,7 @@ import type { LibrarySettingsView } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useEnrichSweep } from '../hooks/useLibrary';
 import { useFingerprintStats, type FingerprintStats } from '../hooks/useFingerprint';
-import { Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, useSaveFlash, useSettingsDraft, type SaveState } from '../components/ui';
+import { Button, Input, SaveStatus, askFirst, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, useSaveFlash, useSettingsDraft, type SaveState } from '../components/ui';
 import { SecretRow } from '../components/settings/SecretRow';
 import styles from './SettingsProvidersPage.module.css';
 
@@ -202,6 +202,11 @@ const problem = (err: unknown, fallback: string) => {
   return e?.detail || e?.title || e?.message || fallback;
 };
 
+/** Forget a key only once the owner says so. */
+export function askForgetSecret(key: IntegrationSecret): Promise<boolean> {
+  return key === 'discogsToken' ? askFirst('forgetDiscogsToken') : askFirst('forgetAcoustidKey');
+}
+
 /** One save's progress and its `✓ Saved` / `Not saved`. */
 export function useSave() {
   const flash = useSaveFlash();
@@ -260,7 +265,7 @@ export function SettingsProvidersPage() {
       contactStatus={contact.status}
       secrets={{ discogsToken: discogs.status, acoustidKey: acoustid.status }}
       onSetSecret={(key, value) => void secretSave[key].go(() => update.mutateAsync({ [key]: value }))}
-      onForgetSecret={(key) => void secretSave[key].go(() => update.mutateAsync({ [key]: null }))}
+      onForgetSecret={(key) => void (async () => { if (await askForgetSecret(key)) await secretSave[key].go(() => update.mutateAsync({ [key]: null })); })()}
       onFingerprinting={(on) => void fingerprint.go(() => update.mutateAsync({ fingerprintingEnabled: on }))}
       fingerprintStatus={fingerprint.status}
       stats={stats ?? null}

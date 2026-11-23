@@ -13,7 +13,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ListeningHistoryView, ListeningView, OwnPlayerAccount, PlayHistoryItem, ScrobbleAccountView, ScrobbleService } from '@tagave/shared';
 import {
-  Badge, Banner, Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, useSaveFlash, useSettingsDraft, type SaveState,
+  Badge, Banner, Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, askFirst, confirmDialog, useSaveFlash, useSettingsDraft, type SaveState,
 } from '../components/ui';
 import {
   useClearPhonePassword, useConnectLastfm, useConnectListenbrainz, useDisconnectScrobbler, useListening, useListeningHistory, useSetLoves,
@@ -485,7 +485,7 @@ export function SettingsListeningContent() {
           // Forget reports like Set: ✓ Saved, or the failure as the group's alert
           onClearPhonePassword={() => { phoneSave.clear(); phone.reset(); clearPhone.mutate(undefined, { onSuccess: () => phoneSave.saved() }); }}
           onSaveOwnAccount={(b) => { accountSave.clear(); saveOwn.mutate(b, { onSuccess: () => accountSave.saved() }); }}
-          onRemoveOwnAccount={() => removeOwn.mutate()}
+          onRemoveOwnAccount={() => void (async () => { if (await askFirst('useSharedLogin')) removeOwn.mutate(); })()}
         />
       )}
     </>

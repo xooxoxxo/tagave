@@ -23,7 +23,7 @@ import type {
   RunView, SpotCheckItem,
 } from '@tagave/shared';
 import { DEFAULT_AUTOTAGGER_CONFIG } from '@tagave/shared';
-import { Button, confirmDialog } from '../../components/ui';
+import { Button, askFirst, confirmDialog } from '../../components/ui';
 import { useStepUpAction } from '../../components/users/useStepUpAction';
 import { useCan, useCurrentLibrary } from '../../hooks';
 import { useModuleOn } from '../../hooks/useFacets';
@@ -328,6 +328,7 @@ export function AutotaggerPanel() {
   };
   /** The key (fresh step-up), Set, Replace or Forget; the draft is rebased, not reset. */
   const onKey = async (key: string | null) => {
+    if (key === null && !(await askFirst('forgetJevKey'))) return;
     setSetupErr(null);
     setSavedNow(false);
     try {
@@ -401,7 +402,7 @@ export function AutotaggerPanel() {
         onDrainFaster={owner && faster ? () => pace.mutate(faster) : null}
         onRun={() => start.mutate({ population }, { onSuccess: (r) => { setRunId(r.id); setStep('run'); } })}
         onResume={() => { if (run) resume.mutate(run.id); }}
-        onCancel={() => { if (run) cancel.mutate(run.id); }}
+        onCancel={() => void (async () => { if (run && (await askFirst('cancelRun'))) cancel.mutate(run.id); })()}
         onTrain={() => train.mutate()}
         onVerdict={(v) => {
           if (!check) return;
