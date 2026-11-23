@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { LibrarySettingsView } from '@tagave/shared';
 import { SettingsSave } from '../components/ui';
 import { readFileSync } from 'node:fs';
-import { IntegrationsPending, IntegrationsView, type IntegrationsViewProps } from './SettingsProvidersPage';
+import { ContactRow, IntegrationsPending, IntegrationsView, type ContactRowProps, type IntegrationsViewProps } from './SettingsProvidersPage';
 
 const SETTINGS: Pick<LibrarySettingsView, 'contactString' | 'discogsTokenSet' | 'discogsTokenHint' | 'acoustidKeySet' | 'acoustidKeyHint' | 'fingerprintingEnabled'> = {
   contactString: 'robin@example.com',
@@ -43,6 +43,11 @@ function elements(node: ReactNode): ReactElement<Record<string, unknown>>[] {
   return [el, ...Object.values(el.props).flatMap((v) => (Array.isArray(v) || isValidElement(v) ? elements(v as ReactNode) : []))];
 }
 
+/** The group's elements, its Contact row opened up (the row is a component of its own, shared with the setup checklist). */
+function viewElements(p: IntegrationsViewProps): ReactElement<Record<string, unknown>>[] {
+  return elements(IntegrationsView(p)).flatMap((e) => (e.type === ContactRow ? [e, ...elements(ContactRow(e.props as unknown as ContactRowProps))] : [e]));
+}
+
 /** The text of every hint behind a `?` (HelpToggle's hidden region). */
 const hidden = (html: string) => [...html.matchAll(/<div[^>]*hidden=""[^>]*>([\s\S]*?)<\/div>/g)].map((m) => m[1]).join('\n');
 
@@ -72,7 +77,7 @@ describe('Settings › Modules › Integrations', () => {
     expect(html.match(/type="password"/g)).toHaveLength(2);
     // the Contact's Save is a button of its own, and sends the contact alone
     const onSaveContact = vi.fn();
-    const saves = elements(IntegrationsView(props({ contact: 'robin@example.org', onSaveContact }))).filter((e) => e.type === SettingsSave);
+    const saves = viewElements(props({ contact: 'robin@example.org', onSaveContact })).filter((e) => e.type === SettingsSave);
     expect(saves).toHaveLength(1);
     expect(saves[0]!.props.dirty).toBe(true);
     (saves[0]!.props.onSave as () => void)();
@@ -81,7 +86,7 @@ describe('Settings › Modules › Integrations', () => {
   });
 
   it('the Contact waits for a change', () => {
-    const save = (contact: string) => elements(IntegrationsView(props({ contact }))).find((e) => e.type === SettingsSave)!;
+    const save = (contact: string) => viewElements(props({ contact })).find((e) => e.type === SettingsSave)!;
     expect(save('robin@example.com').props.dirty).toBe(false);
     expect(save('  ').props.dirty).toBe(false);
     expect(save('robin@example.org').props.dirty).toBe(true);

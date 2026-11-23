@@ -193,7 +193,7 @@ function folderProblems(f: NewMusicFolder): Partial<Record<FolderField, string>>
   return out;
 }
 
-function AddMusicFolder({ adding, error, onAdd }: { adding: boolean; error: string | null; onAdd: MusicFoldersViewProps['onAdd'] }) {
+export function AddMusicFolder({ adding, error, onAdd }: { adding: boolean; error: string | null; onAdd: MusicFoldersViewProps['onAdd'] }) {
   const [folder, setFolder] = useState<NewMusicFolder>(EMPTY_FOLDER);
   const [problems, setProblems] = useState<Partial<Record<FolderField, string>>>({});
   const submit = async (e: FormEvent) => {

@@ -66,14 +66,92 @@ export function pausedValue(p: NonNullable<FingerprintStats['provider']>): strin
   return `Paused until ${until}${p.reason ? `: ${p.reason}` : ''}${key}`;
 }
 
+export interface ContactRowProps {
+  /** the stored contact */
+  stored: string | null;
+  /** the draft */
+  contact: string;
+  onContact: (value: string) => void;
+  onSaveContact: (body: { contactString: string }) => void;
+  status?: IntegrationSave | undefined;
+}
+
+/** The Contact and its own Save (Integrations, the setup checklist). */
+export function ContactRow({ stored, contact, onContact, onSaveContact, status = {} }: ContactRowProps) {
+  const typed = contact.trim();
+  // the API needs three characters and cannot clear the contact
+  const dirty = typed.length >= 3 && typed !== (stored ?? '');
+  return (
+    <SettingsRow as="div" label="Contact" help="Sent with requests to MusicBrainz and Discogs, which ask for a way to reach you">
+      <span className={styles.control}>
+        <Input
+          dense
+          className={styles.field}
+          aria-label="Contact"
+          placeholder="you@example.com"
+          autoComplete="email"
+          value={contact}
+          onChange={(e) => onContact(e.currentTarget.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && dirty) { e.preventDefault(); onSaveContact({ contactString: typed }); } }}
+        />
+        <SettingsSave dirty={dirty} pending={!!status.pending} state={status.state ?? null} detail={status.detail ?? null} onSave={() => onSaveContact({ contactString: typed })} />
+      </span>
+    </SettingsRow>
+  );
+}
+
+export interface IntegrationSecretRowProps {
+  /** one is stored, and the last characters the server tells */
+  set: boolean;
+  hint: string | null | undefined;
+  status?: IntegrationSave | undefined;
+  onSet: (value: string) => void;
+  onForget: () => void;
+}
+
+/** The Discogs token's secret row (Integrations, the setup checklist). */
+export function DiscogsTokenRow({ set, hint, status, onSet, onForget }: IntegrationSecretRowProps) {
+  return (
+    <SecretRow
+      label="Discogs token"
+      help={<a href="https://www.discogs.com/settings/developers" target="_blank" rel="noreferrer">Get a token</a>}
+      set={set}
+      hint={hint}
+      placeholder="Discogs API token"
+      minLength={10}
+      pending={status?.pending}
+      state={status?.state}
+      detail={status?.detail}
+      onSet={onSet}
+      onForget={onForget}
+    />
+  );
+}
+
+/** The AcoustID key's secret row (Integrations, the setup checklist). */
+export function AcoustidKeyRow({ set, hint, status, onSet, onForget }: IntegrationSecretRowProps) {
+  return (
+    <SecretRow
+      label="AcoustID key"
+      help={<a href="https://acoustid.org/new-application" target="_blank" rel="noreferrer">Get a key</a>}
+      set={set}
+      hint={hint}
+      placeholder="AcoustID application key"
+      minLength={8}
+      pending={status?.pending}
+      state={status?.state}
+      detail={status?.detail}
+      onSet={onSet}
+      onForget={onForget}
+    />
+  );
+}
+
 /** The Integrations group alone (no hooks: stories and tests render it, a test calls its Save). */
 export function IntegrationsView({
   settings, contact, onContact, onSaveContact, contactStatus = {}, secrets = {}, onSetSecret, onForgetSecret,
   onFingerprinting, fingerprintStatus = {}, stats = null, linking = {}, onLinkDiscogs,
 }: IntegrationsViewProps) {
-  const typed = contact.trim();
-  // the API needs three characters and cannot clear the contact
-  const dirty = typed.length >= 3 && typed !== (settings.contactString ?? '');
   const keySet = settings.acoustidKeySet;
   return (
     <SettingsGroup
@@ -82,47 +160,9 @@ export function IntegrationsView({
       status={<SaveStatus state={fingerprintStatus.state ?? null} detail={fingerprintStatus.detail ?? null} />}
       after={<p className={styles.attribution}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</p>}
     >
-      <SettingsRow as="div" label="Contact" help="Sent with requests to MusicBrainz and Discogs, which ask for a way to reach you">
-        <span className={styles.control}>
-          <Input
-            dense
-            className={styles.field}
-            aria-label="Contact"
-            placeholder="you@example.com"
-            autoComplete="email"
-            value={contact}
-            onChange={(e) => onContact(e.currentTarget.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && dirty) { e.preventDefault(); onSaveContact({ contactString: typed }); } }}
-          />
-          <SettingsSave dirty={dirty} pending={!!contactStatus.pending} state={contactStatus.state ?? null} detail={contactStatus.detail ?? null} onSave={() => onSaveContact({ contactString: typed })} />
-        </span>
-      </SettingsRow>
-      <SecretRow
-        label="Discogs token"
-        help={<a href="https://www.discogs.com/settings/developers" target="_blank" rel="noreferrer">Get a token</a>}
-        set={settings.discogsTokenSet}
-        hint={settings.discogsTokenHint}
-        placeholder="Discogs API token"
-        minLength={10}
-        pending={secrets.discogsToken?.pending}
-        state={secrets.discogsToken?.state}
-        detail={secrets.discogsToken?.detail}
-        onSet={(v) => onSetSecret('discogsToken', v)}
-        onForget={() => onForgetSecret('discogsToken')}
-      />
-      <SecretRow
-        label="AcoustID key"
-        help={<a href="https://acoustid.org/new-application" target="_blank" rel="noreferrer">Get a key</a>}
-        set={keySet}
-        hint={settings.acoustidKeyHint}
-        placeholder="AcoustID application key"
-        minLength={8}
-        pending={secrets.acoustidKey?.pending}
-        state={secrets.acoustidKey?.state}
-        detail={secrets.acoustidKey?.detail}
-        onSet={(v) => onSetSecret('acoustidKey', v)}
-        onForget={() => onForgetSecret('acoustidKey')}
-      />
+      <ContactRow stored={settings.contactString} contact={contact} onContact={onContact} onSaveContact={onSaveContact} status={contactStatus} />
+      <DiscogsTokenRow set={settings.discogsTokenSet} hint={settings.discogsTokenHint} status={secrets.discogsToken} onSet={(v) => onSetSecret('discogsToken', v)} onForget={() => onForgetSecret('discogsToken')} />
+      <AcoustidKeyRow set={keySet} hint={settings.acoustidKeyHint} status={secrets.acoustidKey} onSet={(v) => onSetSecret('acoustidKey', v)} onForget={() => onForgetSecret('acoustidKey')} />
       <SettingsRow
         as="div"
         label="Fingerprinting"
@@ -163,7 +203,7 @@ const problem = (err: unknown, fallback: string) => {
 };
 
 /** One save's progress and its `✓ Saved` / `Not saved`. */
-function useSave() {
+export function useSave() {
   const flash = useSaveFlash();
   const [pending, setPending] = useState(false);
   const go = async (fn: () => Promise<unknown>): Promise<boolean> => {
