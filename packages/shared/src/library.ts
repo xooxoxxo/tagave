@@ -56,7 +56,7 @@ export const patchScanRootSchema = z.object({
   displayName: z.string().optional(),
   writable: z.boolean().optional(),
   enabled: z.boolean().optional(),
-  pollIntervalS: z.number().int().positive().optional(),
+  pollIntervalS: z.number().int().min(60, 'At least 60 seconds').optional().describe('Rescan every, in seconds (at least 60)'),
   folderLink: z.string().max(1024).nullable().optional()
     .refine((v) => v == null || folderLinkBaseProblem(v) === null, { message: 'Use a link such as smb://nas/music/ or file:///Volumes/music/' })
     .describe('Open-folder base for albums under this root; empty or null removes it'),
