@@ -13,6 +13,8 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { PatchLibrarySettings, TagPolicies } from '@tagave/shared';
 import { docsUrl } from '../utils/docs';
 import { useCurrentLibrary } from '../hooks';
+import { useRole } from '../hooks/usePermissions';
+import { canOpenSection } from './settingsSections';
 import { useLibrarySettings, useUpdateLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import { Input, LinkButton, SaveStatus, SegmentedControl, Select, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, useSaveFlash, useSettingsDraft, type SaveFlash, type SaveState } from '../components/ui';
 import styles from './SettingsTagWritesPage.module.css';
@@ -58,9 +60,11 @@ export interface TagWritingViewProps {
   separatorStatus?: SaveOutcome;
   /** the way to Settings › Library (a router link; left out in tests) */
   editFolders?: ReactNode;
+  /** the person can open Settings › Library (the owner): Edit shows only then */
+  canEditFolders?: boolean;
 }
 
-export function TagWritingView({ enabled, writable, policy, separator, onWrites, onPolicy, onSeparator, onSaveSeparator, saving = false, writesStatus, policyStatus, separatorStatus, editFolders }: TagWritingViewProps) {
+export function TagWritingView({ enabled, writable, policy, separator, onWrites, onPolicy, onSeparator, onSaveSeparator, saving = false, writesStatus, policyStatus, separatorStatus, editFolders, canEditFolders = false }: TagWritingViewProps) {
   // the folders a plan really writes: the library's switch on and the folder allowing writes
   const written = enabled ? writable : [];
   const folders = written === null ? 'Checking' : written.length === 0 ? 'None' : written.join(', ');
@@ -76,7 +80,7 @@ export function TagWritingView({ enabled, writable, policy, separator, onWrites,
         <SettingsRow as="div" label="Writable folders">
           <span className={styles.inline}>
             <span className={noFolder ? styles.problem : styles.value}>{folders}</span>
-            {editFolders}
+            {canEditFolders && editFolders}
           </span>
         </SettingsRow>
       </SettingsGroup>
@@ -117,6 +121,7 @@ const detailOf = (err: unknown): string | null => (err as { detail?: string } | 
 /** Settings › Tag writing, connected. */
 export function SettingsTagWritesContent() {
   const { libraryId } = useCurrentLibrary();
+  const role = useRole();
   const settings = useLibrarySettings(libraryId);
   const roots = useScanRoots(libraryId);
   const update = useUpdateLibrarySettings(libraryId);
@@ -160,6 +165,7 @@ export function SettingsTagWritesContent() {
       writesStatus={writesFlash}
       policyStatus={policyFlash}
       separatorStatus={separatorFlash}
+      canEditFolders={canOpenSection(role, 'library')}
       editFolders={<LinkButton variant="secondary" size="sm" to="/settings/library" aria-label="Edit music folders">Edit</LinkButton>}
     />
   );

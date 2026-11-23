@@ -35,6 +35,12 @@ export function settingsNav(role: Role | null): ServerSection[] {
   return SERVER_SECTIONS.filter((s) => !s.unlisted && can(role, s.permission));
 }
 
+/** The role may open the section (a link to it leads somewhere, not to Not available). */
+export function canOpenSection(role: Role | null, value: string): boolean {
+  const section = serverSection(value);
+  return !!section && can(role, section.permission);
+}
+
 export function serverSection(value: string): ServerSection | undefined {
   return SERVER_SECTIONS.find((s) => s.value === value);
 }
