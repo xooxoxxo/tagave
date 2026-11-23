@@ -40,7 +40,7 @@ export interface SaveOutcome {
 
 export interface TagWritingViewProps {
   enabled: boolean;
-  /** the writable music folders' paths; null while they load */
+  /** the paths of the music folders that allow writes; null while they load */
   writable: string[] | null;
   /** the stored policy */
   policy: TagPolicies;
@@ -61,7 +61,9 @@ export interface TagWritingViewProps {
 }
 
 export function TagWritingView({ enabled, writable, policy, separator, onWrites, onPolicy, onSeparator, onSaveSeparator, saving = false, writesStatus, policyStatus, separatorStatus, editFolders }: TagWritingViewProps) {
-  const folders = writable === null ? 'Checking' : writable.length === 0 ? (enabled ? 'No folder allows writes' : 'None') : writable.join(', ');
+  // the folders a plan really writes: the library's switch on and the folder allowing writes
+  const written = enabled ? writable : [];
+  const folders = written === null ? 'Checking' : written.length === 0 ? 'None' : written.join(', ');
   const noFolder = enabled && writable?.length === 0;
   const dirty = separator !== policy.multiValueSeparator && separator.length > 0;
   const status = (s?: SaveOutcome) => <SaveStatus state={s?.state ?? null} detail={s?.detail ?? null} />;

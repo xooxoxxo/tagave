@@ -91,6 +91,11 @@ describe('the index matches the pages', () => {
     expect(searchSettings('folder link', owner)).toEqual([{ section: 'library', label: 'Library', matches: ['Folder link'] }]);
   });
 
+  it('Tag writes is Tag writing\'s; a folder\'s switch is Allow writes', () => {
+    expect(searchSettings('tag writes', owner)).toEqual([{ section: 'tag-writing', label: 'Tag writing', matches: ['Tag writes'] }]);
+    expect(searchSettings('allow writes', owner)).toEqual([{ section: 'library', label: 'Library', matches: ['Allow writes'] }]);
+  });
+
   it('search finds Fingerprinting under Modules', () => {
     expect(searchSettings('fingerprinting', owner)).toEqual([{ section: 'modules', label: 'Modules', matches: ['Fingerprinting'] }]);
   });

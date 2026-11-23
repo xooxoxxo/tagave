@@ -10,7 +10,7 @@ export type IndexEntry = { section: string; label: string };
 export const SETTINGS_INDEX: readonly IndexEntry[] = [
   // group titles and row labels (settingsIndex.test.ts checks each is on its page)
   // SettingsScanRootsPage
-  ...['Music folders', 'Scanning', 'Tag writes', 'Rescan every', 'Folder link', 'Add music folder', 'Path'].map((label) => ({ section: 'library', label })),
+  ...['Music folders', 'Scanning', 'Allow writes', 'Rescan every', 'Folder link', 'Add music folder', 'Path'].map((label) => ({ section: 'library', label })),
   // NamingSettings, DropPoolSettings, SettingsDeletingPage
   ...['Naming', 'File', 'Soundtrack', 'Compilation', 'Leave alone', 'Examples', 'Drop pool', 'Music folder', 'Deleting'].map((label) => ({ section: 'library', label })),
   // SettingsTagWritesPage
