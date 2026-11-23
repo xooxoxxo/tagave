@@ -5,9 +5,12 @@
  * Client ID, Client secret, the Redirect URI, Test and one Save. `Join`:
  * Sign-in button and Anyone can join as Off | On, and the Group.
  *
- * A service not saved yet is one connection: everything, the choices too,
- * goes with the one Save (a half-typed service is never sent). Once one is
- * saved, the choices save when changed and the Group has its own Save:
+ * A service not saved yet is one connection: Name, Issuer, Client ID and
+ * Client secret go with the one Save (a half-typed service is never sent),
+ * and Join is not shown yet (the first save turns the Sign-in button on and
+ * lets nobody join). Once one is saved, Join shows: its choices save when
+ * changed and the Group has its own Save, so a group never changes how it
+ * saves under the owner:
  * each sends the saved settings with that one change, the client secret
  * left out (the API keeps it), behind the same step-up. The client secret
  * is then a secret of its own (Set / Replace / Forget), never part of a
@@ -152,12 +155,10 @@ export function SignInServiceForm({
     ? draft.name.trim() !== saved.name || draft.issuer.trim() !== saved.issuer || draft.clientId.trim() !== saved.clientId
     : true;
   const dirty = ready && typed;
-  // the choices: a saved service's as saved (they save at once), a new one's in the draft
-  const enabled = saved ? saved.enabled : draft.enabled;
-  const joinEnabled = saved ? saved.joinEnabled : draft.joinEnabled;
-  const choose = (k: 'enabled' | 'joinEnabled', on: boolean) => {
-    if (saved) { if (!join.pending) onInstant({ [k]: on }); } else set(k, on);
-  };
+  // the choices, a saved service's only: as saved, each saved when changed
+  const enabled = !!saved?.enabled;
+  const joinEnabled = !!saved?.joinEnabled;
+  const choose = (k: 'enabled' | 'joinEnabled', on: boolean) => { if (saved && !join.pending) onInstant({ [k]: on }); };
   const groupDirty = !!saved && draft.joinGroup.trim() !== (saved.joinGroup ?? '');
   const busy = !!service.pending;
   return (
@@ -206,15 +207,15 @@ export function SignInServiceForm({
           </SettingsRow>
         </SettingsGroup>
       </form>
-      <form noValidate onSubmit={(e) => { e.preventDefault(); if (groupDirty && !group.pending) onSaveGroup(draft.joinGroup.trim()); }}>
+      {saved && <form noValidate onSubmit={(e) => { e.preventDefault(); if (groupDirty && !group.pending) onSaveGroup(draft.joinGroup.trim()); }}>
         <SettingsGroup
           title="Join"
-          status={saved ? <SaveStatus state={join.state ?? null} detail={join.detail ?? null} /> : null}
-          after={saved && joinEnabled ? (
+          status={<SaveStatus state={join.state ?? null} detail={join.detail ?? null} />}
+          after={joinEnabled ? (
             <SettingsSave type="submit" label="Save group" dirty={groupDirty} pending={!!group.pending} state={group.state ?? null} detail={group.detail ?? null} onSave={() => onSaveGroup(draft.joinGroup.trim())} />
           ) : null}
         >
-          <SettingsRow as="div" label="Sign-in button" help={saved ? `Sign in with ${saved.name} on the sign-in page` : 'On the sign-in page'}>
+          <SettingsRow as="div" label="Sign-in button" help={`Sign in with ${saved.name} on the sign-in page`}>
             <SegmentedControl label="Sign-in button" value={enabled ? 'on' : 'off'} onChange={(v) => choose('enabled', v === 'on')} options={ON_OFF(!!join.pending)} />
           </SettingsRow>
           <SettingsRow as="div" label="Anyone can join" help="Someone new who signs in with the service joins as a listener">
@@ -226,7 +227,7 @@ export function SignInServiceForm({
             </SettingsRow>
           )}
         </SettingsGroup>
-      </form>
+      </form>}
     </>
   );
 }

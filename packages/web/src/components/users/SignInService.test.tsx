@@ -86,14 +86,23 @@ describe('the sign-in service on the settings layout', () => {
     expect(src).toMatch(/instantRequest\(view, patch\)/);
   });
 
-  it('a new service saves the choices with the rest', () => {
+  it('a new service shows no Join: its one Save is Name, Issuer, Client ID and Client secret', () => {
     const fresh = view({ settings: null, active: false });
-    const p = form({ view: fresh });
-    (choice(p, 'Anyone can join').props.onChange as (v: string) => void)('on');
-    expect(p.onInstant).not.toHaveBeenCalled();
-    expect(p.onChange).toHaveBeenCalledWith(expect.objectContaining({ joinEnabled: true }));
-    // one Save, for everything
-    expect(elements(SignInServiceForm(form({ view: fresh, draft: { ...draftFrom(fresh), joinEnabled: true } }))).filter((e) => e.type === SettingsSave)).toHaveLength(1);
+    const html = renderToStaticMarkup(<SignInServiceForm {...form({ view: fresh })} />);
+    expect(html).toMatch(/<section aria-label="Sign-in service"/);
+    expect(html).not.toMatch(/<section aria-label="Join"/);
+    for (const label of ['Sign-in button', 'Anyone can join', 'Group']) expect(html).not.toContain(`>${label}</span>`);
+    for (const label of ['Name', 'Issuer', 'Client ID', 'Client secret']) expect(html).toContain(`>${label}</span>`);
+    expect(elements(SignInServiceForm(form({ view: fresh }))).filter((e) => e.type === SegmentedControl)).toHaveLength(0);
+    expect(elements(SignInServiceForm(form({ view: fresh }))).filter((e) => e.type === SettingsSave)).toHaveLength(1);
+    // the first save turns the button on and lets nobody join yet: Join's choices come once it is saved
+    expect(requestFrom(draftFrom(fresh))).toMatchObject({ enabled: true, joinEnabled: false, joinGroup: null });
+  });
+
+  it('once saved, Join shows with its instant choices', () => {
+    const html = renderToStaticMarkup(<SignInServiceForm {...form()} />);
+    expect(html).toMatch(/<section aria-label="Join"/);
+    expect(html).toMatch(/role="radiogroup" aria-label="Sign-in button"/);
   });
 
   it('Group has its own Save', () => {

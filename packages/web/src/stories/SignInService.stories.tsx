@@ -32,7 +32,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'Sign in with your own login service (OpenID Connect): the owner\'s groups in Settings › People (Sign-in service with one Save, the client secret its own Set and Forget once saved; Join, whose choices save when changed once the service is saved), each person\'s link in Your settings › Account, and the invite page\'s second way to accept.',
+        component: 'Sign in with your own login service (OpenID Connect): the owner\'s groups in Settings › People (Sign-in service with one Save, the client secret its own Set and Forget once saved; Join, shown once the service is saved, whose choices save when changed and whose Group has its own Save), each person\'s link in Your settings › Account, and the invite page\'s second way to accept.',
       },
     },
   },
@@ -41,6 +41,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Settings: Story = {};
+/** Not saved yet: one group, its Save for Name, Issuer, Client ID and Client secret; no Join. */
 export const SettingsEmpty: Story = { args: { view: empty } };
 export const SettingsNotReachable: Story = { args: { view: { ...configured, active: false, secretUnreadable: true } } };
 /** A saved service: Sign-in button just flipped, ✓ Saved in Join's head. */
