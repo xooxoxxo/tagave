@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ScanRoot } from '@tagave/shared';
 import { describe, expect, it } from 'vitest';
-import { MusicFoldersView, folderCheck } from './SettingsScanRootsPage';
+import { MusicFoldersView, folderCheck, folderPatch } from './SettingsScanRootsPage';
 
 const at = '2026-11-01T10:00:00.000Z';
 const root = (over: Partial<ScanRoot> = {}): ScanRoot => ({
@@ -81,5 +81,37 @@ describe('the Check row', () => {
       expect(folderCheck(root({ validationStatus, validationMessage: null })).help, validationStatus).toBeUndefined();
     }
     expect(folderCheck(root({ validationStatus: 'pending', validationMessage: 'queued' })).help).toBeUndefined();
+  });
+});
+
+describe('a folder\'s Save: Folder link and Rescan every', () => {
+  it('Rescan every is a field of the folder, not a read-only value', () => {
+    const rescan = row(view([root()]), 'Rescan every');
+    expect(rescan).toMatch(/<input[^>]*type="number"[^>]*value="21600"/);
+    expect(rescan).toMatch(/min="60"/);
+  });
+
+  it('one Save for the group, named Save', () => {
+    const html = group(view([root()]), 'Music');
+    expect(html.match(/>Save</g)).toHaveLength(1);
+    expect(html).not.toContain('Save link');
+    expect(html).not.toContain('Remove link');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(<span[^>]*>)?Save</);
+  });
+
+  it('sends what changed, both in one request', () => {
+    const base = { folderLink: 'smb://nas.example.com/music/', pollIntervalS: 21600 };
+    expect(folderPatch(base, base)).toEqual({ patch: null, problem: null });
+    expect(folderPatch(base, { ...base, pollIntervalS: 3600 })).toEqual({ patch: { pollIntervalS: 3600 }, problem: null });
+    expect(folderPatch(base, { folderLink: 'smb://nas.example.com/other/', pollIntervalS: 600 }).patch).toEqual({ folderLink: 'smb://nas.example.com/other/', pollIntervalS: 600 });
+    // clearing the link still removes it
+    expect(folderPatch(base, { ...base, folderLink: '  ' }).patch).toEqual({ folderLink: null });
+  });
+
+  it('less than 60 seconds is a problem, not a save', () => {
+    const base = { folderLink: '', pollIntervalS: 21600 };
+    expect(folderPatch(base, { ...base, pollIntervalS: 30 })).toEqual({ patch: null, problem: { pollIntervalS: 'At least 60 seconds' } });
+    expect(folderPatch(base, { ...base, pollIntervalS: Number.NaN }).problem).toEqual({ pollIntervalS: 'At least 60 seconds' });
+    expect(folderPatch(base, { ...base, folderLink: 'not a link' }).problem?.folderLink).toBeTruthy();
   });
 });
