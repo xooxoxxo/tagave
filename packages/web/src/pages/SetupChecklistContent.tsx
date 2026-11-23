@@ -13,7 +13,7 @@ import type { LibrarySettingsView, ScanRoot } from '@tagave/shared';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useStartScan } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings } from '../hooks/useLibrary';
 import { Badge, Button, SettingsGroup, SettingsRow, useSettingsDraft } from '../components/ui';
-import { AcoustidKeyRow, ContactRow, DiscogsTokenRow, useSave, type IntegrationSave, type IntegrationSecret } from './SettingsProvidersPage';
+import { AcoustidKeyRow, ContactRow, DiscogsTokenRow, askForgetSecret, useSave, type IntegrationSave, type IntegrationSecret } from './SettingsProvidersPage';
 import { AddMusicFolder, folderCheck, type MusicFoldersViewProps } from './SettingsScanRootsPage';
 import styles from './SetupChecklistContent.module.css';
 
@@ -136,7 +136,7 @@ export function SetupChecklistContent() {
       contactStatus={contact.status}
       secrets={{ discogsToken: discogs.status, acoustidKey: acoustid.status }}
       onSetSecret={(key, value) => void secretSave[key].go(() => update.mutateAsync({ [key]: value }))}
-      onForgetSecret={(key) => void secretSave[key].go(() => update.mutateAsync({ [key]: null }))}
+      onForgetSecret={(key) => void (async () => { if (await askForgetSecret(key)) await secretSave[key].go(() => update.mutateAsync({ [key]: null })); })()}
       adding={create.isPending}
       addError={create.error ? detailOf(create.error) || 'Not added' : null}
       onAdd={(f) => new Promise((resolve) => create.mutate({ ...f, enabled: true }, { onSuccess: () => resolve(true), onError: () => resolve(false) }))}

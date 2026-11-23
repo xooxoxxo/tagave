@@ -12,7 +12,7 @@
  */
 import { useState } from 'react';
 import { ROLE_DESCRIPTIONS, ROLE_LABELS, type InviteLinkResponse, type Role, type UserView } from '@tagave/shared';
-import { Banner, Button, HelpToggle, SaveStatus, SegmentedControl, confirmDialog, useSaveFlash } from '../components/ui';
+import { Banner, Button, HelpToggle, SaveStatus, SegmentedControl, askFirst, confirmDialog, useSaveFlash } from '../components/ui';
 import { InviteGroup, LinkPanel, OpenLinksGroup, PendingLinkRow, PeopleGroup, UserRow, usersListStyles as list } from '../components/users/UsersList';
 import { useStepUpAction } from '../components/users/useStepUpAction';
 import { useOidcButton } from '../services/oidc';
@@ -193,7 +193,7 @@ export function SettingsUsersPage() {
       {data.invites.length > 0 && (
         <OpenLinksGroup>
           {data.invites.map((i) => (
-            <PendingLinkRow key={i.id} invite={i} busy={busy} onRevoke={() => void attempt('Revoke the link', 'Could not revoke the link.', () => revoke.mutateAsync(i.id))} />
+            <PendingLinkRow key={i.id} invite={i} busy={busy} onRevoke={() => void (async () => { if (await askFirst('revokeLink')) await attempt('Revoke the link', 'Could not revoke the link.', () => revoke.mutateAsync(i.id)); })()} />
           ))}
         </OpenLinksGroup>
       )}
