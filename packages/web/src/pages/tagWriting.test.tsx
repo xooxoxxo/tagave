@@ -61,9 +61,15 @@ describe('Settings › Tag writing', () => {
     expect(html).not.toContain('Saving...');
   });
 
-  it('no writable folder is a value', () => {
-    expect(render({ writable: [] })).toContain('No folder allows writes');
-    expect(render({ writable: ['/music'] })).toContain('/music');
+  it('Writable folders lists the folders that will really be written', () => {
+    const value = (html: string) => html.slice(html.indexOf('>Writable folders<'));
+    expect(value(render({ writable: ['/music'] }))).toContain('/music');
+    expect(value(render({ writable: [] }))).toMatch(/>None</);
+    // the library's switch off: nothing is written, whatever the folders allow
+    const off = value(render({ enabled: false, writable: ['/music'] }));
+    expect(off).toMatch(/>None</);
+    expect(off).not.toContain('/music');
+    expect(render({ writable: [] })).not.toContain('No folder allows writes');
   });
 
   it('a failed choice says so in its group', () => {

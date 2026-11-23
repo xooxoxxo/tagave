@@ -1,8 +1,8 @@
 /**
  * Settings › Library › Music folders (LIB-1): a group per music folder (its
- * name, its path in the head), then Add music folder, whose Tag writes
- * choice joins Add. A folder's Scanning and Tag writes are Off and On, saved
- * when changed (Tag writes asks first before it allows writes); the folder link is typed and saved with its Save; Scan,
+ * name, its path in the head), then Add music folder, whose Allow writes
+ * choice joins Add. A folder's Scanning and Allow writes are Off and On, saved
+ * when changed (Allow writes asks first); the folder link is typed and saved with its Save; Scan,
  * Check and Remove are actions. MusicFoldersView is the section alone,
  * driven by props (stories); SettingsScanRootsContent connects it.
  */
@@ -12,6 +12,9 @@ import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, type ScanRoot } from '@
 import { Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, sentence, useSaveFlash, useSettingsDraft } from '../components/ui';
 import { shortDate } from '../utils/time';
 import styles from './SettingsScanRootsPage.module.css';
+
+/** The folder's own switch: the library's Tag writes (Settings › Tag writing) still has the last word. */
+export const ALLOW_WRITES_HELP = 'Tag plans may write files under this folder. Nothing is written while Tag writes is off in Tag writing. Every write can be reverted.';
 
 const ON_OFF = [{ value: 'off' as const, label: 'Off' }, { value: 'on' as const, label: 'On' }];
 
@@ -110,7 +113,7 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
     if (failed === null) choice.saved(); else choice.failed(failed || null);
   };
   const setWrites = async (on: boolean) => {
-    if (on && !(await confirmDialog({ title: 'Allow tag writes under this folder?', message: <><p><code>{root.path}</code></p><p>Every write can be reverted.</p></>, confirmLabel: 'Allow writes' }))) return;
+    if (on && !(await confirmDialog({ title: 'Allow writes under this folder?', message: <><p><code>{root.path}</code></p><p>Every write can be reverted.</p></>, confirmLabel: 'Allow writes' }))) return;
     await change({ writable: on });
   };
   const saveLink = async (e: FormEvent) => {
@@ -144,9 +147,9 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
         <SettingsRow as="div" label="Scanning">
           <SegmentedControl label="Scanning" value={root.enabled ? 'on' : 'off'} onChange={(v) => void change({ enabled: v === 'on' })} options={ON_OFF} />
         </SettingsRow>
-        <SettingsRow as="div" label="Tag writes" help={writesLocked ? 'On once the worker has checked the folder and sees a read-write mount. Every write can be reverted.' : 'Tag plans write files under this folder. Every write can be reverted.'}>
+        <SettingsRow as="div" label="Allow writes" help={writesLocked ? `On once the worker has checked the folder and sees a read-write mount. ${ALLOW_WRITES_HELP}` : ALLOW_WRITES_HELP}>
           <SegmentedControl
-            label="Tag writes"
+            label="Allow writes"
             value={root.writable ? 'on' : 'off'}
             onChange={(v) => void setWrites(v === 'on')}
             options={[ON_OFF[0]!, { ...ON_OFF[1]!, disabled: writesLocked }]}
@@ -222,8 +225,8 @@ function AddMusicFolder({ adding, error, onAdd }: { adding: boolean; error: stri
         <SettingsRow label="Rescan every (seconds)" value={problemOf('pollIntervalS')}>
           <Input dense className={styles.number} type="number" min={60} step={60} value={folder.pollIntervalS} disabled={adding} onChange={(e) => setFolder({ ...folder, pollIntervalS: Number(e.currentTarget.value) })} />
         </SettingsRow>
-        <SettingsRow as="div" label="Tag writes" help="Tag plans write files under this folder. Every write can be reverted.">
-          <SegmentedControl label="Tag writes" value={folder.writable ? 'on' : 'off'} onChange={(v) => setFolder({ ...folder, writable: v === 'on' })} options={ON_OFF.map((o) => ({ ...o, disabled: adding }))} />
+        <SettingsRow as="div" label="Allow writes" help={ALLOW_WRITES_HELP}>
+          <SegmentedControl label="Allow writes" value={folder.writable ? 'on' : 'off'} onChange={(v) => setFolder({ ...folder, writable: v === 'on' })} options={ON_OFF.map((o) => ({ ...o, disabled: adding }))} />
         </SettingsRow>
       </SettingsGroup>
     </form>

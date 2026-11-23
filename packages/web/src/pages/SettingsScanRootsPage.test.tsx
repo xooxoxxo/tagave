@@ -32,10 +32,22 @@ const row = (html: string, label: string) => {
   return html.slice(at, html.indexOf('</div>', at));
 };
 
+describe('Allow writes, the folder\'s own switch', () => {
+  it('a folder\'s switch is Allow writes, not a second Tag writes', () => {
+    const html = view([root()]);
+    expect(html).toMatch(/role="radiogroup" aria-label="Allow writes"/);
+    expect(html).not.toContain('Tag writes</span>');
+    expect(html).not.toMatch(/aria-label="Tag writes"/);
+    // its help says the library's switch still has the last word
+    expect(html).toContain('Nothing is written while Tag writes is off in Tag writing');
+  });
+});
+
 describe('Add music folder', () => {
-  it('has a Tag writes Off/On choice, On by default', () => {
+  it('has an Allow writes Off/On choice, On by default', () => {
     const add = group(view([]), 'Add music folder');
-    const writes = add.slice(add.indexOf('>Tag writes<'));
+    expect(add).not.toContain('>Tag writes<');
+    const writes = add.slice(add.indexOf('>Allow writes<'));
     expect(writes).toMatch(/>Off</);
     expect(writes).toMatch(/>On</);
     expect(writes).toMatch(/checked="" value="on"/);
