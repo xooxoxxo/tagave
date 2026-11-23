@@ -191,14 +191,12 @@ describe('ScrobblingSettingsPanel', () => {
     expect(html).toContain('••••3f9a · from .env');
     expect(html).not.toContain('>Forget<');
   });
-  it('offers Connect when the owner’s own Last.fm is not connected', () => {
-    const off = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} you={{ lastfmAccount: null }} onSave={noop} onRemove={noop} onConnect={noop} />);
-    expect(off).toContain('Your Last.fm');
-    expect(off).toContain('>Connect<');
-    const on = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} you={{ lastfmAccount: 'anna-fm' }} onSave={noop} onRemove={noop} />);
-    expect(on).toContain('Connected · anna-fm');
-    expect(on).not.toContain('>Connect<');
-    // no key yet: nothing to connect to
-    expect(renderToStaticMarkup(<ScrobblingSettingsPanel view={unset} you={{ lastfmAccount: null }} onSave={noop} onRemove={noop} />)).not.toContain('isn’t connected');
+  it('is the app key alone: the person’s own Last.fm is in Your settings › Listening', () => {
+    const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} onSave={noop} onRemove={noop} />);
+    expect(html).not.toContain('Your Last.fm');
+    expect(html).not.toContain('>Connect<');
+    expect(html).not.toContain('Connected ·');
+    const page = readFileSync(new URL('./SettingsPlaybackPage.tsx', import.meta.url), 'utf8');
+    expect(page).not.toMatch(/useConnectLastfm|Your Last\.fm/);
   });
 });

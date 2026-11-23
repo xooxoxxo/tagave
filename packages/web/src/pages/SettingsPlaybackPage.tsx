@@ -14,7 +14,7 @@ import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type Play
 import { Badge, Banner, Button, Input, SaveStatus, SegmentedControl, Select, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
-import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
+import { useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
 import { shortDate } from '../utils/time';
 import styles from './SettingsPlaybackPage.module.css';
@@ -189,8 +189,6 @@ function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
   const view = useScrobblingSettings(libraryId, true);
   const save = useSaveLastfmApp(libraryId);
   const remove = useRemoveLastfmApp(libraryId);
-  const listening = useListening();
-  const connect = useConnectLastfm();
   const onRemove = async () => {
     const ok = await confirmDialog({
       title: 'Forget the Last.fm API key?',
@@ -201,8 +199,6 @@ function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
     if (ok) remove.mutate();
   };
   if (view.isError) return <Banner tone="danger">Could not load the scrobbling settings. {problem(view.error, '')}</Banner>;
-  const mine = listening.data;
-  const lastfm = mine?.services.find((s) => s.service === 'lastfm');
   return (
     <ScrobblingSettingsPanel
       view={view.data ?? null}
@@ -211,10 +207,6 @@ function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
       error={save.isError ? problem(save.error, 'Last.fm did not accept these.') : remove.isError ? problem(remove.error, 'The key could not be removed.') : null}
       onSave={(body) => save.mutate(body)}
       onRemove={() => void onRemove()}
-      you={mine && !mine.account.serverScrobbles ? { lastfmAccount: lastfm?.connected ? lastfm.accountName ?? '' : null } : null}
-      connecting={connect.isPending}
-      connectError={connect.isError ? problem(connect.error, 'Last.fm could not be reached.') : null}
-      onConnect={() => connect.mutate()}
     />
   );
 }
@@ -227,11 +219,6 @@ export interface ScrobblingSettingsPanelProps {
   onSave: (body: SaveLastfmApp) => void;
   /** Forget the stored key (only one saved here, not one from .env) */
   onRemove: () => void;
-  /** the signed-in person's own Last.fm: their account name, or null when not connected; null/absent hides the row */
-  you?: { lastfmAccount: string | null } | null;
-  connecting?: boolean;
-  connectError?: string | null;
-  onConnect?: () => void;
   /** stories: start with the Replace fields open */
   initialReplacing?: boolean;
 }
@@ -246,11 +233,12 @@ const KEY_STEPS = (
 
 /**
  * The owner's half of scrobbling: the Last.fm application (a secret pair:
- * API key and shared secret, with its own Save, Replace and Forget), and
- * whether the owner's own Last.fm is connected.
+ * API key and shared secret, with its own Save, Replace and Forget). Each
+ * person's own Last.fm, the owner's too, is connected in Your settings ›
+ * Listening (the page's Your listening row leads there).
  */
 export function ScrobblingSettingsPanel({
-  view, saving = false, saved = false, error = null, onSave, onRemove, you = null, connecting = false, connectError = null, onConnect, initialReplacing = false,
+  view, saving = false, saved = false, error = null, onSave, onRemove, initialReplacing = false,
 }: ScrobblingSettingsPanelProps) {
   const lastfm = view?.lastfm;
   const configured = !!lastfm?.configured;
@@ -267,17 +255,6 @@ export function ScrobblingSettingsPanel({
             <Button variant="secondary" size="sm" onClick={() => setReplacing(true)}>Replace</Button>
             {lastfm?.source === 'settings' && <Button variant="quiet-danger" size="sm" onClick={onRemove} disabled={saving}>Forget</Button>}
           </span>
-        </SettingsRow>
-      )}
-      {configured && you && (
-        <SettingsRow
-          as="div"
-          label="Your Last.fm"
-          value={you.lastfmAccount !== null
-            ? <span className={styles.value}>Connected · {you.lastfmAccount}</span>
-            : connectError ? <span className={styles.danger} role="alert">{connectError}</span> : <span className={styles.value}>Not connected</span>}
-        >
-          {you.lastfmAccount === null && <Button size="sm" loading={connecting} onClick={onConnect}>Connect</Button>}
         </SettingsRow>
       )}
     </SettingsGroup>
