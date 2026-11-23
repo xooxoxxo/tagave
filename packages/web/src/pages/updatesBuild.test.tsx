@@ -66,3 +66,15 @@ describe('Running now: a worker on another build', () => {
     expect(html).not.toMatch(/lagging/i);
   });
 });
+
+describe('Running now: an empty value is a word', () => {
+  it('no dash: Unknown, Not measured, None', () => {
+    const html = renderToStaticMarkup(
+      <RunningNow app={{ ...APP_BUILD, builtAt: null }} workers={[{ ...WORKER_SAME, version: null, builtAt: null, loopLagMs: null, queues: [] }]} updating={false} now={NOW} />,
+    );
+    expect(html).not.toContain('–');
+    expect(html).toContain('>Unknown<');
+    expect(html).toContain('>Not measured<');
+    expect(html).toContain('>None<');
+  });
+});

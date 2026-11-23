@@ -24,9 +24,9 @@ import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type Rollbac
 import { shortDate } from '../utils/time';
 import styles from './SettingsUpdatesPage.module.css';
 
-/** "11 Oct, 19:29", the app's date format; the year only when it is not this one. */
+/** "11 Oct, 19:29", the app's date format; the year only when it is not this one; Unknown when there is none. */
 function when(iso: string | null | undefined): string {
-  return iso ? shortDate(iso) : '–';
+  return iso ? shortDate(iso) : 'Unknown';
 }
 /** "now" under a minute, then "2 min ago", "3 h ago". */
 function ago(iso: string, now = Date.now()): string {
@@ -40,7 +40,7 @@ function fullDate(iso: string | null | undefined): string | undefined {
   return iso ? new Date(iso).toLocaleString() : undefined;
 }
 function shortSha(sha: string | null | undefined): string {
-  return sha ? sha.slice(0, 7) : 'unknown';
+  return sha ? sha.slice(0, 7) : 'Unknown';
 }
 function workerName(w: WorkerVersion): string {
   return w.host ?? w.workerId.replace(/^worker-/, '');
@@ -62,7 +62,7 @@ const WORK: Array<[string, RegExp]> = [
 ];
 export function workOf(queues: string[]): string {
   if (queues.includes('*')) return 'all';
-  if (queues.length === 0) return '–';
+  if (queues.length === 0) return 'None';
   const kinds = new Set(queues.map((q) => WORK.find(([, re]) => re.test(q))?.[0] ?? 'upkeep'));
   return [...WORK.map(([k]) => k), 'upkeep'].filter((k) => kinds.has(k)).join(', ');
 }
@@ -122,7 +122,7 @@ export function RunningNow({ app, workers, updating, now = Date.now() }: { app: 
           <td title={fullDate(app.builtAt)}>{when(app.builtAt)}</td>
           <td className={styles.dim}>web + API</td>
           <td className={styles.dim}>now</td>
-          <td className={styles.dim}>–</td>
+          <td className={styles.dim}>Not measured</td>
         </tr>
         {workers.length === 0 && (
           <tr><td colSpan={7} className={styles.dim}>No workers seen</td></tr>
@@ -132,7 +132,7 @@ export function RunningNow({ app, workers, updating, now = Date.now() }: { app: 
           return (
             <tr key={w.workerId} className={build === 'older' ? styles.rowWarn : undefined}>
               <td><strong>Worker</strong> <span className={styles.dim}>{workerName(w)}</span></td>
-              <td>{w.version ?? '–'}</td>
+              <td>{w.version ?? 'Unknown'}</td>
               <td title={w.sha ?? undefined}>
                 <code>{shortSha(w.sha)}</code>
                 {build === 'older' && <span className={styles.attention}>Older build</span>}
@@ -142,7 +142,7 @@ export function RunningNow({ app, workers, updating, now = Date.now() }: { app: 
               <td className={styles.queues} title={w.queues.join(', ')}>{workOf(w.queues)}</td>
               <td title={fullDate(w.lastSeenAt)}>{ago(w.lastSeenAt, now)}</td>
               <td className={w.loopLagMs != null && w.loopLagMs > 5000 ? styles.attentionText : undefined}>
-                {w.loopLagMs != null ? `${w.loopLagMs} ms` : '–'}
+                {w.loopLagMs != null ? `${w.loopLagMs} ms` : 'Not measured'}
               </td>
             </tr>
           );
