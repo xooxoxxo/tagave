@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { TagPolicies } from '@tagave/shared';
 import { TagWritingView, type TagWritingViewProps } from './SettingsTagWritesPage';
+import { canOpenSection } from './settingsSections';
 
 const POLICY: TagPolicies = { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' };
 const render = (over: Partial<TagWritingViewProps> = {}) => renderToStaticMarkup(
@@ -75,5 +76,25 @@ describe('Settings › Tag writing', () => {
   it('a failed choice says so in its group', () => {
     expect(render({ policyStatus: { state: 'failed', detail: null } })).toMatch(/role="alert">Not saved</);
     expect(render({ writesStatus: { state: 'saved' } })).toContain('✓ Saved');
+  });
+
+  it('Edit leads to Settings › Library only for someone who can open it', () => {
+    const edit = <a href="/settings/library">Edit</a>;
+    const owner = render({ editFolders: edit, canEditFolders: canOpenSection('owner', 'library') });
+    expect(owner).toContain('>Edit</a>');
+    const editor = render({ editFolders: edit, canEditFolders: canOpenSection('editor', 'library') });
+    expect(editor).not.toContain('>Edit</a>');
+    // the folders are still listed for the editor
+    expect(editor).toContain('/music');
+  });
+});
+
+describe('canOpenSection', () => {
+  it('the owner opens Library, an editor only Tag writing', () => {
+    expect(canOpenSection('owner', 'library')).toBe(true);
+    expect(canOpenSection('editor', 'library')).toBe(false);
+    expect(canOpenSection('editor', 'tag-writing')).toBe(true);
+    expect(canOpenSection(null, 'library')).toBe(false);
+    expect(canOpenSection('owner', 'nowhere')).toBe(false);
   });
 });

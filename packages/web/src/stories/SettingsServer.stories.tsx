@@ -204,6 +204,7 @@ const tagWriting = (
     onSeparator={noop}
     onSaveSeparator={noop}
     policyStatus={{ state: 'saved' }}
+    canEditFolders
     editFolders={<LinkButton variant="secondary" size="sm" to="/settings/library">Edit</LinkButton>}
   />
 );
