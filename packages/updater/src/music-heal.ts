@@ -204,9 +204,8 @@ export class MusicHealer {
 
   private async attempt(dir: string, project: string): Promise<HealReason> {
     const d = this.deps.docker;
-    const me = await d(['inspect', '--format', '{{.Image}}', this.deps.self ?? hostname()], { timeoutMs: 30_000 });
-    const image = me.stdout.trim();
-    if (me.code !== 0 || !/^sha256:[0-9a-f]{64}$/.test(image)) return 'docker_failed';
+    const image = await selfImage(d, this.deps.self ?? hostname());
+    if (!image) return 'docker_failed';
 
     const escaped = await this.host(image, hostCommand.escape(dir));
     const unit = escaped.stdout.trim();
@@ -226,6 +225,13 @@ export class MusicHealer {
     if (targets.length > 0 && (await d(['restart', ...targets], { timeoutMs: 180_000 })).code !== 0) return 'restart_failed';
     return 'mounted';
   }
+}
+
+/** The image id this container runs (`sha256:` and 64 hex), what every helper runs from; null when Docker did not say. */
+export async function selfImage(docker: Runner, self: string): Promise<string | null> {
+  const me = await docker(['inspect', '--format', '{{.Image}}', self], { timeoutMs: 30_000 });
+  const image = me.stdout.trim();
+  return me.code === 0 && /^sha256:[0-9a-f]{64}$/.test(image) ? image : null;
 }
 
 /**
