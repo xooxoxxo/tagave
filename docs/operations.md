@@ -410,7 +410,17 @@ When the new version fails, the updater first stops the app and workers, then re
 
 ### Roll back an update
 
-Migrations only go forward, so going back means restoring the backup the update took:
+Migrations only go forward, so going back means restoring the backup the update took.
+
+When an update fails and cannot roll itself back, its result says what to do about the database:
+
+- that the update didn't change the database, so no backup needs restoring (set `TAGAVE_VERSION` back and run `docker compose up -d`);
+- the one backup this update took, to restore with the steps below;
+- or that no backup from this update was found.
+
+Never restore an older backup to undo an update: it would lose everything since it was taken. If no backup from the update was found, keep the new version running and look at `docker compose logs app`.
+
+To go back by hand:
 
 1. Stop everything: `docker compose down` (the volumes stay).
 2. Set `TAGAVE_VERSION` in `.env` back to the version you had.

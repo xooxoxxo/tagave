@@ -275,6 +275,12 @@ export class Update {
   private backupsMaxId: number | null = null;
   /** The dump the updater took itself, when it took one. */
   private ownDumpPath: string | null = null;
+  /**
+   * Whether the new app changed the database, as its record said once it
+   * answered: false for no record above backupsMaxId, true for one (ok or
+   * skipped), null when that is not known.
+   */
+  private dbChanged: boolean | null = null;
   /** The new app may have started, so it may have migrated the database. */
   private newAppStarted = false;
   private changed = false;
@@ -930,14 +936,26 @@ export class Update {
     return out !== null && parseRecordedDump(out) === null && out.trim() === '';
   }
 
-  /** A dump to name for a restore by hand: this run's first record, else the newest recorded one. */
+  /**
+   * A dump to name for a restore by hand: this run's first record, else the
+   * updater's own. Never an older one: it would lose everything since.
+   */
   private async dumpToName(): Promise<string | null> {
     if (this.backupsMaxId !== null) {
       const first = parseRecordedDump((await this.psql(firstBackupSinceSql(this.backupsMaxId))) ?? '');
       if (first?.path) return first.path;
     }
-    const newest = await this.psql("select coalesce((select path from _migration_backups where status = 'ok' and path is not null order by id desc limit 1), '')");
-    return newest ? newest : this.ownDumpPath;
+    return this.ownDumpPath;
+  }
+
+  /** What to do about the database by hand after a roll back that did not happen. */
+  private async rollbackAdvice(): Promise<string> {
+    if (this.dbChanged === false || (await this.provenUnmigrated().catch(() => false))) {
+      return "This update didn't change the database, so no backup needs restoring.";
+    }
+    const dump = await this.dumpToName().catch(() => null);
+    if (dump) return `To go back by hand, restore \`${dump}\`.`;
+    return "No backup from this update was found. Don't restore an older backup: it would lose everything since.";
   }
 
   /** Reads the dump back with pg_restore --list (in a one-off app container), as the restore will. */
@@ -952,6 +970,8 @@ export class Update {
     if (this.backupsMaxId === null) return;
     const out = await this.psql(firstBackupSinceSql(this.backupsMaxId));
     const rec = out === null ? null : parseRecordedDump(out);
+    if (rec?.status === 'ok' || rec?.status === 'skipped') this.dbChanged = true;
+    else if (out !== null && out.trim() === '') this.dbChanged = false;
     if (rec?.status === 'ok' && rec.path) {
       this.run.backup = rec.path;
       this.log('info', `the new app backed the database up before it changed it: ${rec.path}`);
@@ -1244,11 +1264,10 @@ export class Update {
       if (err instanceof KeepNewVersion) {
         // Nothing was put back: the new version matches the database it changed.
         const up = await this.compose(['up', '-d', ...this.services]);
-        const named = await this.dumpToName().catch(() => null);
-        this.run.reason = redact(`${reason}. Not rolled back: ${err.message}. ${this.run.from} must not run on a database ${this.run.target} changed, so ${this.run.target} stays in place${up.code === 0 ? ' and was started again' : ''}. ${
-          named ? `To go back by hand, restore ${named}` : 'No backup from before the update could be looked up'} (docs/operations.md, Roll back an update)`);
+        const advice = await this.rollbackAdvice();
+        this.run.reason = redact(`${reason}. Not rolled back: ${err.message}. ${this.run.from} must not run on a database ${this.run.target} changed, so ${this.run.target} stays in place${up.code === 0 ? ' and was started again' : ''}. ${advice}`);
         this.log('error', `not rolled back: ${err.message}`);
-        this.log('error', `${this.run.target} stays in place (TAGAVE_VERSION=${this.run.target} in .env). Look at docker compose logs app, or restore a backup from before the update by hand and set TAGAVE_VERSION=${this.run.from} (docs/operations.md, Roll back an update)`);
+        this.log('error', `${this.run.target} stays in place (TAGAVE_VERSION=${this.run.target} in .env). Look at docker compose logs app. ${advice} (docs/operations.md, Roll back an update)`);
       } else {
         this.run.reason = redact(`${reason}. The roll back did not finish: ${(err as Error).message}`);
         this.log('error', `roll back failed: ${(err as Error).message}`);
