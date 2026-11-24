@@ -1314,7 +1314,8 @@ export class Update {
     this.log('warn', "the new player may have changed its database; putting the copy from before the update back");
     const stop = await this.parts.stopParts([PLAYER]);
     this.noteStuck(stop);
-    if (stop.stuck.length) throw new RollbackStuck(this.stuckNote(stop.stuck));
+    // The app and workers are stopped by now: only the database runs, when the install has one.
+    if (stop.stuck.length) throw new RollbackStuck(this.stuckNote(stop.stuck, this.services.includes('postgres') ? 1 : 0));
     const res = await this.compose(['run', '--rm', '--no-deps', '-T', '--entrypoint', 'sh', PLAYER, '-c', PLAYER_RESTORE_SH], { timeoutMs: 10 * 60_000 });
     if (res.code !== 0 || !res.stdout.includes('restored')) {
       throw new Error(`restoring the player's data failed: ${tail(res.stderr || res.stdout, 3)}; the copy is in /data/snapshots/pre-update in the player's volume`);
@@ -1442,7 +1443,8 @@ export class Update {
         const skip = new Set(this.stuck.keys());
         const start = await this.parts.startParts(this.services, { skip: [...skip] });
         this.noteStuck(start);
-        const again = start.stuck.length === 0 && this.failedStarts(this.services.filter((s) => !skip.has(s)), start).length === 0;
+        // Started again only when every part was: none skipped as stuck, none stuck or failed now.
+        const again = skip.size === 0 && start.stuck.length === 0 && this.failedStarts(this.services.filter((s) => !skip.has(s)), start).length === 0;
         const untold = this.untold();
         const stuck = untold.length ? ` ${this.stuckNote(untold, start.done.length)}` : '';
         const advice = await this.rollbackAdvice();
