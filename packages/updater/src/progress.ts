@@ -24,6 +24,23 @@ import { formatBytes } from './preflight-space.js';
 
 export const DEFAULT_STALL_MS = 2 * 60_000;
 
+// -- parts -------------------------------------------------------------------------
+
+/** The parts of an install by compose service name; same as @tagave/shared PART_LABELS. */
+export const PART_LABELS: Readonly<Record<string, string>> = {
+  app: 'Web app',
+  postgres: 'Database',
+  'worker-identify': 'Identify worker',
+  'worker-files': 'File worker',
+  player: 'Player',
+};
+
+/** A part as a sentence names it ("the file worker"); an unknown service comes back as itself. */
+export function partName(service: string): string {
+  const label = PART_LABELS[service];
+  return label ? `the ${label.toLowerCase()}` : service;
+}
+
 // -- download progress ---------------------------------------------------------
 
 const SI: Record<string, number> = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 };

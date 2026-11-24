@@ -34,8 +34,29 @@ export interface UpdateLogLine {
  * rolled_back  the old version runs again (with the database restored when the new one had changed it)
  * rollback_failed  the roll back did not finish; the run says what to do by hand
  * interrupted  the updater itself stopped mid-run (host restart); check the install
+ * held         the new version runs; the parts in held wait for the music share
  */
-export type UpdateRunStatus = 'running' | 'succeeded' | 'failed' | 'rolled_back' | 'rollback_failed' | 'interrupted';
+export type UpdateRunStatus = 'running' | 'succeeded' | 'failed' | 'rolled_back' | 'rollback_failed' | 'interrupted' | 'held';
+
+/**
+ * The parts of a held run that wait for the music share, by compose service
+ * name ("worker-files"), and the share's address from the mount table
+ * (null when it is not a network share or the table does not say).
+ */
+export interface UpdateHeld {
+  cause: 'music_unreachable';
+  parts: string[];
+  server: string | null;
+}
+
+/** The parts of an install as the web shows them, by compose service name. The updater is never shown as a part. */
+export const PART_LABELS: Readonly<Record<string, string>> = {
+  app: 'Web app',
+  postgres: 'Database',
+  'worker-identify': 'Identify worker',
+  'worker-files': 'File worker',
+  player: 'Player',
+};
 
 export interface UpdateRollback {
   /** The TAGAVE_VERSION put back in .env. */
@@ -71,6 +92,11 @@ export interface UpdateProgress {
  * db_recovering      Postgres is replaying its log after an unclean stop (wait)
  * download           the image download does not move
  * slow               nothing looks wrong; the step is just slow
+ * stuck_stop         a part does not stop when asked
+ * stuck_start        a part does not start when asked
+ * music_unreachable  the music share is mounted but its server does not answer
+ * music_unmounted    the music share is not mounted, and the app says so too
+ * docker_unresponsive  Docker itself does not answer
  */
 export type UpdateStallCause =
   | 'disk_full'
@@ -81,7 +107,12 @@ export type UpdateStallCause =
   | 'unhealthy'
   | 'db_recovering'
   | 'download'
-  | 'slow';
+  | 'slow'
+  | 'stuck_stop'
+  | 'stuck_start'
+  | 'music_unreachable'
+  | 'music_unmounted'
+  | 'docker_unresponsive';
 
 export interface UpdateStall {
   cause: UpdateStallCause;
@@ -91,6 +122,8 @@ export interface UpdateStall {
   advice: string;
   /** The container it is about, if one. */
   service: string | null;
+  /** The music share's address from the mount table, when the stall is about the share. */
+  server?: string | null;
   /** When the step last moved. */
   since: string;
 }
@@ -117,6 +150,8 @@ export interface UpdateRun {
   progress?: UpdateProgress | null;
   /** Set while the running step makes no progress, with the likely cause; cleared when it moves again. */
   stall?: UpdateStall | null;
+  /** Set when the status is held: which parts wait for the music share. */
+  held?: UpdateHeld | null;
 }
 
 /**
