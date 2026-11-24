@@ -54,6 +54,8 @@ const START_STUCK = new Set(['created', 'removing']);
 /** Started before everything else: the other parts lean on it. */
 const FIRST = 'postgres';
 
+/** A Docker container id: 12 to 64 lowercase hex digits. */
+const CONTAINER_ID = /^[0-9a-f]{12,64}$/;
 const TIMED_OUT = /timed out after \d+ s/;
 const GONE = /No such (?:object|container)/i;
 
@@ -72,7 +74,10 @@ export class Parts {
     this.compose = deps.compose ?? ((args) => args);
   }
 
-  /** In parallel. At most about 2.5 min. */
+  /**
+   * In parallel. At most 180 s for each part (stop 60, ps 30, inspect 30,
+   * kill 30, inspect 30), plus the music probe for a stuck music-bound part.
+   */
   async stopParts(services: string[]): Promise<PartsResult> {
     const outcomes = await Promise.all(services.map((s) => this.stopOne(s)));
     return collect(services, outcomes);
@@ -101,10 +106,11 @@ export class Parts {
 
   private async stopOne(service: string): Promise<true | StuckPart> {
     const name = partName(service);
-    const known = this.ids.get(service);
-    if (this.mayResend('stop', known ?? `svc:${service}`)) {
+    const stopKey = `stop:${this.ids.get(service) ?? `svc:${service}`}`;
+    if (this.mayResend(stopKey)) {
       this.mark(service, 'stop');
       const stop = await this.run(this.compose(['compose', 'stop', '-t', String(PART_LIMITS.stopGraceSeconds), service]), PART_LIMITS.stopMs);
+      this.sent.set(stopKey, this.deps.now());
       if (stop.code === 0) return this.stopped(service);
       this.deps.log('warn', timedOut(stop)
         ? `${name} did not stop within ${seconds(PART_LIMITS.stopMs)}; stopping it by force`
@@ -123,8 +129,9 @@ export class Parts {
         if (!this.sent.has(`stop:${id}`)) this.sent.set(`stop:${id}`, early);
       }
       if (await this.isStopped(id)) return this.stopped(service);
-      if (this.mayResend('kill', id)) {
+      if (this.mayResend(`kill:${id}`)) {
         const kill = await this.run(['kill', id], PART_LIMITS.killMs);
+        this.sent.set(`kill:${id}`, this.deps.now());
         if (kill.code !== 0) this.deps.log('warn', `${name} could not be stopped by force (${timedOut(kill) ? `no answer within ${seconds(PART_LIMITS.killMs)}` : `exit ${kill.code}`})`);
         if (await this.isStopped(id)) return this.stopped(service);
       }
@@ -143,15 +150,19 @@ export class Parts {
     return true;
   }
 
-  /** Drops the stop and kill records of a part once it is known stopped, or is being started. */
+  /** Drops the stop and kill records of a part once it is known stopped, or seen running after a start. */
   private forget(service: string): void {
     const id = this.ids.get(service);
     for (const key of [`stop:svc:${service}`, ...(id ? [`stop:${id}`, `kill:${id}`] : [])]) this.sent.delete(key);
   }
 
-  /** Whether `kind:target` may be sent now, and records it when so. */
-  private mayResend(kind: 'stop' | 'kill', target: string): boolean {
-    const key = `${kind}:${target}`;
+  /**
+   * Whether the stop or kill under `key` may be sent now, and records it when
+   * so. The caller records the time again when the call ends, so the gap runs
+   * from the end of the last try: a call that timed out is not sent again
+   * right after.
+   */
+  private mayResend(key: string): boolean {
     const last = this.sent.get(key);
     const now = this.deps.now();
     if (last !== undefined && now - last < PART_LIMITS.resendGapMs) return false;
@@ -168,7 +179,6 @@ export class Parts {
 
   private async startOne(service: string, forceRecreate: boolean): Promise<true | StuckPart | null> {
     const name = partName(service);
-    this.forget(service);
     this.mark(service, 'start');
     const up = await this.run(
       this.compose(['compose', 'up', '-d', '--no-deps', ...(forceRecreate ? ['--force-recreate'] : []), service]),
@@ -182,6 +192,7 @@ export class Parts {
     const status = id ? await this.status(id) : null;
     if (status !== null && STARTED.has(status)) {
       this.pending.delete(service);
+      this.forget(service);
       return true;
     }
     if (late || (status !== null && START_STUCK.has(status))) {
@@ -193,6 +204,7 @@ export class Parts {
     }
     // It ended, but not running: a failed start, not a stuck one.
     this.pending.delete(service);
+    if (status === 'gone' || (status !== null && STOPPED.has(status))) this.forget(service);
     this.deps.log('warn', `${name} did not start${status && status !== 'gone' ? ` (it is ${status})` : ''}`);
     return null;
   }
@@ -209,6 +221,10 @@ export class Parts {
     if (ps.code !== 0) return undefined;
     const id = ps.stdout.trim().split('\n')[0]?.trim() ?? '';
     if (!id) return null;
+    if (!CONTAINER_ID.test(id)) {
+      this.deps.log('warn', `docker compose gave ${partName(service)} a container id that does not look like one; not using it`);
+      return undefined;
+    }
     this.ids.set(service, id);
     return id;
   }

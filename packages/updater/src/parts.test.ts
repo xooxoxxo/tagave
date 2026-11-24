@@ -40,7 +40,8 @@ function parts(f: ReturnType<typeof fake>, music: MusicProber | null = null, lin
   return new Parts({ docker: f.docker, music, now: () => f.state.clock, log: (_l, m) => lines.push(m) });
 }
 
-const id = (svc: string) => `${svc}-c1`;
+/** A container id that looks like Docker's: the service name in hex, at least 12 digits. */
+const id = (svc: string) => Buffer.from(svc).toString('hex').padEnd(12, '0');
 const isStop = (a: string[]) => a[0] === 'compose' && a[1] === 'stop';
 const isPs = (a: string[]) => a[0] === 'compose' && a[1] === 'ps';
 const isUp = (a: string[]) => a[0] === 'compose' && a[1] === 'up';
@@ -90,7 +91,7 @@ describe('stopParts', () => {
     let killed = false;
     const f = fake((a) => {
       if (isStop(a)) return 'timeout';
-      if (isPs(a)) return { stdout: 'worker-files-c1\n' };
+      if (isPs(a)) return { stdout: `${id('worker-files')}\n` };
       if (a[0] === 'inspect') return { stdout: killed ? 'exited\n' : 'running\n' };
       if (a[0] === 'kill') { killed = true; return {}; }
       return { code: 1 };
@@ -98,16 +99,16 @@ describe('stopParts', () => {
     const lines: string[] = [];
     const res = await parts(f, null, lines).stopParts(['worker-files']);
     expect(res).toEqual({ done: ['worker-files'], stuck: [] });
-    expect(f.calls.filter((c) => c[0] === 'kill')).toEqual([['kill', 'worker-files-c1']]);
+    expect(f.calls.filter((c) => c[0] === 'kill')).toEqual([['kill', id('worker-files')]]);
     expect(f.calls.filter((c) => c[0] === 'inspect')).toEqual([
-      ['inspect', '--format', '{{.State.Status}}', 'worker-files-c1'],
-      ['inspect', '--format', '{{.State.Status}}', 'worker-files-c1'],
+      ['inspect', '--format', '{{.State.Status}}', id('worker-files')],
+      ['inspect', '--format', '{{.State.Status}}', id('worker-files')],
     ]);
     expect(lines).toContain('the file worker did not stop within 60 s; stopping it by force');
   });
 
   it('a part whose stop fails but that is already exited is stopped, without a kill', async () => {
-    const f = fake((a) => (isStop(a) ? { code: 1 } : isPs(a) ? { stdout: 'worker-files-c1\n' } : a[0] === 'inspect' ? { stdout: 'exited\n' } : { code: 1 }));
+    const f = fake((a) => (isStop(a) ? { code: 1 } : isPs(a) ? { stdout: `${id('worker-files')}\n` } : a[0] === 'inspect' ? { stdout: 'exited\n' } : { code: 1 }));
     expect(await parts(f).stopParts(['worker-files'])).toEqual({ done: ['worker-files'], stuck: [] });
     expect(f.calls.some((c) => c[0] === 'kill')).toBe(false);
   });
@@ -155,7 +156,7 @@ describe('stopParts', () => {
 
   it('never sends the same stop or kill twice within a minute', async () => {
     // Stop and kill fail at once, so the second round comes well within the gap.
-    const f = fake((a) => (isStop(a) || a[0] === 'kill' ? { code: 1 } : isPs(a) ? { stdout: 'worker-files-c1\n' } : a[0] === 'inspect' ? { stdout: 'running\n' } : { code: 1 }));
+    const f = fake((a) => (isStop(a) || a[0] === 'kill' ? { code: 1 } : isPs(a) ? { stdout: `${id('worker-files')}\n` } : a[0] === 'inspect' ? { stdout: 'running\n' } : { code: 1 }));
     const p = parts(f);
     await p.stopParts(['worker-files']);
     const res = await p.stopParts(['worker-files']);
@@ -164,8 +165,46 @@ describe('stopParts', () => {
     expect(f.calls.filter((c) => c[0] === 'kill')).toHaveLength(1);
   });
 
+  it('never sends the same stop or kill twice within a minute, when both time out', async () => {
+    const f = fake(stuckStop);
+    const p = parts(f);
+    await p.stopParts(['worker-files']);
+    const res = await p.stopParts(['worker-files']);
+    expect(res.stuck).toEqual([{ service: 'worker-files', cause: 'stuck_stop', server: null }]);
+    expect(f.calls.filter(isStop)).toHaveLength(1);
+    expect(f.calls.filter((c) => c[0] === 'kill')).toHaveLength(1);
+  });
+
+  it('keeps the guard of a stuck part across a start that does not get it running', async () => {
+    let phase: 'stop' | 'start' = 'stop';
+    const f = fake((a) => {
+      if (isStop(a) || a[0] === 'kill') return 'timeout';
+      if (isUp(a)) return { code: 1 };
+      if (isPs(a)) return { stdout: `${id(a.at(-1)!)}\n` };
+      if (a[0] === 'inspect') return { stdout: phase === 'start' ? 'removing\n' : 'running\n' };
+      return { code: 1 };
+    });
+    const p = parts(f);
+    await p.stopParts(['worker-files']);
+    phase = 'start';
+    expect((await p.startParts(['worker-files'])).stuck).toEqual([{ service: 'worker-files', cause: 'stuck_start', server: null }]);
+    phase = 'stop';
+    await p.stopParts(['worker-files']);
+    expect(f.calls.filter(isStop)).toHaveLength(1);
+    expect(f.calls.filter((c) => c[0] === 'kill')).toHaveLength(1);
+  });
+
+  it('does not use a container id that does not look like one', async () => {
+    const lines: string[] = [];
+    const f = fake((a) => (isStop(a) ? 'timeout' : isPs(a) ? { stdout: '--help; rm -rf /\n' } : a[0] === 'inspect' ? { stdout: 'exited\n' } : {}));
+    const res = await parts(f, null, lines).stopParts(['worker-files']);
+    expect(res).toEqual({ done: [], stuck: [{ service: 'worker-files', cause: 'stuck_stop', server: null }] });
+    expect(f.calls.some((c) => c[0] === 'kill' || c[0] === 'inspect')).toBe(false);
+    expect(lines.some((l) => l.includes('the file worker') && l.includes('container id'))).toBe(true);
+  });
+
   it('sends them again once the gap is over', async () => {
-    const f = fake((a) => (isStop(a) || a[0] === 'kill' ? { code: 1 } : isPs(a) ? { stdout: 'worker-files-c1\n' } : a[0] === 'inspect' ? { stdout: 'running\n' } : { code: 1 }));
+    const f = fake((a) => (isStop(a) || a[0] === 'kill' ? { code: 1 } : isPs(a) ? { stdout: `${id('worker-files')}\n` } : a[0] === 'inspect' ? { stdout: 'running\n' } : { code: 1 }));
     const p = parts(f);
     await p.stopParts(['worker-files']);
     f.state.clock += PART_LIMITS.resendGapMs;
@@ -175,7 +214,7 @@ describe('stopParts', () => {
   });
 
   it('a part started again is stopped gently again, even within the gap', async () => {
-    const f = fake((a) => (isStop(a) ? { code: 1 } : isPs(a) ? { stdout: 'worker-files-c1\n' } : a[0] === 'inspect' ? { stdout: 'exited\n' } : {}));
+    const f = fake((a) => (isStop(a) ? { code: 1 } : isPs(a) ? { stdout: `${id('worker-files')}\n` } : a[0] === 'inspect' ? { stdout: 'exited\n' } : {}));
     const p = parts(f);
     await p.stopParts(['worker-files']);
     await p.startParts(['worker-files']);
@@ -218,23 +257,23 @@ describe('startParts', () => {
   });
 
   it('names a silent share when a music part cannot start', async () => {
-    const f = fake((a) => (isUp(a) ? 'timeout' : isPs(a) ? { stdout: 'worker-files-c1\n' } : a[0] === 'inspect' ? { stdout: 'created\n' } : { code: 1 }));
+    const f = fake((a) => (isUp(a) ? 'timeout' : isPs(a) ? { stdout: `${id('worker-files')}\n` } : a[0] === 'inspect' ? { stdout: 'created\n' } : { code: 1 }));
     const res = await parts(f, prober({ verdict: 'music_unreachable', server: '192.0.2.10' }).music).startParts(['worker-files']);
     expect(res.stuck).toEqual([{ service: 'worker-files', cause: 'music_unreachable', server: '192.0.2.10' }]);
   });
 
   it('a part that is removing is stuck', async () => {
-    const f = fake((a) => (isPs(a) ? { stdout: 'worker-identify-c1\n' } : a[0] === 'inspect' ? { stdout: 'removing\n' } : {}));
+    const f = fake((a) => (isPs(a) ? { stdout: `${id('worker-identify')}\n` } : a[0] === 'inspect' ? { stdout: 'removing\n' } : {}));
     expect((await parts(f).startParts(['worker-identify'])).stuck).toEqual([{ service: 'worker-identify', cause: 'stuck_start', server: null }]);
   });
 
   it('a part that restarts counts as started', async () => {
-    const f = fake((a) => (isPs(a) ? { stdout: 'worker-identify-c1\n' } : a[0] === 'inspect' ? { stdout: 'restarting\n' } : {}));
+    const f = fake((a) => (isPs(a) ? { stdout: `${id('worker-identify')}\n` } : a[0] === 'inspect' ? { stdout: 'restarting\n' } : {}));
     expect(await parts(f).startParts(['worker-identify'])).toEqual({ done: ['worker-identify'], stuck: [] });
   });
 
   it('passes --force-recreate when asked', async () => {
-    const f = fake((a) => (isPs(a) ? { stdout: 'app-c1\n' } : a[0] === 'inspect' ? { stdout: 'running\n' } : {}));
+    const f = fake((a) => (isPs(a) ? { stdout: `${id('app')}\n` } : a[0] === 'inspect' ? { stdout: 'running\n' } : {}));
     await parts(f).startParts(['app'], { forceRecreate: true });
     expect(f.calls.filter(isUp)).toEqual([['compose', 'up', '-d', '--no-deps', '--force-recreate', 'app']]);
   });
@@ -268,7 +307,7 @@ describe('the commands', () => {
   });
 
   it('puts the compose prefix in front of every compose call', async () => {
-    const f = fake((a) => (a[0] === 'compose' && a[3] === 'stop' ? 'timeout' : a[3] === 'ps' ? { stdout: 'c1\n' } : a[0] === 'inspect' ? { stdout: 'exited\n' } : {}));
+    const f = fake((a) => (a[0] === 'compose' && a[3] === 'stop' ? 'timeout' : a[3] === 'ps' ? { stdout: `${id('worker-files')}\n` } : a[0] === 'inspect' ? { stdout: 'exited\n' } : {}));
     const p = new Parts({ docker: f.docker, music: null, now: () => f.state.clock, log: () => {}, compose: (args) => ['compose', '-p', 'robin', ...args.slice(1)] });
     await p.stopParts(['worker-files']);
     expect(f.calls[0]).toEqual(['compose', '-p', 'robin', 'stop', '-t', '30', 'worker-files']);
