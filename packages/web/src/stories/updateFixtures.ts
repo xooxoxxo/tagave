@@ -173,3 +173,15 @@ export function didNotStartRun(): UpdateRun {
     progress: null,
   };
 }
+
+/** The same run held: 0.12.0 runs, but the file worker waits for a music share that does not answer. */
+export function heldRun(): UpdateRun {
+  const run = simulatedRun(SIMULATED_END);
+  return {
+    ...run,
+    status: 'held',
+    finishedAt: at(400),
+    held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' },
+    reason: "Updated to 0.12.0. Your music share at 192.0.2.10 doesn't answer, so the file worker waits for it. Turn the NAS on or check its cable, then press Repair in Settings › Updates.",
+  };
+}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { RunView } from '../components/InAppUpdate';
 import { PageShell } from '../components/ui';
-import { RECOVERING, SIMULATED_END, didNotStartRun, nowAt, rolledBackRun, simulatedRun, stalledRun, updateRun } from './updateFixtures';
+import { RECOVERING, SIMULATED_END, didNotStartRun, heldRun, nowAt, rolledBackRun, simulatedRun, stalledRun, updateRun } from './updateFixtures';
 
 /** The lamp's clock for the still frames (s): shots repeat. */
 const STILL = 120;
@@ -31,6 +31,8 @@ export const Stalled: Story = { args: { run: stalledRun(), now: nowAt(240) } };
 export const Recovering: Story = { args: { run: updateRun('waiting for the app: database recovering', RECOVERING), now: nowAt(300) } };
 export const Succeeded: Story = { args: { run: simulatedRun(SIMULATED_END), now: nowAt(SIMULATED_END + 5) } };
 export const RolledBack: Story = { args: { run: rolledBackRun(), now: nowAt(400) } };
+/** Updated, but the file worker waits for the music share: the reason says what to do. */
+export const Held: Story = { args: { run: heldRun(), now: nowAt(400) } };
 export const DidNotStart: Story = { args: { run: didNotStartRun(), now: nowAt(6) } };
 /** As the app shows it: under the Settings header, the glyph across the whole pane, the run's column in its middle. */
 export const InSettings: Story = {
@@ -40,6 +42,7 @@ export const InSettings: Story = {
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { run: stalledRun(), now: nowAt(240) } };
 /** On a phone the end states take a short title: the long one wrapped to three lines. */
 export const PhoneRolledBack: Story = { tags: ['phone', 'shot-full'], globals: { viewport: { value: 'phone' } }, args: { run: rolledBackRun(), now: nowAt(400) } };
+export const PhoneHeld: Story = { tags: ['phone', 'shot-full'], globals: { viewport: { value: 'phone' } }, args: { run: heldRun(), now: nowAt(400) } };
 
 /** A whole run played back: `t` holds it at a second (and the lamp still); without `t` it plays, the lamp moving (no screenshot). */
 function Playback({ t, speed = 1 }: { t?: number; speed?: number }) {

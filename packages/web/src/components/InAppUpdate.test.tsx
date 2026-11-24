@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReleaseNote, UpdateRun, UpdaterSelfReplace, UpdaterView } from '@tagave/shared';
-import { InAppUpdate, RunView, restartConflictError, showRun, useShownRun } from './InAppUpdate';
+import { InAppUpdate, RunView, glyphTone, restartConflictError, runSummary, showRun, useShownRun } from './InAppUpdate';
 import { CRASH_LOOP, RECOVERING, SIMULATED_END, didNotStartRun, nowAt, rolledBackRun, simulatedRun, stalledRun, updateRun } from '../stories/updateFixtures';
 
 const release = { version: '0.9.0', tag: 'v0.9.0' } as ReleaseNote;
@@ -177,6 +177,14 @@ describe('a finished run on the page', () => {
       expect(html, status).toContain('>Done<');
       expect(html, status).not.toContain('Updated to');
     }
+  });
+
+  it('a held run says it updated, and why a part waits', () => {
+    const run = { ...finished('held'), held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' }, reason: "Updated to 0.8.0. Your music share at 192.0.2.10 doesn't answer, so the file worker waits for it. Turn the NAS on or check its cable, then press Repair in Settings › Updates." } as UpdateRun;
+    const { head } = runSummary(run, Date.now());
+    expect(head).toMatchObject({ tone: 'warn', title: 'Updated to 0.8.0', short: 'Updated' });
+    expect(head.body).toContain('192.0.2.10');
+    expect(glyphTone(run)).toBe('warn');
   });
 
   it('shows a settled success only in the tab that watched it finish, and never a dismissed run', () => {
