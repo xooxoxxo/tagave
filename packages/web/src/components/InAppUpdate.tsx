@@ -160,8 +160,13 @@ export const RELOAD_AFTER_UPDATE_MS = 2000;
 /** How long a tab that watched the run shows "Updated to X" before a settled run goes (when it does not reload). */
 export const SETTLED_SHOW_MS = 5000;
 
+/** Whether a run that ended here put the new version in place, so the tab reloads into its build: a success, or a held run (it runs, a part waits for the music share). */
+export function reloadsAfter(status: UpdateRun['status']): boolean {
+  return status === 'succeeded' || status === 'held';
+}
+
 /**
- * The run this tab watched go from running to succeeded: after
+ * The run this tab watched go from running to succeeded (or held): after
  * RELOAD_AFTER_UPDATE_MS, reload into the new build once nothing plays (if the server runs one;
  * a dev bundle never reloads). Only a run seen running here counts, so the
  * reloaded page, which finds the run already finished, stays put.
@@ -176,7 +181,7 @@ export function useReloadAfterUpdate(run: UpdateRun | null): { reloading: boolea
   useEffect(() => {
     if (!id) return;
     if (status === 'running') watched.current = id;
-    else if (status === 'succeeded' && watched.current === id) {
+    else if (status && reloadsAfter(status) && watched.current === id) {
       watched.current = null;
       setSucceeded(id);
       setShowing(id);
