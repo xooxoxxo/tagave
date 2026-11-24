@@ -948,6 +948,13 @@ export class Update {
     return this.ownDumpPath;
   }
 
+  /** True when the new app recorded a backup (or a skip) during this run; false when unknown. */
+  private async recordedThisRun(): Promise<boolean> {
+    if (this.backupsMaxId === null) return false;
+    const out = await this.psql(firstBackupSinceSql(this.backupsMaxId)).catch(() => null);
+    return out !== null && parseRecordedDump(out) !== null;
+  }
+
   /** What to do about the database by hand after a roll back that did not happen. */
   private async rollbackAdvice(): Promise<string> {
     if (this.dbChanged === false || (await this.provenUnmigrated().catch(() => false))) {
@@ -1193,10 +1200,17 @@ export class Update {
         // next attempt, and a file it commits after the reading would leave
         // the old version on a partly migrated database.
         const stop = await this.compose(['stop', 'app', ...this.workers()]);
-        if (stop.code !== 0) throw new KeepNewVersion(`the new app could not be stopped to check whether it changed the database (${tail(stop.stderr || stop.stdout, 2)})`);
+        if (stop.code !== 0) {
+          // The reading from when the app answered is old now: a record of
+          // this run's backup (or skip) says the app went on to migrate.
+          if (this.dbChanged === false && (await this.recordedThisRun())) this.dbChanged = true;
+          throw new KeepNewVersion(`the new app could not be stopped to check whether it changed the database (${tail(stop.stderr || stop.stdout, 2)})`);
+        }
       }
       const after = this.newAppStarted ? await this.migrationCount() : this.migrationsBefore;
       const moved = after === null || this.migrationsBefore === null || after !== this.migrationsBefore;
+      // What the count says after the stop wins over the reading from when the app answered.
+      if (after !== null && this.migrationsBefore !== null && after !== this.migrationsBefore) this.dbChanged = true;
       const needsRestore = this.newAppStarted && moved && !(await this.provenUnmigrated());
       this.log('info', `migrations before ${this.migrationsBefore ?? 'unknown'}, now ${after ?? 'unknown'}`);
 
@@ -1267,7 +1281,7 @@ export class Update {
         const advice = await this.rollbackAdvice();
         this.run.reason = redact(`${reason}. Not rolled back: ${err.message}. ${this.run.from} must not run on a database ${this.run.target} changed, so ${this.run.target} stays in place${up.code === 0 ? ' and was started again' : ''}. ${advice}`);
         this.log('error', `not rolled back: ${err.message}`);
-        this.log('error', `${this.run.target} stays in place (TAGAVE_VERSION=${this.run.target} in .env). Look at docker compose logs app. ${advice} (docs/operations.md, Roll back an update)`);
+        this.log('error', `${this.run.target} stays in place (TAGAVE_VERSION=${this.run.target} in .env). Look at docker compose logs app. ${advice} See docs/operations.md, Roll back an update.`);
       } else {
         this.run.reason = redact(`${reason}. The roll back did not finish: ${(err as Error).message}`);
         this.log('error', `roll back failed: ${(err as Error).message}`);

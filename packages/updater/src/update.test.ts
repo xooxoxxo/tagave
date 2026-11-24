@@ -927,6 +927,50 @@ describe('update state machine', () => {
       expect(run.reason).not.toContain('2026-10-01');
     });
 
+    it('trusts the count read after the stop over the reading from when the app answered', async () => {
+      fake.backupRows = [{ id: 7, status: 'ok', path: '/backups/tagave-2026-10-01T03-00-00Z-pre-migration.pgdump', to: '0.6.0' }];
+      // the app answers with nothing to migrate, then commits a migration as it is stopped
+      fake.commitsOnStop.add('0.8.0'); fake.brokenWorkers.add('0.8.0'); fake.unreadableDumps = true;
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).not.toContain("didn't change");
+      expect(run.reason).toMatch(/To go back by hand, restore `\/backups\/tagave-2026-10-11T10-08-00Z-pre-migration\.pgdump`\.$/);
+      expect(run.reason).not.toContain('2026-10-01');
+    });
+
+    it("says no backup needs restoring when the app changed nothing, though the updater took its own dump", async () => {
+      await writeFile(join(dir, '.env'), `${ENV}TAGAVE_SKIP_PREMIGRATE_BACKUP=1\n`);
+      fake.skipPremigrate = true;
+      fake.brokenWorkers.add('0.8.0');
+      const inner = fake.runner;
+      fake.runner = async (args, opts) => {
+        if (args.join(' ') === 'compose stop app worker-identify worker-files') return { code: 1, stdout: '', stderr: 'container is restarting' };
+        return inner(args, opts);
+      };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).toMatch(/This update didn't change the database, so no backup needs restoring\.$/);
+      expect(run.reason).not.toContain('tagave-manual-20261011');
+    });
+
+    it('looks for a record of this run when the new app cannot be stopped', async () => {
+      fake.backupRows = [{ id: 7, status: 'ok', path: '/backups/tagave-2026-10-01T03-00-00Z-pre-migration.pgdump', to: '0.6.0' }];
+      fake.brokenWorkers.add('0.8.0');
+      const inner = fake.runner;
+      fake.runner = async (args, opts) => {
+        if (args.join(' ') === 'compose stop app worker-identify worker-files') {
+          // the app went on to back up and migrate after it answered, and does not stop
+          fake.backupRows!.push({ id: 8, status: 'ok', path: '/backups/tagave-2026-10-11T10-08-00Z-pre-migration.pgdump', to: '0.8.0' });
+          return { code: 1, stdout: '', stderr: 'container is restarting' };
+        }
+        return inner(args, opts);
+      };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).not.toContain("didn't change");
+      expect(run.reason).toMatch(/To go back by hand, restore `\/backups\/tagave-2026-10-11T10-08-00Z-pre-migration\.pgdump`\.$/);
+    });
+
     it('stops the new app before it reads the migration count: a file committed late is seen', async () => {
       fake.commitsOnStop.add('0.8.0');
       fake.brokenWorkers.add('0.8.0');
