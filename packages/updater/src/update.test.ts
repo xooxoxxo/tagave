@@ -1232,6 +1232,21 @@ describe('update state machine', () => {
       expect(run.log.some((l) => l.message.startsWith("the player's data is back as it was"))).toBe(true);
     });
 
+    it('a player that will not stop for its restore counts only the database as running', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.2');
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      // the player stops for its copy, then sticks once the database is restored
+      const docker: Runner = async (args, opts) => {
+        if (args.includes('restore') && args.includes('--yes')) fake.stuckStop.add('player');
+        return fake.runner(args, opts);
+      };
+      const run = await update('0.8.0', {}, { docker });
+      expect(run.status).toBe('rollback_failed');
+      // the app and workers are stopped and the player is stuck: only the database runs
+      expect(run.reason).toMatch(/The roll back did not finish\. The player is stuck and won't stop\. Restart the computer tagave runs on\. 1 of 5 parts running\.$/);
+    });
+
     it('rolls back the configuration only when the copy fails, before the new app starts', async () => {
       fake.newCompose = PLAYER_COMPOSE('0.64.2');
       fake.failSnapshot = true;
@@ -1305,6 +1320,9 @@ describe('parts that will not stop or start', () => {
     const run = await update('0.8.0');
     expect(run.status).toBe('rollback_failed');
     expect(run.reason).toContain('stays in place');
+    // the stuck app was skipped, not started again
+    expect(run.reason).not.toContain('was started again');
+    expect(run.reason).toContain("The web app is stuck and won't stop.");
     expect(run.reason).toContain('tagave-2026-10-11T10-08-00Z-pre-migration.pgdump');
     expect(run.reason).not.toContain('2026-10-01');
   });
@@ -1603,6 +1621,22 @@ describe('an update with a signed manifest', () => {
     expect((await readFile(join(dir, '.updater/release-floor'), 'utf8')).trim()).toBe('0.8.0');
     // the compose files come out of the updater image the manifest pins
     expect(d.calls.some((c) => c.startsWith('run --rm --network none --entrypoint cat') && c.includes(`tagave-updater:0.8.0@${digest('c2')}`))).toBe(true);
+  });
+
+  // A held run runs the new version, so it hands over as a success does.
+  it.each(['succeeded', 'held'] as const)('a %s run notes the release floor, removes old images and replaces the updater', async (status) => {
+    if (status === 'held') {
+      fake.stuckStart.add('worker-files');
+      fake.musicReading = { dir: '/mnt/music', mount: { kind: 'network', fstype: 'nfs4', server: '192.0.2.10', export: '/export/music', hard: true, mountPoint: '/mnt/music' }, answer: 'silent', verdict: 'music_unreachable', server: '192.0.2.10' };
+    }
+    fake.images = ['ghcr.io/xooxoxxo/tagave-app:0.6.0', 'ghcr.io/xooxoxxo/tagave-app:0.7.0', 'ghcr.io/xooxoxxo/tagave-app:0.8.0'];
+    const d = pinning();
+    const run = await update('0.8.0', {}, { release: verified(), docker: d.docker });
+    expect(run.status).toBe(status);
+    expect((await readFile(join(dir, '.updater/release-floor'), 'utf8')).trim()).toBe('0.8.0');
+    expect(fake.images).not.toContain('ghcr.io/xooxoxxo/tagave-app:0.6.0');
+    expect(fake.calls.find((c) => c[1] === 'run' && c.includes('-d'))).toContain('tagave.updater.handover=run-1');
+    expect(fake.waitedOn).toEqual(['ho1']);
   });
 
   it('refuses an image whose pulled digest differs, before anything changes', async () => {

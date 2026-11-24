@@ -254,6 +254,11 @@ export function logPreview(run: UpdateRun, notes: Record<string, StepNote>): str
   return shown.some((t) => t.includes(line) || line.includes(t)) ? null : last.message;
 }
 
+/** `text` without `lead` at its start, when it starts with it. */
+function dropLead(text: string | null | undefined, lead: string): string | null | undefined {
+  return text?.startsWith(lead) ? text.slice(lead.length) : text;
+}
+
 /** The glyph's tone for a run: the accent while it runs or once it succeeded, warn once a part waits for the music share, warn or danger once it failed. */
 export function glyphTone(run: UpdateRun): GlyphTone {
   switch (run.status) {
@@ -365,7 +370,8 @@ export function runSummary(run: UpdateRun, now: number): { head: RunHead; notes:
       break;
     case 'held':
       // The new version runs; a part waits for the music share, and the reason says which and what to do.
-      head = { tone: 'warn', title: `Updated to ${run.target}`, short: 'Updated', body: sentence(run.reason) };
+      // The title says it updated, so the body drops the reason's own "Updated to <target>." opening.
+      head = { tone: 'warn', title: `Updated to ${run.target}`, short: 'Updated', body: sentence(dropLead(run.reason, `Updated to ${run.target}. `)) };
       break;
     case 'rolled_back':
       head = {

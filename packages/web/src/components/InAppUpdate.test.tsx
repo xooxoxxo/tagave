@@ -187,6 +187,9 @@ describe('a finished run on the page', () => {
     const run = { ...finished('held'), held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' }, reason: "Updated to 0.8.0. Your music share at 192.0.2.10 doesn't answer, so the file worker waits for it. Turn the NAS on or check its cable, then press Repair in Settings › Updates." } as UpdateRun;
     const { head } = runSummary(run, Date.now());
     expect(head).toMatchObject({ tone: 'warn', title: 'Updated to 0.8.0', short: 'Updated' });
+    // the title already says it updated: the body does not say it again
+    expect(head.body).not.toMatch(/^Updated to/);
+    expect(head.body).toMatch(/^Your music share at 192\.0\.2\.10 doesn't answer/);
     expect(head.body).toContain('192.0.2.10');
     expect(glyphTone(run)).toBe('warn');
   });
