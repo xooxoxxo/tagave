@@ -971,6 +971,36 @@ describe('update state machine', () => {
       expect(run.reason).toMatch(/To go back by hand, restore `\/backups\/tagave-2026-10-11T10-08-00Z-pre-migration\.pgdump`\.$/);
     });
 
+    it('takes a count that cannot be read after the stop as unknown, not unchanged', async () => {
+      fake.brokenWorkers.add('0.8.0');
+      const inner = fake.runner;
+      fake.runner = async (args, opts) => {
+        // the app answered with nothing to migrate; from the stop on the database does not answer
+        if (args.join(' ') === 'compose stop app worker-identify worker-files') fake.psqlFails = true;
+        return inner(args, opts);
+      };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).not.toContain("didn't change");
+      expect(run.reason).toMatch(/No backup from this update was found\. Don't restore an older backup: it would lose everything since\.$/);
+    });
+
+    it('takes a record that cannot be read when the stop fails as unknown, not unchanged', async () => {
+      fake.brokenWorkers.add('0.8.0');
+      const inner = fake.runner;
+      fake.runner = async (args, opts) => {
+        if (args.join(' ') === 'compose stop app worker-identify worker-files') {
+          fake.psqlFails = true;
+          return { code: 1, stdout: '', stderr: 'container is restarting' };
+        }
+        return inner(args, opts);
+      };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).not.toContain("didn't change");
+      expect(run.reason).toMatch(/No backup from this update was found\. Don't restore an older backup: it would lose everything since\.$/);
+    });
+
     it('stops the new app before it reads the migration count: a file committed late is seen', async () => {
       fake.commitsOnStop.add('0.8.0');
       fake.brokenWorkers.add('0.8.0');

@@ -948,11 +948,11 @@ export class Update {
     return this.ownDumpPath;
   }
 
-  /** True when the new app recorded a backup (or a skip) during this run; false when unknown. */
-  private async recordedThisRun(): Promise<boolean> {
-    if (this.backupsMaxId === null) return false;
+  /** Whether the new app recorded a backup (or a skip) during this run; null when that cannot be read. */
+  private async recordedThisRun(): Promise<boolean | null> {
+    if (this.backupsMaxId === null) return null;
     const out = await this.psql(firstBackupSinceSql(this.backupsMaxId)).catch(() => null);
-    return out !== null && parseRecordedDump(out) !== null;
+    return out === null ? null : parseRecordedDump(out) !== null;
   }
 
   /** What to do about the database by hand after a roll back that did not happen. */
@@ -1202,15 +1202,21 @@ export class Update {
         const stop = await this.compose(['stop', 'app', ...this.workers()]);
         if (stop.code !== 0) {
           // The reading from when the app answered is old now: a record of
-          // this run's backup (or skip) says the app went on to migrate.
-          if (this.dbChanged === false && (await this.recordedThisRun())) this.dbChanged = true;
+          // this run's backup (or skip) says the app went on to migrate, and
+          // a record that cannot be read leaves it unknown.
+          if (this.dbChanged === false) {
+            const recorded = await this.recordedThisRun();
+            if (recorded !== false) this.dbChanged = recorded === null ? null : true;
+          }
           throw new KeepNewVersion(`the new app could not be stopped to check whether it changed the database (${tail(stop.stderr || stop.stdout, 2)})`);
         }
       }
       const after = this.newAppStarted ? await this.migrationCount() : this.migrationsBefore;
       const moved = after === null || this.migrationsBefore === null || after !== this.migrationsBefore;
-      // What the count says after the stop wins over the reading from when the app answered.
+      // What the count says after the stop wins over the reading from when
+      // the app answered; a count that cannot be compared leaves it unknown.
       if (after !== null && this.migrationsBefore !== null && after !== this.migrationsBefore) this.dbChanged = true;
+      else if (this.dbChanged === false && (after === null || this.migrationsBefore === null)) this.dbChanged = null;
       const needsRestore = this.newAppStarted && moved && !(await this.provenUnmigrated());
       this.log('info', `migrations before ${this.migrationsBefore ?? 'unknown'}, now ${after ?? 'unknown'}`);
 
