@@ -11,8 +11,9 @@
  *   last log lines, and Postgres's, say what it does: backing up, applying a
  *   migration, Postgres recovering, out of disk, restarting.
  * - Stalls: a step whose sub-state has not changed for the stall time
- *   (2 min by default) is diagnosed from the same readings: disk full, out
- *   of memory, a port taken, a crash loop, a refused migration, a failing
+ *   (2 min by default) is diagnosed from the same readings: disk full, a
+ *   music share that does not answer or is not connected, a part that will
+ *   not stop or start, out of memory, a port taken, a crash loop, a refused migration, a failing
  *   health check, Postgres recovering, a download that does not move, or
  *   nothing wrong but slow. The run shows the cause and what to do; the
  *   step's own timeout still decides when to give up.
@@ -20,6 +21,7 @@
  * Everything here is pure; update.ts runs the docker commands.
  */
 import type { UpdateStall, UpdateStallCause } from '@tagave/shared/updater';
+import type { MusicVerdict } from './music-probe.js';
 import { formatBytes } from './preflight-space.js';
 
 export const DEFAULT_STALL_MS = 2 * 60_000;
@@ -239,7 +241,22 @@ export interface Observation {
   logs: string;
   /** Its restart count when the step began. */
   restartsBefore: number;
+  /** How long a stop or start of it has gone on without ending. */
+  stuckFor?: { kind: 'stop' | 'start'; ms: number };
 }
+
+/** What the music probe found about the music share, and the part it holds up. */
+export interface MusicFinding {
+  verdict: MusicVerdict;
+  /** The share's address from the mount table; null when unknown or local. */
+  server: string | null;
+  service: string | null;
+}
+
+/** A stop that has not ended after this is stuck. */
+export const STUCK_STOP_MS = 60_000;
+/** A start that has not begun after this is stuck. */
+export const STUCK_START_MS = 120_000;
 
 export interface Readings {
   observations: Observation[];
@@ -247,6 +264,8 @@ export interface Readings {
   dockerFreeBytes: number | null;
   /** Output of a command still running (a pull). */
   commandOutput?: string;
+  /** The music probe's finding; null or absent when it was not read. */
+  music?: MusicFinding | null;
 }
 
 const ENOSPC = /no space left on device|ENOSPC|could not extend file|disk is full|database or disk is full/i;
@@ -314,6 +333,13 @@ export function waitingFor(r: Readings, app = 'app'): string | null {
   return a ? appPhase(a.logs) : null;
 }
 
+/** True when the sub-state is a database phase (a backup, a migration, a restore). */
+export function databaseWork(progress: string): boolean {
+  return /backing up the database|updating the database|restoring the database|another start of the app is updating the database/.test(progress);
+}
+
+const capitalized = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 const minutes = (ms: number) => {
   const m = Math.round(ms / 60_000);
   return m <= 1 ? 'a minute' : `${m} minutes`;
@@ -327,11 +353,12 @@ export function diagnoseStall(
   r: Readings,
   opts: { progress: string; stalledMs: number; since: string; downloading?: boolean },
 ): UpdateStall {
-  const make = (cause: UpdateStallCause, message: string, advice: string, service: string | null = null): UpdateStall => ({
+  const make = (cause: UpdateStallCause, message: string, advice: string, service: string | null = null, server: string | null = null): UpdateStall => ({
     cause,
     message,
     advice,
     service,
+    server,
     since: opts.since,
   });
   const free = 'Free space on the disk Docker uses: docker builder prune, docker image prune, and old backups in Settings › Backups (keep the newest).';
@@ -341,6 +368,21 @@ export function diagnoseStall(
   }
   if (r.dockerFreeBytes !== null && r.dockerFreeBytes < DISK_FULL_BYTES) {
     return make('disk_full', `Docker's disk is full (${formatBytes(r.dockerFreeBytes)} free)`, `${free} The update rolls back on its own if it runs out of time.`);
+  }
+  const music = r.music;
+  if (music?.verdict === 'music_unreachable') {
+    return make('music_unreachable', music.server ? `Your music share at ${music.server} doesn't answer.` : "Your music share doesn't answer.", "Turn the NAS on or check its cable. tagave finishes on its own when it's back.", music.service, music.server);
+  }
+  if (music?.verdict === 'music_unmounted') {
+    return make('music_unmounted', "Your music folder isn't connected.", "tagave tries to connect it again. If it can't, connect the drive or share, then press Repair.", music.service, music.server);
+  }
+  const stopping = r.observations.find((o) => o.stuckFor?.kind === 'stop' && o.stuckFor.ms >= STUCK_STOP_MS);
+  if (stopping) {
+    return make('stuck_stop', `${capitalized(partName(stopping.service))} is stuck and won't stop.`, 'Restart the computer tagave runs on. Your music and library are safe.', stopping.service);
+  }
+  const starting = r.observations.find((o) => o.stuckFor?.kind === 'start' && o.stuckFor.ms >= STUCK_START_MS);
+  if (starting) {
+    return make('stuck_start', `${capitalized(partName(starting.service))} won't start.`, 'Restart the computer tagave runs on, then press Repair.', starting.service);
   }
   const oom = r.observations.find((o) => o.state?.oomKilled);
   if (oom) {
@@ -378,7 +420,11 @@ export function diagnoseStall(
   if (opts.downloading) {
     return make('download', `the download has not moved for ${minutes(opts.stalledMs)}`, "Check this computer's internet connection and that the registry (ghcr.io) answers. The update stops without changing anything if the download fails.");
   }
-  return make('slow', `no progress for ${minutes(opts.stalledMs)}, and nothing looks wrong: ${opts.progress}`, 'Wait: a large library can take several minutes here. The update rolls back on its own if it runs out of time.');
+  return make(
+    'slow',
+    `no progress for ${minutes(opts.stalledMs)}, and nothing looks wrong: ${opts.progress}`,
+    databaseWork(opts.progress) ? 'Wait: a large library can take several minutes here. The update rolls back on its own if it runs out of time.' : 'tagave keeps waiting and checks again every minute.',
+  );
 }
 
 /** The causes that need the owner; the others ask only for patience. */

@@ -6,6 +6,7 @@ import {
   ComposePullProgress,
   MAX_PARTIAL_LINE,
   diagnoseStall,
+  databaseWork,
   lastErrorLine,
   parseInspect,
   PART_LABELS,
@@ -13,6 +14,8 @@ import {
   partName,
   postgresRecovering,
   stallNeedsAction,
+  STUCK_START_MS,
+  STUCK_STOP_MS,
   waitingFor,
   type ContainerState,
   type Observation,
@@ -205,10 +208,77 @@ describe('stalls', () => {
     expect(slow).toEqual({
       cause: 'slow',
       message: 'no progress for 2 minutes, and nothing looks wrong: waiting for the app',
-      advice: expect.stringMatching(/^Wait/),
+      advice: 'tagave keeps waiting and checks again every minute.',
       service: null,
+      server: null,
       since: '2026-10-16T10:00:00.000Z',
     });
+  });
+
+  const opts = { progress: 'waiting for the app', stalledMs: 120_000, since: '2026-10-16T10:00:00.000Z' };
+  const stuck = (service: string, over: Partial<ContainerState>, stuckFor: { kind: 'stop' | 'start'; ms: number }): Observation => ({ ...obs(service, over), stuckFor });
+  const running = { status: 'running' };
+  const created = { status: 'created' };
+
+  it('names a silent music share first after a full disk', () => {
+    const r: Readings = { ...readings([stuck('worker-files', created, { kind: 'start', ms: 130_000 })]), music: { verdict: 'music_unreachable', server: '192.0.2.10', service: 'worker-files' } };
+    expect(diagnoseStall(r, opts)).toMatchObject({ cause: 'music_unreachable', server: '192.0.2.10', service: 'worker-files', message: "Your music share at 192.0.2.10 doesn't answer.", advice: "Turn the NAS on or check its cable. tagave finishes on its own when it's back." });
+    expect(diagnoseStall({ ...r, dockerFreeBytes: 10 * MB }, opts).cause).toBe('disk_full');
+    expect(diagnoseStall({ ...r, music: { verdict: 'music_unreachable', server: null, service: null } }, opts)).toMatchObject({ message: "Your music share doesn't answer.", server: null, service: null });
+  });
+
+  it('names a music folder that is not connected before a stuck part', () => {
+    const r: Readings = { ...readings([stuck('worker-files', created, { kind: 'start', ms: 130_000 })]), music: { verdict: 'music_unmounted', server: null, service: 'worker-files' } };
+    expect(diagnoseStall(r, opts)).toMatchObject({
+      cause: 'music_unmounted',
+      message: "Your music folder isn't connected.",
+      advice: "tagave tries to connect it again. If it can't, connect the drive or share, then press Repair.",
+      service: 'worker-files',
+    });
+    expect(diagnoseStall({ ...r, music: { verdict: 'ok', server: '192.0.2.10', service: null } }, opts)).toMatchObject({ cause: 'stuck_start', server: null });
+    expect(diagnoseStall({ ...r, music: null }, opts).cause).toBe('stuck_start');
+  });
+
+  it('a stop that does not end, then a start that does not begin', () => {
+    expect(diagnoseStall(readings([stuck('worker-files', running, { kind: 'stop', ms: 61_000 })]), opts)).toMatchObject({
+      cause: 'stuck_stop',
+      message: "The file worker is stuck and won't stop.",
+      advice: 'Restart the computer tagave runs on. Your music and library are safe.',
+      service: 'worker-files',
+      server: null,
+    });
+    expect(diagnoseStall(readings([stuck('worker-files', created, { kind: 'start', ms: 121_000 })]), opts)).toMatchObject({
+      cause: 'stuck_start',
+      message: "The file worker won't start.",
+      advice: 'Restart the computer tagave runs on, then press Repair.',
+      service: 'worker-files',
+    });
+    expect(diagnoseStall(readings([stuck('worker-files', created, { kind: 'start', ms: 30_000 })]), opts).cause).toBe('slow');
+    expect(diagnoseStall(readings([stuck('worker-files', running, { kind: 'stop', ms: STUCK_STOP_MS - 1 })]), opts).cause).toBe('slow');
+    expect(diagnoseStall(readings([stuck('worker-files', created, { kind: 'start', ms: STUCK_START_MS })]), opts).cause).toBe('stuck_start');
+  });
+
+  it('a stuck stop comes before a stuck start', () => {
+    const r = readings([stuck('app', created, { kind: 'start', ms: 200_000 }), stuck('worker-files', running, { kind: 'stop', ms: 61_000 })]);
+    expect(diagnoseStall(r, opts)).toMatchObject({ cause: 'stuck_stop', service: 'worker-files' });
+  });
+
+  it('stuck beats oom and a crash loop', () => {
+    const r = readings([obs('app', { oomKilled: true, exitCode: 137, status: 'exited' }), obs('worker-identify', { restarts: 4, exitCode: 1, status: 'restarting', restarting: true }, '', 1), stuck('worker-files', running, { kind: 'stop', ms: 61_000 })]);
+    expect(diagnoseStall(r, opts).cause).toBe('stuck_stop');
+  });
+
+  it('every new cause needs the owner', () => {
+    for (const c of ['stuck_stop', 'stuck_start', 'music_unreachable', 'music_unmounted', 'docker_unresponsive'] as const) expect(stallNeedsAction(c)).toBe(true);
+  });
+
+  it('speaks of a large library only while the database is worked on', () => {
+    expect(diagnoseStall(readings([]), { ...opts, progress: 'starting the workers' }).advice).toBe('tagave keeps waiting and checks again every minute.');
+    for (const p of ['the app backing up the database (1.2 GB)', 'updating the database (0046_x.sql)', 'restoring the database from x.pgdump', 'another start of the app is updating the database']) {
+      expect(databaseWork(p)).toBe(true);
+      expect(diagnoseStall(readings([]), { ...opts, progress: p }).advice).toBe('Wait: a large library can take several minutes here. The update rolls back on its own if it runs out of time.');
+    }
+    expect(databaseWork('starting the workers')).toBe(false);
   });
 
   it('blames the download when a pull does not move', () => {
