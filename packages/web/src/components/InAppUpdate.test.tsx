@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReleaseNote, UpdateRun, UpdaterSelfReplace, UpdaterView } from '@tagave/shared';
-import { InAppUpdate, RunView, glyphTone, restartConflictError, runSummary, showRun, useShownRun } from './InAppUpdate';
+import { InAppUpdate, RunView, glyphTone, restartConflictError, reloadsAfter, runSummary, showRun, useShownRun } from './InAppUpdate';
 import { CRASH_LOOP, RECOVERING, SIMULATED_END, didNotStartRun, nowAt, rolledBackRun, simulatedRun, stalledRun, updateRun } from '../stories/updateFixtures';
 
 const release = { version: '0.9.0', tag: 'v0.9.0' } as ReleaseNote;
@@ -177,6 +177,10 @@ describe('a finished run on the page', () => {
       expect(html, status).toContain('>Done<');
       expect(html, status).not.toContain('Updated to');
     }
+    // a held run did update, so its title says so, and it stays until Done like the others
+    const held = render(withRun({ ...finished('held'), held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } }, true));
+    expect(held).toContain('Updated to 0.8.0');
+    expect(held).toContain('>Done<');
   });
 
   it('a held run says it updated, and why a part waits', () => {
@@ -187,6 +191,12 @@ describe('a finished run on the page', () => {
     expect(glyphTone(run)).toBe('warn');
   });
 
+  it('reloads the tab into the new build after a success or a held run, never after a run that did not update', () => {
+    expect(reloadsAfter('succeeded')).toBe(true);
+    expect(reloadsAfter('held')).toBe(true);
+    for (const status of ['running', 'failed', 'rolled_back', 'rollback_failed', 'interrupted'] as const) expect(reloadsAfter(status), status).toBe(false);
+  });
+
   it('shows a settled success only in the tab that watched it finish, and never a dismissed run', () => {
     const ok = finished('succeeded');
     expect(showRun(ok, true, null, null)).toBe(false);
@@ -194,6 +204,7 @@ describe('a finished run on the page', () => {
     expect(showRun(ok, false, null, null)).toBe(true);
     expect(showRun(ok, false, ok.id, null)).toBe(false);
     expect(showRun(finished('rolled_back'), true, null, null)).toBe(true);
+    expect(showRun(finished('held'), true, null, null)).toBe(true);
     // an older dismissal does not hide a newer run
     expect(showRun({ ...finished('failed'), id: 'run-2' }, false, 'run-1', null)).toBe(true);
   });
