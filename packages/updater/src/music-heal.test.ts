@@ -6,8 +6,9 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HELPER_NAME, MusicHealer, gapAfter, healDecision, helperArgs, hostCommand, musicContainers, musicDirOf, selfHealOn, type HealReport } from './music-heal.js';
+import type { MusicProber, MusicReading } from './music-probe.js';
 import type { CommandResult, Runner } from './runner.js';
 
 const cfg = { minGapMs: 10 * 60_000, maxGapMs: 6 * 60 * 60_000 };
@@ -192,6 +193,156 @@ describe('an attempt (fake Docker, fake app)', () => {
       expect(calls).toEqual([]);
       expect(reports).toEqual([]);
     }
+  });
+});
+
+/** A network share on MUSIC_DIR, read as answering or silent. */
+function networkReading(answer: 'answers' | 'silent', mountPoint = '/mnt/music'): MusicReading {
+  return {
+    dir: '/mnt/music',
+    mount: { kind: 'network', fstype: 'nfs4', server: '192.0.2.10', export: '/export/music', hard: true, mountPoint },
+    answer,
+    verdict: 'ok',
+    server: '192.0.2.10',
+  };
+}
+
+function fakeProber(reading: () => MusicReading | null): { music: MusicProber; reads: Array<Parameters<MusicProber['read']>[0]> } {
+  const reads: Array<Parameters<MusicProber['read']>[0]> = [];
+  return { music: { read: async (input) => { reads.push(input); return reading(); } }, reads };
+}
+
+describe('the music share comes first (fake prober)', () => {
+  it('with the server silent, runs no helper that touches the folder, and does not back off', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app, reports } = fakeApp(true);
+    const { music, reads } = fakeProber(() => networkReading('silent'));
+    let now = 1e9;
+    const healer = new MusicHealer({ installDir, docker, app, music, busy: () => false, self: 's', now: () => now });
+    expect(await healer.tick()).toBe('server_silent');
+    expect(reads).toEqual([{ parts: [], appUnmounted: true }]);
+    expect(calls.map(helperCmd).filter(Boolean)).toEqual([]);
+    expect(calls.some((c) => c[0] === 'restart')).toBe(false);
+    expect(reports).toEqual([{ phase: 'done', ok: false, reason: 'server_silent' }]);
+    // 10 min later still silent: tried again (no growth), not reported again
+    now += 10 * 60_000;
+    expect(await healer.tick()).toBe('server_silent');
+    expect(reports).toHaveLength(1);
+    now += 10 * 60_000;
+    expect(await healer.tick()).toBe('server_silent');
+    expect(reads).toHaveLength(3);
+  });
+
+  it('reports server_silent once until the reason changes', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    const { docker } = fakeDocker(hostAnswers({ start: { code: 1 } }));
+    const { app, reports } = fakeApp(true);
+    let reading: MusicReading | null = networkReading('silent');
+    const { music } = fakeProber(() => reading);
+    let now = 1e9;
+    const healer = new MusicHealer({ installDir, docker, app, music, busy: () => false, self: 's', now: () => now });
+    expect(await healer.tick()).toBe('server_silent');
+    now += 10 * 60_000;
+    expect(await healer.tick()).toBe('server_silent');
+    now += 10 * 60_000;
+    reading = null;
+    expect(await healer.tick()).toBe('mount_failed');
+    now += 10 * 60_000;
+    reading = networkReading('silent');
+    expect(await healer.tick()).toBe('server_silent');
+    expect(reports.filter((r) => r.phase === 'done')).toEqual([
+      { phase: 'done', ok: false, reason: 'server_silent' },
+      { phase: 'done', ok: false, reason: 'mount_failed' },
+      { phase: 'done', ok: false, reason: 'server_silent' },
+    ]);
+  });
+
+  it('a present network mount that answers goes straight to the restart', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\n');
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app, reports } = fakeApp(true);
+    const { music } = fakeProber(() => networkReading('answers'));
+    const healer = new MusicHealer({ installDir, docker, app, music, busy: () => false, self: 's' });
+    expect(await healer.tick()).toBe('mounted');
+    expect(calls.map(helperCmd).filter(Boolean)).toEqual([]);
+    expect(calls.filter((c) => c[0] === 'restart')).toEqual([['restart', 'c-app', 'c-files', 'c-player']]);
+    expect(reports).toEqual([{ phase: 'start' }, { phase: 'done', ok: true, reason: 'mounted' }]);
+  });
+
+  it('an answering share mounted above MUSIC_DIR, not on it, takes the usual steps', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app } = fakeApp(true);
+    const { music } = fakeProber(() => networkReading('answers', '/mnt'));
+    expect(await new MusicHealer({ installDir, docker, app, music, busy: () => false, self: 's' }).tick()).toBe('mounted');
+    expect(calls.map(helperCmd).filter(Boolean).map((c) => c![0])).toEqual(['systemd-escape', 'systemctl', 'systemctl', 'mountpoint', 'find']);
+  });
+
+  it('a prober that throws takes the usual steps', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app } = fakeApp(true);
+    const music: MusicProber = { read: async () => { throw new Error('no host'); } };
+    expect(await new MusicHealer({ installDir, docker, app, music, busy: () => false, self: 's' }).tick()).toBe('mounted');
+    expect(calls.map(helperCmd).filter(Boolean)).toHaveLength(5);
+  });
+
+  it('remount waits for a running tick, never runs beside it', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let blocked = true;
+    const answer = hostAnswers();
+    const calls: string[][] = [];
+    const docker: Runner = async (args) => {
+      calls.push(args);
+      if (blocked && args[0] === 'inspect' && args[2] === '{{.Image}}') { blocked = false; await held; }
+      return { code: 0, stdout: '', stderr: '', ...answer(args) };
+    };
+    const { app } = fakeApp(true);
+    const { music, reads } = fakeProber(() => null);
+    const healer = new MusicHealer({ installDir, docker, app, music, busy: () => false, self: 's' });
+    const tick = healer.tick();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    let remounted = false;
+    const remount = healer.remount('/mnt/music', 'tagave').then((r) => { remounted = true; return r; });
+    // a tick while the lock is held skips
+    expect(await healer.tick()).toBeNull();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(remounted).toBe(false);
+    expect(reads).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+    release();
+    expect(await tick).toBe('mounted');
+    expect(await remount).toBe('mounted');
+    expect(reads).toHaveLength(2);
+    // the remount's calls all come after the tick's restart
+    const restarts = calls.map((c, i) => (c[0] === 'restart' ? i : -1)).filter((i) => i >= 0);
+    expect(restarts).toHaveLength(2);
+    const secondImage = calls.findIndex((c, i) => i > 0 && c[0] === 'inspect' && c[2] === '{{.Image}}');
+    expect(secondImage).toBeGreaterThan(restarts[0]!);
+  });
+
+  it('two remounts run one after the other', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    let active = 0;
+    let most = 0;
+    const answer = hostAnswers();
+    const docker: Runner = async (args) => {
+      if (args[0] === 'inspect' && args[2] === '{{.Image}}') { active++; most = Math.max(most, active); }
+      await new Promise((r) => setTimeout(r, 1));
+      if (args[0] === 'restart') active--;
+      return { code: 0, stdout: '', stderr: '', ...answer(args) };
+    };
+    const { app } = fakeApp(true);
+    let now = 1e9;
+    const healer = new MusicHealer({ installDir, docker, app, music: null, busy: () => false, self: 's', now: () => now });
+    expect(await Promise.all([healer.remount('/mnt/music', 'tagave'), healer.remount('/mnt/music', 'tagave')])).toEqual(['mounted', 'mounted']);
+    expect(most).toBe(1);
+    // and the lock is free again
+    now += 10 * 60_000;
+    expect(await healer.tick()).toBe('mounted');
   });
 });
 

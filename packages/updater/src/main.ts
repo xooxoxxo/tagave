@@ -22,6 +22,7 @@ import { dockerRunner, httpAppProbe } from './runner.js';
 import { UpdaterService } from './server.js';
 import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 import { MusicHealer, httpMusicApp } from './music-heal.js';
+import { cachedProber, musicProber } from './music-probe.js';
 
 function num(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -60,9 +61,12 @@ async function main(): Promise<void> {
   });
   await service.load();
   const server = service.listen(port);
+  // One shared music reading, so the healer and a stalled update probe the share once.
+  const music = cachedProber(musicProber({ installDir, docker: dockerRunner(installDir) }), Date.now);
   const healer = new MusicHealer({
     installDir,
     docker: dockerRunner(installDir),
+    music,
     app: httpMusicApp(appUrl, appSecret),
     busy: () => service.moving(),
     log: (m) => console.log(JSON.stringify(m)),
