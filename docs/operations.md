@@ -406,7 +406,7 @@ Outside Docker (a source checkout), the app needs `pg_dump` and `pg_restore` of 
 
 Settings › Updates writes one dump per update: the one the new app takes right before it migrates, after the workers have stopped. The updater takes none of its own, except when the app's cannot be counted on: `TAGAVE_SKIP_PREMIGRATE_BACKUP=1` is set, the newest record in `_migration_backups` is an earlier attempt at the same version (the app would reuse that older dump), or that record or the migration count cannot be read. Then it runs `tagave-doctor backup --kind before-update` first and starts the new app once with `TAGAVE_SKIP_PREMIGRATE_BACKUP=1`, so the update still writes one dump; the workers' start right after starts the app again without it.
 
-When the new version fails, the updater first stops the app and workers, then restores a dump only if the migration count moved (and the app recorded a backup or a skip during this update, which it does before its first migration). It restores the first dump the new app recorded during this update (a restart after a failed migration reuses it), or else its own, whichever reads back with `pg_restore --list`. If the database changed and no readable dump from before the update exists, it does not roll back: the old version must not run on a database a newer one migrated, so the new version stays and the page names the backup to restore by hand. Look at `docker compose logs app`, or restore a backup by hand as below.
+When the new version fails, the updater first stops the app and workers, then restores a dump only if the migration count moved (and the app recorded a backup or a skip during this update, which it does before its first migration). It restores the first dump the new app recorded during this update (a restart after a failed migration reuses it), or else its own, whichever reads back with `pg_restore --list`. If the database changed and no readable dump from before the update exists, it does not roll back: the old version must not run on a database a newer one migrated, so the new version stays and the page says which backup to restore by hand, if any. Look at `docker compose logs app`, or restore a backup by hand as below.
 
 ### Roll back an update
 
@@ -414,8 +414,8 @@ Migrations only go forward, so going back means restoring the backup the update 
 
 When an update fails and cannot roll itself back, its result says what to do about the database:
 
-- that the update didn't change the database, so no backup needs restoring (set `TAGAVE_VERSION` back and run `docker compose up -d`);
-- the one backup this update took, to restore with the steps below;
+- that the update didn't change the database, so no backup needs restoring. To go back, set `TAGAVE_VERSION` in `.env` to the version you had and run `docker compose up -d`.
+- the one backup this update took. Restore it with the steps below.
 - or that no backup from this update was found.
 
 Never restore an older backup to undo an update: it would lose everything since it was taken. If no backup from the update was found, keep the new version running and look at `docker compose logs app`.
