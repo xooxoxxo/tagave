@@ -8,7 +8,9 @@ import {
   diagnoseStall,
   lastErrorLine,
   parseInspect,
+  PART_LABELS,
   parseSize,
+  partName,
   postgresRecovering,
   stallNeedsAction,
   waitingFor,
@@ -16,6 +18,7 @@ import {
   type Observation,
   type Readings,
 } from './progress.js';
+import { PART_LABELS as SHARED_LABELS } from '@tagave/shared/updater';
 
 const MB = 1e6;
 const L = (hex: string, size: number) => ({ digest: `sha256:${hex.padEnd(64, '0')}`, size });
@@ -212,5 +215,18 @@ describe('stalls', () => {
     const s = stall(readings([]), true);
     expect(s.cause).toBe('download');
     expect(stallNeedsAction(s.cause)).toBe(true);
+  });
+});
+
+describe('part names', () => {
+  it('match the labels the web shows', () => {
+    expect(PART_LABELS).toEqual(SHARED_LABELS);
+    expect(PART_LABELS['worker-files']).toBe('File worker');
+  });
+  it('read as a part inside a sentence', () => {
+    expect(partName('worker-files')).toBe('the file worker');
+    expect(partName('app')).toBe('the web app');
+    expect(partName('postgres')).toBe('the database');
+    expect(partName('worker-x')).toBe('worker-x');
   });
 });
