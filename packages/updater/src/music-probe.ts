@@ -277,16 +277,27 @@ export function musicProber(deps: {
 }
 
 /**
- * Shares one reading (in flight or finished, a null one too) between all
- * calls within `ttlMs`, so parallel stops probe once. The verdict is worked
- * out again for each caller's parts.
+ * Shares one reading (a null one too) between all calls, so parallel stops
+ * probe once. A read in flight is shared with every caller, however long it
+ * takes; a settled reading is kept for `ttlMs` from when it settled, and
+ * only then does a new read start. The verdict is worked out again for each
+ * caller's parts.
  */
 export function cachedProber(p: MusicProber, now: () => number, ttlMs = 60_000): MusicProber {
-  let last: { at: number; reading: Promise<MusicReading | null> } | null = null;
+  let inFlight: Promise<MusicReading | null> | null = null;
+  let settled: { at: number; reading: MusicReading | null } | null = null;
   return {
     async read(input) {
-      if (!last || now() - last.at >= ttlMs) last = { at: now(), reading: p.read(input).catch(() => null) };
-      const r = await last.reading;
+      let r: MusicReading | null;
+      if (settled && now() - settled.at < ttlMs) r = settled.reading;
+      else {
+        inFlight ??= p.read(input).catch(() => null).then((reading) => {
+          settled = { at: now(), reading };
+          inFlight = null;
+          return reading;
+        });
+        r = await inFlight;
+      }
       return r && { ...r, verdict: musicVerdict(r.mount, r.answer, input.parts, input.appUnmounted) };
     },
   };

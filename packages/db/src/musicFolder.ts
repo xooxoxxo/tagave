@@ -21,8 +21,12 @@ type Q = postgres.Sql<any> | postgres.TransactionSql<any>;
 export const MUSIC_HEAL_START = 'music.heal.start';
 export const MUSIC_HEAL_DONE = 'music.heal';
 
-/** Why an attempt ended: fixed codes, never text from the host or the remote. */
-export const MUSIC_HEAL_REASONS = ['mounted', 'no_systemd', 'not_in_fstab', 'mount_failed', 'still_empty', 'restart_failed', 'docker_failed'] as const;
+/**
+ * Why an attempt ended: fixed codes, never text from the host or the remote.
+ * The same list as HEAL_REASONS in packages/updater/src/music-heal.ts (the
+ * updater does not depend on this package): change both together.
+ */
+export const MUSIC_HEAL_REASONS = ['mounted', 'no_systemd', 'not_in_fstab', 'mount_failed', 'still_empty', 'restart_failed', 'docker_failed', 'server_silent'] as const;
 export type MusicHealReason = (typeof MUSIC_HEAL_REASONS)[number];
 
 export interface UnreachableRoot {

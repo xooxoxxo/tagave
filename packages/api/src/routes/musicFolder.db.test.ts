@@ -145,6 +145,17 @@ describe.skipIf(!url)('music folder state (integration)', () => {
     expect(musicFolderNotice({ ...state, heal: { phase: 'start', ok: null, reason: null, at: new Date(Date.now() - 11 * 60_000) } })).toEqual({ kind: 'unreachable', paths: ['/mnt/music'] });
   });
 
+  it('takes every known reason, a silent music share too', async () => {
+    // the updater's HEAL_REASONS, as a literal list (the updater does not depend on @tagave/db)
+    const reasons = ['mounted', 'no_systemd', 'not_in_fstab', 'mount_failed', 'still_empty', 'restart_failed', 'docker_failed', 'server_silent'];
+    for (const reason of reasons) {
+      expect((await signedPost('/api/v1/internal/updater/music-heal', { phase: 'done', ok: reason === 'mounted', reason })).statusCode).toBe(200);
+    }
+    const audit = await handle.sql`select payload from audit_log where action = 'music.heal' order by at`;
+    expect(audit.map((a) => a.payload.reason)).toEqual(reasons);
+    expect(audit.at(-1)?.payload).toEqual({ ok: false, reason: 'server_silent' });
+  });
+
   it('refuses unsigned calls, unknown reasons and anyone but the owner', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/internal/updater/music' })).statusCode).toBe(401);
     expect((await signedPost('/api/v1/internal/updater/music-heal', { phase: 'done', ok: false, reason: 'the host said: boom' })).statusCode).toBe(400);

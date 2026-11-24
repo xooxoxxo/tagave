@@ -8,7 +8,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MUSIC_SERVICES } from './music-heal.js';
 import {
   cachedProber,
@@ -270,6 +270,38 @@ describe('cachedProber', () => {
     const [a, b] = await Promise.all([prober.read({ parts: [] }), prober.read({ parts: stuckFiles })]);
     expect(a).toEqual(b);
     expect(mountReads()).toBe(1);
+    t += 59_000;
+    await prober.read({ parts: [] });
+    expect(mountReads()).toBe(1);
+    t += 2_000;
+    await prober.read({ parts: [] });
+    expect(mountReads()).toBe(2);
+  });
+
+  it('shares a read that takes longer than the minute, and counts the minute from when it ends', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const calls: string[][] = [];
+    const answer = hostWith();
+    const docker: Runner = async (args) => {
+      calls.push(args);
+      if (args.includes('/proc/self/mountinfo')) await held;
+      return { code: 0, stdout: '', stderr: '', ...answer(args) };
+    };
+    let t = 1_000_000;
+    const prober = cachedProber(musicProber({ installDir, docker, self: 's', connect: async () => true }), () => t);
+    const mountReads = () => calls.filter((c) => c.includes('/proc/self/mountinfo')).length;
+    const first = prober.read({ parts: [] });
+    await vi.waitFor(() => expect(mountReads()).toBe(1));
+    t += 61_000;
+    const second = prober.read({ parts: [] });
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toMatchObject({ answer: 'answers' });
+    expect(b).toEqual(a);
+    expect(mountReads()).toBe(1);
+    // the minute counts from when the read ended, not when it began
     t += 59_000;
     await prober.read({ parts: [] });
     expect(mountReads()).toBe(1);

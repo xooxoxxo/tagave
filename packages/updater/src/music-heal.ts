@@ -18,6 +18,14 @@
  *   5. restarts only this install's containers that bind MUSIC_DIR
  *      (worker-files, app, player), found by the compose project label
  *
+ * Before any of that it reads the host mount table (music-probe.ts, which
+ * never touches MUSIC_DIR). A network share whose server does not answer
+ * ends the attempt as `server_silent`: on a dead hard NFS mount
+ * `mountpoint` and `find` would hang in the kernel. A network share already
+ * mounted on MUSIC_DIR that answers skips steps 1 to 4. A silent share does
+ * not count as a failure (the wait does not grow) and is reported once, when the
+ * reason changes, so days of silence add one audit entry.
+ *
  * Every argv is fixed; MUSIC_DIR comes only from the install's .env (what
  * compose binds), never from the database or a request. It never unmounts,
  * edits fstab, or touches another path or container. Each attempt is
@@ -29,10 +37,16 @@ import { posix } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { envGet } from './envFile.js';
+import type { MusicProber } from './music-probe.js';
 import type { Runner } from './runner.js';
 import { signRequest } from './token.js';
 
-export const HEAL_REASONS = ['mounted', 'no_systemd', 'not_in_fstab', 'mount_failed', 'still_empty', 'restart_failed', 'docker_failed'] as const;
+/**
+ * Why an attempt ended. The same list as MUSIC_HEAL_REASONS in
+ * packages/db/src/musicFolder.ts (the updater does not depend on
+ * @tagave/db): change both together.
+ */
+export const HEAL_REASONS = ['mounted', 'no_systemd', 'not_in_fstab', 'mount_failed', 'still_empty', 'restart_failed', 'docker_failed', 'server_silent'] as const;
 export type HealReason = (typeof HEAL_REASONS)[number];
 export type HealReport = { phase: 'start' } | { phase: 'done'; ok: boolean; reason: HealReason };
 
@@ -152,11 +166,16 @@ export interface HealerDeps {
   self?: string;
   config?: Partial<HealConfig>;
   log?: (msg: Record<string, unknown>) => void;
+  /** reads the music mount and whether its server answers; null or absent skips the check */
+  music?: MusicProber | null;
 }
 
 export class MusicHealer {
-  private last: { at: number; failures: number } | null = null;
-  private running = false;
+  private last: { at: number; failures: number; reason: HealReason } | null = null;
+  /** the tail of the queue: every attempt, a tick's or a remount's, runs after the one before */
+  private lock: Promise<void> = Promise.resolve();
+  /** an attempt runs or waits for its turn */
+  private locked = false;
   private timer: NodeJS.Timeout | null = null;
   private readonly cfg: HealConfig;
   private readonly now: () => number;
@@ -175,11 +194,10 @@ export class MusicHealer {
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** One check; an attempt when the decision says so. Returns how the attempt ended, or null. */
+  /** One check; an attempt when the decision says so. Returns how the attempt ended, or null. Skips while the lock is held. */
   async tick(): Promise<HealReason | null> {
-    if (this.running) return null;
-    this.running = true;
-    try {
+    if (this.locked) return null;
+    return this.withLock(async () => {
       const env = await readFile(join(this.deps.installDir, '.env'), 'utf8').catch(() => '');
       const musicDir = musicDirOf(env);
       const on = selfHealOn(env);
@@ -187,15 +205,44 @@ export class MusicHealer {
       const decision = healDecision({ on, musicDir, unmounted, busy: this.deps.busy(), now: this.now(), last: this.last, cfg: this.cfg });
       if (!decision.go) return null;
       const project = envGet(env, 'COMPOSE_PROJECT_NAME') || 'tagave';
-      const reason = await this.attempt(musicDir!, project);
-      const ok = reason === 'mounted';
-      this.last = { at: this.now(), failures: ok ? 0 : (this.last?.failures ?? 0) + 1 };
-      await this.deps.app.report({ phase: 'done', ok, reason });
-      this.deps.log?.({ msg: 'music folder self-heal', ok, reason });
-      return reason;
+      return this.record(await this.attempt(musicDir!, project));
+    });
+  }
+
+  /** One attempt for `dir`, under the lock: waits for a running tick or remount, then runs. */
+  async remount(dir: string, project: string): Promise<HealReason> {
+    return this.withLock(async () => this.record(await this.attempt(dir, project)));
+  }
+
+  private async withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const before = this.lock;
+    let release!: () => void;
+    const mine = new Promise<void>((resolve) => { release = resolve; });
+    this.lock = mine;
+    this.locked = true;
+    await before;
+    try {
+      return await fn();
     } finally {
-      this.running = false;
+      if (this.lock === mine) this.locked = false;
+      release();
     }
+  }
+
+  /**
+   * Keeps how an attempt ended and tells the app. `server_silent` is not a
+   * failure (the next try is not pushed back) and is told only when the
+   * reason before was another one.
+   */
+  private async record(reason: HealReason): Promise<HealReason> {
+    const ok = reason === 'mounted';
+    const before = this.last;
+    const failures = reason === 'server_silent' ? (before?.failures ?? 0) : ok ? 0 : (before?.failures ?? 0) + 1;
+    this.last = { at: this.now(), failures, reason };
+    if (reason === 'server_silent' && before?.reason === 'server_silent') return reason;
+    await this.deps.app.report({ phase: 'done', ok, reason });
+    this.deps.log?.({ msg: 'music folder self-heal', ok, reason });
+    return reason;
   }
 
   private async host(image: string, command: readonly string[]) {
@@ -204,6 +251,15 @@ export class MusicHealer {
 
   private async attempt(dir: string, project: string): Promise<HealReason> {
     const d = this.deps.docker;
+    const reading = this.deps.music ? await this.deps.music.read({ parts: [], appUnmounted: true }).catch(() => null) : null;
+    const network = reading?.mount.kind === 'network';
+    // Nothing below may touch MUSIC_DIR while its server is silent: a hard mount would hang.
+    if (network && reading.answer === 'silent') return 'server_silent';
+    if (network && reading.mount.mountPoint === dir && reading.answer === 'answers') {
+      await this.deps.app.report({ phase: 'start' });
+      return this.restart(project, dir);
+    }
+
     const image = await selfImage(d, this.deps.self ?? hostname());
     if (!image) return 'docker_failed';
 
@@ -220,6 +276,12 @@ export class MusicHealer {
     const first = await this.host(image, hostCommand.firstEntry(dir));
     if (first.code !== 0 || first.stdout.trim() === '') return 'still_empty';
 
+    return this.restart(project, dir);
+  }
+
+  /** Restarts this install's music containers, so they pick the mount up. */
+  private async restart(project: string, dir: string): Promise<HealReason> {
+    const d = this.deps.docker;
     const targets = await musicContainers(d, project, dir);
     if (targets === null) return 'restart_failed';
     if (targets.length > 0 && (await d(['restart', ...targets], { timeoutMs: 180_000 })).code !== 0) return 'restart_failed';
