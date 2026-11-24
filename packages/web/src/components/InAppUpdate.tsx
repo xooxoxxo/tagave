@@ -249,12 +249,13 @@ export function logPreview(run: UpdateRun, notes: Record<string, StepNote>): str
   return shown.some((t) => t.includes(line) || line.includes(t)) ? null : last.message;
 }
 
-/** The glyph's tone for a run: the accent while it runs or once it succeeded, warn or danger once it failed. */
+/** The glyph's tone for a run: the accent while it runs or once it succeeded, warn once a part waits for the music share, warn or danger once it failed. */
 export function glyphTone(run: UpdateRun): GlyphTone {
   switch (run.status) {
     case 'running': return 'live';
     case 'succeeded': return 'ok';
     case 'rolled_back':
+    case 'held':
     case 'failed': return 'warn';
     default: return 'error';
   }
@@ -356,6 +357,10 @@ export function runSummary(run: UpdateRun, now: number): { head: RunHead; notes:
       break;
     case 'succeeded':
       head = { tone: 'ok', title: `Updated to ${run.target}` };
+      break;
+    case 'held':
+      // The new version runs; a part waits for the music share, and the reason says which and what to do.
+      head = { tone: 'warn', title: `Updated to ${run.target}`, short: 'Updated', body: sentence(run.reason) };
       break;
     case 'rolled_back':
       head = {
