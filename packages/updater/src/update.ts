@@ -16,12 +16,19 @@
  *              them), then TAGAVE_VERSION=<target> in .env; each written
  *              atomically, the old one kept as .bak
  *   pull       docker compose pull (quick: preflight pulled already)
- *   restart    stop the workers, `up -d app` (it backs up and migrates as
- *              it starts), wait for it to answer healthy on the target,
- *              then `up -d` for everything else; the dump the app recorded
- *              becomes the run's backup
+ *   restart    stop the workers one at a time with short limits (parts.ts),
+ *              `up -d app` (it backs up and migrates as it starts), wait for
+ *              it to answer healthy on the target, then start every other
+ *              part one at a time; the dump the app recorded becomes the
+ *              run's backup
  *   verify     health ok, the app on the target, and every local worker
  *              sending heartbeats from the target since the restart
+ *
+ * A part that will not stop or start (a container held by a hard network
+ * mount that went silent) fails the step within a few minutes, with what to
+ * do. Only when every such part binds the music folder and its share does
+ * not answer does the update go on without them: the run ends `held` on the
+ * new version, and those parts start once the share is back.
  *
  * The optional player (compose service "player", a bundled Navidrome) is
  * pulled and started with everything else. Navidrome migrates its SQLite
@@ -58,7 +65,7 @@
  */
 import { statfs } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import type { UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@tagave/shared/updater';
+import type { UpdateHeld, UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@tagave/shared/updater';
 import { unlink } from 'node:fs/promises';
 import { envGet, envKeys, envSet, envUnset, migrateLegacyEnv, readText, writeFileAtomic } from './envFile.js';
 import { MODULES_DIR, isOn, moduleComposeFile, pullVerified, renderModuleCompose, withRegistry } from './modules.js';
@@ -72,11 +79,15 @@ import {
   ComposePullProgress,
   diagnoseStall,
   parseInspect,
+  partName,
   stallNeedsAction,
   waitingFor,
+  type MusicFinding,
   type Observation,
   type Readings,
 } from './progress.js';
+import { MUSIC_BOUND, type MusicProber } from './music-probe.js';
+import { Parts, type PartsResult, type StuckPart } from './parts.js';
 import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
 import { redact } from './redact.js';
 import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
@@ -207,6 +218,8 @@ export interface UpdateDeps {
    * them. The updater service never starts a run without it.
    */
   release?: { verified: VerifiedRelease; platform: string };
+  /** Reads the music share when a part that binds it will not stop or start; null: no probing. */
+  music?: MusicProber | null;
 }
 
 /** The newest release this install has run, remembered for downgrade protection (release.ts). */
@@ -226,6 +239,43 @@ interface Watch {
 }
 /** The roll back stops before it changes anything: the new version stays, matching the database it changed. */
 class KeepNewVersion extends Error {}
+/** The roll back put the files back but a part is stuck; the message is whole sentences for the owner. */
+class RollbackStuck extends Error {}
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** The text without its closing period, to go on with ". …". */
+const unstop = (s: string) => s.replace(/\.\s*$/, '');
+
+/** "the file worker", "the file worker and the player", "a, b and c". */
+function names(services: string[]): string {
+  const all = services.map(partName);
+  return all.length <= 1 ? all.join('') : `${all.slice(0, -1).join(', ')} and ${all.at(-1)}`;
+}
+
+/**
+ * What the owner reads about parts that will not stop or start, then how
+ * many of the install's `total` parts run. `running` defaults to the parts
+ * that are not stuck; pass it when a part also failed to start.
+ */
+export function stuckSentence(stuck: StuckPart[], total: number, running = total - stuck.length): string {
+  const out: string[] = [];
+  for (const p of stuck) {
+    const line = p.cause === 'music_unreachable'
+      ? `Your music share${p.server ? ` at ${p.server}` : ''} doesn't answer. Turn the NAS on or check its cable.`
+      : p.cause === 'stuck_stop'
+        ? `${capital(partName(p.service))} is stuck and won't stop. Restart the computer tagave runs on.`
+        : `${capital(partName(p.service))} won't start. Restart the computer tagave runs on.`;
+    if (!out.includes(line)) out.push(line);
+  }
+  out.push(`${Math.max(0, running)} of ${total} parts running.`);
+  return out.join(' ');
+}
+
+/** The reason of a held run. */
+export function heldReason(target: string, held: UpdateHeld): string {
+  const share = held.server ? `Your music share at ${held.server}` : 'Your music share';
+  return `Updated to ${target}. ${share} doesn't answer, so ${names(held.parts)} ${held.parts.length === 1 ? 'waits' : 'wait'} for it. Turn the NAS on or check its cable, then press Repair in Settings › Updates.`;
+}
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -309,12 +359,30 @@ export class Update {
   private commandOutput = '';
   /** Free bytes on Docker's disk at the last check during a download: docker pull prints nothing while a layer comes down. */
   private downloadFree: number | null = null;
+  /** Stops and starts the parts one at a time, each call with a short limit. */
+  private readonly parts: Parts;
+  /** Every part that would not stop or start during this run; a later start skips it. */
+  private readonly stuck = new Map<string, StuckPart>();
+  /** Stuck parts a reason already names. */
+  private readonly told = new Set<string>();
+  /** The parts that wait for the music share; the run ends held. */
+  private held: UpdateHeld | null = null;
+  /** The music probe's last finding, for the stall check. */
+  private musicFinding: MusicFinding | null = null;
+  private probing = false;
+  private lastProbe = -Infinity;
 
   constructor(private readonly deps: UpdateDeps, run: UpdateRun) {
     this.run = run;
     this.now = deps.now ?? (() => new Date());
     this.sleep = deps.sleep ?? realSleep;
     this.envPath = join(deps.installDir, '.env');
+    this.parts = new Parts({
+      docker: deps.docker,
+      music: deps.music ?? null,
+      now: () => this.now().getTime(),
+      log: (level, message) => this.log(level, message),
+    });
   }
 
   // -- bookkeeping ---------------------------------------------------------
@@ -411,17 +479,19 @@ export class Update {
   private async observe(services: string[]): Promise<Readings> {
     const observations: Observation[] = [];
     for (const service of services) {
+      const pending = this.parts.stuckSince(service);
+      const stuckFor = pending ? { stuckFor: { kind: pending.kind, ms: this.now().getTime() - pending.at } } : {};
       const ps = await this.compose(['ps', '-a', '-q', service], { quiet: true, timeoutMs: 30_000 });
       const id = ps.code === 0 ? ps.stdout.trim().split('\n')[0]?.trim() : '';
       if (!id) {
-        observations.push({ service, state: null, logs: '', restartsBefore: this.restartsAt.get(service) ?? 0 });
+        observations.push({ service, state: null, logs: '', restartsBefore: this.restartsAt.get(service) ?? 0, ...stuckFor });
         continue;
       }
       const inspect = await this.docker(['inspect', '--format', INSPECT_FORMAT, id], { quiet: true, timeoutMs: 30_000 });
       const state = inspect.code === 0 ? parseInspect(inspect.stdout) : null;
       const logs = await this.docker(['logs', '--tail', '40', id], { quiet: true, timeoutMs: 30_000 });
       if (state && !this.restartsAt.has(service)) this.restartsAt.set(service, state.restarts);
-      observations.push({ service, state, logs: logs.code === 0 ? `${logs.stdout}\n${logs.stderr}` : '', restartsBefore: this.restartsAt.get(service) ?? state?.restarts ?? 0 });
+      observations.push({ service, state, logs: logs.code === 0 ? `${logs.stdout}\n${logs.stderr}` : '', restartsBefore: this.restartsAt.get(service) ?? state?.restarts ?? 0, ...stuckFor });
     }
     let dockerFreeBytes: number | null = null;
     try {
@@ -451,7 +521,8 @@ export class Update {
     try {
       const r = readings ?? (await this.observe(services.filter((s) => s === 'postgres' || this.services.includes(s))));
       if (this.run.progress !== p) return;
-      const stall = diagnoseStall(r, { progress: p.message, stalledMs, since: p.at, downloading });
+      this.refreshMusic(r);
+      const stall = diagnoseStall({ ...r, music: this.musicFinding }, { progress: p.message, stalledMs, since: p.at, downloading });
       this.lastDiagnosed = nowMs;
       if (this.run.stall?.cause === stall.cause && this.run.stall.message === redact(stall.message)) return;
       this.run.stall = { ...stall, message: redact(stall.message), advice: redact(stall.advice) };
@@ -459,6 +530,31 @@ export class Update {
     } finally {
       this.diagnosing = false;
     }
+  }
+
+  /**
+   * When a part that binds the music folder hangs (Created, Removing, or a
+   * stop or start that has not ended), reads the music share in the
+   * background, at most once per config.observeEveryMs; the next stall
+   * check reads what it found. Never awaited: the probe has limits of its
+   * own, and the wait for the app must not stand still for it.
+   */
+  private refreshMusic(r: Readings): void {
+    const hanging = r.observations.filter((o) => MUSIC_BOUND.includes(o.service) && (o.stuckFor !== undefined || o.state?.status === 'created' || o.state?.status === 'removing'));
+    if (hanging.length === 0) {
+      this.musicFinding = null;
+      return;
+    }
+    const music = this.deps.music;
+    const nowMs = this.now().getTime();
+    if (!music || this.probing || nowMs - this.lastProbe < this.deps.config.observeEveryMs) return;
+    this.probing = true;
+    this.lastProbe = nowMs;
+    const service = hanging[0]!.service;
+    void music.read({ parts: hanging.map((o) => ({ service: o.service, stuck: true })) })
+      .then((reading) => { this.musicFinding = reading ? { verdict: reading.verdict, server: reading.server, service } : null; })
+      .catch(() => { this.musicFinding = null; })
+      .finally(() => { this.probing = false; });
   }
 
   /**
@@ -536,6 +632,26 @@ export class Update {
     return this.services.filter((s) => s.startsWith('worker-'));
   }
 
+  private noteStuck(res: PartsResult): void {
+    for (const p of res.stuck) this.stuck.set(p.service, p);
+  }
+
+  /** stuckSentence for these parts, which the reason then names. */
+  private stuckNote(stuck: StuckPart[], running?: number): string {
+    for (const p of stuck) this.told.add(p.service);
+    return stuckSentence(stuck, this.services.length, running);
+  }
+
+  /** Stuck parts no reason names yet. */
+  private untold(): StuckPart[] {
+    return [...this.stuck.values()].filter((p) => !this.told.has(p.service));
+  }
+
+  /** The parts a start left neither running nor stuck: they ended right away. */
+  private failedStarts(wanted: string[], res: PartsResult): string[] {
+    return wanted.filter((s) => !res.done.includes(s) && !res.stuck.some((p) => p.service === s));
+  }
+
   private hasPlayer(): boolean {
     return this.services.includes(PLAYER);
   }
@@ -556,8 +672,9 @@ export class Update {
   private async snapshotPlayer(): Promise<void> {
     this.progress("copying the player's data");
     this.log('info', `the player moves from ${this.playerImageBefore} to ${this.playerImageAfter}; Navidrome changes its database only forward, so it is copied first`);
-    const stop = await this.compose(['stop', PLAYER]);
-    if (stop.code !== 0) this.fail('could not stop the player to copy its data');
+    const stop = await this.parts.stopParts([PLAYER]);
+    this.noteStuck(stop);
+    if (stop.stuck.length) this.fail(this.stuckNote(stop.stuck));
     const res = await this.compose(['run', '--rm', '--no-deps', '-T', '--entrypoint', 'sh', PLAYER, '-c', PLAYER_SNAPSHOT_SH], { timeoutMs: 10 * 60_000 });
     const said = res.stdout.trim().split('\n').at(-1)?.trim();
     if (res.code !== 0 || (said !== 'saved' && said !== 'none')) {
@@ -673,7 +790,8 @@ export class Update {
     return { services: ['app', 'postgres'], describe: (_detail, seen) => (seen ? `waiting for ${who}: ${seen}` : `waiting for ${who} to answer`) };
   }
 
-  private appOn(version: string | null, since: Date | null, requireWorkers: boolean): () => Promise<string | null> {
+  /** `skip`: workers that wait for the music share, so fewer report. */
+  private appOn(version: string | null, since: Date | null, requireWorkers: boolean, skip = 0): () => Promise<string | null> {
     return async () => {
       const h = await this.deps.app.health();
       if (!h.ok) return h.detail;
@@ -681,7 +799,7 @@ export class Update {
       if (!v) return 'the app does not report its version yet';
       if (version && v.app !== version) return `the app reports ${v.app ?? 'no version'}, not ${version}`;
       if (!requireWorkers) return null;
-      const want = this.workers().length;
+      const want = this.workers().length - skip;
       const fresh = v.workers.filter((w) => w.version === version && (!since || Date.parse(w.lastSeenAt) >= since.getTime() - 1000));
       if (fresh.length < want) {
         const others = v.workers.filter((w) => w.version !== version).map((w) => w.version ?? '?');
@@ -1118,16 +1236,18 @@ export class Update {
   private async restart(): Promise<Date> {
     const workers = this.workers();
     if (workers.length) {
-      const stop = await this.compose(['stop', ...workers]);
-      if (stop.code !== 0) this.fail('could not stop the workers');
+      const stop = await this.watched(workers, false, this.parts.stopParts(workers));
+      this.noteStuck(stop);
+      // No new app has started yet: a roll back only puts the files back.
+      if (stop.stuck.length) this.fail(this.stuckNote(stop.stuck));
     }
     if (this.playerImageChanges()) await this.snapshotPlayer();
     this.newAppStarted = true;
     const startedAt = this.now();
     this.progress('starting the new app');
     // The updater's own dump is the rollback point: the new app takes none on
-    // this boot, so the update writes one before-update dump. The next
-    // `up -d` (the workers) starts it again without the setting.
+    // this boot, so the update writes one before-update dump. The parts
+    // started next leave the app as it runs.
     const skip = this.ownDumpPath ? { env: { TAGAVE_SKIP_PREMIGRATE_BACKUP: '1' } } : {};
     if (this.ownDumpPath) this.log('info', 'the new app starts without a backup of its own this once (TAGAVE_SKIP_PREMIGRATE_BACKUP=1): the updater took one');
     const up = await this.watched(['postgres', 'app'], false, this.compose(['up', '-d', 'app'], skip));
@@ -1138,8 +1258,20 @@ export class Update {
     await this.noteAppDump();
     if (this.hasPlayer()) this.playerStarted = true;
     this.progress('starting the workers');
-    const rest = await this.watched(this.workers(), false, this.compose(['up', '-d', ...this.services]));
-    if (rest.code !== 0) this.fail(`docker compose could not start the workers: ${tail(rest.stderr, 3)}`);
+    const rest = this.services.filter((s) => s !== 'app');
+    const start = await this.watched(rest, false, this.parts.startParts(rest));
+    this.noteStuck(start);
+    const running = 1 + start.done.length;
+    const failed = this.failedStarts(rest, start);
+    if (failed.length) {
+      this.fail([...failed.map((s) => `${capital(partName(s))} won't start.`), ...(start.stuck.length ? [this.stuckNote(start.stuck, running)] : [])].join(' '));
+    }
+    if (start.stuck.length) {
+      const waiting = start.stuck.every((p) => p.cause === 'music_unreachable' && MUSIC_BOUND.includes(p.service));
+      if (!waiting) this.fail(this.stuckNote(start.stuck, running));
+      this.held = { cause: 'music_unreachable', parts: start.stuck.map((p) => p.service), server: start.stuck.find((p) => p.server)?.server ?? null };
+      this.log('warn', `${names(this.held.parts)} ${this.held.parts.length === 1 ? 'waits' : 'wait'} for the music share${this.held.server ? ` at ${this.held.server}` : ''}, which does not answer; the update goes on without ${this.held.parts.length === 1 ? 'it' : 'them'}`);
+    }
     return startedAt;
   }
 
@@ -1147,7 +1279,9 @@ export class Update {
     const target = this.run.target;
     // The app and the workers appOn waits for (this install's own), as in the step's first sub-state.
     let total = this.partCount();
-    const issue = await this.waitFor(this.appOn(target, since, true), this.deps.config.healthTimeoutMs, {
+    const held = this.held?.parts ?? [];
+    const skip = held.filter((s) => s.startsWith('worker-')).length;
+    const issue = await this.waitFor(this.appOn(target, since, true, skip), this.deps.config.healthTimeoutMs, {
       services: ['app', ...this.workers()],
       describe: (detail, seen) => {
         // The app answers on the target by now: it counts as one of the parts.
@@ -1160,7 +1294,7 @@ export class Update {
       },
     });
     if (issue) this.fail(`not every part reports ${target}: ${issue}`);
-    if (this.hasPlayer()) await this.checkPlayer();
+    if (this.hasPlayer() && !held.includes(PLAYER)) await this.checkPlayer();
   }
 
   /** Warns, never fails: tagave runs fine while the player is down. */
@@ -1178,8 +1312,9 @@ export class Update {
   /** Puts the player's data back as it was before the update. */
   private async restorePlayer(): Promise<void> {
     this.log('warn', "the new player may have changed its database; putting the copy from before the update back");
-    const stop = await this.compose(['stop', PLAYER]);
-    if (stop.code !== 0) throw new Error('could not stop the player to restore its data');
+    const stop = await this.parts.stopParts([PLAYER]);
+    this.noteStuck(stop);
+    if (stop.stuck.length) throw new RollbackStuck(this.stuckNote(stop.stuck));
     const res = await this.compose(['run', '--rm', '--no-deps', '-T', '--entrypoint', 'sh', PLAYER, '-c', PLAYER_RESTORE_SH], { timeoutMs: 10 * 60_000 });
     if (res.code !== 0 || !res.stdout.includes('restored')) {
       throw new Error(`restoring the player's data failed: ${tail(res.stderr || res.stdout, 3)}; the copy is in /data/snapshots/pre-update in the player's volume`);
@@ -1193,14 +1328,18 @@ export class Update {
     let healthy = false;
     let filesBack = false;
     let restoreFrom: string | null = null;
+    /** The new app would not stop, and had changed nothing: the roll back goes on without it. */
+    let appStuck = false;
+    const rest = this.services.filter((s) => s !== 'app');
     try {
       if (this.newAppStarted) {
-        // Stop the new app (and the workers) before reading anything: a
-        // running app may be dumping, migrating or crash-looping into its
-        // next attempt, and a file it commits after the reading would leave
-        // the old version on a partly migrated database.
-        const stop = await this.compose(['stop', 'app', ...this.workers()]);
-        if (stop.code !== 0) {
+        // Stop the new app, on its own, before reading anything: a running
+        // app may be dumping, migrating or crash-looping into its next
+        // attempt, and a file it commits after the reading would leave the
+        // old version on a partly migrated database.
+        const app = await this.watched(['app'], false, this.parts.stopParts(['app']));
+        this.noteStuck(app);
+        if (app.stuck.length) {
           // The reading from when the app answered is old now: a record of
           // this run's backup (or skip) says the app went on to migrate, and
           // a record that cannot be read leaves it unknown.
@@ -1208,8 +1347,13 @@ export class Update {
             const recorded = await this.recordedThisRun();
             if (recorded !== false) this.dbChanged = recorded === null ? null : true;
           }
-          throw new KeepNewVersion(`the new app could not be stopped to check whether it changed the database (${tail(stop.stderr || stop.stdout, 2)})`);
+          if (this.dbChanged !== false) throw new KeepNewVersion(this.stuckNote(app.stuck));
+          appStuck = true;
+          this.log('warn', `the new app could not be stopped, but it changed nothing in the database (no backup record since it answered); putting ${this.run.from} back without it`);
         }
+        // The workers on their own: one that will not stop is noted, and never changes what the database needs.
+        const workers = this.workers().filter((w) => !this.stuck.has(w));
+        if (workers.length) this.noteStuck(await this.watched(workers, false, this.parts.stopParts(workers)));
       }
       const after = this.newAppStarted ? await this.migrationCount() : this.migrationsBefore;
       const moved = after === null || this.migrationsBefore === null || after !== this.migrationsBefore;
@@ -1219,6 +1363,8 @@ export class Update {
       else if (this.dbChanged === false && (after === null || this.migrationsBefore === null)) this.dbChanged = null;
       const needsRestore = this.newAppStarted && moved && !(await this.provenUnmigrated());
       this.log('info', `migrations before ${this.migrationsBefore ?? 'unknown'}, now ${after ?? 'unknown'}`);
+      // Nothing is restored under an app that still runs.
+      if (appStuck && (needsRestore || this.dbChanged !== false)) throw new KeepNewVersion(this.stuckNote([this.stuck.get('app')!]));
 
       if (needsRestore) {
         // Find and read the dump before anything is put back: without one,
@@ -1265,31 +1411,49 @@ export class Update {
       if (this.playerSnapshot && this.playerStarted) await this.restorePlayer();
 
       this.progress(`starting ${this.run.from}`);
+      if (appStuck) {
+        // Anything aimed at the app container would hang as its stop did.
+        const start = await this.watched(rest, false, this.parts.startParts(rest, { skip: [...this.stuck.keys()] }));
+        this.noteStuck(start);
+        throw new RollbackStuck(this.stuckNote(this.untold(), start.done.length));
+      }
       const up = await this.compose(['up', '-d', 'app']);
       if (up.code !== 0) throw new Error(`the old app did not start: ${tail(up.stderr, 3)}`);
       const from = /^\d+\.\d+\.\d+/.test(this.run.from) ? this.run.from : null;
       const issue = await this.waitFor(this.appOn(from, null, false), this.deps.config.healthTimeoutMs, this.appWatch(`${this.run.from}`));
       if (issue) throw new Error(`the old version did not answer healthy: ${issue}`);
       this.progress('starting the workers');
-      const rest = await this.compose(['up', '-d', ...this.services]);
-      if (rest.code !== 0) throw new Error(`the workers did not start: ${tail(rest.stderr, 3)}`);
+      const skip = new Set(this.stuck.keys());
+      const start = await this.watched(rest, false, this.parts.startParts(rest, { skip: [...skip] }));
+      this.noteStuck(start);
+      const failed = this.failedStarts(rest.filter((s) => !skip.has(s)), start);
+      if (failed.length) throw new Error(`${names(failed)} did not start`);
       healthy = true;
       this.end('rollback', 'done');
       this.run.status = 'rolled_back';
-      this.run.reason = redact(reason);
+      const untold = this.untold();
+      this.run.reason = redact(untold.length ? `${unstop(reason)}. ${this.stuckNote(untold, 1 + start.done.length)}` : reason);
       this.log('warn', `rolled back to ${this.run.from}${restored ? ' with the database restored' : ''}`);
     } catch (err) {
       this.end('rollback', 'failed');
       this.run.status = 'rollback_failed';
       if (err instanceof KeepNewVersion) {
         // Nothing was put back: the new version matches the database it changed.
-        const up = await this.compose(['up', '-d', ...this.services]);
+        const skip = new Set(this.stuck.keys());
+        const start = await this.parts.startParts(this.services, { skip: [...skip] });
+        this.noteStuck(start);
+        const again = start.stuck.length === 0 && this.failedStarts(this.services.filter((s) => !skip.has(s)), start).length === 0;
+        const untold = this.untold();
+        const stuck = untold.length ? ` ${this.stuckNote(untold, start.done.length)}` : '';
         const advice = await this.rollbackAdvice();
-        this.run.reason = redact(`${reason}. Not rolled back: ${err.message}. ${this.run.from} must not run on a database ${this.run.target} changed, so ${this.run.target} stays in place${up.code === 0 ? ' and was started again' : ''}. ${advice}`);
+        this.run.reason = redact(`${unstop(reason)}. Not rolled back: ${unstop(err.message)}. ${this.run.from} must not run on a database ${this.run.target} changed, so ${this.run.target} stays in place${again ? ' and was started again' : ''}.${stuck} ${advice}`);
         this.log('error', `not rolled back: ${err.message}`);
         this.log('error', `${this.run.target} stays in place (TAGAVE_VERSION=${this.run.target} in .env). Look at docker compose logs app. ${advice} See docs/operations.md, Roll back an update.`);
       } else {
-        this.run.reason = redact(`${reason}. The roll back did not finish: ${(err as Error).message}`);
+        const untold = this.untold();
+        this.run.reason = redact(err instanceof RollbackStuck
+          ? `${unstop(reason)}. The roll back did not finish. ${err.message}`
+          : `${unstop(reason)}. The roll back did not finish: ${(err as Error).message}${untold.length ? `. ${this.stuckNote(untold)}` : ''}`);
         this.log('error', `roll back failed: ${(err as Error).message}`);
         this.log('error', restoreFrom && !restored && filesBack
           ? `the app and workers are stopped, and the database is still the one ${this.run.target} changed: do not start ${this.run.from} on it. By hand, in the install folder: restore ${restoreFrom} with tagave-doctor restore (docs/operations.md, Roll back an update), then docker compose up -d; or set TAGAVE_VERSION=${this.run.target} in .env again and docker compose up -d`
@@ -1450,8 +1614,15 @@ export class Update {
       await this.verify(since);
       this.end('verify', 'done');
       this.end('rollback', 'skipped');
-      this.run.status = 'succeeded';
-      this.log('info', `tagave ${this.run.target} runs and reports healthy`);
+      if (this.held) {
+        this.run.status = 'held';
+        this.run.held = this.held;
+        this.run.reason = redact(heldReason(this.run.target, this.held));
+        this.log('warn', `tagave ${this.run.target} runs; ${names(this.held.parts)} ${this.held.parts.length === 1 ? 'waits' : 'wait'} for the music share`);
+      } else {
+        this.run.status = 'succeeded';
+        this.log('info', `tagave ${this.run.target} runs and reports healthy`);
+      }
       if (this.deps.release) {
         await mkdirKeepingOwner(join(this.deps.installDir, '.updater'), 0o700).catch(() => undefined);
         await writeFileKeepingOwner(join(this.deps.installDir, RELEASE_FLOOR_FILE), `${this.run.target}\n`, { fallbackMode: 0o600 })
@@ -1467,16 +1638,18 @@ export class Update {
       } else {
         this.end('rollback', 'skipped');
         this.run.status = 'failed';
-        this.run.reason = redact(`${reason}. Nothing was changed.`);
+        this.run.reason = redact(`${unstop(reason)}. Nothing was changed.`);
       }
     }
-    if (this.run.status === 'succeeded') await this.cleanOldImages();
+    // A held run runs the new version too: the same clean up and hand-over.
+    const updated = this.run.status === 'succeeded' || this.run.status === 'held';
+    if (updated) await this.cleanOldImages();
     this.run.progress = null;
     this.run.stall = null;
     this.run.finishedAt = this.now().toISOString();
     await this.persist();
     // replaceSelf writes the run once more before it hands over, and not after.
-    if (this.run.status === 'succeeded' && this.deps.config.selfUpdate) await this.replaceSelf();
+    if (updated && this.deps.config.selfUpdate) await this.replaceSelf();
     return this.run;
   }
 }
