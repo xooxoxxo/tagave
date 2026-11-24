@@ -36,6 +36,7 @@ import { HANDOVER_LABEL, SelfReplaceGate, parseState, serializeState, type SelfR
 import type { AppProbe, Runner } from './runner.js';
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER } from './token.js';
 import { RELEASE_FLOOR_FILE, Update, newRun, type UpdateConfig } from './update.js';
+import type { MusicProber } from './music-probe.js';
 
 /** Same rule as @tagave/shared UPDATE_TARGET_RE (kept here so the image needs no runtime packages). */
 const TARGET_RE = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]{1,40})?$/;
@@ -59,6 +60,8 @@ export interface UpdaterOptions {
   arch?: string;
   /** Module runs; default from `config`. */
   moduleConfig?: Partial<ModuleConfig>;
+  /** Reads the music share for an update whose parts will not stop or start; the healer shares it (main.ts). */
+  music?: MusicProber | null;
 }
 
 export interface RefusedStart {
@@ -332,6 +335,7 @@ export class UpdaterService {
         save: (r) => this.save(r),
         selfReplace: this.selfReplace,
         release: { verified, platform: await this.platform() },
+        music: this.opts.music ?? null,
       },
       run,
     );

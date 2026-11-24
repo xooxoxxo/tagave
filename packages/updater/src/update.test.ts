@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { UpdateRun } from '@tagave/shared/updater';
 import { envGet } from './envFile.js';
 import { LEDGER_ENTRIES_SQL } from './heavy-migrations.js';
+import type { MusicReading } from './music-probe.js';
 import type { Layer } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 import { DEFAULT_CONFIG, DUMP_PROBE_JS, IMAGE_DEPLOY_DIR, Update, newRun, type UpdateDeps } from './update.js';
@@ -100,6 +101,46 @@ class FakeInstall {
   backupsDisk: { free: number; total: number } | null = null;
   /** Images already on this computer. */
   localImages = new Set(['ghcr.io/xooxoxxo/tagave-app:0.7.0', 'ghcr.io/xooxoxxo/tagave-worker:0.7.0', 'ghcr.io/xooxoxxo/tagave-updater:0.7.0', 'postgres:17']);
+  /** Parts whose stop (and kill) never returns, as on a hard NFS mount that went silent. */
+  stuckStop = new Set<string>();
+  /** Parts whose start never returns; they stay Created. */
+  stuckStart = new Set<string>();
+  /** Parts whose first start times out, but which run by the time it is checked (the share came back). */
+  stuckStartOnce = new Set<string>();
+  /** What the music probe reads (null: no probe). */
+  musicReading: MusicReading | null = null;
+  /** Moves the update's clock (set by update()). */
+  tick: (ms: number) => void = () => undefined;
+  /** Each service's container state, as `inspect --format {{.State.Status}}` says it; running unless set. */
+  status = new Map<string, string>();
+  private readonly ids = new Map<string, string>();
+
+  /** A stable hex container id per service. */
+  idOf(service: string): string {
+    const id = Buffer.from(service).toString('hex').padEnd(12, '0').slice(0, 64);
+    this.ids.set(id, service);
+    return id;
+  }
+
+  serviceOf(id: string): string | undefined {
+    return this.ids.get(id);
+  }
+
+  services(): string[] {
+    return ['postgres', 'app', 'worker-identify', 'worker-files', ...(this.withPlayer ? ['player'] : []), 'updater'];
+  }
+
+  /** What a runner answers when its limit runs out, after the clock moved by that limit. */
+  private timeout(args: string[], timeoutMs = 0): CommandResult {
+    this.tick(timeoutMs);
+    return { code: 143, stdout: '', stderr: `docker ${args.join(' ')}\ntimed out after ${Math.round(timeoutMs / 1000)} s` };
+  }
+
+  private stopped(service: string): void {
+    this.status.set(service, 'exited');
+    if (service === 'app') this.appUp = false;
+    if (service.startsWith('worker-')) for (const k of [...this.workers.keys()]) if (k.startsWith(`w-${service.slice(7)}`)) this.workers.delete(k);
+  }
 
   constructor(readonly dir: string) {
     this.workers.set('w-identify-old', { version: '0.7.0', seenAt: this.now });
@@ -145,14 +186,26 @@ class FakeInstall {
       this.waitedOn.push(args[1]!);
       return this.handoverExit;
     }
-    if (a.startsWith('compose ps -a -q ')) return ok(this.containers.has(args[4]!) ? `${args[4]}-c1\n` : '');
+    if (a.startsWith('compose ps -a -q ')) return ok(this.services().includes(args[4]!) ? `${this.idOf(args[4]!)}\n` : '');
+    if (args[0] === 'inspect' && args[2] === '{{.State.Status}}') {
+      const service = this.serviceOf(args[3]!);
+      if (!service) return bad(`Error: No such object: ${args[3]}`);
+      if (service === 'app') return ok(`${this.appUp ? 'running' : 'exited'}\n`);
+      return ok(`${this.status.get(service) ?? 'running'}\n`);
+    }
+    if (args[0] === 'kill') {
+      const service = this.serviceOf(args[1]!);
+      if (service && this.stuckStop.has(service)) return this.timeout(args, opts?.timeoutMs);
+      if (service) this.stopped(service);
+      return ok(`${args[1]}\n`);
+    }
     if (args[0] === 'inspect' && args[2] === '{{json .State}}|{{.RestartCount}}') {
-      const c = this.containers.get(args[3]!.replace(/-c1$/, ''));
+      const c = this.containers.get(this.serviceOf(args[3]!) ?? '');
       if (!c) return bad('No such object');
       const n = c.calls++;
       return ok(`${JSON.stringify(c.states[Math.min(n, c.states.length - 1)])}|${c.restarts[Math.min(n, c.restarts.length - 1)]}\n`);
     }
-    if (args[0] === 'logs' && args[1] === '--tail') return ok(this.containers.get(args[3]!.replace(/-c1$/, ''))?.logs ?? '');
+    if (args[0] === 'logs' && args[1] === '--tail') return ok(this.containers.get(this.serviceOf(args[3]!) ?? '')?.logs ?? '');
     if (args[0] === 'logs') return ok('Error response from daemon: pull access denied\n');
     if (a === 'compose ps -q player') return ok(this.playerImage ? 'pl1\n' : '');
     if (args[0] === 'inspect' && args.at(-1) === 'pl1') return ok(`${this.playerHealth}\n`);
@@ -210,6 +263,7 @@ class FakeInstall {
       return args.at(-1) === `${IMAGE_DEPLOY_DIR}/compose.yml` ? ok(this.newCompose) : bad('No such file');
     }
     if (args[0] === 'compose' && args[1] === 'stop') {
+      if (args.slice(2).some((s) => this.stuckStop.has(s))) return this.timeout(args, opts?.timeoutMs);
       for (const s of args.slice(2)) {
         if (s === 'app' && this.appUp && this.commitsOnStop.has(this.appVersion)) {
           this.backupRows ??= [];
@@ -219,15 +273,22 @@ class FakeInstall {
           this.dumps.add(path);
           this.migrations += 1;
         }
-        if (s === 'app') this.appUp = false;
-        if (s.startsWith('worker-')) for (const k of [...this.workers.keys()]) if (k.startsWith(`w-${s.slice(7)}`)) this.workers.delete(k);
+        if (this.services().includes(s)) this.stopped(s);
       }
       return ok();
     }
     if (args[0] === 'compose' && args[1] === 'up') {
       if (args.join(' ') === 'compose up -d app') appStartEnvs.push(opts?.env ?? null);
       const v = await this.envVersion();
-      const services = args.slice(3);
+      const services = args.slice(3).filter((s) => !s.startsWith('-'));
+      const stuck = services.find((s) => this.stuckStart.has(s));
+      if (stuck) {
+        this.status.set(stuck, 'created');
+        return this.timeout(args, opts?.timeoutMs);
+      }
+      const late = services.find((s) => this.stuckStartOnce.has(s));
+      if (late) this.stuckStartOnce.delete(late);
+      for (const s of services) this.status.set(s, 'running');
       if (services.includes('app') && (!this.appUp || this.appVersion !== v)) {
         this.appVersion = v;
         this.appUp = true;
@@ -253,6 +314,8 @@ class FakeInstall {
           this.workers.set(`w-${s.slice(7)}-${v}`, { version: v, seenAt: this.now + 1 });
         }
       }
+      // It started once the share answered again, after the limit had run out.
+      if (late) return this.timeout(args, opts?.timeoutMs);
       return ok();
     }
     if (a.includes('tagave-doctor') || a.includes('cli.js restore')) {
@@ -315,8 +378,9 @@ let appStartEnvs: Array<Record<string, string> | null> = [];
 let saved: UpdateRun[];
 let lastUpdate: Update;
 
-async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]>; selfReplace?: UpdateDeps['selfReplace']; release?: UpdateDeps['release']; docker?: Runner; statfs?: UpdateDeps['statfs'] } = {}) {
+async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]>; selfReplace?: UpdateDeps['selfReplace']; release?: UpdateDeps['release']; docker?: Runner; statfs?: UpdateDeps['statfs']; music?: UpdateDeps['music'] } = {}) {
   let clock = fake.now;
+  fake.tick = (ms) => { clock += ms; };
   const u = new Update(
     {
       installDir: dir,
@@ -328,6 +392,7 @@ async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> 
       sleep: async (ms) => { clock += ms; },
       statfs: seams.statfs ?? fake.statfs,
       layers: seams.layers ?? fake.layers,
+      music: seams.music ?? (fake.musicReading ? { read: async () => fake.musicReading } : null),
       ...(seams.selfReplace ? { selfReplace: seams.selfReplace } : {}),
       ...(seams.release ? { release: seams.release } : {}),
     },
@@ -518,10 +583,10 @@ describe('update state machine', () => {
     expect(verified).toBeGreaterThan(-1);
     expect(verified).toBeLessThan(fake.calls.indexOf(restore));
     expect(run.log.some((l) => l.message === `the new app backed the database up before it changed it: ${appDump}`)).toBe(true);
-    // the app and workers were stopped before the restore, and .env pointed at the old version
+    // the app, then the workers, were stopped before the restore, and .env pointed at the old version
     const restoreIdx = fake.calls.indexOf(restore);
-    const stopIdx = fake.calls.findLastIndex((c, i) => i < restoreIdx && c[1] === 'stop');
-    expect(fake.calls[stopIdx]).toEqual(['compose', 'stop', 'app', 'worker-identify', 'worker-files']);
+    const stopsBefore = fake.calls.filter((c, i) => i < restoreIdx && c[1] === 'stop').slice(-3);
+    expect(stopsBefore).toEqual([['compose', 'stop', '-t', '30', 'app'], ['compose', 'stop', '-t', '30', 'worker-identify'], ['compose', 'stop', '-t', '30', 'worker-files']]);
     expect(await envNow()).toBe('0.7.0');
     expect(fake.migrations).toBe(38);
     expect(fake.appVersion).toBe('0.7.0');
@@ -758,6 +823,32 @@ describe('update state machine', () => {
       expect(stallOf()).toBeUndefined();
     });
 
+    it('names a silent music share while the new app hangs in Created, probing in the background at most once per observe', async () => {
+      const silent: MusicReading = { dir: '/mnt/music', mount: { kind: 'network', fstype: 'nfs4', server: '192.0.2.10', export: '/export/music', hard: true, mountPoint: '/mnt/music' }, answer: 'silent', verdict: 'music_unreachable', server: '192.0.2.10' };
+      fake.unhealthy.add('0.8.0');
+      fake.containers.set('app', { states: states(1, { Status: 'created' }), restarts: [0], logs: '', calls: 0 });
+      let reads = 0;
+      const run = await update('0.8.0', { healthTimeoutMs: 3 * 60_000 }, { music: { read: async () => { reads += 1; return silent; } } });
+      expect(run.status).toBe('rolled_back');
+      // the probe starts at one check, and the next one reads what it found
+      const music = saved.map((r) => r.stall).find((x) => x?.cause === 'music_unreachable');
+      expect(music).toMatchObject({ service: 'app', server: '192.0.2.10', message: "Your music share at 192.0.2.10 doesn't answer." });
+      const ran = Date.parse(run.finishedAt!) - Date.parse(run.startedAt);
+      expect(reads).toBeGreaterThan(0);
+      expect(reads).toBeLessThanOrEqual(Math.ceil(ran / DEFAULT_CONFIG.observeEveryMs));
+    });
+
+    it('never waits for the music probe inside the wait for the app', async () => {
+      fake.unhealthy.add('0.8.0');
+      fake.containers.set('app', { states: states(1, { Status: 'created' }), restarts: [0], logs: '', calls: 0 });
+      let reads = 0;
+      const run = await update('0.8.0', { healthTimeoutMs: 3 * 60_000 }, { music: { read: () => { reads += 1; return new Promise(() => undefined); } } });
+      expect(run.status).toBe('rolled_back');
+      // the one probe still runs, so no second one starts
+      expect(reads).toBe(1);
+      expect(stallOf()?.cause).not.toBe('music_unreachable');
+    });
+
     it('checks a download that does not move, and counts a filling disk as moving', async () => {
       let free = 50 * GB;
       const slowPull: Runner = async (args, opts) => {
@@ -915,10 +1006,12 @@ describe('update state machine', () => {
 
     it('says no backup needs restoring when the new app changed nothing', async () => {
       fake.backupRows = [{ id: 7, status: 'ok', path: '/backups/tagave-2026-10-01T03-00-00Z-pre-migration.pgdump', to: '0.6.0' }];
-      fake.brokenWorkers.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0'); fake.stuckStop.add('app');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
-        if (args.join(' ') === 'compose stop app worker-identify worker-files') return { code: 1, stdout: '', stderr: 'container is restarting' };
+        // the record cannot be read when the app answers (unknown), and can again once the roll back stops it
+        if (args.join(' ') === 'compose up -d app') fake.psqlFails = true;
+        if (args.join(' ') === 'compose stop -t 30 app') fake.psqlFails = false;
         return inner(args, opts);
       };
       const run = await update('0.8.0');
@@ -938,31 +1031,28 @@ describe('update state machine', () => {
       expect(run.reason).not.toContain('2026-10-01');
     });
 
-    it("says no backup needs restoring when the app changed nothing, though the updater took its own dump", async () => {
+    it("puts the old files back when the app changed nothing and will not stop, though the updater took its own dump", async () => {
       await writeFile(join(dir, '.env'), `${ENV}TAGAVE_SKIP_PREMIGRATE_BACKUP=1\n`);
       fake.skipPremigrate = true;
-      fake.brokenWorkers.add('0.8.0');
-      const inner = fake.runner;
-      fake.runner = async (args, opts) => {
-        if (args.join(' ') === 'compose stop app worker-identify worker-files') return { code: 1, stdout: '', stderr: 'container is restarting' };
-        return inner(args, opts);
-      };
+      fake.brokenWorkers.add('0.8.0'); fake.stuckStop.add('app');
       const run = await update('0.8.0');
+      // the stuck app is left alone: nothing is restored under it, and the reason says what to do
       expect(run.status).toBe('rollback_failed');
-      expect(run.reason).toMatch(/This update didn't change the database, so no backup needs restoring\.$/);
+      expect(run.reason).toMatch(/The roll back did not finish\. The web app is stuck and won't stop\. Restart the computer tagave runs on\. 3 of 4 parts running\.$/);
+      expect(run.reason).not.toContain('stays in place');
       expect(run.reason).not.toContain('tagave-manual-20261011');
+      expect(fake.restored).toBe(false);
+      expect(await envNow()).toBe('0.7.0');
+      expect(fake.calls.filter((c) => c[1] === 'up' && c.includes('app'))).toHaveLength(1);
     });
 
     it('looks for a record of this run when the new app cannot be stopped', async () => {
       fake.backupRows = [{ id: 7, status: 'ok', path: '/backups/tagave-2026-10-01T03-00-00Z-pre-migration.pgdump', to: '0.6.0' }];
-      fake.brokenWorkers.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0'); fake.stuckStop.add('app');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
-        if (args.join(' ') === 'compose stop app worker-identify worker-files') {
-          // the app went on to back up and migrate after it answered, and does not stop
-          fake.backupRows!.push({ id: 8, status: 'ok', path: '/backups/tagave-2026-10-11T10-08-00Z-pre-migration.pgdump', to: '0.8.0' });
-          return { code: 1, stdout: '', stderr: 'container is restarting' };
-        }
+        // the app went on to back up and migrate after it answered, and does not stop
+        if (args.join(' ') === 'compose stop -t 30 app') fake.backupRows!.push({ id: 8, status: 'ok', path: '/backups/tagave-2026-10-11T10-08-00Z-pre-migration.pgdump', to: '0.8.0' });
         return inner(args, opts);
       };
       const run = await update('0.8.0');
@@ -976,7 +1066,7 @@ describe('update state machine', () => {
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
         // the app answered with nothing to migrate; from the stop on the database does not answer
-        if (args.join(' ') === 'compose stop app worker-identify worker-files') fake.psqlFails = true;
+        if (args.join(' ') === 'compose stop -t 30 app') fake.psqlFails = true;
         return inner(args, opts);
       };
       const run = await update('0.8.0');
@@ -986,13 +1076,10 @@ describe('update state machine', () => {
     });
 
     it('takes a record that cannot be read when the stop fails as unknown, not unchanged', async () => {
-      fake.brokenWorkers.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0'); fake.stuckStop.add('app');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
-        if (args.join(' ') === 'compose stop app worker-identify worker-files') {
-          fake.psqlFails = true;
-          return { code: 1, stdout: '', stderr: 'container is restarting' };
-        }
+        if (args.join(' ') === 'compose stop -t 30 app') fake.psqlFails = true;
         return inner(args, opts);
       };
       const run = await update('0.8.0');
@@ -1007,7 +1094,7 @@ describe('update state machine', () => {
       const run = await update('0.8.0');
       expect(run.status).toBe('rolled_back');
       expect(run.rollback?.restoredDatabase).toBe(true);
-      const stop = fake.calls.findIndex((c) => c.join(' ') === 'compose stop app worker-identify worker-files');
+      const stop = fake.calls.findIndex((c) => c.join(' ') === 'compose stop -t 30 app');
       const count = fake.calls.findIndex((c, i) => i > stop && c.join(' ').includes('select count(*) from _migrations'));
       expect(stop).toBeGreaterThan(-1);
       expect(count).toBeGreaterThan(stop);
@@ -1114,7 +1201,7 @@ describe('update state machine', () => {
       expect(fake.playerSnapshots).toBe(1);
       expect(fake.playerRestored).toBe(false);
       const stopWorkers = idx((c) => c[1] === 'stop' && c.includes('worker-files'));
-      const stopPlayer = idx((c) => c.join(' ') === 'compose stop player');
+      const stopPlayer = idx((c) => c.join(' ') === 'compose stop -t 30 player');
       const snapshot = idx(isSnapshot);
       const upApp = idx((c) => c[1] === 'up' && c[3] === 'app' && c.length === 4);
       const upAll = idx((c) => c[1] === 'up' && c.includes('player'));
@@ -1135,7 +1222,7 @@ describe('update state machine', () => {
       expect(run.rollback).toEqual({ version: '0.7.0', restoredDatabase: true, healthy: true });
       expect(fake.playerRestored).toBe(true);
       const restore = idx(isRestore);
-      const stopPlayer = fake.calls.findLastIndex((c, i) => i < restore && c.join(' ') === 'compose stop player');
+      const stopPlayer = fake.calls.findLastIndex((c, i) => i < restore && c.join(' ') === 'compose stop -t 30 player');
       const oldUp = fake.calls.findIndex((c, i) => i > restore && c[1] === 'up' && c[3] === 'app');
       expect(stopPlayer).toBeGreaterThan(idx(isSnapshot));
       expect(restore).toBeGreaterThan(-1);
@@ -1170,6 +1257,80 @@ describe('update state machine', () => {
       expect(warning?.message).toMatch(/the player reports unhealthy.*tagave itself is updated/);
       expect(await envNow()).toBe('0.8.0');
     });
+  });
+});
+
+describe('parts that will not stop or start', () => {
+  const silent: MusicReading = { dir: '/mnt/music', mount: { kind: 'network', fstype: 'nfs4', server: '192.0.2.10', export: '/export/music', hard: true, mountPoint: '/mnt/music' }, answer: 'silent', verdict: 'music_unreachable', server: '192.0.2.10' };
+  const answering = { ...silent, answer: 'answers' as const, verdict: 'ok' as const };
+
+  it('(a) a file worker whose stop never returns: killed once, rolled back with the share named within 4 fake minutes', async () => {
+    fake.stuckStop.add('worker-files'); fake.musicReading = silent;
+    const run = await update('0.8.0');
+    expect(run.status).toBe('rolled_back');
+    expect(run.reason).toContain("Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable.");
+    expect(fake.calls.filter((c) => c[0] === 'kill')).toHaveLength(1);
+    const restart = run.steps.find((s) => s.id === 'restart')!;
+    expect(Date.parse(restart.finishedAt!) - Date.parse(restart.startedAt!)).toBeLessThan(4 * 60_000);
+    expect(fake.calls.some((c) => c[1] === 'up' && c.includes('worker-files'))).toBe(false);
+  });
+
+  it('(b1) the incident: no migrations, the file worker stuck in Created, the share silent: held on the new version', async () => {
+    fake.backupRows = [{ id: 7, status: 'ok', path: '/backups/tagave-2026-10-01T03-00-00Z-pre-migration.pgdump', to: '0.6.0' }];
+    fake.stuckStart.add('worker-files'); fake.musicReading = silent;
+    const run = await update('0.8.0');
+    expect(run.status).toBe('held');
+    expect(run.held).toEqual({ cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' });
+    expect(run.reason).toBe("Updated to 0.8.0. Your music share at 192.0.2.10 doesn't answer, so the file worker waits for it. Turn the NAS on or check its cable, then press Repair in Settings › Updates.");
+    expect(await envNow()).toBe('0.8.0');
+    expect(JSON.stringify(run)).not.toContain('2026-10-01');
+    expect(Date.parse(run.finishedAt!) - Date.parse(run.startedAt)).toBeLessThan(10 * 60_000);
+  });
+
+  it('(b2) the same stuck start with the share answering rolls back, and stops only the app to decide', async () => {
+    fake.backupRows = [{ id: 7, status: 'ok', path: '/backups/tagave-2026-10-01T03-00-00Z-pre-migration.pgdump', to: '0.6.0' }];
+    fake.stuckStart.add('worker-files'); fake.musicReading = answering;
+    const run = await update('0.8.0');
+    expect(run.status).toBe('rolled_back');
+    const rb = fake.calls.slice(fake.calls.findIndex((c) => c[1] === 'up' && c.includes('worker-files')) + 1);
+    expect(rb.find((c) => c[1] === 'stop')).toEqual(['compose', 'stop', '-t', '30', 'app']);
+    expect(run.reason).toContain("The file worker won't start.");
+    expect(run.rollback).toMatchObject({ restoredDatabase: false });
+    expect(JSON.stringify(run)).not.toContain('2026-10-01');
+  });
+
+  it('(c) a run that migrated names only its own dump when it must stay', async () => {
+    fake.backupRows = [{ id: 7, status: 'ok', path: '/backups/tagave-2026-10-01T03-00-00Z-pre-migration.pgdump', to: '0.6.0' }];
+    fake.migratesOn.add('0.8.0'); fake.unhealthy.add('0.8.0'); fake.stuckStop.add('app');
+    const run = await update('0.8.0');
+    expect(run.status).toBe('rollback_failed');
+    expect(run.reason).toContain('stays in place');
+    expect(run.reason).toContain('tagave-2026-10-11T10-08-00Z-pre-migration.pgdump');
+    expect(run.reason).not.toContain('2026-10-01');
+  });
+
+  it('(d) holds the player too, and skips its health check', async () => {
+    fake.withPlayer = true; fake.stuckStart.add('worker-files'); fake.stuckStart.add('player'); fake.musicReading = silent;
+    const run = await update('0.8.0');
+    expect(run.held!.parts).toEqual(['worker-files', 'player']);
+    expect(run.log.some((l) => /player did not report healthy/.test(l.message))).toBe(false);
+  });
+
+  it('a stuck app stop does not block the rollback when the app changed nothing', async () => {
+    // the app answered healthy with no record above the old max (dbChanged false), then a worker failed to start
+    fake.stuckStart.add('worker-files'); fake.musicReading = answering; fake.stuckStop.add('app');
+    const run = await update('0.8.0');
+    expect(run.reason).not.toContain('stays in place');
+    expect(await envNow()).toBe('0.7.0');
+  });
+
+
+  it('does not hold when the file worker starts on its own after the share returns', async () => {
+    fake.stuckStartOnce.add('worker-files'); fake.musicReading = answering;
+    const run = await update('0.8.0');
+    expect(run.status).toBe('succeeded');
+    expect(run.held ?? null).toBeNull();
+    expect(fake.calls.some((c) => c[1] === 'up' && c.includes('worker-files'))).toBe(true);
   });
 });
 

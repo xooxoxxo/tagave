@@ -44,6 +44,8 @@ async function main(): Promise<void> {
   // The public release keys travel inside this image; with none, every release is refused.
   const keys = await loadTrustedKeys(IMAGE_KEYS_DIR);
   if (keys.length === 0) console.error(JSON.stringify({ msg: `no release key in ${IMAGE_KEYS_DIR}: every update and module is refused` }));
+  // One shared music reading, so the healer and an update probe the share once.
+  const music = cachedProber(musicProber({ installDir, docker: dockerRunner(installDir) }), Date.now);
   const service = new UpdaterService({
     keys,
     installDir,
@@ -58,11 +60,10 @@ async function main(): Promise<void> {
       minFreeBytes: num('TAGAVE_UPDATER_MIN_FREE_MB', DEFAULT_CONFIG.minFreeBytes / 1024 ** 2) * 1024 ** 2,
       stallMs: num('TAGAVE_UPDATER_STALL_SECONDS', DEFAULT_CONFIG.stallMs / 1000) * 1000,
     },
+    music,
   });
   await service.load();
   const server = service.listen(port);
-  // One shared music reading, so the healer and a stalled update probe the share once.
-  const music = cachedProber(musicProber({ installDir, docker: dockerRunner(installDir) }), Date.now);
   const healer = new MusicHealer({
     installDir,
     docker: dockerRunner(installDir),
