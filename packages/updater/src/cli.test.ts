@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { RepairStatus } from '@tagave/shared/updater';
 import { assertAllowed } from './argv-guard.testkit.js';
-import { USAGE, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import { USAGE, printedHeadline, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import { repairHeadline } from './repair.js';
 import type { CommandResult, Runner } from './runner.js';
 
 describe('cli.js repair', () => {
@@ -20,6 +21,31 @@ describe('cli.js repair', () => {
     for (const args of [['--wait'], ['--wait', '0'], ['--wait', '121'], ['--wait', 'abc'], ['--wait', '1.5'], ['--wait', '-5'], ['--wait', ''], ['--other'], ['--wait', '5', 'extra']]) {
       expect(parseRepairArgs(args), args.join(' ')).toEqual({ ok: false });
     }
+  });
+
+  describe('the printed headline', () => {
+    const waiting = repairHeadline({ status: 'waiting', outcome: { cause: 'music_unreachable', service: 'worker-files', server: '192.0.2.10', partsTotal: 5, partsRunning: 4 } });
+
+    it('waiting, with the updater service: as saved, the service finishes it', () => {
+      expect(printedHeadline('waiting', waiting, true)).toBe("Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. tagave finishes on its own when it's back.");
+    });
+
+    it('waiting, without it: run the installer again, never the promise', () => {
+      expect(printedHeadline('waiting', waiting, false)).toBe("Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. Turn the NAS on, then run the installer again.");
+    });
+
+    it('needs you, without the updater service: the installer, not the Repair button', () => {
+      const oom = 'The file worker ran out of memory. Close other programs on this computer, then press Repair.';
+      const notConnected = "Your music folder isn't connected, and tagave can't connect it for you. Connect the drive or share, then press Repair.";
+      expect(printedHeadline('needs_you', oom, false)).toBe('The file worker ran out of memory. Close other programs on this computer, then run the installer again with --repair.');
+      expect(printedHeadline('needs_you', notConnected, false)).toBe("Your music folder isn't connected, and tagave can't connect it for you. Connect the drive or share, then run the installer again with --repair.");
+      expect(printedHeadline('needs_you', oom, true)).toBe(oom);
+    });
+
+    it('any other end is printed as saved', () => {
+      expect(printedHeadline('repaired', 'Repaired. All 5 parts running.', false)).toBe('Repaired. All 5 parts running.');
+      expect(printedHeadline('failed', 'The repair stopped. Press Repair again.', false)).toBe('The repair stopped. Press Repair again.');
+    });
   });
 
   it('the usage names both commands', () => {

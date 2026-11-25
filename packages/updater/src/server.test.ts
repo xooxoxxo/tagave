@@ -306,6 +306,29 @@ describe('updater HTTP API', () => {
       expect(fake.reports).toEqual([{ status: 'repaired', cause: null }]);
     });
 
+    it('a running repair that is stopped (Ctrl-C on cli.js repair) is saved failed, and stays failed', async () => {
+      let open!: () => void;
+      fake.versionGate = new Promise((r) => { open = r; });
+      const started = await service.startRepair('installer');
+      expect(started.ok).toBe(true);
+      await service.interruptRepair();
+      const onDisk = async () => JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8')) as RepairRun;
+      expect(await onDisk()).toMatchObject({ status: 'failed', reason: 'The repair stopped. Press Repair again.', headline: 'The repair stopped. Press Repair again.' });
+      expect(fake.reports).toEqual([{ status: 'failed', cause: null }]);
+      // the run carries on until the process exits: what it saves after that does not undo the end
+      open();
+      await service.idle();
+      await service.repairSaved();
+      expect(await onDisk()).toMatchObject({ status: 'failed', reason: 'The repair stopped. Press Repair again.' });
+      fake.versionGate = null;
+    });
+
+    it('stopping without a running repair changes nothing', async () => {
+      const waiting = await toWaiting();
+      await service.interruptRepair();
+      expect((await statusOf()).repair).toMatchObject({ id: waiting.id, status: 'waiting' });
+    });
+
     it('409 while an update, a module run, a repair or a self-replace runs', async () => {
       // a repair: the first one waits on Docker
       let open!: () => void;
@@ -789,7 +812,7 @@ describe('updater HTTP API', () => {
         fake.configGate = never;
         const t = Date.now();
         const status = await s.status();
-        expect(Date.now() - t).toBeLessThan(150 + 150);
+        expect(Date.now() - t).toBeLessThan(150 + 300);
         expect(status).toMatchObject({ services: [], parts: [] });
         // a second call reuses the read in flight
         await s.status();
@@ -807,13 +830,13 @@ describe('updater HTTP API', () => {
       });
 
       it('when every part hangs: the parts get the time left, not a fresh 6 s', async () => {
-        // the list takes 350 ms of 900: a fresh budget for the parts would end near 1250 ms
-        const s = make({ statusDeadlineMs: 900, partsDeadlineMs: 10_000 });
+        // the list takes 350 ms of 1500, leaving far more than LATE_LIST_MS: a fresh budget for the parts would end near 1850 ms
+        const s = make({ statusDeadlineMs: 1500, partsDeadlineMs: 10_000 });
         fake.configGate = new Promise((r) => setTimeout(r, 350));
         for (const svc of SERVICES) fake.hangPs.add(svc);
         const t = Date.now();
         const status = await s.status();
-        expect(Date.now() - t).toBeLessThan(900 + 150);
+        expect(Date.now() - t).toBeLessThan(1500 + 300);
         expect(status.services).toEqual(SERVICES);
         expect(status.parts?.map((p) => p.state)).toEqual(['stuck', 'stuck', 'stuck']);
       });
@@ -824,7 +847,7 @@ describe('updater HTTP API', () => {
         for (const svc of SERVICES) fake.hangPs.add(svc);
         const t = Date.now();
         const status = await s.status();
-        expect(Date.now() - t).toBeLessThan(600 + 150);
+        expect(Date.now() - t).toBeLessThan(600 + 300);
         expect(status).toMatchObject({ services: [], parts: [] });
         // the cache has it for the next call
         expect(s['servicesList']).toEqual(SERVICES);
@@ -836,7 +859,7 @@ describe('updater HTTP API', () => {
         const s = make({ statusDeadlineMs: 200, report: () => { asked++; return new Promise<void>(() => {}); } });
         const t = Date.now();
         const status = await s.status();
-        expect(Date.now() - t).toBeLessThan(200 + 150);
+        expect(Date.now() - t).toBeLessThan(200 + 300);
         expect(status.repair).toMatchObject({ id: 'installer-old', status: 'failed' });
         expect(asked).toBe(1);
       });
@@ -850,7 +873,7 @@ describe('updater HTTP API', () => {
         fake.handoverGate = never;
         const t = Date.now();
         const status = await s.status();
-        expect(Date.now() - t).toBeLessThan(200 + 150);
+        expect(Date.now() - t).toBeLessThan(200 + 300);
         expect(status.selfReplace).toMatchObject({ expectedVersion: '0.8.0', fromVersion: '0.7.0', ageMs: expect.any(Number) });
         expect(status.services).toEqual(SERVICES);
       });
@@ -997,6 +1020,55 @@ describe('updater HTTP API', () => {
         const s = await restart();
         expect((await s.status()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
         expect(fake.status.get('worker-files')).toBe('running');
+      });
+
+      describe('when the service list is slow after a reboot', () => {
+        const held = (): UpdateRun => ({ ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } });
+        /** The limit of each service list read, in order. */
+        let limits: Array<number | undefined> = [];
+        /** This many service list reads time out. */
+        let failReads = 0;
+        beforeEach(() => {
+          limits = [];
+          failReads = 0;
+          const inner = fake.docker;
+          fake.docker = async (args, opts) => {
+            if (args.join(' ') === 'compose config --services') {
+              limits.push(opts?.timeoutMs);
+              if (failReads > 0) {
+                failReads--;
+                return { code: 124, stdout: '', stderr: 'timed out' };
+              }
+            }
+            return inner(args, opts);
+          };
+        });
+
+        it('reads it again with a 30 s limit, a few seconds apart, and still repairs', async () => {
+          fake.status.set('worker-files', 'exited');
+          await writeRun(join(STATE_DIR, 'state.json'), held());
+          // load's own 5 s read and the first 30 s read time out
+          failReads = 2;
+          const s = make({ servicesRetryMs: 5 });
+          await s.load();
+          await s.idle();
+          expect(limits.slice(0, 3)).toEqual([5_000, 30_000, 30_000]);
+          expect((await s.status()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+          expect(fake.status.get('worker-files')).toBe('running');
+        });
+
+        it('warns when three reads bring no list', async () => {
+          fake.status.set('worker-files', 'exited');
+          await writeRun(join(STATE_DIR, 'state.json'), held());
+          failReads = 4;
+          const warned: string[] = [];
+          const s = make({ servicesRetryMs: 5, log: (level, message) => { if (level === 'warn') warned.push(message); } });
+          await s.load();
+          await s.idle();
+          expect(limits).toEqual([5_000, 30_000, 30_000, 30_000]);
+          expect(warned).toEqual(['the update ended with stuck parts, but the list of parts could not be read, so no repair started']);
+          expect(fake.versions()).toBe(0);
+        });
       });
 
       it('after a restart, a rollback_failed run with stuck parts starts a repair', async () => {

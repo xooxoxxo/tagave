@@ -27,6 +27,23 @@ export async function updaterServiceRuns(docker: Runner): Promise<boolean> {
   return res?.code === 0 && res.stdout.trim() !== '';
 }
 
+/** How a waiting headline ends: the updater service's watcher finishes the run (repair.ts). */
+const SERVICE_FINISHES = "tagave finishes on its own when it's back.";
+/** Its ending when no updater service runs here: the one-off container watches no longer. */
+export const INSTALLER_AGAIN = 'Turn the NAS on, then run the installer again.';
+
+/**
+ * The headline as cli.js prints it: the saved one (the web shows it), but
+ * when this install's updater service does not run, nothing finishes a
+ * waiting run on its own and there is no Repair button to press.
+ */
+export function printedHeadline(status: RepairStatus, headline: string, updaterRuns: boolean): string {
+  if (updaterRuns) return headline;
+  if (status === 'waiting' && headline.endsWith(SERVICE_FINISHES)) return `${headline.slice(0, -SERVICE_FINISHES.length)}${INSTALLER_AGAIN}`;
+  if (status === 'needs_you') return headline.replaceAll('press Repair', 'run the installer again with --repair');
+  return headline;
+}
+
 /** 0 repaired, 4 waiting on the music share, 5 needs the owner, 1 failed (or, never expected, still running). */
 export function repairExitCode(status: RepairStatus): 0 | 1 | 4 | 5 {
   switch (status) {
