@@ -329,15 +329,22 @@ mkdir -p "$work/bin" "$work/state"
 cat >"$work/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$FAKE_LOG"
+# FAKE_DOCKER_SILENT=1: a Docker that does not answer. FAKE_UNHEALTHY=SERVICE:
+# that service's container reads "exited". FAKE_REPAIR_EXIT: the exit code of
+# the updater's "cli.js repair" one-off.
 case "$1" in
-  info) exit 0 ;;
-  version) echo 27.0.0; exit 0 ;;
+  info) [ "${FAKE_DOCKER_SILENT:-0}" != 1 ] || sleep 30; exit 0 ;;
+  version) [ "${FAKE_DOCKER_SILENT:-0}" != 1 ] || sleep 30; echo 27.0.0; exit 0 ;;
+  run)
+    case "$*" in *"cli.js repair"*) echo 'fake repair: started the file worker'; echo 'Repaired. All 4 parts running.'; exit "${FAKE_REPAIR_EXIT:-0}" ;; esac
+    exit 0 ;;
   manifest) echo '{"manifests":[{"platform":{"architecture":"amd64"}},{"platform":{"architecture":"arm64"}}]}'; exit 0 ;;
   inspect)
     case "$*" in
       *Config.Env*)
         [ -z "${FAKE_PG_USER:-}" ] || printf 'POSTGRES_USER=%s\nPOSTGRES_DB=%s\n' "$FAKE_PG_USER" "$FAKE_PG_USER"
         [ "${FAKE_APP_DOWN:-0}" = "1" ] || printf 'NODE_ENV=production\n%s=%s\n' "${FAKE_VERSION_VAR:-TAGAVE_BUILD_VERSION}" "$(cat "$FAKE_STATE/version")" ;;
+      *fakeid-down) echo exited ;;
       *) echo healthy ;;
     esac
     exit 0 ;;
@@ -367,7 +374,10 @@ esac
 case "$1" in
   version) echo 2.29.0 ;;
   config) exec "$REAL_DOCKER" compose "$@" ;;
-  ps) if [ "${2:-}" = "--format" ]; then printf 'SERVICE STATE STATUS\napp running Up\n'; else echo fakeid; fi ;;
+  ps)
+    if [ "${2:-}" = "--format" ]; then printf 'SERVICE STATE STATUS\napp running Up\n'
+    elif [ -n "${FAKE_UNHEALTHY:-}" ] && [ "${3:-}" = "$FAKE_UNHEALTHY" ]; then echo fakeid-down
+    else echo fakeid; fi ;;
   logs) echo '{"msg":"worker ready"}' ;;
   run) case "$*" in *pre-update*) echo saved ;; esac ;;
   up)
@@ -658,6 +668,84 @@ fi
 grep -q 'Cannot tell which version runs here' "$work/float-unknown.log" \
   || { cat "$work/float-unknown.log" >&2; fail "latest: unknown version refused without saying why"; }
 pass "update refuses without --yes when the running version is unknown"
+
+# --- repair: a re-run that finds parts down, and the repair command ----------
+at_version 0.4.1 --role all --dir "$work/rep" --music "$work/music" >"$work/rep-install.log" 2>&1 \
+  || { cat "$work/rep-install.log" >&2; fail "repair: install 0.4.1"; }
+printf '0.4.1' >"$work/state/version"
+rep_project="$(env_value COMPOSE_PROJECT_NAME "$work/rep/.env")"
+rep_project="${rep_project:-tagave}"
+# rep ARGS...: the installer on $work/rep against the stand-in docker; the app
+# answers its health check from $work/appsrv.
+rep() { TAGAVE_SKIP_IMAGE_CHECK=1 fake "$@" --dir "$work/rep" --app-url "file://$work/appsrv"; }
+
+: >"$work/docker.log"
+rep --yes >"$work/rep-healthy.log" 2>&1 || { cat "$work/rep-healthy.log" >&2; fail "repair: healthy re-run"; }
+[ -n "$(line_of 'version')" ] || { cat "$work/docker.log" >&2; fail "repair: a re-run did not check whether Docker answers"; }
+grep -q 'cli.js repair' "$work/docker.log" && fail "repair: a healthy re-run ran a repair"
+grep -q "aren't running" "$work/rep-healthy.log" && fail "repair: a healthy re-run reported parts down"
+[ -n "$(line_of 'compose up -d')" ] || fail "repair: a healthy re-run no longer starts tagave"
+pass "healthy re-run is unchanged"
+
+cp "$work/rep/.env" "$work/rep-env.before"
+: >"$work/docker.log"
+status=0
+FAKE_UNHEALTHY=worker-files rep --yes >"$work/rep-yes.log" 2>&1 || status=$?
+[ "$status" = 3 ] || { cat "$work/rep-yes.log" >&2; fail "repair: unhealthy plus --yes exited $status, not 3"; }
+grep -q "tagave is installed here, but 1 of 4 parts aren't running." "$work/rep-yes.log" || { cat "$work/rep-yes.log" >&2; fail "repair: --yes does not say what is down"; }
+grep -q 'Run again with --repair' "$work/rep-yes.log" || fail "repair: --yes does not say how to repair"
+cmp -s "$work/rep/.env" "$work/rep-env.before" || fail "repair: --yes changed .env although it stopped"
+grep -q 'cli.js repair' "$work/docker.log" && fail "repair: --yes without --repair ran a repair"
+grep -Eq '^compose (up|pull)' "$work/docker.log" && fail "repair: --yes without --repair started something"
+pass "unhealthy plus --yes exits 3 and prints \"Run again with --repair\""
+
+: >"$work/docker.log"
+FAKE_UNHEALTHY=worker-files rep --yes --repair >"$work/rep-repair.log" 2>&1 || { cat "$work/rep-repair.log" >&2; fail "repair: unhealthy plus --repair"; }
+run_line="$(grep 'cli.js repair' "$work/docker.log" || true)"
+case "$run_line" in
+  "run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $work/rep:$work/rep -w $work/rep -e TAGAVE_INSTALL_DIR=$work/rep --network ${rep_project}_default --entrypoint node "*"/opt/tagave/updater/dist/cli.js repair") ;;
+  *) cat "$work/docker.log" >&2; fail "repair: --repair did not run cli.js repair in a one-off container with the socket and the install folder (got: $run_line)" ;;
+esac
+grep -q 'Repaired. All 4 parts running.' "$work/rep-repair.log" || fail "repair: --repair does not print the headline"
+grep -Eq '^compose (up|pull)' "$work/docker.log" && fail "repair: --repair also reinstalled"
+cmp -s "$work/rep/.env" "$work/rep-env.before" || fail "repair: --repair changed .env"
+pass "unhealthy plus --repair runs cli.js repair in a one-off container with the socket and the install dir mounted"
+
+started=$SECONDS
+status=0
+FAKE_DOCKER_SILENT=1 rep --yes >"$work/rep-silent.log" 2>&1 || status=$?
+took=$((SECONDS - started))
+[ "$status" = 6 ] || { cat "$work/rep-silent.log" >&2; fail "repair: a silent Docker exited $status, not 6"; }
+grep -q "Docker isn't answering. Restart Docker or the computer, then run the installer again." "$work/rep-silent.log" || fail "repair: a silent Docker is not explained"
+[ "$took" -lt 20 ] || fail "repair: waited ${took}s on a silent Docker"
+cmp -s "$work/rep/.env" "$work/rep-env.before" || fail "repair: a silent Docker run changed .env"
+pass "Docker not answering exits 6 (after ${took}s)"
+
+: >"$work/docker.log"
+status=0
+FAKE_REPAIR_EXIT=4 fake repair --dir "$work/rep" --wait 30 --yes >"$work/rep-wait.log" 2>&1 || status=$?
+[ "$status" = 4 ] || { cat "$work/rep-wait.log" >&2; fail "repair: exit 4 became $status"; }
+grep -q 'cli.js repair --wait 30$' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "repair: --wait 30 was not passed on"; }
+grep -q 'Turn the NAS on, then run the installer again.' "$work/rep-wait.log" || { cat "$work/rep-wait.log" >&2; fail "repair: waiting on music without the updater gives the wrong advice"; }
+cp -R "$work/rep" "$work/rep-upd"
+sed 's/^COMPOSE_PROFILES=.*/&,updater/' "$work/rep/.env" >"$work/rep-upd/.env"
+status=0
+: >"$work/docker.log"
+FAKE_REPAIR_EXIT=4 fake repair --dir "$work/rep-upd" --wait 30 --yes >"$work/rep-wait2.log" 2>&1 || status=$?
+grep -q 'cli.js repair$' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "repair: with the updater, --wait was passed on (its service watches the share)"; }
+grep -q 'so --wait is not needed here' "$work/rep-wait2.log" || fail "repair: with the updater, --wait dropped without saying why"
+[ "$status" = 4 ] || { cat "$work/rep-wait2.log" >&2; fail "repair with the updater: exit 4 became $status"; }
+grep -q "tagave finishes on its own when it's back." "$work/rep-wait2.log" || { cat "$work/rep-wait2.log" >&2; fail "repair: waiting on music with the updater gives the wrong advice"; }
+for code in 5:5 2:1 1:1; do
+  status=0
+  FAKE_REPAIR_EXIT="${code%:*}" fake repair --dir "$work/rep" --yes >"$work/rep-code.log" 2>&1 || status=$?
+  [ "$status" = "${code#*:}" ] || { cat "$work/rep-code.log" >&2; fail "repair: exit ${code%:*} became $status, not ${code#*:}"; }
+done
+for bad in 0 121 abc; do
+  if fake repair --dir "$work/rep" --wait "$bad" --yes >"$work/rep-bad.log" 2>&1; then fail "repair: accepted --wait $bad"; fi
+  grep -q 'minutes from 1 to 120' "$work/rep-bad.log" || { cat "$work/rep-bad.log" >&2; fail "repair: --wait $bad refused without saying why"; }
+done
+pass "repair passes --wait 30 through (not with the updater on) and maps the updater's exit codes"
 
 # --- an install from before 0.9 (the project's old name, liner) -------------
 # LINER_* settings in .env, database user and name "liner", an images that
