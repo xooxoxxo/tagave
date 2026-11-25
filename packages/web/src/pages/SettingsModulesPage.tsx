@@ -324,6 +324,10 @@ export function ModuleRunView({ run, disconnected, onDismiss }: { run: ModuleRun
         ? { tone: 'warn', title: `${run.moduleName} is ${on ? 'on' : 'off'}`, body: sentence(run.reason) }
         : { tone: 'ok', title: `${run.moduleName} is ${on ? 'on' : 'off'}`, body: on ? 'It runs and reports healthy.' : run.deleteData ? (run.deleteHistory ? 'Its data and the listens it recorded are deleted.' : 'Its data is deleted.') : 'Its data is kept.' };
       break;
+    case 'held':
+      // Module runs do not hold today; if one does, the module was switched and a part waits: say so, with why.
+      head = { tone: 'warn', title: `${run.moduleName} is ${on ? 'on' : 'off'}`, body: sentence(run.reason) };
+      break;
     case 'failed':
       head = { tone: 'warn', title: `${run.moduleName} was not turned ${on ? 'on' : 'off'}`, body: sentence(run.reason) };
       break;

@@ -127,7 +127,7 @@ export function detailText(text: string | null | undefined): string {
  * sub-state. Never the step's label again (updaters before 0.12.1 start a
  * step with its own label as the sub-state).
  */
-export function runningNote(run: UpdateRun, step: RunStepLike, now: number): StepNote | null {
+export function runningNote(run: Pick<UpdateRun, 'stall' | 'progress'>, step: RunStepLike, now: number): StepNote | null {
   const stall = run.stall ?? null;
   if (stall) {
     const min = Math.max(1, Math.round((now - Date.parse(stall.since)) / 60_000));

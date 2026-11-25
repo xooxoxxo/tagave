@@ -4,6 +4,7 @@
  * second (simulatedRun), with the sub-states the updater sends.
  */
 import type { UpdateRun, UpdateStall, UpdateStep, UpdateStepId } from '@tagave/shared';
+import type { RepairRun, RepairStepId } from '@tagave/shared/updater';
 
 const t0 = Date.parse('2026-10-16T10:00:00Z');
 const at = (s: number) => new Date(t0 + s * 1000).toISOString();
@@ -182,6 +183,93 @@ export function heldRun(): UpdateRun {
     status: 'held',
     finishedAt: at(400),
     held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' },
-    reason: "Updated to 0.12.0. Your music share at 192.0.2.10 doesn't answer, so the file worker waits for it. Turn the NAS on or check its cable, then press Repair in Settings › Updates.",
+    reason: "Updated to 0.12.0. Your music share at 192.0.2.10 doesn't answer, so the file worker waits for it. Turn the NAS on or check its cable. tagave finishes on its own when it's back.",
   };
+}
+
+// -- repair runs ----------------------------------------------------------------
+
+const REPAIR_LABELS: Record<RepairStepId, string> = {
+  check: 'Check every part',
+  stop: 'Stop the parts that are stuck',
+  music: 'Check the music share',
+  start: 'Start the parts',
+  verify: 'Check every part runs',
+};
+
+type RepairStepStatus = RepairRun['steps'][number]['status'];
+
+/** A repair `t` seconds in: the steps with the statuses given (the rest pending). */
+export function repairRun(status: RepairRun['status'], steps: Partial<Record<RepairStepId, RepairStepStatus>>, over: Partial<RepairRun> = {}): RepairRun {
+  const ids = Object.keys(REPAIR_LABELS) as RepairStepId[];
+  return {
+    kind: 'repair',
+    id: `repair-${status}`,
+    trigger: 'owner',
+    status,
+    startedAt: at(0),
+    finishedAt: status === 'running' || status === 'waiting' ? null : at(40),
+    steps: ids.map((id, i) => {
+      const s = steps[id] ?? 'pending';
+      return { id, label: REPAIR_LABELS[id], status: s, startedAt: s === 'pending' || s === 'skipped' ? null : at(i * 8), finishedAt: s === 'done' || s === 'failed' ? at(i * 8 + 6) : null };
+    }),
+    log: [
+      { at: at(0), level: 'info', message: 'Check every part' },
+      { at: at(2), level: 'info', message: '4 of 5 parts running: worker-files is stuck' },
+    ],
+    progress: null,
+    stall: null,
+    reason: null,
+    outcome: null,
+    headline: null,
+    details: [],
+    checkedAt: null,
+    ...over,
+  };
+}
+
+/** Under way: stopping the file worker. */
+export function repairRunning(): RepairRun {
+  return repairRun('running', { check: 'done', stop: 'running' }, { progress: { step: 'stop', message: 'stopping the file worker', at: at(9) } });
+}
+
+/** The file worker was stuck; restarted, every part runs. */
+export function repairedRun(): RepairRun {
+  return repairRun('repaired', { check: 'done', stop: 'done', music: 'done', start: 'done', verify: 'done' }, {
+    headline: 'Repaired. All 5 parts running.',
+    details: ['Stopped the file worker.', 'Started the file worker.', '5 of 5 parts running.'],
+    outcome: { cause: 'stuck_stop', service: 'worker-files', server: null, partsRunning: 5, partsTotal: 5 },
+  });
+}
+
+/** The music share does not answer: the file worker waits for it, checked 2 min ago. */
+export function repairWaitingRun(): RepairRun {
+  return repairRun('waiting', { check: 'done', stop: 'done', music: 'running' }, {
+    headline: "Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. tagave finishes on its own when it's back.",
+    details: ['4 of 5 parts running.', 'The file worker waits for the share.'],
+    outcome: { cause: 'music_unreachable', service: 'worker-files', server: '192.0.2.10', partsRunning: 4, partsTotal: 5 },
+    checkedAt: at(240),
+  });
+}
+/** The fixed "now" of the waiting repair: 2 minutes after its last check. */
+export const REPAIR_WAITING_NOW = nowAt(360);
+
+/** The disk is full: only the owner can free space. */
+export function repairDiskFullRun(): RepairRun {
+  return repairRun('needs_you', { check: 'failed', stop: 'skipped', music: 'skipped', start: 'skipped', verify: 'skipped' }, {
+    headline: 'The disk is full (180 MB free). Free up space, then press Repair.',
+    details: ['tagave never deletes files for you.', '3 of 5 parts running.'],
+    outcome: { cause: 'disk_full', service: null, server: null, partsRunning: 3, partsTotal: 5 },
+    reason: 'the disk is full (180 MB free)',
+  });
+}
+
+/** The file worker keeps stopping after one restart. */
+export function repairCrashLoopRun(): RepairRun {
+  return repairRun('failed', { check: 'done', stop: 'done', music: 'done', start: 'done', verify: 'failed' }, {
+    headline: 'The file worker keeps stopping. tagave restarted it once.',
+    details: ['Last error: Error: EACCES: permission denied, open /mnt/music/.tagave-probe', 'Restarted the file worker.', '4 of 5 parts running.'],
+    outcome: { cause: 'crash_loop', service: 'worker-files', server: null, partsRunning: 4, partsTotal: 5 },
+    reason: 'the file worker keeps stopping (restarted 6 times, last exit code 1)',
+  });
 }

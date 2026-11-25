@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SELF_REPLACE_STALE_MS, type UpdaterSelfReplace, type UpdaterView } from '@tagave/shared';
-import { receiveUpdaterView, restartingOn } from './useUpdater';
+import type { RepairRun } from '@tagave/shared/updater';
+import { receiveUpdaterView, restartingOn, updaterPollMs, type SeenUpdaterView } from './useUpdater';
 
 // The browser's clock; the server's `since` is deliberately a day off.
 const NOW = Date.parse('2026-10-16T10:00:00Z');
@@ -69,5 +70,19 @@ describe('receiveUpdaterView', () => {
   it('does not hide an updater that is simply down', () => {
     expect(receiveUpdaterView(view(null), unreachable, NOW)).toBe(unreachable);
     expect(receiveUpdaterView(undefined, unreachable, NOW)).toBe(unreachable);
+  });
+});
+
+describe('updaterPollMs', () => {
+  const withRepair = (status: 'running' | 'waiting' | 'repaired'): SeenUpdaterView => {
+    const v = view(null);
+    return { ...v, updater: { ...v.updater!, repair: { status } as RepairRun } };
+  };
+
+  it('polls every two seconds while a repair runs, every minute once it ended or waits', () => {
+    expect(updaterPollMs(withRepair('running'), false)).toBe(2000);
+    expect(updaterPollMs(withRepair('waiting'), false)).toBe(60_000);
+    expect(updaterPollMs(withRepair('repaired'), false)).toBe(60_000);
+    expect(updaterPollMs(view(null), false)).toBe(60_000);
   });
 });
