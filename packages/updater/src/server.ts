@@ -132,7 +132,7 @@ export interface RepairHealer {
 }
 
 /** The refusal while the music self-heal attempts (409). */
-export const HEALING_ERROR = 'tagave is connecting the music share again. Try again in a minute.';
+export const HEALING_ERROR = 'The music share is being connected again. Try again in a minute.';
 /** The longest an automatic start waits for the self-heal to settle (its helper calls have their own limits). */
 const HEAL_WAIT_MS = 10 * 60_000;
 
@@ -205,9 +205,14 @@ export class UpdaterService {
     });
   }
 
-  /** An update, a module run or a repair (not one that waits for the share) is moving containers: the music self-heal waits. */
+  /**
+   * An update, a module run or a repair (not one that waits for the share)
+   * is moving containers: the music self-heal waits. That counts a repair
+   * the last read of repair.json says runs elsewhere (the installer's
+   * one-off), as repairElsewhereOrHere does, without reading the file here.
+   */
   moving(): boolean {
-    return this.updating() || this.repairRunning();
+    return this.updating() || this.repairRunning() || this.repairElsewhere();
   }
 
   /** An update or a module run is moving containers (never a repair: a repair's own remount must not be refused). */
@@ -506,6 +511,11 @@ export class UpdaterService {
   private async repairElsewhereOrHere(): Promise<boolean> {
     if (this.repairRunning()) return true;
     await this.refreshRepair();
+    return this.repairElsewhere();
+  }
+
+  /** The known repair.json run is another process's, running and under 1 h old. */
+  private repairElsewhere(): boolean {
     const r = this.repairRun;
     return r?.status === 'running' && r.id !== this.repair?.run.id && this.now().getTime() - Date.parse(r.startedAt) < ELSEWHERE_MS;
   }
@@ -614,7 +624,8 @@ export class UpdaterService {
       save: (r) => this.saveRepair(r),
       config: { ...DEFAULT_REPAIR_CONFIG, healthTimeoutMs: c.healthTimeoutMs, pollMs: c.pollMs, ...this.opts.repairConfig },
       ...(this.opts.now ? { now: this.opts.now } : {}),
-      busy: () => this.moving(),
+      // Read only by a waiting repair's watcher: it does not resume while a self-heal attempt restarts the same parts.
+      busy: () => this.moving() || !!this.healer?.attempting(),
     };
   }
 

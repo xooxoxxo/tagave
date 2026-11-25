@@ -438,14 +438,36 @@ describe('attempting and settled: what a repair or update start waits for', () =
     const answer = new Promise<boolean>((r) => { release = r; });
     const { docker, calls } = fakeDocker(hostAnswers());
     const app = { unmounted: () => answer, report: async () => undefined };
-    const healer = new MusicHealer({ installDir, docker, app, busy: () => true, self: 's' });
+    // what attempting() says at the moment the decision reads busy()
+    const seen: boolean[] = [];
+    const healer: MusicHealer = new MusicHealer({ installDir, docker, app, busy: () => { seen.push(healer.attempting()); return true; }, self: 's' });
     const tick = healer.tick();
     await new Promise((r) => setTimeout(r, 10));
     expect(healer.attempting()).toBe(false);
     release(true);
     expect(await tick).toBeNull();
+    expect(seen).toEqual([false]);
     expect(healer.attempting()).toBe(false);
     expect(calls).toEqual([]);
+  });
+
+  it("remount's off path never sets attempting, and an attempt that throws resets it and settles", async () => {
+    const off = await installWith('MUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_SELF_HEAL=0\n');
+    const { docker } = fakeDocker(hostAnswers());
+    const { app } = fakeApp(true);
+    const quiet = new MusicHealer({ installDir: off, docker, app, music: null, busy: () => false, self: 's' });
+    expect(await quiet.remount('/mnt/music', 'tagave')).toBe('off');
+    expect(quiet.attempting()).toBe(false);
+
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    let during: boolean | null = null;
+    let healer!: MusicHealer;
+    const broken: Runner = async () => { during = healer.attempting(); throw new Error('docker went away'); };
+    healer = new MusicHealer({ installDir, docker: broken, app, music: null, busy: () => false, self: 's' });
+    await expect(healer.tick()).rejects.toThrow('docker went away');
+    expect(during).toBe(true);
+    expect(healer.attempting()).toBe(false);
+    await healer.settled();
   });
 
   it('attempting is true during an attempt and false after; settled resolves once it ends', async () => {
