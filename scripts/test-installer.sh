@@ -114,6 +114,48 @@ run --role all --dir "$work/rw" --music "$work/music" >"$work/rw2.log" 2>&1 \
 [ "$(env_value TAGAVE_MUSIC_MODE "$work/rw/.env")" = "rw" ] || fail "--music-writable: a re-run lost rw"
 pass "--music-writable mounts the music read-write and keeps it on a re-run"
 
+# --- the music check on a share that does not answer -------------------------
+# TAGAVE_TEST_MOUNTINFO stands in for /proc/self/mountinfo. The music folder
+# sits under an nfs4 mount whose path has a space (\040 in mountinfo); nothing
+# listens at 192.0.2.10 (TEST-NET-1). The folder itself does not exist, so the
+# install only passes when the folder tests are skipped.
+esc_work="$(printf '%s' "$work" | sed 's/ /\\040/g')"
+printf '%s\n' \
+  '22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw' \
+  "40 22 0:50 / $esc_work/nas\\040share rw,relatime shared:9 - nfs4 192.0.2.10:/export/music rw,vers=4.2,hard,addr=192.0.2.10" \
+  >"$work/mountinfo-silent"
+started=$SECONDS
+TAGAVE_TEST_MOUNTINFO="$work/mountinfo-silent" run --role all --dir "$work/silent" --music "$work/nas share/music" \
+  >"$work/silent.log" 2>&1 || { cat "$work/silent.log" >&2; fail "music check: a silent share failed the install"; }
+took=$((SECONDS - started))
+grep -qF "Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable." "$work/silent.log" \
+  || { cat "$work/silent.log" >&2; fail "music check: a silent share is not explained"; }
+[ "$took" -lt 10 ] || fail "music check: waited ${took}s on a silent share"
+grep -q 'vers=4.2' "$work/silent.log" && fail "music check: printed the mount's options"
+pass "music check with a silent share (after ${took}s)"
+
+# A local mount, and an nfs4 mount on a longer name that is not a parent
+# folder ($work/mus is not over $work/music): the check runs as today.
+printf '%s\n' \
+  '22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw' \
+  "41 22 8:2 / $esc_work/music rw,relatime shared:10 - ext4 /dev/sdb1 rw" \
+  "42 22 0:51 / $esc_work/mus rw,relatime shared:11 - nfs4 192.0.2.10:/export/music rw" \
+  >"$work/mountinfo-local"
+TAGAVE_TEST_MOUNTINFO="$work/mountinfo-local" run --role all --dir "$work/local-mnt" --music "$work/music" \
+  >"$work/local-mnt.log" 2>&1 || { cat "$work/local-mnt.log" >&2; fail "music check: a local mount failed the install"; }
+grep -q "Music folder $work/music" "$work/local-mnt.log" || fail "music check: a local mount skipped the folder check"
+grep -q "doesn't answer" "$work/local-mnt.log" && fail "music check: probed a share for a local folder"
+if TAGAVE_TEST_MOUNTINFO="$work/mountinfo-local" run --role all --dir "$work/local-mnt2" --music "$work/music-gone" \
+  >"$work/local-mnt2.log" 2>&1; then fail "music check: a missing local folder was accepted"; fi
+grep -q 'does not exist' "$work/local-mnt2.log" || { cat "$work/local-mnt2.log" >&2; fail "music check: a missing local folder is not explained"; }
+pass "music check on a local mount runs as before"
+
+# --repair with --no-start: the check is skipped, and the installer says so.
+run --role all --dir "$work/all" --music "$work/music" --repair >"$work/all-repair.log" 2>&1 \
+  || { cat "$work/all-repair.log" >&2; fail "--repair --no-start"; }
+grep -q -- '--repair does nothing with --no-start or --dry-run.' "$work/all-repair.log" || fail "--repair --no-start: no word that it does nothing"
+pass "--repair with --no-start says it does nothing"
+
 # --- the opt-in updater --------------------------------------------------------
 run --role all --with-updater --dir "$work/updater" --music "$work/music" >"$work/updater.log" 2>&1 \
   || { cat "$work/updater.log" >&2; fail "--with-updater"; }
@@ -331,7 +373,8 @@ cat >"$work/bin/docker" <<'FAKE'
 printf '%s\n' "$*" >>"$FAKE_LOG"
 # FAKE_DOCKER_SILENT=1: a Docker that does not answer. FAKE_UNHEALTHY=SERVICE:
 # that service's container reads "exited". FAKE_REPAIR_EXIT: the exit code of
-# the updater's "cli.js repair" one-off.
+# the updater's "cli.js repair" one-off. FAKE_SERVICES_FAIL=1: "compose
+# config --services" fails.
 case "$1" in
   info) [ "${FAKE_DOCKER_SILENT:-0}" != 1 ] || sleep 30; exit 0 ;;
   version) [ "${FAKE_DOCKER_SILENT:-0}" != 1 ] || sleep 30; echo 27.0.0; exit 0 ;;
@@ -373,7 +416,9 @@ case "$1" in
 esac
 case "$1" in
   version) echo 2.29.0 ;;
-  config) exec "$REAL_DOCKER" compose "$@" ;;
+  config)
+    case "$*" in *--services*) [ "${FAKE_SERVICES_FAIL:-0}" != 1 ] || exit 1 ;; esac
+    exec "$REAL_DOCKER" compose "$@" ;;
   ps)
     if [ "${2:-}" = "--format" ]; then printf 'SERVICE STATE STATUS\napp running Up\n'
     elif [ -n "${FAKE_UNHEALTHY:-}" ] && [ "${3:-}" = "$FAKE_UNHEALTHY" ]; then echo fakeid-down
@@ -720,6 +765,37 @@ grep -q "Docker isn't answering. Restart Docker or the computer, then run the in
 [ "$took" -lt 20 ] || fail "repair: waited ${took}s on a silent Docker"
 cmp -s "$work/rep/.env" "$work/rep-env.before" || fail "repair: a silent Docker run changed .env"
 pass "Docker not answering exits 6 (after ${took}s)"
+
+started=$SECONDS
+status=0
+: >"$work/docker.log"
+FAKE_DOCKER_SILENT=1 fake repair --dir "$work/rep" --yes >"$work/rep-silent2.log" 2>&1 || status=$?
+took=$((SECONDS - started))
+[ "$status" = 6 ] || { cat "$work/rep-silent2.log" >&2; fail "repair command: a silent Docker exited $status, not 6"; }
+grep -q "Docker isn't answering. Restart Docker or the computer, then run the installer again." "$work/rep-silent2.log" \
+  || fail "repair command: a silent Docker is not explained"
+grep -q 'cli.js repair' "$work/docker.log" && fail "repair command: ran the repair on a silent Docker"
+[ "$took" -lt 20 ] || fail "repair command: waited ${took}s on a silent Docker"
+pass "the repair command on a silent Docker exits 6 (after ${took}s)"
+
+# compose cannot list the parts: say so, never call it healthy silently.
+: >"$work/docker.log"
+FAKE_SERVICES_FAIL=1 FAKE_UNHEALTHY=worker-files rep --yes >"$work/rep-nolist.log" 2>&1 \
+  || { cat "$work/rep-nolist.log" >&2; fail "repair: a re-run stopped when compose could not list the parts"; }
+grep -q 'tagave could not check its parts here.' "$work/rep-nolist.log" || { cat "$work/rep-nolist.log" >&2; fail "repair: no word that the parts could not be checked"; }
+[ -n "$(line_of 'compose up -d')" ] || fail "repair: a re-run that could not check the parts did not carry on"
+pass "a re-run that cannot list the parts says so and carries on"
+
+# Values from .env reach the one-off docker run only when they are valid.
+cp -R "$work/rep" "$work/rep-badenv"
+for bad in 'COMPOSE_PROJECT_NAME=Bad Name' 'TAGAVE_REGISTRY=-evil' 'TAGAVE_DIGEST_UPDATER=sha256:abc'; do
+  { grep -v "^${bad%%=*}=" "$work/rep/.env"; printf '%s\n' "$bad"; } >"$work/rep-badenv/.env"
+  : >"$work/docker.log"
+  if fake repair --dir "$work/rep-badenv" --yes >"$work/rep-badenv.log" 2>&1; then fail "repair: accepted $bad"; fi
+  grep -q "${bad%%=*}" "$work/rep-badenv.log" || { cat "$work/rep-badenv.log" >&2; fail "repair: refused $bad without naming the key"; }
+  grep -q '^run ' "$work/docker.log" && fail "repair: ran a container with $bad"
+done
+pass "repair refuses a bad registry, digest or project name from .env before docker run"
 
 : >"$work/docker.log"
 status=0
