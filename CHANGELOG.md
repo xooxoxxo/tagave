@@ -2,7 +2,54 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.33.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.33.1)
+## [v0.34.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.34.0)
+
+**Minor release (0.33 → 0.34).** tagave repairs itself. An update no longer stalls on a part that won't stop or start, or on a music share that stopped answering. Settings › Updates gets a Repair button, and running the install command again repairs a broken install.
+
+### Before you update
+
+- **Make sure your music share answers.** This update runs on your current version (0.33.1 or older), which still stalls on a dead share. From 0.34.0 on, updates handle it.
+- No database change in this release.
+
+### New
+
+- **Repair in Settings › Updates:** checks every part of tagave and fixes what it safely can. It starts parts that are down, and recreates or restarts a part that keeps stopping, once. It ends with one plain sentence; details are behind "?". It never deletes data, restores a backup or changes a setting. Repairs show in the audit log. ([f08bed9](https://github.com/xooxoxxo/tagave/commit/f08bed9), [fe51a8c](https://github.com/xooxoxxo/tagave/commit/fe51a8c), [f0bbf13](https://github.com/xooxoxxo/tagave/commit/f0bbf13), [9c224f4](https://github.com/xooxoxxo/tagave/commit/9c224f4), [8f9cd58](https://github.com/xooxoxxo/tagave/commit/8f9cd58), [4899f85](https://github.com/xooxoxxo/tagave/commit/4899f85))
+- **A dead music share is waited out:** when the NAS doesn't answer, tagave names it ("Your music share at … doesn't answer") and keeps every other part running. It checks the share again every few minutes and starts the music parts on their own when it is back. ([02b97f5](https://github.com/xooxoxxo/tagave/commit/02b97f5), [6081fa2](https://github.com/xooxoxxo/tagave/commit/6081fa2), [97fffd4](https://github.com/xooxoxxo/tagave/commit/97fffd4), [9c60881](https://github.com/xooxoxxo/tagave/commit/9c60881))
+- **Updates keep going:**
+  - Parts stop and start one at a time, each with a time limit, so a stuck part is named instead of stalling the update for 20 minutes.
+  - An update held up by a dead share keeps the new version, ends "held", and finishes on its own when the share is back.
+  - After a restart of the computer, tagave finishes an interrupted update by itself.
+
+  ([1568d18](https://github.com/xooxoxxo/tagave/commit/1568d18), [3f06431](https://github.com/xooxoxxo/tagave/commit/3f06431), [ef2802a](https://github.com/xooxoxxo/tagave/commit/ef2802a), [25e5310](https://github.com/xooxoxxo/tagave/commit/25e5310), [208a05f](https://github.com/xooxoxxo/tagave/commit/208a05f))
+
+### Fixed
+
+- **Safer rollback advice:** a failed update names only its own backup. It never advises a restore when the database did not change. ([9e24f03](https://github.com/xooxoxxo/tagave/commit/9e24f03), [3a9a67d](https://github.com/xooxoxxo/tagave/commit/3a9a67d), [36828ce](https://github.com/xooxoxxo/tagave/commit/36828ce))
+- **The music self-heal** never touches a share that doesn't answer, and it obeys its off switch. ([efa04d5](https://github.com/xooxoxxo/tagave/commit/efa04d5), [2adb8e2](https://github.com/xooxoxxo/tagave/commit/2adb8e2), [6041fee](https://github.com/xooxoxxo/tagave/commit/6041fee))
+- **Settings › Updates answers within seconds**, even when a part hangs. ([659173c](https://github.com/xooxoxxo/tagave/commit/659173c), [5c86e1a](https://github.com/xooxoxxo/tagave/commit/5c86e1a), [56d5da8](https://github.com/xooxoxxo/tagave/commit/56d5da8))
+- **One update, module change or repair at a time.** ([1509c1e](https://github.com/xooxoxxo/tagave/commit/1509c1e), [8f39a4a](https://github.com/xooxoxxo/tagave/commit/8f39a4a), [996f840](https://github.com/xooxoxxo/tagave/commit/996f840))
+- **Smaller fixes:**
+  - the web app gets a 2 minute start limit;
+  - the run log shows each part's stop and start;
+  - part counts are right;
+  - passwords are cleaned out of error text before it is shown;
+  - plainer copy.
+
+  ([e204b93](https://github.com/xooxoxxo/tagave/commit/e204b93), [8c733d7](https://github.com/xooxoxxo/tagave/commit/8c733d7), [fc0bde7](https://github.com/xooxoxxo/tagave/commit/fc0bde7), [5d40cc8](https://github.com/xooxoxxo/tagave/commit/5d40cc8), [ff8f8bf](https://github.com/xooxoxxo/tagave/commit/ff8f8bf), [047140c](https://github.com/xooxoxxo/tagave/commit/047140c), [9034201](https://github.com/xooxoxxo/tagave/commit/9034201), [611d420](https://github.com/xooxoxxo/tagave/commit/611d420), [5d61700](https://github.com/xooxoxxo/tagave/commit/5d61700), [a18fc69](https://github.com/xooxoxxo/tagave/commit/a18fc69))
+
+### For self-hosters
+
+- **Repair with the installer:**
+  - Run the same one-line install command again. If parts are down, it asks "Repair it now?". Add `--repair` to repair without asking.
+  - Exit codes: 0 repaired, 4 waiting for the music share, 5 needs you, 6 Docker doesn't answer.
+  - Installs older than 0.34.0 have their parts started as before.
+
+  ([792d70f](https://github.com/xooxoxxo/tagave/commit/792d70f), [1b128e1](https://github.com/xooxoxxo/tagave/commit/1b128e1), [b3b435f](https://github.com/xooxoxxo/tagave/commit/b3b435f))
+- **The installer never hangs on a dead music share:** it names the share and starts nothing until it answers. ([87aa184](https://github.com/xooxoxxo/tagave/commit/87aa184), [483be94](https://github.com/xooxoxxo/tagave/commit/483be94))
+
+**All changes:** [v0.33.1...v0.34.0](https://github.com/xooxoxxo/tagave/compare/v0.33.1...v0.34.0)
+
+## [v0.33.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.33.1) (2026-11-23)
 
 **Patch release (0.33.0 → 0.33.1).** Settings say what they do: one name per switch, confirms before anything you can't take back, and no setting that saves differently from how it looks.
 
