@@ -167,8 +167,11 @@ export function repairHeadline(run: Pick<RepairRun, 'status' | 'outcome'>, extra
       return 'The database is recovering after an unclean stop. Wait, this can take a few minutes.';
     case 'app_unhealthy':
       return "The web app doesn't answer. tagave restarted it once.";
-    case 'migration_refused':
-      return `The web app refuses to update the database: ${(extra.reason ?? 'see the run log').replace(/\.\s*$/, '')}.`;
+    case 'migration_refused': {
+      // A clipped reason ends in "…" and takes no period after it.
+      const said = (extra.reason ?? 'see the run log').replace(/\.\s*$/, '');
+      return `The web app refuses to update the database: ${said}${said.endsWith('…') ? '' : '.'}`;
+    }
     case 'docker_unresponsive':
       return "Docker isn't answering. Restart Docker or the computer, then run the installer again.";
     default:
@@ -355,7 +358,7 @@ export class Repair {
   // -- the steps ---------------------------------------------------------------
 
   private async check(): Promise<void> {
-    this.begin('check', 'asking Docker');
+    this.begin('check', 'checking the parts');
     const version = await this.docker(['version', '--format', '{{.Server.Version}}'], LIMITS.versionMs);
     if (version.code !== 0) {
       this.log('error', timedOut(version) ? 'Docker did not answer within 10 s' : `Docker did not answer (exit ${version.code})`);
@@ -367,7 +370,7 @@ export class Repair {
     this.progress('reading the parts');
     const parts = await this.readParts();
     const down = parts.filter((p) => p.state !== 'running').map((p) => p.service);
-    this.log('info', `parts: ${parts.map((p) => `${p.service} ${p.state}`).join(', ')}`);
+    this.log('info', `parts: ${parts.map((p) => `${partName(p.service)} ${p.state}`).join(', ')}`);
     this.seen = await this.observe(services.filter((s) => down.includes(s) || s === 'app' || s === 'postgres'));
 
     const free = await this.freeBytes();
@@ -727,7 +730,8 @@ export class Repair {
   }
 
   private log(level: UpdateLogLine['level'], message: string): void {
-    this.run.log.push({ at: this.now().toISOString(), level, message: redact(message) });
+    // Lines carry free text from errors and logs: redacted and capped as clip does.
+    this.run.log.push({ at: this.now().toISOString(), level, message: clip(message) });
     if (this.run.log.length > MAX_LOG_LINES) this.run.log.splice(0, this.run.log.length - MAX_LOG_LINES);
     void this.persist();
   }

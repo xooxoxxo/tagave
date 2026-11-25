@@ -359,6 +359,24 @@ describe('updater HTTP API', () => {
       expect((await statusOf()).repair).toMatchObject({ id: 'installer-new', status: 'running' });
     });
 
+    it("a status call never takes back this process's finished repair from an older file", async () => {
+      const res = await service.startRepair('owner');
+      expect(res.ok).toBe(true);
+      await service.idle();
+      const own = (await statusOf()).repair!;
+      expect(own.status).toBe('repaired');
+      // the file still holds the run's earlier "running" save (a status read in the gap of the last write)
+      await writeRun(REPAIR_STATE_FILE, { ...own, status: 'running', finishedAt: null, startedAt: new Date(Date.now() - 2 * 3600_000).toISOString() });
+      expect((await statusOf()).repair).toMatchObject({ id: own.id, status: 'repaired' });
+      expect(fake.reports).toEqual([{ status: 'repaired', cause: null }]);
+    });
+
+    it('only an installer repair is failed as stale', async () => {
+      await writeRun(REPAIR_STATE_FILE, newRepairRun('owner-old', 'owner', new Date(Date.now() - 2 * 3600_000)));
+      expect((await statusOf()).repair).toMatchObject({ id: 'owner-old', status: 'running' });
+      expect(fake.reports).toEqual([]);
+    });
+
     it('a reading begun before the parts changed is not kept', async () => {
       const s = make({ partsDeadlineMs: 20 });
       let open!: () => void;
@@ -416,6 +434,24 @@ describe('updater HTTP API', () => {
       const reads = fake.calls.filter((c) => c[1] === 'ps').length;
       await statusOf();
       expect(fake.calls.filter((c) => c[1] === 'ps').length).toBe(reads);
+    });
+
+    it("an update's end never clears a later update's claim", async () => {
+      let entered!: () => void;
+      const inAfter = new Promise<void>((r) => { entered = r; });
+      let open!: () => void;
+      const gate = new Promise<void>((r) => { open = r; });
+      service['afterUpdate'] = async () => { entered(); await gate; };
+      expect((await call('POST', '/v1/update', release('0.8.0'))).status).toBe(202);
+      const first = service['active']!;
+      await inAfter;
+      // a later update won the slot while the first one's afterUpdate awaits
+      const later = new Promise<never>(() => {});
+      service['active'] = later;
+      open();
+      await first.catch(() => undefined);
+      expect(service['active']).toBe(later);
+      service['active'] = null;
     });
 
     it('a held update hands its parts to a repair', async () => {

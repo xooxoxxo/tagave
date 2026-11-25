@@ -446,6 +446,36 @@ describe('repair', () => {
     expect(fake.appRestarts).toBe(0);
   });
 
+  it('a clipped refusal keeps its … and gets no extra period', async () => {
+    fake.healthy = () => false;
+    fake.box('app').logs = `Not migrating: ${'the database is newer than this app '.repeat(20)}\n`;
+    const run = await repair().execute();
+    expect(run.outcome?.cause).toBe('migration_refused');
+    expect(run.headline).toMatch(/…$/);
+    expect(run.headline).not.toMatch(/…\.$/);
+  });
+
+  it('caps the free text in the run log at 300 characters', async () => {
+    const app = { ...fake.app, health: async () => { throw new Error(`lost postgres://robin:secret@192.0.2.10/db ${'x'.repeat(1000)}`); } };
+    const run = await repair({ app }).execute();
+    expect(run.status).toBe('failed');
+    const line = run.log.find((l) => l.message.startsWith('the repair stopped: '))!;
+    expect(line.message.length).toBeLessThanOrEqual(300);
+    expect(line.message).not.toContain('secret');
+  });
+
+  it('tells the owner it checks the parts, and names the parts by label in the run log', async () => {
+    fake.box('player').status = 'none';
+    const run = await repair().execute();
+    const first = fake.saved.find((r) => r.progress?.step === 'check')!;
+    expect(first.progress!.message).toBe('checking the parts');
+    expect(JSON.stringify(fake.saved)).not.toContain('asking Docker');
+    const line = run.log.find((l) => l.message.startsWith('parts: '))!.message;
+    expect(line).toContain('the web app running');
+    expect(line).toContain('the player missing');
+    expect(line).not.toMatch(/(: |, )(app|postgres|player|worker-files|worker-identify) /);
+  });
+
   it('db_recovering: waits, never restarts postgres', async () => {
     const until = fake.clock + 2 * 60_000;
     fake.box('postgres').logs = () => `database system was interrupted\nredo starts at 0/1\n${fake.clock >= until ? 'database system is ready to accept connections\n' : ''}`;
