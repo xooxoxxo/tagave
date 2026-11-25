@@ -169,6 +169,11 @@ printf '%s\n' \
 TAGAVE_TEST_MOUNTINFO="$work/mountinfo-default" traced --role all --dir "$work/defmusic" >"$work/defmusic.log" \
   || { cat "$work/defmusic.log" "$work/trace.log" >&2; fail "music default: a silent /mnt/music failed the install"; }
 grep -q -- '-d /mnt/music' "$work/trace.log" && fail "music default: looked at /mnt/music on a share that does not answer"
+[ "$(env_value MUSIC_DIR "$work/defmusic/.env")" = "/mnt/music" ] \
+  || { cat "$work/defmusic.log" >&2; fail "music default: a silent /mnt/music was dropped for $(env_value MUSIC_DIR "$work/defmusic/.env")"; }
+grep -qF "Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable." "$work/trace.log" \
+  || fail "music default: a silent /mnt/music is not explained"
+grep -q 'No music folder given' "$work/trace.log" && fail "music default: a silent /mnt/music was called no music folder"
 TAGAVE_TEST_MOUNTINFO="$work/mountinfo-local" traced --role all --dir "$work/defmusic2" >"$work/defmusic2.log" \
   || { cat "$work/defmusic2.log" >&2; fail "music default: a local /mnt/music failed the install"; }
 grep -q -- '-d /mnt/music' "$work/trace.log" || fail "music default: did not look at /mnt/music on a local mount"
@@ -405,13 +410,13 @@ cat >"$work/bin/docker" <<'FAKE'
 printf '%s\n' "$*" >>"$FAKE_LOG"
 # FAKE_DOCKER_SILENT=1: a Docker that does not answer. FAKE_UNHEALTHY=SERVICE:
 # that service's container reads "exited". FAKE_REPAIR_EXIT: the exit code of
-# the updater's "cli.js repair" one-off. FAKE_SERVICES_FAIL=1: "compose
-# config --services" fails.
+# the updater's "cli.js repair" one-off, FAKE_REPAIR_HEADLINE the last line it
+# prints. FAKE_SERVICES_FAIL=1: "compose config --services" fails.
 case "$1" in
   info) [ "${FAKE_DOCKER_SILENT:-0}" != 1 ] || sleep 30; exit 0 ;;
   version) [ "${FAKE_DOCKER_SILENT:-0}" != 1 ] || sleep 30; echo 27.0.0; exit 0 ;;
   run)
-    case "$*" in *"cli.js repair"*) echo 'fake repair: started the file worker'; echo 'Repaired. All 4 parts running.'; exit "${FAKE_REPAIR_EXIT:-0}" ;; esac
+    case "$*" in *"cli.js repair"*) echo 'fake repair: started the file worker'; echo "${FAKE_REPAIR_HEADLINE:-Repaired. All 4 parts running.}"; exit "${FAKE_REPAIR_EXIT:-0}" ;; esac
     exit 0 ;;
   manifest) echo '{"manifests":[{"platform":{"architecture":"amd64"}},{"platform":{"architecture":"arm64"}}]}'; exit 0 ;;
   inspect)
@@ -747,9 +752,10 @@ grep -q 'Cannot tell which version runs here' "$work/float-unknown.log" \
 pass "update refuses without --yes when the running version is unknown"
 
 # --- repair: a re-run that finds parts down, and the repair command ----------
-at_version 0.4.1 --role all --dir "$work/rep" --music "$work/music" >"$work/rep-install.log" 2>&1 \
-  || { cat "$work/rep-install.log" >&2; fail "repair: install 0.4.1"; }
-printf '0.4.1' >"$work/state/version"
+# 0.34.0 is FIRST_REPAIR_RELEASE, the first whose updater image has cli.js repair.
+at_version 0.34.0 --role all --dir "$work/rep" --music "$work/music" >"$work/rep-install.log" 2>&1 \
+  || { cat "$work/rep-install.log" >&2; fail "repair: install 0.34.0"; }
+printf '0.34.0' >"$work/state/version"
 rep_project="$(env_value COMPOSE_PROJECT_NAME "$work/rep/.env")"
 rep_project="${rep_project:-tagave}"
 # rep ARGS...: the installer on $work/rep against the stand-in docker; the app
@@ -763,6 +769,35 @@ grep -q 'cli.js repair' "$work/docker.log" && fail "repair: a healthy re-run ran
 grep -q "aren't running" "$work/rep-healthy.log" && fail "repair: a healthy re-run reported parts down"
 [ -n "$(line_of 'compose up -d')" ] || fail "repair: a healthy re-run no longer starts tagave"
 pass "healthy re-run is unchanged"
+
+# --repair on a healthy install: nothing to repair, the re-run carries on.
+: >"$work/docker.log"
+rep --yes --repair >"$work/rep-healthy2.log" 2>&1 || { cat "$work/rep-healthy2.log" >&2; fail "repair: healthy re-run with --repair"; }
+grep -q 'cli.js repair' "$work/docker.log" && fail "repair: --repair on a healthy install ran a repair"
+[ -n "$(line_of 'compose up -d')" ] || fail "repair: --repair on a healthy install did not carry on"
+pass "--repair on a healthy install carries on as a re-run"
+
+# An install whose updater image has no cli.js repair (before 0.34.0): a
+# re-run with a part down starts the parts as before, never exit 3.
+at_version 0.4.1 --role all --dir "$work/rep-old" --music "$work/music" >"$work/rep-old-install.log" 2>&1 \
+  || { cat "$work/rep-old-install.log" >&2; fail "repair: install 0.4.1"; }
+: >"$work/docker.log"
+status=0
+FAKE_UNHEALTHY=worker-files TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --dir "$work/rep-old" --app-url "file://$work/appsrv" \
+  >"$work/rep-old.log" 2>&1 || status=$?
+[ "$status" = 0 ] || { cat "$work/rep-old.log" >&2; fail "repair: a re-run of 0.4.1 with a part down exited $status"; }
+grep -qF "This tagave version can't repair itself yet, so the installer starts the parts as usual." "$work/rep-old.log" \
+  || { cat "$work/rep-old.log" >&2; fail "repair: a re-run of 0.4.1 does not say why it does not repair"; }
+grep -q 'cli.js repair' "$work/docker.log" && fail "repair: a re-run of 0.4.1 ran cli.js repair, which its updater image lacks"
+[ -n "$(line_of 'compose up -d')" ] || { cat "$work/docker.log" >&2; fail "repair: a re-run of 0.4.1 with a part down did not start the parts"; }
+status=0
+: >"$work/docker.log"
+fake repair --dir "$work/rep-old" --yes >"$work/rep-old2.log" 2>&1 || status=$?
+[ "$status" = 1 ] || { cat "$work/rep-old2.log" >&2; fail "repair command on 0.4.1 exited $status, not 1"; }
+grep -qF 'Repair needs tagave 0.34.0 or newer. Update first, or run the installer again to start the parts.' "$work/rep-old2.log" \
+  || { cat "$work/rep-old2.log" >&2; fail "repair command on 0.4.1: no plain reason"; }
+grep -q '^run ' "$work/docker.log" && fail "repair command on 0.4.1 ran a container"
+pass "an install before 0.34.0 re-runs as before, and its repair command says what it needs"
 
 cp "$work/rep/.env" "$work/rep-env.before"
 : >"$work/docker.log"
@@ -842,24 +877,48 @@ pass "a silent share writes the configuration and starts nothing"
 
 : >"$work/docker.log"
 status=0
-FAKE_REPAIR_EXIT=4 fake repair --dir "$work/rep" --wait 30 --yes >"$work/rep-wait.log" 2>&1 || status=$?
+FAKE_REPAIR_EXIT=4 FAKE_REPAIR_HEADLINE="Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. Turn the NAS on, then run the installer again." \
+  fake repair --dir "$work/rep" --wait 30 --yes >"$work/rep-wait.log" 2>&1 || status=$?
 [ "$status" = 4 ] || { cat "$work/rep-wait.log" >&2; fail "repair: exit 4 became $status"; }
 grep -q 'cli.js repair --wait 30$' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "repair: --wait 30 was not passed on"; }
-grep -q 'Turn the NAS on, then run the installer again.' "$work/rep-wait.log" || { cat "$work/rep-wait.log" >&2; fail "repair: waiting on music without the updater gives the wrong advice"; }
+# count TEXT FILE: how many lines of FILE hold TEXT.
+count() { grep -cF -- "$1" "$2" || true; }
+[ "$(count 'Turn the NAS on, then run the installer again.' "$work/rep-wait.log")" = 1 ] \
+  || { cat "$work/rep-wait.log" >&2; fail "repair: waiting on music without the updater does not say once to run the installer again"; }
+[ "$(count 'finishes on its own' "$work/rep-wait.log")" = 0 ] \
+  || { cat "$work/rep-wait.log" >&2; fail "repair: waiting on music without the updater promises it finishes on its own"; }
 cp -R "$work/rep" "$work/rep-upd"
 sed 's/^COMPOSE_PROFILES=.*/&,updater/' "$work/rep/.env" >"$work/rep-upd/.env"
 status=0
 : >"$work/docker.log"
-FAKE_REPAIR_EXIT=4 fake repair --dir "$work/rep-upd" --wait 30 --yes >"$work/rep-wait2.log" 2>&1 || status=$?
+FAKE_REPAIR_EXIT=4 FAKE_REPAIR_HEADLINE="Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. tagave finishes on its own when it's back." \
+  fake repair --dir "$work/rep-upd" --wait 30 --yes >"$work/rep-wait2.log" 2>&1 || status=$?
 grep -q 'cli.js repair$' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "repair: with the updater, --wait was passed on (its service watches the share)"; }
 grep -q 'so --wait is not needed here' "$work/rep-wait2.log" || fail "repair: with the updater, --wait dropped without saying why"
 [ "$status" = 4 ] || { cat "$work/rep-wait2.log" >&2; fail "repair with the updater: exit 4 became $status"; }
-grep -q "tagave finishes on its own when it's back." "$work/rep-wait2.log" || { cat "$work/rep-wait2.log" >&2; fail "repair: waiting on music with the updater gives the wrong advice"; }
+[ "$(count "tagave finishes on its own when it's back." "$work/rep-wait2.log")" = 1 ] \
+  || { cat "$work/rep-wait2.log" >&2; fail "repair: waiting on music with the updater does not say once that it finishes on its own"; }
+[ "$(count 'run the installer again' "$work/rep-wait2.log")" = 0 ] || fail "repair: with the updater, still says to run the installer again"
 for code in 5:5 2:1 1:1; do
   status=0
   FAKE_REPAIR_EXIT="${code%:*}" fake repair --dir "$work/rep" --yes >"$work/rep-code.log" 2>&1 || status=$?
   [ "$status" = "${code#*:}" ] || { cat "$work/rep-code.log" >&2; fail "repair: exit ${code%:*} became $status, not ${code#*:}"; }
+  if [ "${code%:*}" = 2 ]; then
+    grep -qF 'Repair needs tagave 0.34.0 or newer. Update first, or run the installer again to start the parts.' "$work/rep-code.log" \
+      || { cat "$work/rep-code.log" >&2; fail "repair: an updater without cli.js repair (exit 2) is not explained"; }
+  fi
 done
+# repair on a healthy install runs the repair, which finds nothing to do.
+: >"$work/docker.log"
+FAKE_REPAIR_HEADLINE='All 4 parts running. Nothing to repair.' fake repair --dir "$work/rep" --yes >"$work/rep-none.log" 2>&1 \
+  || { cat "$work/rep-none.log" >&2; fail "repair command on a healthy install"; }
+grep -q 'All 4 parts running. Nothing to repair.' "$work/rep-none.log" || fail "repair command on a healthy install: no headline"
+grep -Eq '^compose (up|pull)' "$work/docker.log" && fail "repair command on a healthy install reinstalled"
+# The image check before the one-off is bounded (a silent Docker cannot hang it).
+PATH="$work/bin:$PATH" REAL_DOCKER="$real_docker" FAKE_LOG="$work/docker.log" FAKE_STATE="$work/state" \
+  bash -x "$installer" repair --dir "$work/rep" --yes </dev/null >/dev/null 2>"$work/trace.log" \
+  || { cat "$work/trace.log" >&2; fail "repair command under trace"; }
+grep -q 'run_limited 30 docker image inspect' "$work/trace.log" || fail "repair: docker image inspect runs without a limit"
 for bad in 0 121 abc; do
   if fake repair --dir "$work/rep" --wait "$bad" --yes >"$work/rep-bad.log" 2>&1; then fail "repair: accepted --wait $bad"; fi
   grep -q 'minutes from 1 to 120' "$work/rep-bad.log" || { cat "$work/rep-bad.log" >&2; fail "repair: --wait $bad refused without saying why"; }

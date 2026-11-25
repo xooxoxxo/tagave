@@ -105,6 +105,10 @@ REPAIR=0
 REPAIR_WAIT=""
 
 PROJECT_NAME="tagave"
+# The first release whose updater image has "cli.js repair". Bump it if that
+# release ships under another number.
+FIRST_REPAIR_RELEASE="0.34.0"
+REPAIR_TOO_OLD="Repair needs tagave $FIRST_REPAIR_RELEASE or newer. Update first, or run the installer again to start the parts."
 COMPOSE_MAIN="compose.yml"
 COMPOSE_DB="compose.db-published.yml"
 WORKER_ENV_NAME="files-worker.env"
@@ -850,6 +854,9 @@ collect_answers() {
       case "$SHARE_KIND" in
         local|answers) if [ -d /mnt/music ]; then default_music="/mnt/music"; fi ;;
         unknown) if run_limited 10 test -d /mnt/music; then default_music="/mnt/music"; fi ;;
+        # With nobody to ask, the share stays the music folder: check_music_dir
+        # says it doesn't answer, and nothing starts until it does.
+        silent) [ -n "$TTY" ] || default_music="/mnt/music" ;;
       esac
     fi
     if [ -n "$TTY" ] && [ -z "$MUSIC_DIR" ]; then
@@ -2929,7 +2936,7 @@ run_updater_cli() {
     || die "TAGAVE_DIGEST_UPDATER in $env_file is not an image digest. Fix that line, then run this again."
   [[ $project =~ $project_re ]] \
     || die "COMPOSE_PROJECT_NAME in $env_file is not a project name. Fix that line, then run this again."
-  docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null \
+  run_limited 30 docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null \
     || die "could not download $image (see above)."
   docker run --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
@@ -2981,10 +2988,19 @@ repair_check() {
   fi
 }
 
+# The updater image of this install has "cli.js repair": a release from
+# FIRST_REPAIR_RELEASE on (not latest or edge), and an install folder without
+# whitespace (it goes into docker run's arguments as is).
+repair_supported() {
+  is_release "$CURRENT" && ! version_lt "$CURRENT" "$FIRST_REPAIR_RELEASE" || return 1
+  case "$INSTALL_DIR" in *[[:space:]]*) return 1 ;; esac
+}
+
 # A re-run of the installer on an install: when parts are down, repair (with
 # --repair, or a yes on the terminal) or stop with exit 3 (no terminal or
-# --yes). When all run, or the answer is no, it carries on as before with the
-# settings it had.
+# --yes). When all run, or the answer is no, or this install cannot run the
+# repair (repair_supported), it carries on as before with the settings it
+# had, and the re-run starts the parts.
 check_existing_install() {
   local env_file="$INSTALL_DIR/.env" answer="" finding
   # An .env from before the installer recorded the role: nothing to check by.
@@ -2993,7 +3009,9 @@ check_existing_install() {
   load_install
   repair_check
   [ "$REPAIR_DOCKER" != "silent" ] || docker_silent
-  if [ "$REPAIR_DOWN" -gt 0 ]; then
+  if [ "$REPAIR_DOWN" -gt 0 ] && ! repair_supported; then
+    say "This tagave version can't repair itself yet, so the installer starts the parts as usual."
+  elif [ "$REPAIR_DOWN" -gt 0 ]; then
     finding="tagave is installed here, but ${REPAIR_DOWN} of ${REPAIR_TOTAL} parts aren't running."
     if [ "$REPAIR" = "1" ]; then
       say "$finding"
@@ -3014,12 +3032,13 @@ check_existing_install() {
 
 # Runs "cli.js repair" of the release's updater image (the Repair button's
 # repair) and exits with its outcome: 0 repaired (its last line is the
-# headline), 4 waiting on the music share, 5 needs the owner, 1 otherwise.
+# headline), 4 waiting on the music share (cli.js prints how it ends), 5 needs
+# the owner, 1 otherwise. An updater without "cli.js repair" (exit 2, a usage
+# error) gets the plain reason.
 run_repair() {
   local rc=0
   step "Repairing tagave"
-  is_release "$CURRENT" || die "repair runs the updater of a release, and this install runs '${CURRENT:-nothing}'. Update to a release first."
-  case "$INSTALL_DIR" in *[[:space:]]*) die "the install directory cannot contain spaces for this command" ;; esac
+  repair_supported || die "$REPAIR_TOO_OLD"
   # With the updater installed, its service takes over a waiting repair
   # (.updater/repair.json); a second watcher here could start the parts twice.
   local wait="$REPAIR_WAIT"
@@ -3030,13 +3049,8 @@ run_repair() {
   run_updater_cli repair ${wait:+--wait "$wait"} || rc=$?
   case "$rc" in
     0) exit 0 ;;
-    4)
-      if has_updater_profile "$INSTALL_DIR/.env"; then
-        say "tagave finishes on its own when it's back."
-      else
-        say "Turn the NAS on, then run the installer again."
-      fi
-      exit 4 ;;
+    2) die "$REPAIR_TOO_OLD" ;;
+    4) exit 4 ;;
     5) exit 5 ;;
     *) exit 1 ;;
   esac
