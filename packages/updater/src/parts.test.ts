@@ -2,9 +2,9 @@
  * Stopping and starting parts one at a time, through a scripted fake Docker
  * with its own clock: a call that times out moves the clock on by its limit.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MusicProber, MusicReading, PartStuck } from './music-probe.js';
-import { PART_LIMITS, Parts } from './parts.js';
+import { PART_LIMITS, Parts, readParts } from './parts.js';
 import type { CommandResult, Runner } from './runner.js';
 
 type Answer = Partial<CommandResult> | 'timeout' | 'reject';
@@ -312,5 +312,112 @@ describe('the commands', () => {
     await p.stopParts(['worker-files']);
     expect(f.calls[0]).toEqual(['compose', '-p', 'robin', 'stop', '-t', '30', 'worker-files']);
     expect(f.calls[1]).toEqual(['compose', '-p', 'robin', 'ps', '-a', '-q', 'worker-files']);
+  });
+});
+
+describe('readParts', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** A fake whose ps gives each service a container and whose inspect answers from `states`. */
+  const reader = (states: Record<string, Answer>) => fake((a) => {
+    if (isPs(a)) return a.at(-1) === 'player' ? { stdout: '' } : { stdout: `${id(a.at(-1)!)}\n` };
+    if (a[0] === 'inspect') {
+      const svc = Object.keys(states).find((s) => id(s) === a.at(-1));
+      return svc ? states[svc]! : { code: 1 };
+    }
+    return { code: 1 };
+  });
+
+  it('maps every container state to a part state', async () => {
+    const f = reader({
+      app: { stdout: 'running|healthy\n' },
+      postgres: { stdout: 'running|\n' },
+      'worker-identify': { stdout: 'running|starting\n' },
+      'worker-files': { stdout: 'restarting|\n' },
+      a1: { stdout: 'exited|\n' },
+      a2: { stdout: 'created|\n' },
+      a3: { stdout: 'removing|\n' },
+      a4: { stdout: 'dead|\n' },
+      a5: 'timeout',
+      a6: { stdout: 'running|unhealthy\n' },
+    });
+    const services = ['app', 'postgres', 'worker-identify', 'worker-files', 'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'player'];
+    expect(await readParts(f.docker, services)).toEqual([
+      { service: 'app', state: 'running', health: 'healthy' },
+      { service: 'postgres', state: 'running', health: null },
+      { service: 'worker-identify', state: 'starting', health: 'starting' },
+      { service: 'worker-files', state: 'starting', health: null },
+      { service: 'a1', state: 'stopped', health: null },
+      { service: 'a2', state: 'stuck', health: null },
+      { service: 'a3', state: 'stuck', health: null },
+      { service: 'a4', state: 'stuck', health: null },
+      { service: 'a5', state: 'stuck', health: null },
+      { service: 'a6', state: 'running', health: 'unhealthy' },
+      { service: 'player', state: 'missing', health: null },
+    ]);
+  });
+
+  it('runs ps and inspect with 5 s limits and fixed argv', async () => {
+    const seen: Array<[string[], number | undefined]> = [];
+    const f = reader({ app: { stdout: 'running|\n' } });
+    await readParts((args, opts) => { seen.push([args, opts?.timeoutMs]); return f.docker(args, opts); }, ['app']);
+    expect(seen).toEqual([
+      [['compose', 'ps', '-a', '-q', 'app'], 5000],
+      [['inspect', '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}', id('app')], 5000],
+    ]);
+  });
+
+  it('reads a part stuck when compose does not answer, and never inspects an id that does not look like one', async () => {
+    const f = fake((a) => (isPs(a) ? (a.at(-1) === 'app' ? 'timeout' : { stdout: 'not-an-id; rm -rf /\n' }) : 'reject'));
+    expect(await readParts(f.docker, ['app', 'postgres'])).toEqual([
+      { service: 'app', state: 'stuck', health: null },
+      { service: 'postgres', state: 'stuck', health: null },
+    ]);
+    expect(f.calls.some((c) => c[0] === 'inspect')).toBe(false);
+  });
+
+  it('reads a part missing when its container went away between ps and inspect', async () => {
+    const f = reader({ app: { code: 1, stderr: 'Error: No such object: abc' } });
+    expect(await readParts(f.docker, ['app'])).toEqual([{ service: 'app', state: 'missing', health: null }]);
+  });
+
+  it('a runner that rejects reads as stuck, it does not throw', async () => {
+    const f = fake(() => 'reject');
+    expect(await readParts(f.docker, ['app'])).toEqual([{ service: 'app', state: 'stuck', health: null }]);
+  });
+
+  it('a hanging part reads as stuck within 6 s', async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const hung = id('worker-files');
+    // The hung inspect answers only when its limit runs out, the way dockerRunner kills the CLI.
+    const docker: Runner = (args, opts) => {
+      if (isPs(args)) return Promise.resolve({ code: 0, stdout: `${id(args.at(-1)!)}\n`, stderr: '' });
+      if (args.at(-1) === hung) {
+        return new Promise((resolve) => setTimeout(() => resolve({ code: 143, stdout: '', stderr: 'timed out after 5 s' }), opts?.timeoutMs ?? 1e9));
+      }
+      return Promise.resolve({ code: 0, stdout: 'running|healthy\n', stderr: '' });
+    };
+    let done = 0;
+    const read = readParts(docker, ['app', 'worker-files', 'postgres']).then((r) => { done = Date.now() - start; return r; });
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(await read).toEqual([
+      { service: 'app', state: 'running', health: 'healthy' },
+      { service: 'worker-files', state: 'stuck', health: null },
+      { service: 'postgres', state: 'running', health: 'healthy' },
+    ]);
+    expect(done).toBeGreaterThan(0);
+    expect(done).toBeLessThan(6000);
+  });
+
+  it('does not wait on a runner that never answers, even past its own limit', async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const docker: Runner = (args) => (isPs(args) ? Promise.resolve({ code: 0, stdout: `${id(args.at(-1)!)}\n`, stderr: '' }) : new Promise(() => {}));
+    let done = 0;
+    const read = readParts(docker, ['app']).then((r) => { done = Date.now() - start; return r; });
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(await read).toEqual([{ service: 'app', state: 'stuck', health: null }]);
+    expect(done).toBeLessThan(6000);
   });
 });

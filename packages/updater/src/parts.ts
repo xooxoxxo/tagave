@@ -9,11 +9,15 @@
  * (120 s) one part at a time, the database first and the music-bound parts
  * last, then an inspect says whether it runs.
  *
+ * readParts says what each part is doing for /v1/status, every call with a
+ * 5 s limit, so a stuck part reads as `stuck` and never holds the status.
+ *
  * Only `compose stop`, `compose up`, `compose ps`, `kill` and `inspect` run
  * here. Nothing throws: a runner that rejects is a failed call.
  */
 import { MUSIC_BOUND, type MusicProber } from './music-probe.js';
 import { partName } from './progress.js';
+import type { PartRunState, PartState } from '@tagave/shared/updater';
 import type { CommandResult, Runner } from './runner.js';
 
 export type StuckCause = 'music_unreachable' | 'stuck_stop' | 'stuck_start';
@@ -256,4 +260,48 @@ function collect(services: string[], outcomes: Array<true | StuckPart | null>): 
     else if (o) res.stuck.push(o);
   });
   return res;
+}
+
+// -- part states -------------------------------------------------------------
+
+const READ_LIMIT_MS = 5_000;
+/** How long past its limit a call may take before readParts stops waiting (a CLI that ignores the kill). */
+const READ_GRACE_MS = 500;
+const READ_FORMAT = '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}';
+const READ_STUCK = new Set(['created', 'removing', 'dead']);
+
+/**
+ * Each service's state, all in parallel: `compose ps -a -q` and then
+ * `inspect`, each with its own limit (5 s by default). No container is
+ * `missing`; a call that times out, fails or never answers is `stuck`.
+ */
+export async function readParts(docker: Runner, services: string[], opts: { timeoutMs?: number } = {}): Promise<PartState[]> {
+  const timeoutMs = opts.timeoutMs ?? READ_LIMIT_MS;
+  const call = (args: string[]): Promise<CommandResult> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<CommandResult>((resolve) => {
+      timer = setTimeout(() => resolve({ code: -1, stdout: '', stderr: `timed out after ${seconds(timeoutMs)}` }), timeoutMs + READ_GRACE_MS);
+      (timer as { unref?: () => void }).unref?.();
+    });
+    const answer = docker(args, { timeoutMs }).catch((err: unknown): CommandResult => ({ code: -1, stdout: '', stderr: String(err) }));
+    return Promise.race([answer, late]).finally(() => clearTimeout(timer));
+  };
+  const part = (service: string, state: PartRunState, health: string | null = null): PartState => ({ service, state, health });
+
+  return Promise.all(services.map(async (service): Promise<PartState> => {
+    const ps = await call(['compose', 'ps', '-a', '-q', service]);
+    if (ps.code !== 0) return part(service, 'stuck');
+    const id = ps.stdout.trim().split('\n')[0]?.trim() ?? '';
+    if (!id) return part(service, 'missing');
+    if (!CONTAINER_ID.test(id)) return part(service, 'stuck');
+
+    const res = await call(['inspect', '--format', READ_FORMAT, id]);
+    if (res.code !== 0) return part(service, GONE.test(res.stderr) ? 'missing' : 'stuck');
+    const [status = '', healthText = ''] = res.stdout.trim().split('|');
+    const health = healthText.trim() || null;
+    if (READ_STUCK.has(status)) return part(service, 'stuck', health);
+    if (status === 'exited') return part(service, 'stopped', health);
+    if (status === 'restarting' || (status === 'running' && health === 'starting')) return part(service, 'starting', health);
+    return part(service, 'running', health);
+  }));
 }
