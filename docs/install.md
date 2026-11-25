@@ -46,7 +46,7 @@ Updating from a version without automatic backups: run the installer again first
 
 ### Repair an install
 
-When a part of tagave stops running, for example after a power cut, run the same one-line command again. Before it writes anything, it checks that Docker answers and that every part on this computer runs. It skips this check with `--no-start` or `--dry-run` (`--repair` then only warns), and on an install whose `.env` comes from an installer older than this check. When a part is down, it says so (`tagave is installed here, but 1 of 5 parts aren't running.`) and asks `Repair it now? (Y/n)`. A yes runs only the repair: nothing is written or started apart from it. Answer no to go on with a plain re-run.
+When a part of tagave stops running, for example after a power cut, run the same one-line command again. Before it writes anything, it checks that Docker answers and that every part on this computer runs. It skips this check with `--no-start` or `--dry-run` (`--repair` then only warns), and on an install whose `.env` does not record its role (`TAGAVE_ROLE`). When a part is down, it says so (`tagave is installed here, but 1 of 5 parts aren't running.`) and asks `Repair it now? (Y/n)`. A yes runs only the repair: nothing is written or started apart from it. Answer no to go on with a plain re-run.
 
 To repair without questions, from the install folder:
 
@@ -63,7 +63,7 @@ This is the same repair as the **Repair** button in Settings › Updates, run fr
 - **0**: repaired, or nothing to repair.
 - **4**: waiting for the music share. With the in-app updater, tagave finishes on its own when the share answers. Without it, turn the NAS on, then run the installer again. Or add `--wait MINUTES` (1 to 120) to keep watching that long; with the updater it is not needed and is left out.
 - **5**: something only you can fix, such as a full disk or another program on tagave's port. The sentence says what to do; then run it again.
-- **6**: Docker isn't answering when the installer checks, before the repair starts. The installer reports this and never restarts Docker: restart Docker or the computer, then run the installer again. When Docker stops answering during the repair, it ends with 5.
+- **6**: Docker isn't answering when the installer checks, before the repair starts. The installer reports this and never restarts Docker: restart Docker or the computer, then run the installer again. When Docker stops answering as the repair starts, it ends with 5.
 - **1**: the repair failed, or the installer could not start it (for example the install does not run a release, or the download of the updater failed). The log or the error says why.
 
 The music check no longer hangs on a share that does not answer. When the music folder sits on an NFS or SMB share whose server is silent for 5 seconds, the installer says `Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable.`, writes the configuration and starts nothing. Run it again once the share answers. This is for a fresh install, a re-run with every part running, or a no at the prompt. On a re-run with a part down, the repair runs first, and a silent share ends it with exit 4.
