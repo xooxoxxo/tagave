@@ -276,19 +276,24 @@ export class UpdaterService {
    * changes a version, a setting or the database.
    *
    * A rollback_failed run without `stuck` never gets one: its files or
-   * database may be half restored. Once per load, and only when a part does
-   * not run.
+   * database may be half restored. Once per interrupted update: none when a
+   * repair started at or after the update ended (web's showRepair rule), as
+   * the update keeps its status until the next one. Only when a part is down
+   * (stopped, missing or stuck): one still starting (a health check at boot)
+   * is not.
    */
   private async finishStuckUpdate(): Promise<void> {
     const run = this.run;
     if (!run) return;
     const stuck = (run.status === 'held' && (run.held?.parts.length ?? 0) > 0) || (run.status === 'rollback_failed' && (run.stuck?.length ?? 0) > 0);
     if (!stuck) return;
-    if (this.repairRun?.status === 'running' || this.repairRun?.status === 'waiting') return;
+    const last = this.repairRun;
+    if (last?.status === 'running' || last?.status === 'waiting') return;
+    if (last && run.finishedAt && Date.parse(last.startedAt) >= Date.parse(run.finishedAt)) return;
     const services = await this.services();
     if (services.length === 0) return;
     const parts = await readParts(this.opts.docker, services);
-    if (parts.every((p) => p.state === 'running')) return;
+    if (!parts.some((p) => p.state === 'stopped' || p.state === 'missing' || p.state === 'stuck')) return;
     const started = await this.startRepair('update');
     if (!started.ok) this.warn(`the update ended with stuck parts, and no repair could start: ${started.error}`, { runId: run.id });
   }

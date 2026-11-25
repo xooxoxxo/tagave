@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import type { UpdateRun, UpdaterStatus } from '@tagave/shared';
 import type { PartState } from '@tagave/shared/updater';
-import { RepairRunView, copyText, repairAction, repairTickMs, showRepair } from './RepairRun';
+import { RepairRunView, copyText, repairAction, repairTickMs, shownRepair, showRepair } from './RepairRun';
 import { REPAIR_WAITING_NOW, heldRun, nowAt, repairCrashLoopRun, repairDiskFullRun, repairRunning, repairWaitingRun, repairedRun, rolledBackRun, simulatedRun } from '../stories/updateFixtures';
 
 const SERVICES = ['app', 'postgres', 'worker-identify', 'worker-files', 'player'];
@@ -118,6 +118,13 @@ describe('RepairRunView', () => {
     expect(render(repairRunning(), nowAt(12))).toContain('aria-current="step"');
   });
 
+  it('ticks no step it still waits for: the check that every part runs stays open', () => {
+    const html = render();
+    const step = (label: string) => html.match(new RegExp(`<li[^>]*>(?:(?!</li>).)*${label}(?:(?!</li>).)*</li>`))?.[0] ?? '';
+    expect(step('Check that every part runs')).toContain('>pending<');
+    expect(step('Check the music share')).toContain('>done<');
+  });
+
   it('has Done once the run is not running', async () => {
     expect(render()).toContain('>Done<');
     expect(await routed(repairDiskFullRun())).toContain('>Done<');
@@ -185,6 +192,26 @@ describe('RepairRunView, the help per cause and the clock', () => {
     expect(hidden(renderToStaticMarkup(<RepairRunView run={run} onDismiss={() => undefined} />))).toContain('Checked now');
     vi.setSystemTime(Date.parse(run.checkedAt!) + 3 * 60_000);
     expect(hidden(renderToStaticMarkup(<RepairRunView run={run} onDismiss={() => undefined} />))).toContain('Checked 3 min ago');
+  });
+});
+
+describe('shownRepair (the repair that takes the pane)', () => {
+  it('hides a repaired run this tab did not start, and shows one it did', () => {
+    const done = repairedRun();
+    expect(shownRepair(done, null, null)).toBeNull();
+    expect(shownRepair({ ...done, trigger: 'update' }, null, null)).toBeNull();
+    expect(shownRepair(done, null, done.id)).toBe(done);
+    // a run this tab started is gone once Done is pressed
+    expect(shownRepair(done, done.id, done.id)).toBeNull();
+  });
+
+  it('keeps a running, waiting, needs_you or failed run until Done', () => {
+    for (const run of [repairRunning(), repairWaitingRun(), repairDiskFullRun(), { ...repairCrashLoopRun(), status: 'failed' as const }]) {
+      expect(shownRepair(run, null, null), run.status).toBe(run);
+      expect(shownRepair(run, run.id, null), run.status).toBeNull();
+    }
+    expect(shownRepair(null, null, null)).toBeNull();
+    expect(shownRepair(undefined, null, null)).toBeNull();
   });
 });
 

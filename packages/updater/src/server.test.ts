@@ -507,6 +507,47 @@ describe('updater HTTP API', () => {
         expect(fake.status.get('app')).toBe('running');
       });
 
+      describe('once per interrupted update', () => {
+        const heldAt = (finishedAt: Date): UpdateRun => ({ ...newRun('u1', '0.7.0', '0.8.0', new Date(finishedAt.getTime() - 60_000)), status: 'held', finishedAt: finishedAt.toISOString(), held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } });
+        const repairedAt = (startedAt: Date): RepairRun => ({ ...newRepairRun('rr1', 'update', startedAt), status: 'repaired', finishedAt: new Date(startedAt.getTime() + 60_000).toISOString() });
+
+        it('a held update repaired since gets no second repair, even with a part down', async () => {
+          const ended = new Date(Date.now() - 3_600_000);
+          await writeRun(join(STATE_DIR, 'state.json'), heldAt(ended));
+          await writeRun(REPAIR_STATE_FILE, repairedAt(new Date(ended.getTime() + 1000)));
+          fake.status.set('worker-files', 'exited');
+          const s = await restart();
+          expect((await s.status()).repair?.id).toBe('rr1');
+          expect(fake.versions()).toBe(0);
+          expect(fake.status.get('worker-files')).toBe('exited');
+        });
+
+        it('a held update with only an older repair gets one, once', async () => {
+          const ended = new Date(Date.now() - 3_600_000);
+          await writeRun(join(STATE_DIR, 'state.json'), heldAt(ended));
+          await writeRun(REPAIR_STATE_FILE, repairedAt(new Date(ended.getTime() - 600_000)));
+          fake.status.set('worker-files', 'exited');
+          const s = await restart();
+          const repair = (await s.status()).repair!;
+          expect(repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+          expect(repair.id).not.toBe('rr1');
+          expect(fake.versions()).toBe(1);
+          s.stop();
+          // the next start finds that repair, so it runs none
+          fake.status.set('worker-files', 'exited');
+          await restart();
+          expect(fake.versions()).toBe(1);
+        });
+
+        it('a part that is only starting (a health check at boot) is not down', async () => {
+          await writeRun(join(STATE_DIR, 'state.json'), heldAt(new Date(Date.now() - 60_000)));
+          fake.status.set('app', 'restarting');
+          const s = await restart();
+          expect((await s.status()).repair).toBeNull();
+          expect(fake.versions()).toBe(0);
+        });
+      });
+
       it('a rollback_failed run without stuck parts starts none', async () => {
         fake.status.set('app', 'exited');
         await writeRun(join(STATE_DIR, 'state.json'), { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'rollback_failed' });

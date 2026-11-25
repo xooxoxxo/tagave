@@ -1477,7 +1477,7 @@ export class Update {
       } else {
         const untold = this.untold();
         this.run.reason = redact(err instanceof RollbackStuck
-          ? `${unstop(reason)}. The roll back did not finish. ${err.message}`
+          ? `${unstop(withoutCounts(reason))}. The roll back did not finish. ${err.message}`
           : `${unstop(reason)}. The roll back did not finish: ${(err as Error).message}${untold.length ? `. ${this.stuckNote(untold)}` : ''}`);
         this.log('error', `roll back failed: ${(err as Error).message}`);
         this.log('error', restoreFrom && !restored && filesBack
