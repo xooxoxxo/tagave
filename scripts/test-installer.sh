@@ -799,6 +799,27 @@ grep -qF 'Repair needs tagave 0.34.0 or newer. Update first, or run the installe
 grep -q '^run ' "$work/docker.log" && fail "repair command on 0.4.1 ran a container"
 pass "an install before 0.34.0 re-runs as before, and its repair command says what it needs"
 
+# An install folder whose name has a space: the repair cannot run from it, and says so.
+cp -R "$work/rep" "$work/rep space"
+sed "s#^TAGAVE_INSTALL_DIR=.*#TAGAVE_INSTALL_DIR=$work/rep space#" "$work/rep/.env" >"$work/rep space/.env"
+: >"$work/docker.log"
+status=0
+FAKE_UNHEALTHY=worker-files TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --dir "$work/rep space" --app-url "file://$work/appsrv" \
+  >"$work/rep-space.log" 2>&1 || status=$?
+[ "$status" = 0 ] || { cat "$work/rep-space.log" >&2; fail "repair: a re-run in a folder with a space exited $status"; }
+grep -qF "The repair can't run from a folder whose name has a space, so the installer starts the parts as usual." "$work/rep-space.log" \
+  || { cat "$work/rep-space.log" >&2; fail "repair: a re-run in a folder with a space does not say why it does not repair"; }
+grep -q 'cli.js repair' "$work/docker.log" && fail "repair: ran cli.js repair from a folder with a space"
+status=0
+: >"$work/docker.log"
+fake repair --dir "$work/rep space" --yes >"$work/rep-space2.log" 2>&1 || status=$?
+[ "$status" = 1 ] || { cat "$work/rep-space2.log" >&2; fail "repair command in a folder with a space exited $status, not 1"; }
+grep -qF "The repair can't run from a folder whose name has a space. Run the installer again to start the parts." "$work/rep-space2.log" \
+  || { cat "$work/rep-space2.log" >&2; fail "repair command in a folder with a space: no plain reason"; }
+grep -q 'needs tagave' "$work/rep-space2.log" && fail "repair command in a folder with a space blames the version"
+grep -q '^run ' "$work/docker.log" && fail "repair command in a folder with a space ran a container"
+pass "an install folder with a space re-runs as before, and its repair command says why it cannot repair"
+
 cp "$work/rep/.env" "$work/rep-env.before"
 : >"$work/docker.log"
 status=0
@@ -877,13 +898,13 @@ pass "a silent share writes the configuration and starts nothing"
 
 : >"$work/docker.log"
 status=0
-FAKE_REPAIR_EXIT=4 FAKE_REPAIR_HEADLINE="Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. Turn the NAS on, then run the installer again." \
+FAKE_REPAIR_EXIT=4 FAKE_REPAIR_HEADLINE="Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. Run the installer again once it's back." \
   fake repair --dir "$work/rep" --wait 30 --yes >"$work/rep-wait.log" 2>&1 || status=$?
 [ "$status" = 4 ] || { cat "$work/rep-wait.log" >&2; fail "repair: exit 4 became $status"; }
 grep -q 'cli.js repair --wait 30$' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "repair: --wait 30 was not passed on"; }
 # count TEXT FILE: how many lines of FILE hold TEXT.
 count() { grep -cF -- "$1" "$2" || true; }
-[ "$(count 'Turn the NAS on, then run the installer again.' "$work/rep-wait.log")" = 1 ] \
+[ "$(count "Run the installer again once it's back." "$work/rep-wait.log")" = 1 ] \
   || { cat "$work/rep-wait.log" >&2; fail "repair: waiting on music without the updater does not say once to run the installer again"; }
 [ "$(count 'finishes on its own' "$work/rep-wait.log")" = 0 ] \
   || { cat "$work/rep-wait.log" >&2; fail "repair: waiting on music without the updater promises it finishes on its own"; }
@@ -898,7 +919,7 @@ grep -q 'so --wait is not needed here' "$work/rep-wait2.log" || fail "repair: wi
 [ "$status" = 4 ] || { cat "$work/rep-wait2.log" >&2; fail "repair with the updater: exit 4 became $status"; }
 [ "$(count "tagave finishes on its own when it's back." "$work/rep-wait2.log")" = 1 ] \
   || { cat "$work/rep-wait2.log" >&2; fail "repair: waiting on music with the updater does not say once that it finishes on its own"; }
-[ "$(count 'run the installer again' "$work/rep-wait2.log")" = 0 ] || fail "repair: with the updater, still says to run the installer again"
+[ "$(count 'installer again' "$work/rep-wait2.log")" = 0 ] || fail "repair: with the updater, still says to run the installer again"
 for code in 5:5 2:1 1:1; do
   status=0
   FAKE_REPAIR_EXIT="${code%:*}" fake repair --dir "$work/rep" --yes >"$work/rep-code.log" 2>&1 || status=$?

@@ -109,6 +109,7 @@ PROJECT_NAME="tagave"
 # release ships under another number.
 FIRST_REPAIR_RELEASE="0.34.0"
 REPAIR_TOO_OLD="Repair needs tagave $FIRST_REPAIR_RELEASE or newer. Update first, or run the installer again to start the parts."
+REPAIR_SPACE="The repair can't run from a folder whose name has a space. Run the installer again to start the parts."
 COMPOSE_MAIN="compose.yml"
 COMPOSE_DB="compose.db-published.yml"
 WORKER_ENV_NAME="files-worker.env"
@@ -2990,10 +2991,13 @@ repair_check() {
 
 # The updater image of this install has "cli.js repair": a release from
 # FIRST_REPAIR_RELEASE on (not latest or edge), and an install folder without
-# whitespace (it goes into docker run's arguments as is).
+# whitespace (it goes into docker run's arguments as is). When not, sets
+# REPAIR_WHY_NOT to version or space.
+REPAIR_WHY_NOT=""
 repair_supported() {
-  is_release "$CURRENT" && ! version_lt "$CURRENT" "$FIRST_REPAIR_RELEASE" || return 1
-  case "$INSTALL_DIR" in *[[:space:]]*) return 1 ;; esac
+  REPAIR_WHY_NOT=""
+  if ! is_release "$CURRENT" || version_lt "$CURRENT" "$FIRST_REPAIR_RELEASE"; then REPAIR_WHY_NOT=version; return 1; fi
+  case "$INSTALL_DIR" in *[[:space:]]*) REPAIR_WHY_NOT=space; return 1 ;; esac
 }
 
 # A re-run of the installer on an install: when parts are down, repair (with
@@ -3010,7 +3014,11 @@ check_existing_install() {
   repair_check
   [ "$REPAIR_DOCKER" != "silent" ] || docker_silent
   if [ "$REPAIR_DOWN" -gt 0 ] && ! repair_supported; then
-    say "This tagave version can't repair itself yet, so the installer starts the parts as usual."
+    if [ "$REPAIR_WHY_NOT" = space ]; then
+      say "The repair can't run from a folder whose name has a space, so the installer starts the parts as usual."
+    else
+      say "This tagave version can't repair itself yet, so the installer starts the parts as usual."
+    fi
   elif [ "$REPAIR_DOWN" -gt 0 ]; then
     finding="tagave is installed here, but ${REPAIR_DOWN} of ${REPAIR_TOTAL} parts aren't running."
     if [ "$REPAIR" = "1" ]; then
@@ -3038,7 +3046,10 @@ check_existing_install() {
 run_repair() {
   local rc=0
   step "Repairing tagave"
-  repair_supported || die "$REPAIR_TOO_OLD"
+  if ! repair_supported; then
+    [ "$REPAIR_WHY_NOT" != space ] || die "$REPAIR_SPACE"
+    die "$REPAIR_TOO_OLD"
+  fi
   # With the updater installed, its service takes over a waiting repair
   # (.updater/repair.json); a second watcher here could start the parts twice.
   local wait="$REPAIR_WAIT"
