@@ -268,8 +268,8 @@ export interface Readings {
   music?: MusicFinding | null;
 }
 
-const ENOSPC = /no space left on device|ENOSPC|could not extend file|disk is full|database or disk is full/i;
-const PORT = /address already in use|port is already allocated|EADDRINUSE|bind: address/i;
+export const ENOSPC = /no space left on device|ENOSPC|could not extend file|disk is full|database or disk is full/i;
+export const PORT = /address already in use|port is already allocated|EADDRINUSE|bind: address/i;
 const PG_RECOVERING = /database system was interrupted|was not properly shut down|automatic recovery in progress|redo starts at|database system is starting up|in recovery mode|not yet accepting connections/i;
 const PG_READY = /database system is ready to accept connections/i;
 /** Below this, Docker's disk counts as full. */
