@@ -63,5 +63,6 @@ export * from './deciderModels.js';
 export * from './deciderAcceptBand.js';
 export * from './lidarr.js';
 export * from './musicFolder.js';
+export * from './repairAudit.js';
 export * from './maintenance.js';
 export * from './flacUpgrade.js';

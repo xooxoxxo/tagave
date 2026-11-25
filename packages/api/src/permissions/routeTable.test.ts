@@ -65,7 +65,13 @@ describe('route permissions', () => {
       'POST /api/v1/connect/revoke',
       'POST /api/v1/connect/token',
       'POST /api/v1/internal/updater/music-heal',
+      'POST /api/v1/internal/updater/repair',
       'POST /api/v1/invites/:token/accept',
     ]);
+  });
+
+  it('Repair is the owner\'s (system.manage); the updater\'s end report is signed, not a session', () => {
+    expect(ROUTE_PERMISSIONS['POST /api/v1/updater/repair']).toBe('system.manage');
+    expect(ROUTE_PERMISSIONS['POST /api/v1/internal/updater/repair']).toBe('public');
   });
 });
