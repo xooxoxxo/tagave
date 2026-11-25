@@ -140,7 +140,7 @@ class FakeHealer implements RepairHealer {
   }
 }
 
-const HEALING = 'tagave is connecting the music share again. Try again in a minute.';
+const HEALING = 'The music share is being connected again. Try again in a minute.';
 
 describe('request signatures', () => {
   const req = (h: Record<string, string>, body = '') => ({ method: 'POST', path: '/v1/update', body, time: h[TIME_HEADER], signature: h[SIGNATURE_HEADER] });
@@ -438,15 +438,46 @@ describe('updater HTTP API', () => {
         expect(logs).toEqual([`the held update could not hand its parts to a repair: ${HEALING}`]);
       });
 
-      it('a settle that never comes stops blocking after its limit', async () => {
+      it('a settle that never comes stops blocking after its limit, not before', async () => {
         const healer = new FakeHealer();
         healer.gate = new Promise(() => {});
         service.attachHealer(healer);
-        service['healWaitMs'] = 20;
+        service['healWaitMs'] = 150;
         const held: UpdateRun = { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } };
-        await service['afterUpdate'](held);
+        const began = Date.now();
+        let done = false;
+        const after = service['afterUpdate'](held).then(() => { done = true; });
+        await new Promise((r) => setTimeout(r, 50));
+        // still waiting inside its limit: no repair yet
+        expect(done).toBe(false);
+        expect(service['repairRun']).toBeNull();
+        await after;
+        expect(Date.now() - began).toBeGreaterThanOrEqual(140);
         await service.idle();
         expect((await statusOf()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+      });
+
+      it('a waiting repair does not resume while an attempt runs, and does once it stops', async () => {
+        const s = make({ repairConfig: { healthTimeoutMs: 2000, pollMs: 5, waitFirstMs: 5, waitMaxMs: 5 } });
+        const healer = new FakeHealer();
+        s.attachHealer(healer);
+        fake.status.set('worker-files', 'removing');
+        fake.share = 'silent';
+        const started = await s.startRepair('owner');
+        if (!started.ok) throw new Error(started.error);
+        await s.idle();
+        expect((await s.status()).repair?.status).toBe('waiting');
+        healer.busy = true;
+        fake.share = 'answers';
+        const ups = () => fake.calls.filter((c) => c[0] === 'compose' && c[1] === 'up').length;
+        const before = ups();
+        await new Promise((r) => setTimeout(r, 80));
+        expect(ups()).toBe(before);
+        expect(fake.status.get('worker-files')).toBe('removing');
+        expect(s['repairRun']?.status).toBe('waiting');
+        healer.busy = false;
+        await vi.waitFor(() => expect(fake.status.get('worker-files')).toBe('running'));
+        await vi.waitFor(() => expect(s['repairRun']?.status).toBe('repaired'));
       });
 
       it('after a restart, the repair of a held update waits for the attempt to settle', async () => {
@@ -570,6 +601,18 @@ describe('updater HTTP API', () => {
       open();
       await inFlight;
       expect(s['partsCache']).toBeNull();
+    });
+
+    it("moving() counts a repair the installer's one-off runs (the known repair.json, under 1 h old)", async () => {
+      await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-1', 'installer', new Date()));
+      await service['refreshRepair']();
+      expect(service.moving()).toBe(true);
+      // an older one has stopped: it holds nothing
+      service['repairRun'] = newRepairRun('installer-2', 'installer', new Date(Date.now() - 2 * 3600_000));
+      expect(service.moving()).toBe(false);
+      // one that ended holds nothing either
+      service['repairRun'] = { ...newRepairRun('installer-3', 'installer', new Date()), status: 'repaired' };
+      expect(service.moving()).toBe(false);
     });
 
     it('a waiting repair does not block an update', async () => {
