@@ -183,6 +183,8 @@ export class MusicHealer {
   private lock: Promise<void> = Promise.resolve();
   /** an attempt runs or waits for its turn */
   private locked = false;
+  /** an attempt runs: from a go (a tick's decision, or a remount past its checks) until it is recorded */
+  private running = false;
   private timer: NodeJS.Timeout | null = null;
   private readonly cfg: HealConfig;
   private readonly now: () => number;
@@ -201,6 +203,16 @@ export class MusicHealer {
     if (this.timer) clearInterval(this.timer);
   }
 
+  /** True only while an attempt runs (a tick that reads and decides no never sets it): no repair or update may start then. */
+  attempting(): boolean {
+    return this.running;
+  }
+
+  /** Resolves when no attempt runs or waits for the lock (the lock's tail now). */
+  settled(): Promise<void> {
+    return this.lock;
+  }
+
   /** One check; an attempt when the decision says so. Returns how the attempt ended, or null. Skips while the lock is held. */
   async tick(): Promise<HealReason | null> {
     if (this.locked) return null;
@@ -209,10 +221,12 @@ export class MusicHealer {
       const musicDir = musicDirOf(env);
       const on = selfHealOn(env);
       const unmounted = on && musicDir ? await this.deps.app.unmounted() : false;
+      // No await from busy() to `running`: a start's claim (set after its last
+      // await, server.ts) and this go are each one step, so exactly one wins.
       const decision = healDecision({ on, musicDir, unmounted, busy: this.deps.busy(), now: this.now(), last: this.last, cfg: this.cfg });
       if (!decision.go) return null;
       const project = envGet(env, 'COMPOSE_PROJECT_NAME') || 'tagave';
-      return this.record(await this.attempt(musicDir!, project));
+      return this.attemptRecorded(musicDir!, project);
     });
   }
 
@@ -227,8 +241,18 @@ export class MusicHealer {
       const env = await this.readEnv();
       if (!selfHealOn(env)) return 'off';
       if (this.deps.updating?.()) return 'busy';
-      return this.record(await this.attempt(dir, project));
+      return this.attemptRecorded(dir, project);
     });
+  }
+
+  /** One attempt and its record, with `running` set throughout; the caller sets nothing in between. */
+  private async attemptRecorded(dir: string, project: string): Promise<HealReason> {
+    this.running = true;
+    try {
+      return await this.record(await this.attempt(dir, project));
+    } finally {
+      this.running = false;
+    }
   }
 
   /** The install's .env; empty when it cannot be read. */

@@ -26,7 +26,9 @@
  * limits and kept 10 s) and the last repair (`repair`).
  *
  * One run at a time: an update, a module run and a running repair refuse
- * each other (409), and all wait while the updater replaces itself. A
+ * each other (409), and all wait while the updater replaces itself or the
+ * music self-heal runs an attempt (music-heal.ts; an update's own repair
+ * waits for that attempt to settle, then starts). A
  * repair that waits for the music share blocks nothing; its watcher pauses
  * while anything else moves containers.
  */
@@ -120,10 +122,19 @@ export interface UpdaterOptions {
   statusDeadlineMs?: number;
 }
 
-/** What a repair needs of the music healer (music-heal.ts). */
+/** What the service needs of the music healer (music-heal.ts). */
 export interface RepairHealer {
   remount(dir: string, project: string): Promise<RemountResult>;
+  /** An attempt runs: no repair, update or module run may start. */
+  attempting(): boolean;
+  /** Resolves when no attempt runs or waits. */
+  settled(): Promise<void>;
 }
+
+/** The refusal while the music self-heal attempts (409). */
+export const HEALING_ERROR = 'tagave is connecting the music share again. Try again in a minute.';
+/** The longest an automatic start waits for the self-heal to settle (its helper calls have their own limits). */
+const HEAL_WAIT_MS = 10 * 60_000;
 
 export interface RefusedStart {
   ok: false;
@@ -160,6 +171,8 @@ export class UpdaterService {
   private following = false;
   private readonly repairPath: string;
   private healer: RepairHealer | null = null;
+  /** HEAL_WAIT_MS; tests shorten it. */
+  private healWaitMs = HEAL_WAIT_MS;
   private partsCache: { at: number; parts: PartState[] } | null = null;
   private partsRefresh: { answered: Map<string, PartState>; done: Promise<void> } | null = null;
   /** load()'s repair of an update that ended with stuck parts. */
@@ -352,7 +365,7 @@ export class UpdaterService {
     if (services.length === 0) return;
     const parts = await readParts(this.opts.docker, services);
     if (!parts.some((p) => p.state === 'stopped' || p.state === 'missing' || p.state === 'stuck')) return;
-    const started = await this.startRepair('update');
+    const started = await this.startRepairAfterHeal();
     if (!started.ok) this.warn(`the update ended with stuck parts, and no repair could start: ${started.error}`, { runId: run.id });
   }
 
@@ -461,8 +474,11 @@ export class UpdaterService {
     const elsewhere = !this.moduleActive && this.moduleRun?.status === 'running' && this.now().getTime() - Date.parse(this.moduleRun.startedAt) < 60 * 60_000;
     if (this.moduleActive || elsewhere) return this.claimedRefusal('module');
     if (await this.repairElsewhereOrHere()) return this.claimedRefusal('repair');
-    // No await from here on: the checks and the claim are one step.
+    // No await from here on: the checks and the claim are one step. The
+    // healer sets attempting() with no await after its busy() (moving())
+    // read either, so of a start and a self-heal attempt exactly one goes.
     if (this.claimed) return this.claimedRefusal(this.claimed);
+    if (this.healer?.attempting()) return { ok: false, status: 409, error: HEALING_ERROR };
     this.claimed = kind;
     return null;
   }
@@ -689,10 +705,35 @@ export class UpdaterService {
   private async afterUpdate(run: UpdateRun): Promise<void> {
     if (run.status !== 'held') return;
     try {
-      const started = await this.startRepair('update');
+      const started = await this.startRepairAfterHeal();
       if (!started.ok) this.warn(`the held update could not hand its parts to a repair: ${started.error}`, { runId: run.id });
     } catch (err) {
       this.warn(`the held update could not hand its parts to a repair: ${(err as Error).message}`, { runId: run.id });
+    }
+  }
+
+  /**
+   * An update's own repair (held, or stuck after a restart): it waits for a
+   * self-heal attempt to settle first, and once more when a new attempt
+   * refuses it, then tries once more.
+   */
+  private async startRepairAfterHeal(): Promise<{ ok: true; run: RepairRun } | RefusedStart> {
+    await this.healSettled();
+    const started = await this.startRepair('update');
+    if (started.ok || started.error !== HEALING_ERROR) return started;
+    await this.healSettled();
+    return this.startRepair('update');
+  }
+
+  /** The healer's settled(), never longer than healWaitMs. */
+  private async healSettled(): Promise<void> {
+    if (!this.healer) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<void>((resolve) => { timer = setTimeout(resolve, this.healWaitMs); });
+    try {
+      await Promise.race([this.healer.settled().catch(() => undefined), limit]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
