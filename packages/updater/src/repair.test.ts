@@ -43,6 +43,8 @@ class Fake {
   dockerAnswers = true;
   freeBytes = 20 * 1024 ** 3;
   appRestarts = 0;
+  /** What `compose restart app` exits with. */
+  restartCode = 0;
   onAppRestart: () => void = () => {};
   healthy: () => boolean = () => true;
   share: ServerAnswer = 'answers';
@@ -114,6 +116,7 @@ class Fake {
     }
     if (a[0] === 'compose' && a[1] === 'restart' && a[2] === 'app') {
       this.appRestarts++;
+      if (this.restartCode !== 0) return { code: this.restartCode, stderr: 'Error response from daemon' };
       this.onAppRestart();
       return {};
     }
@@ -358,6 +361,7 @@ describe('repair', () => {
     expect(run.outcome?.cause).toBe('crash_loop');
     expect(run.headline).toBe('The file worker keeps stopping. tagave restarted it once.');
     expect(run.details).toContain('Last error: Error: cannot open /data/library.db');
+    expect(run.details).toContain('Started the file worker again from scratch.');
     expect(fake.calls.filter((c) => c.includes('--force-recreate'))).toEqual([['compose', 'up', '-d', '--no-deps', '--force-recreate', 'worker-files']]);
   });
 
@@ -376,6 +380,8 @@ describe('repair', () => {
     expect(run.status).toBe('needs_you');
     expect(run.headline).toBe('The file worker ran out of memory. Close other programs on this computer, then press Repair.');
     expect(fake.calls.filter((c) => c.includes('--force-recreate'))).toHaveLength(1);
+    // the recreate did not start it, so no line says it did
+    expect(run.details.some((d) => d.includes('again from scratch'))).toBe(false);
   });
 
   it('disk_full under 256 MB: no action, "The disk is full (180 MB free)…"', async () => {
@@ -474,6 +480,107 @@ describe('repair', () => {
     const run = await repair({ report: async () => { throw new Error('the app went away'); } }).execute();
     expect(run.status).toBe('repaired');
     expect(run.log.some((l) => l.level === 'warn' && l.message.includes('could not tell the app'))).toBe(true);
+  });
+
+  it('an app that never runs: no restart is claimed, it ends "won\'t start"', async () => {
+    Object.assign(fake.box('app'), { health: 'starting' });
+    fake.healthy = () => false;
+    const run = await repair().execute();
+    expect(fake.appRestarts).toBe(0);
+    expect(run.status).toBe('needs_you');
+    expect(run.outcome).toMatchObject({ cause: 'stuck_stop', service: 'app' });
+    expect(run.headline).toBe("The web app won't start. Restart the computer tagave runs on.");
+    expect(run.details).not.toContain('Restarted the web app.');
+  });
+
+  it('an app restart that fails is not recorded as done, and the ending claims none', async () => {
+    fake.healthy = () => false;
+    fake.restartCode = 1;
+    const run = await repair().execute();
+    expect(fake.appRestarts).toBe(1);
+    expect(run.details).not.toContain('Restarted the web app.');
+    expect(run.headline).toBe("The web app won't start. Restart the computer tagave runs on.");
+  });
+
+  it('the one app restart waits until every other part runs', async () => {
+    const until = fake.clock + 30_000;
+    Object.assign(fake.box('postgres'), { health: 'starting' });
+    fake.onSleep = () => { if (fake.clock >= until) fake.box('postgres').health = 'healthy'; };
+    let ok = false;
+    let restartAt = 0;
+    fake.healthy = () => ok;
+    fake.onAppRestart = () => { ok = true; restartAt = fake.clock; };
+    const run = await repair().execute();
+    expect(fake.appRestarts).toBe(1);
+    expect(restartAt).toBeGreaterThanOrEqual(until);
+    expect(run.status).toBe('repaired');
+  });
+
+  it('free text from the app and the logs is redacted and capped', async () => {
+    const long = 'x'.repeat(1000);
+    fake.healthy = () => false;
+    fake.box('app').logs = `Not migrating: cannot reach postgres://robin:secret@192.0.2.10/db ${long}\n`;
+    let run = await repair().execute();
+    expect(run.outcome?.cause).toBe('migration_refused');
+    for (const text of [run.headline!, run.reason!, ...run.details]) expect(text).not.toContain('secret');
+    expect(run.headline).toContain('postgres://robin:***@192.0.2.10/db');
+    expect(run.headline!.length).toBeLessThanOrEqual('The web app refuses to update the database: .'.length + 300);
+    expect(JSON.stringify(fake.saved.at(-1))).not.toContain('secret');
+
+    fake = new Fake();
+    Object.assign(fake.box('worker-files'), {
+      status: 'restarting',
+      exitCode: 1,
+      logs: `Error: lost postgres://robin:secret@192.0.2.10/db ${long}\n`,
+      up: (b: Box) => { b.status = 'restarting'; },
+    });
+    run = await repair().execute();
+    expect(run.outcome?.cause).toBe('crash_loop');
+    const line = run.details.find((d) => d.startsWith('Last error: '))!;
+    expect(line).toContain('robin:***@');
+    expect(line).not.toContain('secret');
+    expect(line.length).toBeLessThanOrEqual('Last error: '.length + 300);
+  });
+
+  it('port_conflict takes the port from the line that names the conflict', async () => {
+    Object.assign(fake.box('player'), { status: 'exited', exitCode: 1, logs: '2026-11-25 10:00:12 starting the player\n2026-11-25T10:00:13Z listen tcp 0.0.0.0:4533: bind: address already in use\n' });
+    const run = await repair().execute();
+    expect(run.headline).toBe('Another program uses port 4533. Stop that program, then press Repair.');
+  });
+
+  it('a share that is silent with no part down ends needs_you, not "Music share is back"', async () => {
+    fake.mount = { kind: 'absent', fstype: 'ext4', server: null, export: null, hard: false, mountPoint: '/' };
+    fake.appUnmounted = true;
+    fake.remountResult = 'server_silent';
+    const run = await repair().execute();
+    expect(run.status).toBe('needs_you');
+    expect(run.outcome?.cause).toBe('music_unreachable');
+    expect(run.headline).toBe("Your music share doesn't answer. Turn the NAS on or check its cable, then press Repair.");
+  });
+
+  it('the watcher with no music prober says once that it cannot check the share', async () => {
+    fake.box('worker-files').status = 'removing';
+    fake.share = 'silent';
+    const first = await repair().execute();
+    expect(first.status).toBe('waiting');
+    const r = new Repair(deps({ music: null }), structuredClone(first));
+    fake.onSleep = (n) => { if (n === 3) r.cancel(); };
+    const run = await r.watch();
+    expect(run.status).toBe('waiting');
+    expect(run.log.filter((l) => l.message.includes('cannot be checked'))).toHaveLength(1);
+  });
+
+  it('the watcher sends a share that is no longer mounted to the remount, not to "answers"', async () => {
+    fake.box('worker-files').status = 'removing';
+    fake.share = 'silent';
+    const r = repair();
+    expect((await r.execute()).status).toBe('waiting');
+    fake.mount = { kind: 'absent', fstype: 'ext4', server: null, export: null, hard: false, mountPoint: '/' };
+    fake.appUnmounted = true;
+    const run = await r.watch();
+    expect(fake.remounts).toEqual([['/mnt/music', 'tagave']]);
+    expect(run.status).toBe('repaired');
+    expect(run.headline).toBe('Music share was not connected. Connected it again. All 5 parts running.');
   });
 });
 
