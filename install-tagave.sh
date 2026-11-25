@@ -50,6 +50,11 @@
 #   ./install-tagave.sh enable-module ID
 #   ./install-tagave.sh disable-module ID [--delete-data [--delete-history]]
 #
+# When a part of an existing install is not running, the same repair as the
+# Repair button in Settings > Updates:
+#
+#   ./install-tagave.sh repair [--wait MINUTES]
+#
 # Run with --help for every option.
 
 set -euo pipefail
@@ -96,6 +101,8 @@ COMMAND="install"
 MODULE_ID=""
 DELETE_DATA=0
 DELETE_HISTORY=0
+REPAIR=0
+REPAIR_WAIT=""
 
 PROJECT_NAME="tagave"
 COMPOSE_MAIN="compose.yml"
@@ -134,9 +141,9 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
-                          enable-player|disable-player|enable-module ID|
-                          disable-module ID] [options]
+Usage: install-tagave.sh [install|update|status|repair|enable-updater|
+                          disable-updater|enable-player|disable-player|
+                          enable-module ID|disable-module ID] [options]
 
   install                  set up or reconfigure tagave here (the default)
   update                   move this install to a new release: back up the
@@ -145,6 +152,11 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
                            print how to roll back
   status                   what runs here, its health, and whether a newer
                            release is out
+  repair                   start the parts of this install that are not
+                           running, the same way the Repair button in
+                           Settings > Updates does. Changes no version,
+                           setting or data. A re-run of the installer checks
+                           this too and asks first.
   enable-updater           add the optional in-app updater to this install, so
                            Settings > Updates can perform an update. It holds
                            the Docker socket (root on this computer); see
@@ -204,6 +216,12 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
   update only:
   --dry-run                show what the update would do; change nothing
 
+  repair, and a re-run of the installer:
+  --repair                 on a re-run, when a part is not running, repair it
+                           without asking
+  --wait MINUTES           when the music share does not answer, keep waiting
+                           for it up to MINUTES (1 to 120)
+
   disable-module and disable-player only:
   --delete-data            also delete the module's data (cannot be undone):
                            its volumes and its rows in tagave's database (for
@@ -233,7 +251,7 @@ EOF
 need_arg() { if [ "$#" -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see --help)"; fi; }
 
 case "${1:-}" in
-  install|update|status|enable-updater|disable-updater|enable-player|disable-player) COMMAND="$1"; shift ;;
+  install|update|status|repair|enable-updater|disable-updater|enable-player|disable-player) COMMAND="$1"; shift ;;
   enable-module|disable-module)
     COMMAND="$1"
     case "${2:-}" in ''|-*) die "$1 needs the module's id, e.g. $1 player (Settings > Modules lists them)" ;; esac
@@ -257,6 +275,8 @@ while [ "$#" -gt 0 ]; do
     --from)              need_arg "$@"; FROM_FILE="$2"; shift 2 ;;
     --app-url)           need_arg "$@"; APP_URL="$2"; shift 2 ;;
     --dry-run)           DRY_RUN=1; shift ;;
+    --repair)            REPAIR=1; shift ;;
+    --wait)              need_arg "$@"; REPAIR_WAIT="$2"; shift 2 ;;
     --delete-data)       DELETE_DATA=1; shift ;;
     --delete-history|--delete-play-history) DELETE_HISTORY=1; shift ;;
     --behind-https)      BEHIND_HTTPS=1; shift ;;
@@ -272,6 +292,15 @@ while [ "$#" -gt 0 ]; do
     *)                   die "unknown option: $1 (see --help)" ;;
   esac
 done
+
+if [ -n "$REPAIR_WAIT" ]; then
+  case "$REPAIR_WAIT" in
+    *[!0-9]*) die "--wait takes minutes from 1 to 120, not '$REPAIR_WAIT'" ;;
+  esac
+  [ "${#REPAIR_WAIT}" -le 3 ] && [ "$REPAIR_WAIT" -ge 1 ] && [ "$REPAIR_WAIT" -le 120 ] \
+    || die "--wait takes minutes from 1 to 120, not '$REPAIR_WAIT'"
+  REPAIR_WAIT=$((10#$REPAIR_WAIT))
+fi
 
 # The copy the installer keeps in the install folder works on that folder
 # when neither --dir nor TAGAVE_DIR names another one, so
@@ -601,6 +630,69 @@ detect_timezone() {
 # </dev/null: when the script arrives on stdin, stdin is the rest of it.
 compose() { (cd "$INSTALL_DIR" && docker compose "$@" </dev/null); }
 
+# descendants PID: the children of PID, their children and so on, one per line.
+descendants() {
+  { ps -A -o pid= -o ppid= 2>/dev/null || ps -o pid= -o ppid= 2>/dev/null || true; } | awk -v root="$1" '
+    { kids[$2] = kids[$2] " " $1 }
+    END {
+      n = split(kids[root], queue, " ")
+      for (i = 1; i <= n; i++) {
+        print queue[i]
+        m = split(kids[queue[i]], more, " ")
+        for (j = 1; j <= m; j++) queue[++n] = more[j]
+      }
+    }'
+}
+
+# run_limited SECONDS CMD...: runs CMD, a program or a shell function, for at
+# most SECONDS. CMD's output goes to temp files, not through the caller's
+# pipe, so a stuck CMD cannot hold a $(...) open; once CMD ends it is printed
+# (stdout to stdout, stderr to stderr) and CMD's status returned. At the limit
+# CMD and everything it started get TERM, then KILL, nothing is printed and
+# the status is 124. It never waits for a killed CMD: a process stuck in the
+# kernel on a dead NFS mount (D state) cannot die, and waiting would hang
+# here too. That is also why timeout(1) is not used even where it exists:
+# GNU timeout waits for its child after the KILL. (macOS has no timeout.)
+run_limited() {
+  local limit="$1" out err pid pids waited=0 status=0
+  shift
+  out="$(mktemp "${TMPDIR:-/tmp}/tagave-run.XXXXXX")" || return 1
+  err="$(mktemp "${TMPDIR:-/tmp}/tagave-run.XXXXXX")" || { rm -f "$out"; return 1; }
+  "$@" >"$out" 2>"$err" </dev/null &
+  pid=$!
+  # waited is in hundredths of a second. Checks often at first, so a quick
+  # CMD costs next to nothing, then every 0.1 s.
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge $((limit * 100)) ]; then
+      pids="$(descendants "$pid" | tr '\n' ' ')"
+      # Out of the job table: no "Terminated" line, and nothing to wait for.
+      disown "$pid" 2>/dev/null || true
+      # shellcheck disable=SC2086 # one word per pid
+      kill -TERM "$pid" $pids 2>/dev/null || true
+      sleep 1
+      # shellcheck disable=SC2086
+      kill -KILL "$pid" $pids 2>/dev/null || true
+      rm -f "$out" "$err"
+      return 124
+    fi
+    if [ "$waited" -lt 50 ]; then
+      sleep 0.02; waited=$((waited + 2))
+    else
+      sleep 0.1; waited=$((waited + 10))
+    fi
+  done
+  wait "$pid" || status=$?
+  cat "$out"
+  cat "$err" >&2
+  rm -f "$out" "$err"
+  return "$status"
+}
+
+docker_silent() {
+  printf '%serror:%s %s\n' "$C_RED" "$C_OFF" "Docker isn't answering. Restart Docker or the computer, then run the installer again." >&2
+  exit 6
+}
+
 # manifest IMAGE: prints the image manifest. On failure it prints nothing,
 # returns 1 and leaves docker's error in $MANIFEST_ERR_FILE for
 # explain_missing_image.
@@ -631,12 +723,21 @@ check_prerequisites() {
 
   command -v docker >/dev/null 2>&1 \
     || die "Docker is not installed. Install it from https://docs.docker.com/get-docker/ and run this again."
-  docker info >/dev/null 2>&1 \
+  # Each Docker call is bounded: a Docker that does not answer exits 6.
+  local rc=0 server_version=""
+  run_limited 10 docker info >/dev/null 2>&1 || rc=$?
+  [ "$rc" != 124 ] || docker_silent
+  [ "$rc" = 0 ] \
     || die "Docker is installed but not reachable. Start Docker, or add your user to the docker group, then run this again."
-  ok "Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '')"
+  rc=0
+  server_version="$(run_limited 10 docker version --format '{{.Server.Version}}' 2>/dev/null)" || rc=$?
+  [ "$rc" != 124 ] || docker_silent
+  ok "Docker $server_version"
 
-  local compose_version major minor
-  compose_version="$(docker compose version --short 2>/dev/null || true)"
+  local compose_version="" major minor
+  rc=0
+  compose_version="$(run_limited 10 docker compose version --short 2>/dev/null)" || rc=$?
+  [ "$rc" != 124 ] || docker_silent
   [ -n "$compose_version" ] \
     || die "Docker Compose v2 is missing. Install the docker-compose-plugin package (or Docker Desktop)."
   compose_version="${compose_version#v}"
@@ -1479,6 +1580,12 @@ main() {
   trap 'rm -f "$MANIFEST_ERR_FILE"' EXIT
 
   check_prerequisites
+  # An install is here: is it running? Before anything is written. Not with
+  # --no-start or --dry-run, which ask to start nothing.
+  if [ "$NO_START" != "1" ] && [ "$DRY_RUN" != "1" ] \
+     && [ -f "$INSTALL_DIR/.env" ] && [ -f "$INSTALL_DIR/$COMPOSE_MAIN" ]; then
+    check_existing_install
+  fi
   collect_answers
   check_music_dir
   resolve_version
@@ -1541,7 +1648,10 @@ load_install() {
 
 check_docker() {
   command -v docker >/dev/null 2>&1 || die "Docker is not installed."
-  docker info >/dev/null 2>&1 \
+  local rc=0
+  run_limited 10 docker info >/dev/null 2>&1 || rc=$?
+  [ "$rc" != 124 ] || docker_silent
+  [ "$rc" = 0 ] \
     || die "Docker is installed but not reachable. Start Docker, or add your user to the docker group, then run this again."
 }
 
@@ -2612,7 +2722,7 @@ purge_module_rows() {
 # a later release needs nothing new here: the catalogue comes with the
 # release, signed.
 run_module() {
-  local action="$1" env_file project image digest answer="" extra="" history="" onoff=on
+  local action="$1" answer="" extra="" history="" onoff=on
   [ "$action" = "enable-module" ] || onoff=off
   say "${C_BOLD}tagave: turn $onoff the module $MODULE_ID${C_OFF}"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
@@ -2621,7 +2731,6 @@ run_module() {
   [ "$ROLE" != "files" ] || die "this computer runs only the file worker; turn modules on on the app computer"
   case "$MODULE_ID" in *[!a-z0-9-]*) die "'$MODULE_ID' is not a module id" ;; esac
   case "$INSTALL_DIR" in *[[:space:]]*) die "the install directory cannot contain spaces for this command" ;; esac
-  env_file="$INSTALL_DIR/.env"
   check_docker
   is_release "$CURRENT" || die "modules come from the signed catalogue of a release, and this install runs '$CURRENT'. Update to a release first."
   if [ ! -f "$INSTALL_DIR/release-manifest.json" ]; then
@@ -2629,8 +2738,6 @@ run_module() {
     [ -f "$INSTALL_DIR/release-manifest.json" ] \
       || die "modules need the signed manifest of $CURRENT, and it cannot be checked here ($RELEASE_WHY)."
   fi
-  digest="$(env_get TAGAVE_DIGEST_UPDATER "$env_file")"
-  image="$TAGAVE_REGISTRY/tagave-updater:$CURRENT${digest:+@$digest}"
   if [ "$action" = "disable-module" ]; then
     if [ "$DELETE_DATA" != "1" ] && [ -n "$TTY" ]; then
       if [ "$MODULE_ID" = "player" ]; then
@@ -2653,6 +2760,20 @@ run_module() {
     [ "$DELETE_HISTORY" != "1" ] || history="--delete-history"
   fi
   [ "$action" = "disable-module" ] || confirm "Turn on $MODULE_ID now?"
+  run_updater_cli module "${action%-module}" "$MODULE_ID" ${extra:+"$extra"} ${history:+"$history"} \
+    || die "$MODULE_ID was not turned $onoff; the lines above say why (the configuration is as it was unless they say otherwise)."
+  ok "$MODULE_ID is $onoff"
+}
+
+# run_updater_cli ARGS...: runs cli.js ARGS of the release's own updater image
+# (CURRENT, pinned by its digest when .env has one; pulled when missing) as a
+# one-off container: the Docker socket and this folder mounted, on the
+# install's network so it can ask the app for its health. Returns cli.js's
+# exit status.
+run_updater_cli() {
+  local env_file="$INSTALL_DIR/.env" project image digest
+  digest="$(env_get TAGAVE_DIGEST_UPDATER "$env_file")"
+  image="$TAGAVE_REGISTRY/tagave-updater:$CURRENT${digest:+@$digest}"
   project="$(env_get COMPOSE_PROJECT_NAME "$env_file")"
   project="${project:-$PROJECT_NAME}"
   docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null \
@@ -2662,9 +2783,113 @@ run_module() {
     -v "$INSTALL_DIR:$INSTALL_DIR" -w "$INSTALL_DIR" \
     -e TAGAVE_INSTALL_DIR="$INSTALL_DIR" \
     --network "${project}_default" \
-    --entrypoint node "$image" /opt/tagave/updater/dist/cli.js module "${action%-module}" "$MODULE_ID" ${extra:+"$extra"} ${history:+"$history"} \
-    || die "$MODULE_ID was not turned $onoff; the lines above say why (the configuration is as it was unless they say otherwise)."
-  ok "$MODULE_ID is $onoff"
+    --entrypoint node "$image" /opt/tagave/updater/dist/cli.js "$@"
+}
+
+# ---------------------------------------------------------------------------
+# repair
+# ---------------------------------------------------------------------------
+
+REPAIR_DOCKER=ok  # ok, or silent: Docker did not answer within the limit
+REPAIR_TOTAL=0    # the parts this computer runs (the updater is not one)
+REPAIR_DOWN=0     # how many of them are not running
+
+# Checks the install load_install read, every call bounded. A part is up when
+# its container reads healthy, running or starting; anything else, or no
+# answer in time, is down. The web app also counts as down when its container
+# runs but /api/v1/health does not answer (not asked on the files computer:
+# the app runs on the other one).
+repair_check() {
+  local rc=0 services service state app_runs=0
+  REPAIR_DOCKER=ok; REPAIR_TOTAL=0; REPAIR_DOWN=0
+  run_limited 10 docker version >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = 124 ]; then REPAIR_DOCKER=silent; return 0; fi
+  services="$(run_limited 10 compose config --services 2>/dev/null | grep -vx updater || true)"
+  for service in $services; do
+    REPAIR_TOTAL=$((REPAIR_TOTAL + 1))
+    state="$(run_limited 10 container_health "$service" 2>/dev/null)" || state="no answer"
+    case "$state" in
+      healthy|running) [ "$service" != app ] || app_runs=1 ;;
+      starting) ;;
+      *) REPAIR_DOWN=$((REPAIR_DOWN + 1)) ;;
+    esac
+  done
+  # A starting app may not answer yet, so only a running one is asked.
+  if [ "$app_runs" = 1 ] && [ "$ROLE" != "files" ] && command -v curl >/dev/null 2>&1; then
+    run_limited 10 curl -fsS --max-time 5 "${APP_URL:-http://127.0.0.1:${PORT:-3100}}/api/v1/health" >/dev/null 2>&1 \
+      || REPAIR_DOWN=$((REPAIR_DOWN + 1))
+  fi
+}
+
+# A re-run of the installer on an install: when parts are down, repair (with
+# --repair, or a yes on the terminal) or stop with exit 3 (no terminal or
+# --yes). When all run, or the answer is no, it carries on as before with the
+# settings it had.
+check_existing_install() {
+  local env_file="$INSTALL_DIR/.env" answer="" finding
+  # An .env from before the installer recorded the role: nothing to check by.
+  case "$(env_get TAGAVE_ROLE "$env_file")" in all|app|files) ;; *) return 0 ;; esac
+  local role="$ROLE" port="$PORT" db_host="$DB_HOST" app_url="$APP_URL" current="$CURRENT" registry="$TAGAVE_REGISTRY"
+  load_install
+  repair_check
+  [ "$REPAIR_DOCKER" != "silent" ] || docker_silent
+  if [ "$REPAIR_DOWN" -gt 0 ]; then
+    finding="tagave is installed here, but ${REPAIR_DOWN} of ${REPAIR_TOTAL} parts aren't running."
+    if [ "$REPAIR" = "1" ]; then
+      say "$finding"
+      run_repair
+    elif [ -n "$TTY" ]; then
+      printf '%s Repair it now? (Y/n) ' "$finding" >"$TTY"
+      IFS= read -r answer <"$TTY" || answer=""
+      case "$answer" in n|N|no|No|NO) ;; *) run_repair ;; esac
+    else
+      say "$finding" >&2
+      say "Run again with --repair" >&2
+      exit 3
+    fi
+  fi
+  # what load_install set must not override this run's flags
+  ROLE="$role"; PORT="$port"; DB_HOST="$db_host"; APP_URL="$app_url"; CURRENT="$current"; TAGAVE_REGISTRY="$registry"
+}
+
+# Runs "cli.js repair" of the release's updater image (the Repair button's
+# repair) and exits with its outcome: 0 repaired (its last line is the
+# headline), 4 waiting on the music share, 5 needs the owner, 1 otherwise.
+run_repair() {
+  local rc=0
+  step "Repairing tagave"
+  is_release "$CURRENT" || die "repair runs the updater of a release, and this install runs '${CURRENT:-nothing}'. Update to a release first."
+  case "$INSTALL_DIR" in *[[:space:]]*) die "the install directory cannot contain spaces for this command" ;; esac
+  # With the updater installed, its service takes over a waiting repair
+  # (.updater/repair.json); a second watcher here could start the parts twice.
+  local wait="$REPAIR_WAIT"
+  if [ -n "$wait" ] && has_updater_profile "$INSTALL_DIR/.env"; then
+    say "The updater keeps watching the music share, so --wait is not needed here."
+    wait=""
+  fi
+  run_updater_cli repair ${wait:+--wait "$wait"} || rc=$?
+  case "$rc" in
+    0) exit 0 ;;
+    4)
+      if has_updater_profile "$INSTALL_DIR/.env"; then
+        say "tagave finishes on its own when it's back."
+      else
+        say "Turn the NAS on, then run the installer again."
+      fi
+      exit 4 ;;
+    5) exit 5 ;;
+    *) exit 1 ;;
+  esac
+}
+
+# The repair command: reads the install, checks that Docker answers, and
+# repairs. It writes, reconfigures and starts nothing else.
+run_repair_command() {
+  say "${C_BOLD}tagave: repair${C_OFF}"
+  case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
+  load_install
+  check_docker
+  run_repair
 }
 
 case "$COMMAND" in
@@ -2673,6 +2898,7 @@ case "$COMMAND" in
   disable-module)  run_module disable-module ;;
   update)  run_update ;;
   status)  run_status ;;
+  repair)  run_repair_command ;;
   enable-updater)  run_enable_updater ;;
   disable-updater) run_disable_updater ;;
   enable-player)   run_enable_player ;;
