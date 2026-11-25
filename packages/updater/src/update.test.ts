@@ -1396,6 +1396,16 @@ describe('parts that will not stop or start', () => {
     expect(await envNow()).toBe('0.7.0');
   });
 
+  it('a roll back that sticks says one count, the one read last', async () => {
+    // the update stops on a file worker that won't start, then the roll back on an app that won't stop
+    fake.stuckStart.add('worker-files'); fake.musicReading = answering; fake.stuckStop.add('app');
+    const run = await update('0.8.0');
+    expect(run.status).toBe('rollback_failed');
+    expect(run.reason).toContain("The file worker won't start.");
+    expect(run.reason).toMatch(/The roll back did not finish\. The web app is stuck and won't stop\. Restart the computer tagave runs on\. 2 of 4 parts running\.$/);
+    expect(run.reason!.match(/\d+ of \d+ parts running/g)).toEqual(['2 of 4 parts running']);
+  });
+
 
   it("shows the parts' own docker calls in the run log, but not their ps and inspect polls", async () => {
     fake.stuckStop.add('worker-files');
@@ -1451,6 +1461,14 @@ describe('parts that will not stop or start', () => {
       };
       const run = await update('0.8.0', {}, { docker });
       expect(run.reason!.match(/\d+ of \d+ parts running/g)).toEqual(['2 of 4 parts running']);
+    });
+
+    it('names the stuck app for the repair after a restart', async () => {
+      keep();
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).toContain('stays in place');
+      expect(run.stuck).toContain('app');
     });
   });
 

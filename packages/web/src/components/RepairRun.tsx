@@ -204,14 +204,26 @@ function writeDismissed(id: string): void {
   }
 }
 
+/**
+ * The repair that takes the pane (null: none): not once dismissed here, and
+ * a repaired one only in the tab that started it (`own`), as a settled
+ * successful update clears itself (showRun). Every other run stays until Done.
+ */
+export function shownRepair(repair: RepairRunData | null | undefined, dismissed: string | null, own: string | null): RepairRunData | null {
+  if (!repair || repair.id === dismissed) return null;
+  if (repair.status === 'repaired' && repair.id !== own) return null;
+  return repair;
+}
+
 /** The repair Settings › Updates shows in place of the page (null: none), until Done. */
-export function useShownRepair(repair: RepairRunData | null | undefined): { run: RepairRunData | null; dismiss: () => void; reopen: () => void } {
+export function useShownRepair(repair: RepairRunData | null | undefined): { run: RepairRunData | null; dismiss: () => void; reopen: (id: string) => void } {
   const [dismissed, setDismissed] = useState<string | null>(() => readDismissed());
-  const run = repair && repair.id !== dismissed ? repair : null;
+  // The repair this tab started or brought up with Repair.
+  const [own, setOwn] = useState<string | null>(null);
   return {
-    run,
+    run: shownRepair(repair, dismissed, own),
     dismiss: () => { if (repair) { writeDismissed(repair.id); setDismissed(repair.id); } },
-    reopen: () => { writeDismissed(''); setDismissed(null); },
+    reopen: (id) => { writeDismissed(''); setDismissed(null); setOwn(id); },
   };
 }
 
@@ -221,20 +233,20 @@ export const REPAIR_HELP = 'Repair checks every part of tagave and fixes what it
 /**
  * Repair, in Running now. A repair that runs is shown again rather than
  * started a second time; otherwise it starts one, also while one waits for
- * the share (`onShow` then brings its view up).
+ * the share (`onShow` then brings its view up, with the run's id).
  */
-export function RepairButton({ repair, onShow }: { repair: RepairRunData | null | undefined; onShow: () => void }) {
+export function RepairButton({ repair, onShow }: { repair: RepairRunData | null | undefined; onShow: (id: string) => void }) {
   const start = useStartRepair();
   const [error, setError] = useState<string | null>(null);
   const go = async () => {
     setError(null);
-    if (repairAction(repair) === 'show') {
-      onShow();
+    if (repair && repairAction(repair) === 'show') {
+      onShow(repair.id);
       return;
     }
     try {
-      await start.mutateAsync();
-      onShow();
+      const { run } = await start.mutateAsync();
+      onShow(run.id);
     } catch (err) {
       const e = err as { title?: string; detail?: string };
       setError(sentence(e.detail ?? e.title) || 'The repair could not be started.');

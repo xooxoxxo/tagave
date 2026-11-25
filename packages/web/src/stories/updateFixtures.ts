@@ -242,9 +242,13 @@ export function repairedRun(): RepairRun {
   });
 }
 
-/** The music share does not answer: the file worker waits for it, checked 2 min ago. */
+/**
+ * The music share does not answer: the file worker waits for it, checked 2
+ * min ago. As the updater leaves it: nothing to stop or start while the share
+ * is silent, and the check that every part runs still open.
+ */
 export function repairWaitingRun(): RepairRun {
-  return repairRun('waiting', { check: 'done', stop: 'done', music: 'running' }, {
+  return repairRun('waiting', { check: 'done', stop: 'skipped', music: 'done', start: 'skipped' }, {
     headline: "Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. tagave finishes on its own when it's back.",
     details: ['4 of 5 parts running.', 'The file worker waits for the share.'],
     outcome: { cause: 'music_unreachable', service: 'worker-files', server: '192.0.2.10', partsRunning: 4, partsTotal: 5 },

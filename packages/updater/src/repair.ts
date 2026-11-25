@@ -415,7 +415,8 @@ export class Repair {
     const appBusy = appPhase(this.seen.get('app')?.logs ?? '') !== null;
     const targets = this.lastParts.filter((p) => {
       if (this.waiting.has(p.service)) return false;
-      if (p.service === 'postgres' && pgBusy) return false;
+      // The app backs up or migrates on it: never stop the database under it.
+      if (p.service === 'postgres' && (pgBusy || appBusy)) return false;
       if (p.service === 'app' && (appBusy || p.state !== 'stuck')) return false;
       return p.state === 'stuck' || this.seen.get(p.service)?.state?.restarting === true || p.health === 'unhealthy';
     }).map((p) => p.service);
@@ -631,11 +632,14 @@ export class Repair {
     this.run.details = [
       ...this.actions,
       ...(status === 'needs_you' || status === 'failed' ? helpLines(this.cause, words) : []),
-      `${runningNow} of ${total} parts running.`,
+      // An ending before any part was read (Docker silent, the setup unreadable) has no count.
+      ...(total > 0 ? [`${runningNow} of ${total} parts running.`] : []),
       ...(status === 'waiting' && waits.length ? [`${capital(waits.map(partName).join(' and '))} ${waits.length === 1 ? 'waits' : 'wait'} for the share.`] : []),
     ].map(redact);
     this.run.progress = null;
     this.run.finishedAt = status === 'waiting' ? null : this.now().toISOString();
+    // Waiting: not every part runs yet, so the check that they do stays open until the watcher ends it.
+    if (status === 'waiting') Object.assign(this.step('verify'), { status: 'pending', startedAt: null, finishedAt: null });
     this.log(status === 'repaired' || status === 'waiting' ? 'info' : 'warn', this.run.headline);
     await this.persist();
     try {

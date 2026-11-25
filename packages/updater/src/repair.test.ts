@@ -506,6 +506,46 @@ describe('repair', () => {
     expect(stepStatus(run)).toMatchObject({ check: 'failed' });
   });
 
+  it('an ending from check says no part count when it read no parts', async () => {
+    fake.dockerAnswers = false;
+    let run = await repair().execute();
+    expect(run.status).toBe('needs_you');
+    expect(run.details.some((l) => /parts running/.test(l))).toBe(false);
+
+    // its own setup cannot be read: failed, and no "0 of 0"
+    fake = new Fake();
+    const docker: Runner = async (args, opts) => (args.join(' ') === 'compose config --services' ? { code: 1, stdout: '', stderr: 'no such file' } : fake.docker(args, opts));
+    run = await repair({ docker }).execute();
+    expect(run.status).toBe('failed');
+    expect(run.details.some((l) => /parts running/.test(l))).toBe(false);
+  });
+
+  it('a waiting run leaves "check that every part runs" open until the watcher ends it', async () => {
+    fake.box('worker-files').status = 'removing';
+    fake.share = 'silent';
+    const r = repair();
+    let run = await r.execute();
+    expect(run.status).toBe('waiting');
+    expect(stepStatus(run).verify).toBe('pending');
+    expect(run.steps.find((s) => s.id === 'verify')).toMatchObject({ startedAt: null, finishedAt: null });
+    expect(fake.saved.at(-1)!.steps.find((s) => s.id === 'verify')!.status).toBe('pending');
+    fake.share = 'answers';
+    run = await r.watch();
+    expect(run.status).toBe('repaired');
+    expect(stepStatus(run).verify).toBe('done');
+  });
+
+  it('never stops an unhealthy database while the app backs up or migrates', async () => {
+    const until = fake.clock + 90_000;
+    fake.healthy = () => fake.clock >= until;
+    fake.box('postgres').health = 'unhealthy';
+    fake.box('app').logs = 'backing up the database to /backups/pre.dump before applying 3 migrations\n';
+    const run = await repair().execute();
+    expect(fake.changes()).toEqual([]);
+    expect(stepStatus(run).stop).toBe('skipped');
+    expect(run.status).toBe('repaired');
+  });
+
   it('a report that throws does not stop the run', async () => {
     const run = await repair({ report: async () => { throw new Error('the app went away'); } }).execute();
     expect(run.status).toBe('repaired');
