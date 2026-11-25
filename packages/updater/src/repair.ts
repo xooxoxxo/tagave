@@ -147,6 +147,8 @@ export function repairHeadline(run: Pick<RepairRun, 'status' | 'outcome'>, extra
     case 'not_in_fstab':
     case 'music_unmounted':
       return NOT_CONNECTED;
+    case 'music_unreachable':
+      return `${o.server ? `Your music share at ${o.server}` : 'Your music share'} doesn't answer. Turn the NAS on or check its cable, then press Repair.`;
     case 'stuck_stop':
       return extra.starting ? `${part} won't start. Restart the computer tagave runs on.` : `${part} is stuck and won't stop. Restart the computer tagave runs on.`;
     case 'crash_loop':
@@ -215,9 +217,20 @@ const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const timedOut = (r: CommandResult) => /timed out after \d+ s/.test(r.stderr);
 const crashed = (s: ContainerState | null | undefined) => !!s && (s.oomKilled || s.restarting || (s.status === 'exited' && s.exitCode !== 0));
 
-/** "Bind for 0.0.0.0:4533 failed", "listen tcp :4533: bind": the port; undefined when the text names none. */
+/** The most text from a log or the app that goes into a headline, reason or details line. */
+const MAX_FREE_TEXT = 300;
+
+/** Text from a log or the app, redacted (whole, so a cut cannot leave half a secret) and then capped. */
+export function clip(text: string): string {
+  const clean = redact(text);
+  return clean.length > MAX_FREE_TEXT ? `${clean.slice(0, MAX_FREE_TEXT - 1)}…` : clean;
+}
+
+/** "Bind for 0.0.0.0:4533 failed", "listen tcp :4533: bind": the port on the line that names the conflict; undefined when it names none. */
 function portOf(text: string): number | undefined {
-  const m = /(?:[\d.]*|\[[0-9a-f:]*\]):(\d{2,5})\b/i.exec(text);
+  const line = text.split('\n').find((l) => PORT.test(l)) ?? '';
+  // The last ":NN" on that line: a timestamp at its start comes first.
+  const m = [...line.matchAll(/:(\d{2,5})\b/g)].at(-1);
   const n = m ? Number(m[1]) : NaN;
   return n > 0 && n < 65536 ? n : undefined;
 }
@@ -244,6 +257,10 @@ export class Repair {
   private readonly waiting = new Set<string>();
   private readonly recreated = new Set<string>();
   private restartedApp = false;
+  /** The one app restart ran and Docker said it worked. */
+  private restartWorked = false;
+  /** The watcher said once that it cannot check the share. */
+  private toldNoProbe = false;
   private lastParts: PartState[] = [];
   /** What check saw of the parts that were down, and of the app and Postgres. */
   private seen = new Map<string, Seen>();
@@ -291,17 +308,31 @@ export class Repair {
         if (this.deps.busy?.()) continue;
         if (!this.services) await this.loadInstall();
         const down = (await this.readParts()).filter((p) => MUSIC_BOUND.includes(p.service) && p.state !== 'running').map((p) => p.service);
-        const reading = down.length && this.deps.music
-          ? await this.deps.music.read({ parts: down.map((service) => ({ service, stuck: true })) }).catch(() => null)
-          : null;
-        this.run.checkedAt = this.now().toISOString();
-        if (down.length && !(reading && (reading.answer === 'answers' || reading.answer === null))) {
-          delay = Math.min(delay * 2, this.deps.config.waitMaxMs);
-          void this.persist();
+        if (down.length === 0) {
+          this.log('info', 'the parts that waited for the music share run again');
+          await this.resume(down, null);
           continue;
         }
-        this.log('info', down.length ? 'the music share answers again' : 'the parts that waited for the music share run again');
-        await this.resume(down);
+        if (!this.deps.music) {
+          if (!this.toldNoProbe) this.log('warn', 'the music share cannot be checked here, so tagave waits until the parts run again or Repair is pressed');
+          this.toldNoProbe = true;
+          delay = Math.min(delay * 2, this.deps.config.waitMaxMs);
+          continue;
+        }
+        const unmounted = this.deps.musicUnmounted ? await this.deps.musicUnmounted().catch(() => null) : null;
+        const reading = await this.deps.music.read({ parts: down.map((service) => ({ service, stuck: true })), appUnmounted: unmounted }).catch(() => null);
+        this.run.checkedAt = this.now().toISOString();
+        if (reading?.answer === 'answers') {
+          this.log('info', 'the music share answers again');
+          await this.resume(down, null);
+        } else if (reading && reading.answer === null) {
+          // No longer a network share (a local folder, or not mounted at all): the music step decides.
+          this.log('info', 'the music folder is no longer on a network share');
+          await this.resume(down, reading);
+        } else {
+          delay = Math.min(delay * 2, this.deps.config.waitMaxMs);
+          void this.persist();
+        }
       }
     } catch (err) {
       await this.ended(err);
@@ -414,6 +445,8 @@ export class Repair {
         this.cause = 'music_unreachable';
         this.server = r.server;
         for (const p of this.lastParts) if (MUSIC_BOUND.includes(p.service) && p.state !== 'running') this.waiting.add(p.service);
+        // No part waits for it, so nothing finishes on its own: the owner turns the share on and presses Repair.
+        if (this.waiting.size === 0) throw new Ended('needs_you', 'music_unreachable');
         return this.end('music', 'done');
       case 'busy':
         throw new Ended('failed', null, { reason: 'Another change is under way. Press Repair again when it ends.' });
@@ -447,7 +480,7 @@ export class Repair {
     if (recreate.length) {
       for (const s of recreate) this.recreated.add(s);
       const res = await this.parts.startParts(recreate, { forceRecreate: true });
-      for (const s of recreate) this.act(`Started ${partName(s)} again from a fresh container.`);
+      for (const s of res.done) this.act(`Started ${partName(s)} again from scratch.`);
       this.stuckOnes(res, true);
     }
     this.end('start', 'done');
@@ -477,37 +510,42 @@ export class Repair {
         }
         this.note(st!.oomKilled ? 'oom' : 'crash_loop', s);
         this.recreated.add(s);
-        this.progress(`starting ${partName(s)} again from a fresh container`);
-        this.stuckOnes(await this.parts.startParts([s], { forceRecreate: true }), true);
-        this.act(`Started ${partName(s)} again from a fresh container.`);
+        this.progress(`starting ${partName(s)} again from scratch`);
+        const res = await this.parts.startParts([s], { forceRecreate: true });
+        this.stuckOnes(res, true);
+        if (res.done.includes(s)) this.act(`Started ${partName(s)} again from scratch.`);
         retried = true;
       }
 
       const appIssue = !retried && services.includes('app') && !this.waiting.has('app') ? await this.appIssue() : null;
       if (appIssue) {
         const refused = refusal(appLogs);
-        if (refused) throw new Ended('needs_you', 'migration_refused', { service: 'app', reason: refused });
+        if (refused) throw new Ended('needs_you', 'migration_refused', { service: 'app', reason: clip(refused) });
       }
       if (!retried && down.length === 0 && !appIssue && !pgBusy) break;
 
       const late = this.now().getTime() >= deadline;
-      const mayRestart = appIssue && !phase && !pgBusy && !this.restartedApp && !down.includes('app');
+      // The one restart, only once every other part runs (not while the database still comes up).
+      const mayRestart = appIssue && !phase && !pgBusy && !this.restartedApp && down.length === 0;
       if (mayRestart && (this.appFailedAtCheck || (late && !extended))) {
         this.note('app_unhealthy', 'app');
         this.restartedApp = true;
         this.progress('restarting the web app');
         const res = await this.docker(['compose', 'restart', 'app'], LIMITS.restartAppMs);
-        this.log(res.code === 0 ? 'info' : 'warn', res.code === 0 ? 'restarted the web app' : `the web app could not be restarted (exit ${res.code})`);
-        this.act('Restarted the web app.');
+        this.restartWorked = res.code === 0;
+        this.log(res.code === 0 ? 'info' : 'warn', res.code === 0 ? 'restarted the web app' : `the web app could not be restarted (${timedOut(res) ? 'no answer within 120 s' : `exit ${res.code}`})`);
+        if (this.restartWorked) this.act('Restarted the web app.');
         if (late) {
           extended = true;
           deadline = this.now().getTime() + this.deps.config.healthTimeoutMs;
         }
       } else if (late) {
         if (pgBusy) throw new Ended('needs_you', 'db_recovering', { service: 'postgres' });
-        if (appIssue && phase) throw new Ended('failed', null, { reason: `The web app is still busy (${phase}). Press Repair again when it is done.` });
-        if (appIssue) throw new Ended('needs_you', 'app_unhealthy', { service: 'app', ...this.lastError(appLogs) });
-        if (down.length) throw new Ended('needs_you', 'stuck_stop', { service: down[0]!, starting: true });
+        if (appIssue && phase) throw new Ended('failed', null, { reason: `The web app is still busy (${clip(phase)}). Press Repair again when it is done.` });
+        // "tagave restarted it once" only when that restart ran and worked; else the app won't start.
+        if (appIssue && this.restartWorked) throw new Ended('needs_you', 'app_unhealthy', { service: 'app', ...this.lastError(appLogs) });
+        if (down.length) throw new Ended('needs_you', 'stuck_stop', { service: down.includes('app') ? 'app' : down[0]!, starting: true });
+        if (appIssue) throw new Ended('needs_you', 'stuck_stop', { service: 'app', starting: true });
       }
       this.progress(down.length ? `waiting for ${down.map(partName).join(', ')}` : appIssue ? `waiting for the web app: ${appIssue}` : 'waiting for the database to recover');
       await this.sleep(this.deps.config.pollMs);
@@ -515,12 +553,23 @@ export class Repair {
     this.end('verify', 'done');
   }
 
-  /** The watcher's way back in once the share answers: stop what is still stuck, start, verify. */
-  private async resume(down: string[]): Promise<void> {
+  /**
+   * The watcher's way back in: stop what is still stuck, start, verify.
+   * `reading`: the share is no longer a network one, so the music step runs
+   * on it first (a folder that is not connected goes to the remount).
+   */
+  private async resume(down: string[], reading: MusicReading | null): Promise<void> {
     this.waiting.clear();
     this.run.status = 'running';
     this.run.finishedAt = null;
-    for (const s of this.run.steps) if (s.id === 'start' || s.id === 'verify') Object.assign(s, { status: 'pending', startedAt: null, finishedAt: null });
+    const again: RepairStepId[] = reading?.verdict === 'music_unmounted' ? ['music', 'start', 'verify'] : ['start', 'verify'];
+    for (const s of this.run.steps) if (again.includes(s.id)) Object.assign(s, { status: 'pending', startedAt: null, finishedAt: null });
+    if (reading?.verdict === 'music_unmounted') {
+      this.cause = 'music_unmounted';
+      this.server = null;
+      this.reading = reading;
+      await this.music();
+    }
     const stuck = (await this.readParts()).filter((p) => down.includes(p.service) && p.state === 'stuck').map((p) => p.service);
     if (stuck.length) this.stuckOnes(await this.parts.stopParts(stuck), false);
     this.seen = await this.observe(down);
@@ -566,8 +615,9 @@ export class Repair {
     this.run.status = status;
     this.run.outcome = { cause: this.cause, service: this.service, server: this.server, partsRunning: runningNow, partsTotal: total };
     const words: HeadlineExtra = { ...extra, acted: this.actions.length > 0 };
-    this.run.headline = repairHeadline(this.run, words);
+    this.run.headline = redact(repairHeadline(this.run, words));
     if (status === 'needs_you') this.run.reason = this.run.headline;
+    if (this.run.reason !== null) this.run.reason = redact(this.run.reason);
     const waits = [...this.waiting];
     this.run.details = [
       ...this.actions,
@@ -594,7 +644,7 @@ export class Repair {
     this.musicDir = musicDirOf(env);
     this.project = envGet(env, 'COMPOSE_PROJECT_NAME') || 'tagave';
     const svc = await this.docker(['compose', 'config', '--services'], LIMITS.configMs);
-    if (svc.code !== 0) throw new Ended('failed', null, { reason: 'docker compose cannot read the configuration. The run log says why.' });
+    if (svc.code !== 0) throw new Ended('failed', null, { reason: 'tagave cannot read its own setup. The run log says why.' });
     this.services = svc.stdout.split('\n').map((s) => s.trim()).filter((s) => s && s !== 'updater');
   }
 
@@ -637,7 +687,7 @@ export class Repair {
 
   private lastError(logs: string): { lastError?: string } {
     const line = lastErrorLine(logs);
-    return line ? { lastError: line } : {};
+    return line ? { lastError: clip(line) } : {};
   }
 
   // -- bookkeeping -------------------------------------------------------------
