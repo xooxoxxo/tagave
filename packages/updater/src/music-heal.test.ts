@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { HELPER_NAME, MusicHealer, gapAfter, healDecision, helperArgs, hostCommand, musicContainers, musicDirOf, selfHealOn, type HealReport } from './music-heal.js';
-import type { MusicProber, MusicReading } from './music-probe.js';
+import type { MusicProber, MusicReading, ServerAnswer } from './music-probe.js';
 import type { CommandResult, Runner } from './runner.js';
 
 const cfg = { minGapMs: 10 * 60_000, maxGapMs: 6 * 60 * 60_000 };
@@ -196,8 +196,8 @@ describe('an attempt (fake Docker, fake app)', () => {
   });
 });
 
-/** A network share on MUSIC_DIR, read as answering or silent. */
-function networkReading(answer: 'answers' | 'silent', mountPoint = '/mnt/music'): MusicReading {
+/** A network share on MUSIC_DIR, read as answering, silent or unknown. */
+function networkReading(answer: ServerAnswer | null, mountPoint = '/mnt/music'): MusicReading {
   return {
     dir: '/mnt/music',
     mount: { kind: 'network', fstype: 'nfs4', server: '192.0.2.10', export: '/export/music', hard: true, mountPoint },
@@ -232,6 +232,20 @@ describe('the music share comes first (fake prober)', () => {
     now += 10 * 60_000;
     expect(await healer.tick()).toBe('server_silent');
     expect(reads).toHaveLength(3);
+  });
+
+  it('with the share in an unknown state, no helper runs and the reason is server_silent', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    for (const answer of ['unknown', null] as const) {
+      const { docker, calls } = fakeDocker(hostAnswers());
+      const { app, reports } = fakeApp(true);
+      const { music } = fakeProber(() => networkReading(answer));
+      expect(await new MusicHealer({ installDir, docker, app, music, busy: () => false, self: 's' }).tick()).toBe('server_silent');
+      // not one helper run, not even the image lookup
+      expect(calls.filter((c) => c[0] === 'run')).toEqual([]);
+      expect(calls).toEqual([]);
+      expect(reports).toEqual([{ phase: 'done', ok: false, reason: 'server_silent' }]);
+    }
   });
 
   it('reports server_silent once until the reason changes', async () => {
@@ -343,6 +357,73 @@ describe('the music share comes first (fake prober)', () => {
     // and the lock is free again
     now += 10 * 60_000;
     expect(await healer.tick()).toBe('mounted');
+  });
+});
+
+describe('remount obeys the switch and a run that moves containers', () => {
+  it('remount says off when the self-heal is switched off, and runs nothing', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_SELF_HEAL=off\n');
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app, reports } = fakeApp(true);
+    const { music, reads } = fakeProber(() => null);
+    const log = vi.fn();
+    const healer = new MusicHealer({ installDir, docker, app, music, busy: () => false, updating: () => false, self: 's', log });
+    expect(await healer.remount('/mnt/music', 'tagave')).toBe('off');
+    expect(calls).toEqual([]);
+    expect(reads).toEqual([]);
+    expect(reports).toEqual([]);
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('remount says busy while an update moves containers, and runs nothing', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app, reports } = fakeApp(true);
+    const { music, reads } = fakeProber(() => null);
+    const log = vi.fn();
+    let updating = true;
+    // the tick's busy is not the remount's: a repair that calls remount counts as busy for the tick only
+    const healer = new MusicHealer({ installDir, docker, app, music, busy: () => true, updating: () => updating, self: 's', log });
+    expect(await healer.remount('/mnt/music', 'tagave')).toBe('busy');
+    expect(calls).toEqual([]);
+    expect(reads).toEqual([]);
+    expect(reports).toEqual([]);
+    expect(log).not.toHaveBeenCalled();
+    updating = false;
+    expect(await healer.remount('/mnt/music', 'tagave')).toBe('mounted');
+  });
+
+  it('off and busy are neither recorded nor reported', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    let t = 0;
+    let updating = false;
+    const { docker, calls } = fakeDocker(hostAnswers({ start: { code: 1 } }));
+    const { app, reports } = fakeApp(true);
+    const log = vi.fn();
+    const healer = new MusicHealer({ installDir, docker, app, music: null, busy: () => false, updating: () => updating, self: 's', now: () => t, log });
+    const starts = () => calls.filter((c) => helperCmd(c)?.[1] === 'start').length;
+    expect(await healer.tick()).toBe('mount_failed');
+    t += 10 * 60_000;
+    updating = true;
+    expect(await healer.remount('/mnt/music', 'tagave')).toBe('busy');
+    updating = false;
+    await writeFile(join(installDir, '.env'), 'MUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_SELF_HEAL=0\n');
+    expect(await healer.remount('/mnt/music', 'tagave')).toBe('off');
+    await writeFile(join(installDir, '.env'), 'MUSIC_DIR=/mnt/music\n');
+    // still due 10 minutes after one failure: neither pushed the last attempt's time
+    expect(await healer.tick()).toBe('mount_failed');
+    // two failures in a row, not more: 20 minutes, not 40
+    t += 10 * 60_000;
+    expect(await healer.tick()).toBeNull();
+    t += 10 * 60_000;
+    expect(await healer.tick()).toBe('mount_failed');
+    expect(starts()).toBe(3);
+    expect(reports.filter((r) => r.phase === 'done')).toEqual([
+      { phase: 'done', ok: false, reason: 'mount_failed' },
+      { phase: 'done', ok: false, reason: 'mount_failed' },
+      { phase: 'done', ok: false, reason: 'mount_failed' },
+    ]);
+    expect(log).toHaveBeenCalledTimes(3);
   });
 });
 
