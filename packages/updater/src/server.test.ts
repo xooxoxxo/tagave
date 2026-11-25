@@ -154,6 +154,9 @@ describe('updater HTTP API', () => {
     for (const s of services) {
       await s.idle();
       s.stop();
+      // a watcher's last saves land before the folder goes
+      await s['repairWatch'];
+      await s['repair']?.['saving'];
     }
     await new Promise((r) => server.close(r));
     await rm(dir, { recursive: true, force: true });
@@ -414,6 +417,70 @@ describe('updater HTTP API', () => {
       expect(fake.status.get('worker-files')).toBe('running');
       // the old run's watcher writes nothing more
       expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ id: run.id });
+    });
+
+    describe("another process's repair (the installer's one-off)", () => {
+      const quick = { healthTimeoutMs: 2000, pollMs: 5, waitFirstMs: 5, waitMaxMs: 5 };
+      const until = async (done: () => boolean | Promise<boolean>) => {
+        for (let i = 0; i < 400 && !(await done()); i++) await new Promise((r) => setTimeout(r, 5));
+        expect(await done()).toBe(true);
+      };
+      const onDisk = async () => JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8')) as RepairRun;
+      /** cli.js repair: its run ends waiting on a silent share, and the one-off exits. */
+      const installerWaiting = async () => {
+        const cli = make({ repairConfig: { ...quick, waitFirstMs: 3_600_000 } });
+        fake.status.set('worker-files', 'removing');
+        fake.share = 'silent';
+        const started = await cli.startRepair('installer');
+        if (!started.ok) throw new Error(started.error);
+        await cli.idle();
+        expect(started.run.status).toBe('waiting');
+        cli.stop();
+        return started.run;
+      };
+
+      it('a waiting installer repair is adopted, and its watcher finishes it when the share answers', async () => {
+        const run = await installerWaiting();
+        const s = make({ repairConfig: quick });
+        expect((await s.status()).repair).toMatchObject({ id: run.id, trigger: 'installer', status: 'waiting' });
+        expect(s['repair']?.run.id).toBe(run.id);
+        fake.share = 'answers';
+        await until(async () => (await onDisk()).status === 'repaired');
+        expect(await onDisk()).toMatchObject({ id: run.id, trigger: 'installer' });
+        expect(fake.status.get('worker-files')).toBe('running');
+        // the app's audit entry says how it ended
+        await until(() => fake.reports.at(-1)?.status === 'repaired');
+      });
+
+      it('a waiting watcher here yields when repair.json names another run', async () => {
+        const s = make({ repairConfig: quick });
+        fake.status.set('worker-files', 'removing');
+        fake.share = 'silent';
+        const own = await s.startRepair('owner');
+        if (!own.ok) throw new Error(own.error);
+        await s.idle();
+        expect(own.run.status).toBe('waiting');
+        const watcher = s['repair']!;
+        // the installer's one-off starts its own repair over the file
+        await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-1', 'installer', new Date()));
+        expect((await s.status()).repair).toMatchObject({ id: 'installer-1', status: 'running' });
+        expect(watcher['cancelled']).toBe(true);
+        // the old watcher writes nothing more, and the one-off's run counts as running elsewhere
+        await new Promise((r) => setTimeout(r, 50));
+        expect((await onDisk()).id).toBe('installer-1');
+        expect(await s.startRepair('owner')).toMatchObject({ ok: false, error: 'a repair is running' });
+      });
+
+      it('the service reads repair.json on its own timer, and stop() ends the timer', async () => {
+        const s = make({ repairConfig: quick });
+        s.followRepairFile(10);
+        const run = await installerWaiting();
+        await until(() => s['repair']?.run.id === run.id);
+        fake.share = 'answers';
+        await until(async () => (await onDisk()).status === 'repaired');
+        s.stop();
+        expect(s['repairTimer']).toBeNull();
+      });
     });
 
     it('status answers in time with a hanging part (parts shows it stuck)', async () => {

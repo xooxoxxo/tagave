@@ -62,6 +62,8 @@ const PARTS_CACHE_MS = 10_000;
 const PARTS_DEADLINE_MS = 6_000;
 /** A repair.json marked running by another process (the installer's one-off) counts for this long. */
 const ELSEWHERE_MS = 60 * 60_000;
+/** How often the service reads repair.json for a waiting repair another process left (followRepairFile). */
+const REPAIR_FILE_POLL_MS = 60_000;
 const RESTARTED_DURING_REPAIR = 'The updater restarted during the repair. Press Repair again.';
 const STOPPED_REPAIR = 'The repair stopped. Press Repair again.';
 
@@ -127,6 +129,10 @@ export class UpdaterService {
   /** The repair of this process: running, or waiting with its watcher. */
   private repair: Repair | null = null;
   private repairActive: Promise<RepairRun> | null = null;
+  /** The waiting repair's watcher, until it leaves waiting or is cancelled. */
+  private repairWatch: Promise<unknown> | null = null;
+  /** followRepairFile's timer. */
+  private repairTimer: ReturnType<typeof setInterval> | null = null;
   private readonly repairPath: string;
   private healer: RepairHealer | null = null;
   private partsCache: { at: number; parts: PartState[] } | null = null;
@@ -436,7 +442,12 @@ export class UpdaterService {
     return r?.status === 'running' && r.id !== this.repair?.run.id && this.now().getTime() - Date.parse(r.startedAt) < ELSEWHERE_MS;
   }
 
-  /** repair.json, unless this process's repair runs or waits: the installer's one-off writes the same file. */
+  /**
+   * repair.json, unless this process starts or runs a repair: the installer's
+   * one-off writes the same file. A waiting watcher here yields to another
+   * run named there, and a waiting run of another process (the one-off has
+   * exited) gets this process's watcher.
+   */
   private async refreshRepair(): Promise<void> {
     if (this.ownRepair()) return;
     const known = this.repairRun;
@@ -451,13 +462,42 @@ export class UpdaterService {
     }
     // Our own run read back is an older save of it (a read in the gap of its last write): ours is newer.
     if (run.id === this.repair?.run.id) return;
+    // Another process started a repair: the new run is current first, so the old watcher's late save is ignored.
     this.repairRun = run;
-    await this.failStale(run);
+    if (this.repair?.run.status === 'waiting') {
+      this.repair.cancel();
+      this.repair = null;
+    }
+    if (run.status === 'waiting') this.watchRepair(new Repair(this.repairDeps(), run));
+    else await this.failStale(run);
   }
 
-  /** This process starts, runs or waits on a repair: repair.json is ours, never read back over it. */
+  /** This process starts or runs a repair: repair.json is ours, never read back over it. */
   private ownRepair(): boolean {
-    return this.claimed === 'repair' || this.repair?.run.status === 'running' || this.repair?.run.status === 'waiting';
+    return this.claimed === 'repair' || this.repair?.run.status === 'running';
+  }
+
+  /**
+   * Reads repair.json every `everyMs` (main.ts, after load()): a repair the
+   * installer's one-off left waiting gets this process's watcher even when
+   * no status call comes for hours. stop() ends it.
+   */
+  followRepairFile(everyMs = REPAIR_FILE_POLL_MS): void {
+    if (this.repairTimer) return;
+    this.repairTimer = setInterval(() => void this.refreshRepair().catch(() => undefined), everyMs);
+    this.repairTimer.unref();
+  }
+
+  /**
+   * Waits up to `ms` for this process's waiting repair to finish (cli.js
+   * repair --wait). The run stays waiting when the time runs out.
+   */
+  async waitForRepair(ms: number): Promise<void> {
+    const watching = this.repairWatch;
+    if (!watching) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); });
+    await Promise.race([watching, deadline]).finally(() => clearTimeout(timer));
   }
 
   private repairDeps(): RepairDeps {
@@ -497,7 +537,11 @@ export class UpdaterService {
     this.repair = repair;
     this.repairRun = repair.run;
     this.savedStatus = repair.run.status;
-    void repair.watch().catch(() => undefined).finally(() => this.partsChanged());
+    const watching: Promise<unknown> = repair.watch().catch(() => undefined).finally(() => {
+      if (this.repairWatch === watching) this.repairWatch = null;
+      this.partsChanged();
+    });
+    this.repairWatch = watching;
   }
 
   /**
@@ -545,6 +589,8 @@ export class UpdaterService {
    * repair is left to end on its own.
    */
   stop(): void {
+    if (this.repairTimer) clearInterval(this.repairTimer);
+    this.repairTimer = null;
     if (this.repair?.run.status === 'waiting') this.repair.cancel();
   }
 

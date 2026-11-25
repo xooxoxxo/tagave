@@ -4,6 +4,7 @@
  * Both are interfaces so the state machine runs against fakes in the tests.
  */
 import { spawn } from 'node:child_process';
+import type { RepairCause, RepairStatus } from '@tagave/shared/updater';
 import { signRequest } from './token.js';
 
 export interface CommandResult {
@@ -105,5 +106,19 @@ export function httpAppProbe(baseUrl: string, appSecret: string): AppProbe {
         return null;
       }
     },
+  };
+}
+
+/** How a repair settled, for the app's audit entry (main.ts and cli.js repair); signed like httpMusicApp's report, and it never throws. */
+export function httpRepairReport(baseUrl: string, appSecret: string): (end: { status: RepairStatus; cause: RepairCause | null }) => Promise<void> {
+  const path = '/api/v1/internal/updater/repair';
+  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  return async ({ status, cause }) => {
+    const text = JSON.stringify({ status, cause });
+    try {
+      await fetch(url, { method: 'POST', headers: { ...signRequest(appSecret, 'POST', path, text), 'content-type': 'application/json' }, body: text, signal: AbortSignal.timeout(5000) });
+    } catch {
+      /* the run on disk still says how it ended */
+    }
   };
 }
