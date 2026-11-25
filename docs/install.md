@@ -44,6 +44,30 @@ Updating from a version without automatic backups: run the installer again first
 
 `~/tagave/.env` holds the secrets that open your database and your stored provider tokens. It is written readable only by you; keep a copy somewhere safe.
 
+### Repair an install
+
+When a part of tagave stops running, for example after a power cut, run the same one-line command again. Before it writes anything, it checks that Docker answers and that every part on this computer runs. When one does not, it says so (`tagave is installed here, but 1 of 5 parts aren't running.`) and asks `Repair it now? (Y/n)`. Answer no to go on with a plain re-run.
+
+To repair without questions, from the install folder:
+
+```sh
+cd ~/tagave
+./install-tagave.sh --repair     # a re-run that repairs first when a part is down
+./install-tagave.sh repair       # only the repair: it writes and starts nothing else
+```
+
+Without a terminal, or with `--yes`, a re-run that finds a part down stops with exit 3 and `Run again with --repair`, and changes nothing.
+
+This is the same repair as the **Repair** button in Settings › Updates, run from the updater of the release you have installed, so it works without the in-app updater. [Operations: Repair](operations.md#repair) says what it fixes and what it never does. It ends with one sentence, and its exit says how it went:
+
+- **0**: repaired, or nothing to repair.
+- **4**: waiting for the music share. With the in-app updater, tagave finishes on its own when the share answers. Without it, turn the NAS on, then run the installer again. Or add `--wait MINUTES` (1 to 120) to keep watching that long; with the updater it is not needed and is left out.
+- **5**: something only you can fix, such as a full disk or another program on tagave's port. The sentence says what to do; then run it again.
+- **6**: Docker isn't answering. The installer reports this and never restarts Docker: restart Docker or the computer, then run the installer again.
+- **1**: the repair failed. The log above the sentence says where.
+
+The music check no longer hangs on a share that does not answer. When the music folder sits on an NFS or SMB share whose server is silent for 5 seconds, the installer says `Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable.`, writes the configuration and starts nothing. Run it again once the share answers.
+
 ### Music on another computer
 
 When the music lives on a different computer than the one that should run the app and database, install in two parts. The file worker, which reads the music, runs next to it; everything else runs on the first computer.
