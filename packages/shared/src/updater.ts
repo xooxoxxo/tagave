@@ -154,6 +154,84 @@ export interface UpdateRun {
   held?: UpdateHeld | null;
 }
 
+/** The steps of one repair, in order. */
+export const REPAIR_STEPS = ['check', 'stop', 'music', 'start', 'verify'] as const;
+export type RepairStepId = (typeof REPAIR_STEPS)[number];
+
+/**
+ * running    the repair is under way
+ * repaired   every part runs again
+ * waiting    the parts wait for the music share; the updater checks it again
+ * needs_you  something only the owner can fix (disk full, a share not in fstab)
+ * failed     the repair could not finish
+ */
+export type RepairStatus = 'running' | 'repaired' | 'waiting' | 'needs_you' | 'failed';
+
+/** What the check step found wrong (the cause table in the spec). */
+export type RepairCause =
+  | 'music_unreachable'
+  | 'music_unmounted'
+  | 'not_in_fstab'
+  | 'stuck_stop'
+  | 'crash_loop'
+  | 'disk_full'
+  | 'oom'
+  | 'port_conflict'
+  | 'app_unhealthy'
+  | 'db_recovering'
+  | 'docker_unresponsive'
+  | 'migration_refused'
+  | 'missing';
+
+export interface RepairOutcome {
+  cause: RepairCause | null;
+  /** The part it is about, by compose service name, if one. */
+  service: string | null;
+  /** The music share's address from the mount table, when the cause is about the share. */
+  server: string | null;
+  partsRunning: number;
+  partsTotal: number;
+}
+
+export interface RepairRun {
+  kind: 'repair';
+  id: string;
+  trigger: 'owner' | 'update' | 'installer';
+  status: RepairStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  steps: Array<Omit<UpdateStep, 'id'> & { id: RepairStepId }>;
+  log: UpdateLogLine[];
+  progress?: UpdateProgress | null;
+  stall?: UpdateStall | null;
+  /** Why the repair failed or needs the owner, in one sentence. */
+  reason: string | null;
+  outcome: RepairOutcome | null;
+  /** The one sentence shown above the steps (the copy table in the spec). */
+  headline: string | null;
+  /** Behind "?": one line per action taken, then "N of M parts running", then "Checked N min ago" while waiting. */
+  details: string[];
+  /** When the share was last probed (waiting only). */
+  checkedAt: string | null;
+}
+
+/**
+ * running   up, and healthy when it has a health check
+ * starting  restarting, or up with its health check still starting
+ * stopped   exited
+ * stuck     created, removing or dead, or Docker did not answer in time
+ * missing   the service has no container
+ */
+export type PartRunState = 'running' | 'starting' | 'stopped' | 'stuck' | 'missing';
+
+/** One part of the install in /v1/status, by compose service name. */
+export interface PartState {
+  service: string;
+  state: PartRunState;
+  /** The container's health status, when it has a health check. */
+  health: string | null;
+}
+
 /**
  * After a successful update the updater replaces its own container with one
  * on the new updater image. From the moment it hands over until the
@@ -189,6 +267,10 @@ export interface UpdaterStatus {
   run: UpdateRun | null;
   /** Set while the updater restarts itself on a new version (absent from updaters before 0.9). */
   selfReplace?: UpdaterSelfReplace | null;
+  /** Each service's state, read with short limits so a stuck part never holds the status (absent from older updaters). */
+  parts?: PartState[];
+  /** The last repair, if any (absent from older updaters). */
+  repair?: RepairRun | null;
 }
 
 /** GET /api/v1/updater: the page's view of the updater. */
