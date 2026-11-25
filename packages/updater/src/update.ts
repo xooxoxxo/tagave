@@ -274,7 +274,7 @@ export function stuckSentence(stuck: StuckPart[], total: number, running = total
 /** The reason of a held run. */
 export function heldReason(target: string, held: UpdateHeld): string {
   const share = held.server ? `Your music share at ${held.server}` : 'Your music share';
-  return `Updated to ${target}. ${share} doesn't answer, so ${names(held.parts)} ${held.parts.length === 1 ? 'waits' : 'wait'} for it. Turn the NAS on or check its cable, then press Repair in Settings › Updates.`;
+  return `Updated to ${target}. ${share} doesn't answer, so ${names(held.parts)} ${held.parts.length === 1 ? 'waits' : 'wait'} for it. Turn the NAS on or check its cable. tagave finishes on its own when it's back.`;
 }
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

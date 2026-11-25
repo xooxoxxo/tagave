@@ -1313,7 +1313,7 @@ describe('parts that will not stop or start', () => {
     const run = await update('0.8.0');
     expect(run.status).toBe('held');
     expect(run.held).toEqual({ cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' });
-    expect(run.reason).toBe("Updated to 0.8.0. Your music share at 192.0.2.10 doesn't answer, so the file worker waits for it. Turn the NAS on or check its cable, then press Repair in Settings › Updates.");
+    expect(run.reason).toBe("Updated to 0.8.0. Your music share at 192.0.2.10 doesn't answer, so the file worker waits for it. Turn the NAS on or check its cable. tagave finishes on its own when it's back.");
     expect(await envNow()).toBe('0.8.0');
     expect(JSON.stringify(run)).not.toContain('2026-10-01');
     expect(Date.parse(run.finishedAt!) - Date.parse(run.startedAt)).toBeLessThan(10 * 60_000);
