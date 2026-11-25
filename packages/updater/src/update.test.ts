@@ -7,6 +7,7 @@ import { envGet } from './envFile.js';
 import { LEDGER_ENTRIES_SQL } from './heavy-migrations.js';
 import type { MusicReading } from './music-probe.js';
 import type { Layer } from './preflight-space.js';
+import { assertAllowed } from './argv-guard.testkit.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 import { DEFAULT_CONFIG, DUMP_PROBE_JS, IMAGE_DEPLOY_DIR, Update, newRun, type UpdateDeps } from './update.js';
 import { SelfReplaceGate, parseState, serializeState } from './self-replace.js';
@@ -153,6 +154,7 @@ class FakeInstall {
   }
 
   runner: Runner = async (args, opts) => {
+    assertAllowed(args);
     this.calls.push(args);
     const ok = (stdout = ''): CommandResult => ({ code: 0, stdout, stderr: '' });
     const bad = (stderr: string): CommandResult => ({ code: 1, stdout: '', stderr });
@@ -596,6 +598,7 @@ describe('update state machine', () => {
     let pulls = 0;
     const inner = fake.runner;
     fake.runner = async (args, opts) => {
+      assertAllowed(args);
       if (args[1] === 'pull' && ++pulls === 2) return { code: 1, stdout: '', stderr: 'net/http: TLS handshake timeout' };
       return inner(args, opts);
     };
@@ -674,6 +677,7 @@ describe('update state machine', () => {
       fake.app.health = async () => (fake.appVersion === '0.8.0' && polls++ < 3 ? { ok: false, detail: 'the app does not answer' } : inner());
       let bytes = 0;
       const docker: Runner = async (args, opts) => {
+        assertAllowed(args);
         if (args[1] === 'exec' && args.at(-1) === DUMP_PROBE_JS) {
           bytes += 70 * MB;
           return { code: 0, stdout: `${bytes}\n`, stderr: '' };
@@ -693,6 +697,7 @@ describe('update state machine', () => {
       fake.skipPremigrate = true;
       let bytes = 0;
       const docker: Runner = async (args, opts) => {
+        assertAllowed(args);
         if (args[1] === 'exec' && args.at(-1) === DUMP_PROBE_JS) {
           bytes += 210 * MB;
           return { code: 0, stdout: `${bytes}\n`, stderr: '' };
@@ -715,6 +720,7 @@ describe('update state machine', () => {
       let probes = 0;
       const sinces: string[] = [];
       const docker: Runner = async (args, opts) => {
+        assertAllowed(args);
         if (args[1] === 'exec' && args.at(-1) === DUMP_PROBE_JS) {
           probes += 1;
           sinces.push(args[args.indexOf('-e') + 1]!);
@@ -852,6 +858,7 @@ describe('update state machine', () => {
     it('checks a download that does not move, and counts a filling disk as moving', async () => {
       let free = 50 * GB;
       const slowPull: Runner = async (args, opts) => {
+        assertAllowed(args);
         if (args[0] === 'compose' && args[1] === 'pull' && opts?.env) {
           await new Promise((r) => setTimeout(r, 120));
           return fake.runner(args, opts);
@@ -938,6 +945,7 @@ describe('update state machine', () => {
       fake.brokenWorkers.add('0.8.0');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         const res = await inner(args, opts);
         // a second boot of the new app recorded a dump of the half-migrated database
         if (args.join(' ') === 'compose up -d app' && fake.backupRows?.length === 1) {
@@ -973,6 +981,7 @@ describe('update state machine', () => {
       fake.brokenWorkers.add('0.8.0');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         if (args.includes('pg_restore')) fake.dumps.clear();
         return inner(args, opts);
       };
@@ -1009,6 +1018,7 @@ describe('update state machine', () => {
       fake.brokenWorkers.add('0.8.0'); fake.stuckStop.add('app');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         // the record cannot be read when the app answers (unknown), and can again once the roll back stops it
         if (args.join(' ') === 'compose up -d app') fake.psqlFails = true;
         if (args.join(' ') === 'compose stop -t 30 app') fake.psqlFails = false;
@@ -1051,6 +1061,7 @@ describe('update state machine', () => {
       fake.brokenWorkers.add('0.8.0'); fake.stuckStop.add('app');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         // the app went on to back up and migrate after it answered, and does not stop
         if (args.join(' ') === 'compose stop -t 30 app') fake.backupRows!.push({ id: 8, status: 'ok', path: '/backups/tagave-2026-10-11T10-08-00Z-pre-migration.pgdump', to: '0.8.0' });
         return inner(args, opts);
@@ -1065,6 +1076,7 @@ describe('update state machine', () => {
       fake.brokenWorkers.add('0.8.0');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         // the app answered with nothing to migrate; from the stop on the database does not answer
         if (args.join(' ') === 'compose stop -t 30 app') fake.psqlFails = true;
         return inner(args, opts);
@@ -1079,6 +1091,7 @@ describe('update state machine', () => {
       fake.brokenWorkers.add('0.8.0'); fake.stuckStop.add('app');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         if (args.join(' ') === 'compose stop -t 30 app') fake.psqlFails = true;
         return inner(args, opts);
       };
@@ -1104,6 +1117,7 @@ describe('update state machine', () => {
       const inner = fake.runner;
       let preflightDone = false;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         if (args[0] === 'compose' && args[1] === 'pull') preflightDone = true;
         if (preflightDone && args.join(' ').startsWith('compose exec -T postgres') && !fake.calls.some((c) => c.includes('backup') && c.includes('packages/doctor/dist/cli.js'))) {
           fake.calls.push(args);
@@ -1127,6 +1141,7 @@ describe('update state machine', () => {
       const inner = fake.runner;
       let pulled = false;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         // the database answers again from the restart on, and the app's dump is gone
         if (args.join(' ') === 'compose up -d app' && !pulled) { pulled = true; fake.psqlFails = false; }
         if (args.includes('pg_restore') && args.at(-1)!.includes('pre-migration')) return { code: 1, stdout: '', stderr: 'pg_restore: error: input file is too short' };
@@ -1152,6 +1167,7 @@ describe('update state machine', () => {
       fake.brokenWorkers.add('0.8.0');
       const inner = fake.runner;
       fake.runner = async (args, opts) => {
+        assertAllowed(args);
         if (args.includes('verify') || fake.calls.some((c) => c[1] === 'up' && c.length > 4)) fake.psqlFails = true;
         return inner(args, opts);
       };
@@ -1238,6 +1254,7 @@ describe('update state machine', () => {
       fake.brokenWorkers.add('0.8.0');
       // the player stops for its copy, then sticks once the database is restored
       const docker: Runner = async (args, opts) => {
+        assertAllowed(args);
         if (args.includes('restore') && args.includes('--yes')) fake.stuckStop.add('player');
         return fake.runner(args, opts);
       };
@@ -1576,6 +1593,7 @@ describe('an update with a signed manifest', () => {
   const pinning = (o: { pulled?: (wanted: string) => string; composeIgnoresPins?: boolean } = {}) => {
     const calls: string[] = [];
     const docker: Runner = async (args, opts) => {
+      assertAllowed(args);
       const a = args.join(' ');
       calls.push(a);
       if (args[0] === 'pull') return { code: 0, stdout: '', stderr: '' };
@@ -1667,6 +1685,7 @@ describe('an update with a signed manifest', () => {
       { digest: `sha256:${hex(ref)}${'0'.repeat(52)}`, size: 200 * MB },
     ];
     const docker: Runner = async (args, opts) => {
+      assertAllowed(args);
       if (args[0] === 'pull') {
         const own = hex(args[1]!);
         opts?.onOutput?.(`${args[1]}: Pulling from x\n${'ab'.repeat(6)}: Pulling fs layer\n${own}: Pulling fs layer\n`);

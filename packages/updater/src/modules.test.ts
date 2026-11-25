@@ -7,6 +7,7 @@ import { envGet } from './envFile.js';
 import { ModuleOperation, describePurgeAnswer, moduleStatuses, newModuleRun, renderModuleCompose, withComposeFile, type ModuleConfig } from './modules.js';
 import { verifyRelease, type VerifiedRelease } from './release.js';
 import { DUMMY_MODULE, PLAYER_MODULE, digest, signed, testKey, testManifest } from './release.testkit.js';
+import { assertAllowed } from './argv-guard.testkit.js';
 import type { CommandResult, RunOptions } from './runner.js';
 
 const KEY = testKey();
@@ -37,6 +38,8 @@ interface FakeOptions {
   freeBytes?: number;
   /** What the app container answers to the doctor's purge-module: its JSON (default), an app image without the command, or a refusal. */
   purge?: 'ok' | 'old-app' | 'fails';
+  /** The owner chose to delete the module's data, so `volume rm` is expected. */
+  allowVolumeRm?: boolean;
 }
 
 /** A Docker that keeps the little state these runs need, reading .env and modules/*.yml like compose would. */
@@ -44,6 +47,7 @@ function fakeDocker(dir: string, o: FakeOptions = {}) {
   const calls: string[] = [];
   const running = new Set<string>(['app', 'postgres']);
   const docker = async (args: string[], _opts?: RunOptions): Promise<CommandResult> => {
+    assertAllowed(args, { allowVolumeRm: o.allowVolumeRm });
     const line = args.join(' ');
     calls.push(line);
     const ok = (stdout = ''): CommandResult => ({ code: 0, stdout, stderr: '' });
@@ -251,7 +255,7 @@ describe('module operations', () => {
   });
 
   it('turns the player off and deletes its data only when ticked; the URL cleared, the secrets kept', async () => {
-    const fake = fakeDocker(dir);
+    const fake = fakeDocker(dir, { allowVolumeRm: true });
     await op('player', 'enable', fake).execute();
     const off = await op('player', 'disable', fake, { deleteData: true }).execute();
     expect(off.status).toBe('succeeded');
@@ -272,7 +276,7 @@ describe('module operations', () => {
   });
 
   it('deletes the listens the player recorded only when that box is ticked too', async () => {
-    const fake = fakeDocker(dir);
+    const fake = fakeDocker(dir, { allowVolumeRm: true });
     await op('player', 'enable', fake).execute();
     const off = await op('player', 'disable', fake, { deleteData: true, deleteHistory: true }).execute();
     expect(off.status).toBe('succeeded');
@@ -296,7 +300,7 @@ describe('module operations', () => {
 
   it('says what is left when the app cannot delete the rows (an app without the command, a refusal), and deletes the volume still', async () => {
     for (const purge of ['old-app', 'fails'] as const) {
-      const fake = fakeDocker(dir, { purge });
+      const fake = fakeDocker(dir, { purge, allowVolumeRm: true });
       await op('player', 'enable', fake).execute();
       const off = await op('player', 'disable', fake, { deleteData: true }).execute();
       expect(off.status).toBe('succeeded');

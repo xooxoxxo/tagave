@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MusicProber, MusicReading, PartStuck } from './music-probe.js';
 import { PART_LIMITS, Parts, readParts } from './parts.js';
+import { assertAllowed } from './argv-guard.testkit.js';
 import type { CommandResult, Runner } from './runner.js';
 
 type Answer = Partial<CommandResult> | 'timeout' | 'reject';
@@ -13,6 +14,7 @@ function fake(script: (args: string[]) => Answer) {
   const calls: string[][] = [];
   const state = { clock: 1_000_000 };
   const docker: Runner = async (args, opts) => {
+    assertAllowed(args);
     calls.push(args);
     const a = script(args);
     if (a === 'reject') throw new Error('docker went away');
@@ -392,6 +394,7 @@ describe('readParts', () => {
     const hung = id('worker-files');
     // The hung inspect answers only when its limit runs out, the way dockerRunner kills the CLI.
     const docker: Runner = (args, opts) => {
+      assertAllowed(args);
       if (isPs(args)) return Promise.resolve({ code: 0, stdout: `${id(args.at(-1)!)}\n`, stderr: '' });
       if (args.at(-1) === hung) {
         return new Promise((resolve) => setTimeout(() => resolve({ code: 143, stdout: '', stderr: 'timed out after 5 s' }), opts?.timeoutMs ?? 1e9));
@@ -413,7 +416,10 @@ describe('readParts', () => {
   it('does not wait on a runner that never answers, even past its own limit', async () => {
     vi.useFakeTimers();
     const start = Date.now();
-    const docker: Runner = (args) => (isPs(args) ? Promise.resolve({ code: 0, stdout: `${id(args.at(-1)!)}\n`, stderr: '' }) : new Promise(() => {}));
+    const docker: Runner = (args) => {
+      assertAllowed(args);
+      return isPs(args) ? Promise.resolve({ code: 0, stdout: `${id(args.at(-1)!)}\n`, stderr: '' }) : new Promise(() => {});
+    };
     let done = 0;
     const read = readParts(docker, ['app']).then((r) => { done = Date.now() - start; return r; });
     await vi.advanceTimersByTimeAsync(6000);
