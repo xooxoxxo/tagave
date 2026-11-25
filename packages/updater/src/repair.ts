@@ -349,6 +349,11 @@ export class Repair {
     return this.run;
   }
 
+  /** Resolves when every save asked for so far has landed. */
+  saved(): Promise<void> {
+    return this.saving;
+  }
+
   /** Stops the watcher; the run stays as it is. */
   cancel(): void {
     this.cancelled = true;

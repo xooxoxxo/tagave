@@ -33,7 +33,7 @@ import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 import { envGet, readText } from './envFile.js';
 import { MusicHealer, httpMusicApp, type MusicApp } from './music-heal.js';
 import { cachedProber, musicProber } from './music-probe.js';
-import { USAGE, parseRepairArgs, repairExitCode } from './cli-args.js';
+import { USAGE, WAIT_NOT_NEEDED, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
 
 /** Only the app's health is asked for with it; nothing is signed with it. */
 const UNUSED_SECRET = 'unused-by-module-runs';
@@ -156,15 +156,28 @@ async function repair(args: string[]): Promise<number> {
   const run: RepairRun = started.run;
   let printed = 0;
   const flush = () => {
-    for (const line of run.log.slice(printed)) console.log(`${line.level === 'info' ? '  ' : `${line.level}: `}${line.message}`);
+    for (const line of run.log.slice(printed)) {
+      // The headline is the last line printed, once.
+      if (run.headline !== null && line.message === run.headline) continue;
+      console.log(`${line.level === 'info' ? '  ' : `${line.level}: `}${line.message}`);
+    }
     printed = run.log.length;
   };
   const timer = setInterval(flush, 1000);
   await service.idle();
-  if (run.status === 'waiting' && parsed.waitMinutes !== null) await service.waitForRepair(parsed.waitMinutes * 60_000);
+  if (run.status === 'waiting' && parsed.waitMinutes !== null) {
+    // The service's watcher takes the run over: one watcher per run.
+    if (await updaterServiceRuns(docker)) {
+      flush();
+      console.log(WAIT_NOT_NEEDED);
+    } else {
+      await service.waitForRepair(parsed.waitMinutes * 60_000);
+    }
+  }
   clearInterval(timer);
-  // Still waiting: the watcher stops and the run stays waiting in repair.json.
+  // Still waiting: the watcher stops and the run stays waiting in repair.json, fully written before the exit.
   service.stop();
+  await service.repairSaved();
   flush();
   const code = repairExitCode(run.status);
   const headline = run.headline ?? `${run.status}${run.reason ? `: ${run.reason}` : ''}`;

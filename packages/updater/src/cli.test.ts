@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { RepairStatus } from '@tagave/shared/updater';
-import { USAGE, parseRepairArgs, repairExitCode } from './cli-args.js';
+import { assertAllowed } from './argv-guard.testkit.js';
+import { USAGE, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import type { CommandResult, Runner } from './runner.js';
 
 describe('cli.js repair', () => {
   it('maps how the repair ended to the exit code', () => {
@@ -22,5 +24,31 @@ describe('cli.js repair', () => {
 
   it('the usage names both commands', () => {
     expect(USAGE).toBe('usage: cli.js module enable|disable <id> [--delete-data [--delete-history]] [--manifest FILE --signature FILE]\n       cli.js repair [--wait MINUTES]');
+  });
+
+  describe('the updater service runs here (then --wait is not needed)', () => {
+    const fake = (answer: Partial<CommandResult> | Error) => {
+      const calls: Array<{ args: string[]; timeoutMs: number | undefined }> = [];
+      const docker: Runner = async (args, opts) => {
+        assertAllowed(args);
+        calls.push({ args, timeoutMs: opts?.timeoutMs });
+        if (answer instanceof Error) throw answer;
+        return { code: 0, stdout: '', stderr: '', ...answer };
+      };
+      return { docker, calls };
+    };
+
+    it('asks compose for the running updater once, within 10 s', async () => {
+      const f = fake({ stdout: '3f2a9c1b7d4e\n' });
+      expect(await updaterServiceRuns(f.docker)).toBe(true);
+      expect(f.calls).toEqual([{ args: ['compose', 'ps', '-q', 'updater'], timeoutMs: 10_000 }]);
+    });
+
+    it('no id, a failed call or a timeout keeps --wait', async () => {
+      expect(await updaterServiceRuns(fake({ stdout: '\n' }).docker)).toBe(false);
+      expect(await updaterServiceRuns(fake({ code: 1, stderr: 'no such service: updater' }).docker)).toBe(false);
+      expect(await updaterServiceRuns(fake({ code: 1, stderr: 'timed out after 10 s' }).docker)).toBe(false);
+      expect(await updaterServiceRuns(fake(new Error('spawn docker ENOENT')).docker)).toBe(false);
+    });
   });
 });
