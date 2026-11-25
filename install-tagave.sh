@@ -924,8 +924,95 @@ settle_db_bind() {
   fi
 }
 
+# valid_server TEXT: prints TEXT when it is an IPv4 address, a hostname, or a
+# bracketed IPv6 address (printed bare), and returns 1 otherwise. The same
+# rule as validServer in packages/updater/src/music-probe.ts.
+valid_server() {
+  local text="$1" octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+  local ipv4="^($octet\\.){3}$octet\$" ipv6='^\[([0-9A-Fa-f:.]+)\]$'
+  local host='^[A-Za-z0-9][A-Za-z0-9-]{0,62}(\.[A-Za-z0-9-]{1,63})*$'
+  if [[ $text =~ $ipv4 ]]; then printf '%s' "$text"; return 0; fi
+  if [[ $text =~ $ipv6 ]]; then
+    case "${BASH_REMATCH[1]}" in *:*) printf '%s' "${BASH_REMATCH[1]}"; return 0 ;; esac
+    return 1
+  fi
+  if [ "${#text}" -le 253 ] && [[ $text =~ $host ]]; then printf '%s' "$text"; return 0; fi
+  return 1
+}
+
+# music_mount DIR: prints "fstype server" for the mount that holds DIR (the
+# longest mount point over it, on a / boundary), from the mount table. The
+# server is empty for a local mount, or when it is not a valid name. Without
+# a mount table (macOS) it prints nothing. Only fstype and server leave here:
+# the mount's options can hold a user name.
+# TAGAVE_TEST_MOUNTINFO (test only): a file read in place of /proc/self/mountinfo.
+music_mount() {
+  local file="${TAGAVE_TEST_MOUNTINFO:-/proc/self/mountinfo}" dir="$1" line fstype source re host=""
+  [ -r "$file" ] || return 0
+  while [ "${#dir}" -gt 1 ] && [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+  # ENVIRON, not -v: awk -v would read backslashes in the path as escapes.
+  line="$(MOUNT_DIR="$dir" awk '
+    # mountinfo writes space, tab, newline and backslash in paths as \ooo.
+    function decode(s,   out, i, c) {
+      out = ""
+      while ((i = index(s, "\\")) > 0) {
+        c = substr(s, i + 1, 3)
+        if (c ~ /^[0-7][0-7][0-7]$/) {
+          out = out substr(s, 1, i - 1) sprintf("%c", substr(c, 1, 1) * 64 + substr(c, 2, 1) * 8 + substr(c, 3, 1))
+          s = substr(s, i + 4)
+        } else {
+          out = out substr(s, 1, i)
+          s = substr(s, i + 1)
+        }
+      }
+      return out s
+    }
+    BEGIN { dir = ENVIRON["MOUNT_DIR"]; best = -1 }
+    {
+      sep = 0
+      for (i = 7; i <= NF; i++) if ($i == "-") { sep = i; break }
+      if (!sep || sep + 2 > NF) next
+      mp = decode($5)
+      if (mp == "/") { if (substr(dir, 1, 1) != "/") next }
+      else if (dir != mp && substr(dir, 1, length(mp) + 1) != mp "/") next
+      # >=: a later mount on the same point sits on top of the earlier one.
+      if (length(mp) >= best) { best = length(mp); fstype = $(sep + 1); source = $(sep + 2) }
+    }
+    END { if (best >= 0) print fstype, source }
+  ' "$file" 2>/dev/null)" || return 0
+  [ -n "$line" ] || return 0
+  fstype="${line%% *}"
+  source="${line#* }"
+  case "$fstype" in
+    nfs|nfs4)  re='^(\[[^]]*\]|[^:]+):/' ;;
+    cifs|smb3) re='^//(\[[^]]*\]|[^/]+)/' ;;
+    *) printf '%s\n' "$fstype"; return 0 ;;
+  esac
+  if [[ $source =~ $re ]]; then host="$(valid_server "${BASH_REMATCH[1]}" || true)"; fi
+  printf '%s %s\n' "$fstype" "$host"
+}
+
+MUSIC_SILENT=0  # 1: the music share did not answer, so the folder was not looked at
+
 check_music_dir() {
   [ "$ROLE" != "app" ] || return 0
+  local fstype="" server="" port=""
+  MUSIC_SILENT=0
+  read -r fstype server <<<"$(music_mount "$MUSIC_DIR")" || true
+  case "$fstype" in
+    nfs|nfs4)  port=2049 ;;
+    cifs|smb3) port=445 ;;
+  esac
+  # A folder test on a share whose server is gone can hang for good, so ask
+  # the server first. One try is enough: this only decides whether to look
+  # at the folder now, and a silent share does not stop the install.
+  # shellcheck disable=SC2016 # $1 and $2 expand in the inner bash
+  if [ -n "$port" ] && [ -n "$server" ] \
+     && ! run_limited 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$server" "$port" >/dev/null 2>&1; then
+    MUSIC_SILENT=1
+    warn "Your music share at $server doesn't answer. Turn the NAS on or check its cable."
+    return 0
+  fi
   if [ "$MUSIC_DIR" = "$INSTALL_DIR/music" ]; then
     mkdir -p "$MUSIC_DIR"
   elif [ ! -d "$MUSIC_DIR" ]; then
@@ -1456,10 +1543,17 @@ wait_for_player() {
 # default. A folder outside those is mounted as an empty directory without
 # any error, and every scan then finds nothing. Compare the two sides.
 check_music_visible() {
-  local host_entry inside
-  host_entry="$(find "$MUSIC_DIR" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1 || true)"
+  local host_entry inside rc=0
+  # A silent share was not looked at, and a find that runs out of time
+  # cannot tell either way: no warning then.
+  [ "$MUSIC_SILENT" != "1" ] || return 0
+  host_entry="$(run_limited 10 find "$MUSIC_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" || rc=$?
+  [ "$rc" != 124 ] || return 0
+  host_entry="${host_entry%%$'\n'*}"
   [ -n "$host_entry" ] || return 0
-  inside="$(compose exec -T worker-files find /mnt/music -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1 || true)"
+  rc=0
+  inside="$(run_limited 10 compose exec -T worker-files find /mnt/music -mindepth 1 -maxdepth 1 2>/dev/null)" || rc=$?
+  [ "$rc" != 124 ] || return 0
   if [ -n "$inside" ]; then
     ok "The file worker can see your music"
     return 0
@@ -1585,6 +1679,9 @@ main() {
   if [ "$NO_START" != "1" ] && [ "$DRY_RUN" != "1" ] \
      && [ -f "$INSTALL_DIR/.env" ] && [ -f "$INSTALL_DIR/$COMPOSE_MAIN" ]; then
     check_existing_install
+  fi
+  if [ "$REPAIR" = "1" ] && { [ "$NO_START" = "1" ] || [ "$DRY_RUN" = "1" ]; }; then
+    warn "--repair does nothing with --no-start or --dry-run."
   fi
   collect_answers
   check_music_dir
@@ -2776,6 +2873,13 @@ run_updater_cli() {
   image="$TAGAVE_REGISTRY/tagave-updater:$CURRENT${digest:+@$digest}"
   project="$(env_get COMPOSE_PROJECT_NAME "$env_file")"
   project="${project:-$PROJECT_NAME}"
+  # These go into docker run's arguments: only plain names get there.
+  printf '%s' "$TAGAVE_REGISTRY" | grep -Eqx '[A-Za-z0-9][A-Za-z0-9./:-]*' \
+    || die "TAGAVE_REGISTRY in $env_file is not a registry name. Fix that line, then run this again."
+  [ -z "$digest" ] || printf '%s' "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}' \
+    || die "TAGAVE_DIGEST_UPDATER in $env_file is not an image digest. Fix that line, then run this again."
+  printf '%s' "$project" | grep -Eqx '[a-z0-9][a-z0-9_-]*' \
+    || die "COMPOSE_PROJECT_NAME in $env_file is not a project name. Fix that line, then run this again."
   docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null \
     || die "could not download $image (see above)."
   docker run --rm \
@@ -2800,11 +2904,18 @@ REPAIR_DOWN=0     # how many of them are not running
 # runs but /api/v1/health does not answer (not asked on the files computer:
 # the app runs on the other one).
 repair_check() {
-  local rc=0 services service state app_runs=0
+  local rc=0 list services service state app_runs=0
   REPAIR_DOCKER=ok; REPAIR_TOTAL=0; REPAIR_DOWN=0
   run_limited 10 docker version >/dev/null 2>&1 || rc=$?
   if [ "$rc" = 124 ]; then REPAIR_DOCKER=silent; return 0; fi
-  services="$(run_limited 10 compose config --services 2>/dev/null | grep -vx updater || true)"
+  list="$(run_limited 10 compose config --services 2>/dev/null)" || list=""
+  services="$(printf '%s\n' "$list" | grep -vx updater | grep . || true)"
+  # No list (an error, no answer in time, or nothing in it) is not healthy:
+  # say so, and carry on as a re-run did before this check.
+  if [ -z "$services" ]; then
+    warn "tagave could not check its parts here."
+    return 0
+  fi
   for service in $services; do
     REPAIR_TOTAL=$((REPAIR_TOTAL + 1))
     state="$(run_limited 10 container_health "$service" 2>/dev/null)" || state="no answer"
