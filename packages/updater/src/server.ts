@@ -63,6 +63,10 @@ const PARTS_DEADLINE_MS = 6_000;
 /** A repair.json marked running by another process (the installer's one-off) counts for this long. */
 const ELSEWHERE_MS = 60 * 60_000;
 const RESTARTED_DURING_REPAIR = 'The updater restarted during the repair. Press Repair again.';
+const STOPPED_REPAIR = 'The repair stopped. Press Repair again.';
+
+/** Which run holds the one run slot while it starts. */
+type Claim = 'update' | 'module' | 'repair';
 
 export interface UpdaterOptions {
   installDir: string;
@@ -116,6 +120,8 @@ export class UpdaterService {
   private moduleActive: Promise<ModuleRun> | null = null;
   private readonly modulePath: string;
   private repairRun: RepairRun | null = null;
+  /** The status repair.json was last written with by this process. */
+  private savedStatus: RepairRun['status'] | null = null;
   /** The repair of this process: running, or waiting with its watcher. */
   private repair: Repair | null = null;
   private repairActive: Promise<RepairRun> | null = null;
@@ -125,6 +131,10 @@ export class UpdaterService {
   private partsRefresh: { answered: Map<string, PartState>; done: Promise<void> } | null = null;
   /** load()'s repair of an update that ended with stuck parts. */
   private resuming: Promise<void> | null = null;
+  /** The run that is starting (between its checks and its run being under way). */
+  private claimed: Claim | null = null;
+  /** Bumped when the parts change: a reading begun before it is not kept. */
+  private partsGen = 0;
 
   constructor(private readonly opts: UpdaterOptions) {
     this.verifier = new SignatureVerifier(opts.appSecret);
@@ -150,11 +160,21 @@ export class UpdaterService {
 
   /** An update or a module run is moving containers (never a repair: a repair's own remount must not be refused). */
   updating(): boolean {
-    return this.active !== null || this.moduleActive !== null;
+    return this.active !== null || this.moduleActive !== null || this.claimed === 'update' || this.claimed === 'module';
   }
 
   private repairRunning(): boolean {
-    return this.repair?.run.status === 'running';
+    return this.repair?.run.status === 'running' || this.claimed === 'repair';
+  }
+
+  /** The parts changed (a run started or ended): the next status reads them again. */
+  private partsChanged(): void {
+    this.partsCache = null;
+    this.partsGen++;
+  }
+
+  private now(): Date {
+    return (this.opts.now ?? (() => new Date()))();
   }
 
   /** The music healer, for a repair's remount (main.ts: the healer's busy reads moving(), so it comes after the service). */
@@ -209,15 +229,32 @@ export class UpdaterService {
     }
     this.repairRun = run;
     if (run.status === 'running') {
-      // The installer's one-off may still run it; only a repair of an updater counts as cut off.
-      if (run.trigger === 'installer' && Date.now() - Date.parse(run.startedAt) < ELSEWHERE_MS) return;
-      const step = run.steps.find((s) => s.status === 'running');
-      if (step) Object.assign(step, { status: 'failed', finishedAt: new Date().toISOString() });
-      Object.assign(run, { status: 'failed', finishedAt: new Date().toISOString(), reason: RESTARTED_DURING_REPAIR, headline: RESTARTED_DURING_REPAIR, progress: null, stall: null });
-      run.log.push({ at: run.finishedAt!, level: 'error', message: 'the updater restarted in the middle of this repair' });
-      await this.saveRepair(run).catch(() => undefined);
+      // The installer's one-off may still run it (R29); a repair of an updater was cut off.
+      if (run.trigger === 'installer') return this.failStale(run);
+      await this.failRepair(run, RESTARTED_DURING_REPAIR, 'the updater restarted in the middle of this repair');
     } else if (run.status === 'waiting') {
       this.watchRepair(new Repair(this.repairDeps(), run));
+    }
+  }
+
+  /** An installer's repair marked running for over an hour has stopped (R29). */
+  private async failStale(run: RepairRun): Promise<void> {
+    if (run.status !== 'running' || this.now().getTime() - Date.parse(run.startedAt) < ELSEWHERE_MS) return;
+    await this.failRepair(run, STOPPED_REPAIR, 'this repair stopped without an end');
+  }
+
+  /** Ends a repair that no process runs any more: failed, saved, and told to the app (its audit end row). */
+  private async failRepair(run: RepairRun, reason: string, message: string): Promise<void> {
+    const at = this.now().toISOString();
+    const step = run.steps.find((s) => s.status === 'running');
+    if (step) Object.assign(step, { status: 'failed', finishedAt: at });
+    Object.assign(run, { status: 'failed', finishedAt: at, reason, headline: reason, progress: null, stall: null });
+    run.log.push({ at, level: 'error', message });
+    await this.saveRepair(run).catch(() => undefined);
+    try {
+      await this.opts.report?.({ status: 'failed', cause: null });
+    } catch {
+      /* the run on disk says how it ended */
     }
   }
 
@@ -229,8 +266,9 @@ export class UpdaterService {
    * Decision 3 (automatic repair only for the music cases) is extended by one
    * case: after an updater start, a repair finishes an update that was
    * interrupted by stuck parts (held, or rollback_failed with stuck parts).
-   * It only starts parts; it never changes a version, a setting or the
-   * database.
+   * It runs the same safe steps as the Repair button (start the parts, and
+   * one recreate or restart where the cause table allows it); it never
+   * changes a version, a setting or the database.
    *
    * A rollback_failed run without `stuck` never gets one: its files or
    * database may be half restored. Once per load, and only when a part does
@@ -340,15 +378,42 @@ export class UpdaterService {
     }
   }
 
-  private async busy(): Promise<RefusedStart | null> {
+  /**
+   * Refuses a start while anything else runs, else claims the one run slot
+   * for `kind`. The claim is taken after the last await, so two starts can
+   * never both pass; the caller releases it once its run is under way (or
+   * refused).
+   */
+  private async claim(kind: Claim): Promise<RefusedStart | null> {
+    if (this.claimed) return this.claimedRefusal(this.claimed);
     const restarting = await this.selfReplace.refusal();
     if (restarting) return { ok: false, status: 409, error: restarting, selfReplace: this.selfReplace.current };
     if (this.active) return { ok: false, status: 409, error: 'an update is already running' };
     await this.refreshModuleRun();
     const elsewhere = !this.moduleActive && this.moduleRun?.status === 'running' && Date.now() - Date.parse(this.moduleRun.startedAt) < 60 * 60_000;
-    if (this.moduleActive || elsewhere) return { ok: false, status: 409, error: `${this.moduleRun?.moduleName ?? 'a module'} is being turned ${this.moduleRun?.action === 'disable' ? 'off' : 'on'}` };
-    if (await this.repairElsewhereOrHere()) return { ok: false, status: 409, error: 'a repair is running' };
+    if (this.moduleActive || elsewhere) return this.claimedRefusal('module');
+    if (await this.repairElsewhereOrHere()) return this.claimedRefusal('repair');
+    // No await from here on: the checks and the claim are one step.
+    if (this.claimed) return this.claimedRefusal(this.claimed);
+    this.claimed = kind;
     return null;
+  }
+
+  private claimedRefusal(kind: Claim): RefusedStart {
+    if (kind === 'update') return { ok: false, status: 409, error: 'an update is already running' };
+    if (kind === 'repair') return { ok: false, status: 409, error: 'a repair is running' };
+    return { ok: false, status: 409, error: `${this.moduleRun?.moduleName ?? 'a module'} is being turned ${this.moduleRun?.action === 'disable' ? 'off' : 'on'}` };
+  }
+
+  /** Runs `start` under a claim on the run slot, released once it returns. */
+  private async withClaim<T>(kind: Claim, start: () => Promise<T>): Promise<T | RefusedStart> {
+    const refused = await this.claim(kind);
+    if (refused) return refused;
+    try {
+      return await start();
+    } finally {
+      this.claimed = null;
+    }
   }
 
   // -- repair ----------------------------------------------------------------------
@@ -358,7 +423,7 @@ export class UpdaterService {
     if (this.repairRunning()) return true;
     await this.refreshRepair();
     const r = this.repairRun;
-    return r?.status === 'running' && r.id !== this.repair?.run.id && Date.now() - Date.parse(r.startedAt) < ELSEWHERE_MS;
+    return r?.status === 'running' && r.id !== this.repair?.run.id && this.now().getTime() - Date.parse(r.startedAt) < ELSEWHERE_MS;
   }
 
   /** repair.json, unless this process's repair runs or waits: the installer's one-off writes the same file. */
@@ -369,8 +434,9 @@ export class UpdaterService {
     try {
       this.repairRun = JSON.parse(text) as RepairRun;
     } catch {
-      /* keep what we have */
+      return; /* keep what we have */
     }
+    await this.failStale(this.repairRun);
   }
 
   private repairDeps(): RepairDeps {
@@ -393,7 +459,14 @@ export class UpdaterService {
   private async saveRepair(run: RepairRun): Promise<void> {
     // A run the owner replaced (Repair pressed while it waited) writes nothing more.
     if (this.repairRun && run.id !== this.repairRun.id) return;
+    // running, waiting and the end move parts: the next status reads them again.
+    if (this.savedStatus !== run.status) this.partsChanged();
+    this.savedStatus = run.status;
     this.repairRun = run;
+    await this.writeRepair(run);
+  }
+
+  private async writeRepair(run: RepairRun): Promise<void> {
     await mkdirKeepingOwner(join(this.opts.installDir, STATE_DIR), 0o700);
     await writeFileAtomic(this.repairPath, `${JSON.stringify(run, null, 2)}\n`, false);
   }
@@ -402,7 +475,8 @@ export class UpdaterService {
   private watchRepair(repair: Repair): void {
     this.repair = repair;
     this.repairRun = repair.run;
-    void repair.watch().catch(() => undefined);
+    this.savedStatus = repair.run.status;
+    void repair.watch().catch(() => undefined).finally(() => this.partsChanged());
   }
 
   /**
@@ -410,17 +484,28 @@ export class UpdaterService {
    * update left with stuck parts after a restart). A repair that waits for
    * the share is cancelled and a fresh one starts at check.
    */
-  async startRepair(trigger: RepairRun['trigger']): Promise<{ ok: true; run: RepairRun } | RefusedStart> {
-    const busy = await this.busy();
-    if (busy) return busy;
+  startRepair(trigger: RepairRun['trigger']): Promise<{ ok: true; run: RepairRun } | RefusedStart> {
+    return this.withClaim('repair', () => this.beginRepair(trigger));
+  }
+
+  private async beginRepair(trigger: RepairRun['trigger']): Promise<{ ok: true; run: RepairRun } | RefusedStart> {
+    const run = newRepairRun(randomUUID(), trigger, this.now());
+    const before = { run: this.repairRun, status: this.savedStatus };
+    // The new run is the current one first, so a waiting watcher's late save is ignored.
+    this.repairRun = run;
+    try {
+      await this.writeRepair(run);
+    } catch (err) {
+      // Nothing started: the old run (a waiting one goes on waiting) stays current.
+      this.repairRun = before.run;
+      return { ok: false, status: 500, error: `the repair could not be saved: ${(err as Error).message}` };
+    }
     // Pressed again while it waits: the watcher stops and the new run starts at check.
     if (this.repair?.run.status === 'waiting') this.repair.cancel();
-    const run = newRepairRun(randomUUID(), trigger, (this.opts.now ?? (() => new Date()))());
     const repair = new Repair(this.repairDeps(), run);
     this.repair = repair;
-    this.repairRun = run;
-    this.partsCache = null;
-    await this.saveRepair(run);
+    this.savedStatus = run.status;
+    this.partsChanged();
     this.repairActive = repair.execute()
       .then((r) => {
         if (r.status === 'waiting' && this.repair === repair) this.watchRepair(repair);
@@ -428,21 +513,29 @@ export class UpdaterService {
       })
       .finally(() => {
         this.repairActive = null;
-        this.partsCache = null;
+        this.partsChanged();
       });
     return { ok: true, run };
   }
 
-  /** Stops a waiting repair's watcher (the updater is stopping); the run stays waiting in repair.json. */
+  /**
+   * The updater is stopping: a waiting repair's watcher stops and the run
+   * stays waiting in repair.json (the next start resumes it). A running
+   * repair is left to end on its own.
+   */
   stop(): void {
-    this.repair?.cancel();
+    if (this.repair?.run.status === 'waiting') this.repair.cancel();
   }
 
-  /** An update that ended held hands its stuck parts to a repair (Decision 3: the music case). */
+  /** An update that ended held hands its stuck parts to a repair (Decision 3: the music case). Never throws. */
   private async afterUpdate(run: UpdateRun): Promise<void> {
     if (run.status !== 'held') return;
-    const started = await this.startRepair('update');
-    if (!started.ok) this.warn(`the held update could not hand its parts to a repair: ${started.error}`, { runId: run.id });
+    try {
+      const started = await this.startRepair('update');
+      if (!started.ok) this.warn(`the held update could not hand its parts to a repair: ${started.error}`, { runId: run.id });
+    } catch (err) {
+      this.warn(`the held update could not hand its parts to a repair: ${(err as Error).message}`, { runId: run.id });
+    }
   }
 
   private warn(message: string, fields: Record<string, unknown>): void {
@@ -466,12 +559,16 @@ export class UpdaterService {
     const cached = this.partsCache;
     if (cached && Date.now() - cached.at < PARTS_CACHE_MS) return cached.parts;
     if (!this.partsRefresh) {
+      const gen = this.partsGen;
       const answered = new Map<string, PartState>();
       const done = Promise.all(services.map(async (service) => {
         const [p] = await readParts(this.opts.docker, [service]);
         answered.set(service, p ?? { service, state: 'stuck', health: null });
       }))
-        .then(() => { this.partsCache = { at: Date.now(), parts: services.map((s) => answered.get(s)!) }; })
+        .then(() => {
+          // Parts changed while it read: the reading is not kept.
+          if (gen === this.partsGen) this.partsCache = { at: Date.now(), parts: services.map((s) => answered.get(s)!) };
+        })
         .finally(() => { this.partsRefresh = null; });
       this.partsRefresh = { answered, done };
     }
@@ -497,9 +594,11 @@ export class UpdaterService {
     return { version, verified: current.verified !== null, problem: current.problem, modules, run: this.moduleRun };
   }
 
-  async startModule(id: string, action: 'enable' | 'disable', deleteData: boolean, deleteHistory = false): Promise<{ ok: true; run: ModuleRun } | RefusedStart> {
-    const busy = await this.busy();
-    if (busy) return busy;
+  startModule(id: string, action: 'enable' | 'disable', deleteData: boolean, deleteHistory = false): Promise<{ ok: true; run: ModuleRun } | RefusedStart> {
+    return this.withClaim('module', () => this.beginModule(id, action, deleteData, deleteHistory));
+  }
+
+  private async beginModule(id: string, action: 'enable' | 'disable', deleteData: boolean, deleteHistory: boolean): Promise<{ ok: true; run: ModuleRun } | RefusedStart> {
     const current = await this.currentRelease();
     if (!current.verified) return { ok: false, status: 422, error: `modules come only from the signed catalogue of the release that runs here, and ${current.problem}`, check: 'manifest' };
     const entry = current.verified.manifest.modules.find((m) => m.id === id);
@@ -526,7 +625,8 @@ export class UpdaterService {
       run,
     );
     await this.saveModuleRun(run);
-    this.moduleActive = op.execute().finally(() => { this.moduleActive = null; });
+    this.partsChanged();
+    this.moduleActive = op.execute().finally(() => { this.moduleActive = null; this.partsChanged(); });
     return { ok: true, run };
   }
 
@@ -566,8 +666,10 @@ export class UpdaterService {
   /** Starts a run in the background. */
   async start(target: string, manifest?: string, signature?: string | null): Promise<{ ok: true; run: UpdateRun } | RefusedStart> {
     if (!TARGET_RE.test(target)) return { ok: false, status: 400, error: 'version must be a release number such as 0.8.0' };
-    const busy = await this.busy();
-    if (busy) return busy;
+    return this.withClaim('update', () => this.beginUpdate(target, manifest, signature));
+  }
+
+  private async beginUpdate(target: string, manifest: string | undefined, signature: string | null | undefined): Promise<{ ok: true; run: UpdateRun } | RefusedStart> {
     const env = (await readText(join(this.opts.installDir, '.env'))) ?? '';
     const from = envGet(env, 'TAGAVE_VERSION') ?? 'unknown';
     // Nothing of the target is used before its signed manifest checks out.
@@ -595,9 +697,11 @@ export class UpdaterService {
     );
     this.run = run;
     await this.save(run);
+    this.partsChanged();
     this.active = update.execute()
       .then(async (r) => {
         this.active = null;
+        this.partsChanged();
         await this.afterUpdate(r);
         return r;
       })

@@ -309,6 +309,8 @@ export class Repair {
         if (!this.services) await this.loadInstall();
         const down = (await this.readParts()).filter((p) => MUSIC_BOUND.includes(p.service) && p.state !== 'running').map((p) => p.service);
         if (this.cancelled) break;
+        // An update or a module run may have started while it read: never move parts under it.
+        if (this.deps.busy?.()) continue;
         if (down.length === 0) {
           this.log('info', 'the parts that waited for the music share run again');
           await this.resume(down, null);
@@ -325,6 +327,7 @@ export class Repair {
         // Cancelled while it probed (Repair pressed again): a fresh run owns the parts now.
         if (this.cancelled) break;
         this.run.checkedAt = this.now().toISOString();
+        if (reading?.answer !== 'silent' && reading?.answer !== 'unknown' && reading && this.deps.busy?.()) continue;
         if (reading?.answer === 'answers') {
           this.log('info', 'the music share answers again');
           await this.resume(down, null);

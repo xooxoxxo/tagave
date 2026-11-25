@@ -576,6 +576,47 @@ describe('repair', () => {
     expect(fake.changes()).toHaveLength(changes);
   });
 
+  it('an update that starts while the share is probed keeps the watcher from resuming', async () => {
+    fake.box('worker-files').status = 'removing';
+    fake.share = 'silent';
+    let busy = false;
+    const r = repair({ busy: () => busy });
+    await r.execute();
+    const changes = fake.changes().length;
+    const read = fake.music.read;
+    fake.music.read = async (input) => {
+      // an update starts during this probe, and the share answers
+      busy = true;
+      fake.share = 'answers';
+      return read(input);
+    };
+    fake.onSleep = (n) => { if (n === 3) r.cancel(); };
+    const run = await r.watch();
+    expect(run.status).toBe('waiting');
+    expect(fake.changes()).toHaveLength(changes);
+  });
+
+  it('parts that run again while an update starts are not touched either', async () => {
+    fake.box('worker-files').status = 'removing';
+    fake.share = 'silent';
+    let busy = false;
+    const r = repair({ busy: () => busy });
+    await r.execute();
+    const changes = fake.changes().length;
+    // the file worker runs again, and an update starts while the parts are read
+    fake.box('worker-files').status = 'running';
+    const docker = fake.docker;
+    fake.docker = async (args, opts) => {
+      if (args[1] === 'ps') busy = true;
+      return docker(args, opts);
+    };
+    const r2 = new Repair(deps({ busy: () => busy }), structuredClone(r.run));
+    fake.onSleep = (n) => { if (n === 3) r2.cancel(); };
+    const run = await r2.watch();
+    expect(run.status).toBe('waiting');
+    expect(fake.changes()).toHaveLength(changes);
+  });
+
   it('the watcher with no music prober says once that it cannot check the share', async () => {
     fake.box('worker-files').status = 'removing';
     fake.share = 'silent';
