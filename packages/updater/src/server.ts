@@ -64,6 +64,8 @@ const PARTS_DEADLINE_MS = 6_000;
 const SERVICES_READ_MS = 5_000;
 /** The longest a status call waits, for everything it reads; the app gives up on /v1/status after 8 s. */
 const STATUS_DEADLINE_MS = 6_000;
+/** A service list that comes with less of the status budget left counts as late for that call (no parts that would all read stuck). */
+const LATE_LIST_MS = 500;
 /** A repair.json marked running by another process (the installer's one-off) counts for this long. */
 const ELSEWHERE_MS = 60 * 60_000;
 /** How often the service reads repair.json for a waiting repair another process left (followRepairFile). */
@@ -170,6 +172,8 @@ export class UpdaterService {
   private servicesList: string[] | null = null;
   /** The service list read in flight: one at a time. */
   private servicesRead: Promise<string[] | null> | null = null;
+  /** The one read queued after the read in flight (a run ended while it read). */
+  private servicesNext: Promise<string[] | null> | null = null;
 
   constructor(private readonly opts: UpdaterOptions) {
     this.verifier = new SignatureVerifier(opts.appSecret);
@@ -211,7 +215,20 @@ export class UpdaterService {
   /** A run ended: the parts read again, and the service list (it may have changed) in the background. */
   private runEnded(): void {
     this.partsChanged();
-    void this.readServices();
+    void this.rereadServices();
+  }
+
+  /**
+   * A service list read that begins after now: a read in flight began
+   * before the change, so exactly one more read is queued after it.
+   */
+  private rereadServices(): Promise<string[] | null> {
+    if (!this.servicesRead) return this.readServices();
+    this.servicesNext ??= this.servicesRead.then(() => {
+      this.servicesNext = null;
+      return this.readServices();
+    });
+    return this.servicesNext;
   }
 
   private now(): Date {
@@ -296,8 +313,9 @@ export class UpdaterService {
     Object.assign(run, { status: 'failed', finishedAt: at, reason, headline: reason, progress: null, stall: null });
     run.log.push({ at, level: 'error', message });
     await this.saveRepair(run).catch(() => undefined);
+    // Sent in the background: a status call that found the run stale never waits on the app.
     try {
-      await this.opts.report?.({ status: 'failed', cause: null });
+      void Promise.resolve(this.opts.report?.({ status: 'failed', cause: null })).catch(() => undefined);
     } catch {
       /* the run on disk says how it ended */
     }
@@ -816,7 +834,12 @@ export class UpdaterService {
   async status(): Promise<UpdaterStatus> {
     const end = Date.now() + (this.opts.statusDeadlineMs ?? STATUS_DEADLINE_MS);
     const env = (await readText(join(this.opts.installDir, '.env'))) ?? '';
-    const services = this.servicesList ?? (await beforeEnd(end, this.readServices(), () => null)) ?? [];
+    let services = this.servicesList;
+    if (!services) {
+      const list = await beforeEnd(end, this.readServices(), () => null);
+      // Too little time left to read its parts: late for this call; the cache has it for the next.
+      services = list && end - Date.now() >= LATE_LIST_MS ? list : [];
+    }
     await this.refreshRepair();
     const marker = this.selfReplace.status();
     // No services known (yet): no parts, and nothing kept that hides them once the list comes.
@@ -880,7 +903,7 @@ export class UpdaterService {
         return r;
       })
       .finally(() => {
-        void this.readServices();
+        void this.rereadServices();
         // Also when execute() rejects: the parts moved either way.
         if (this.active !== active) return;
         this.partsChanged();
