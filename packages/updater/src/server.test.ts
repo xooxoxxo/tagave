@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -290,6 +290,62 @@ describe('updater HTTP API', () => {
       expect(await res.json()).toMatchObject({ selfReplace: { expectedVersion: '0.8.0' } });
     });
 
+    it('one run at a time: two Repair presses, or an update and a repair, started together', async () => {
+      const both = await Promise.all([call('POST', '/v1/repair'), call('POST', '/v1/repair')]);
+      expect(both.map((r) => r.status).sort()).toEqual([202, 409]);
+      await service.idle();
+      const mixed = await Promise.all([call('POST', '/v1/update', release('0.8.0')), call('POST', '/v1/repair')]);
+      expect(mixed.map((r) => r.status).sort()).toEqual([202, 409]);
+      await service.idle();
+      // the update and the held hand-over inside this process claim the same slot
+      const [a, b] = await Promise.all([service.startRepair('update'), service.startRepair('owner')]);
+      expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+    });
+
+    it('a repair that cannot be saved does not linger', async () => {
+      const logs: string[] = [];
+      const s = make({ log: (_level, m) => { logs.push(m); } });
+      // .updater is read-only: repair.json cannot be written
+      await mkdir(join(dir, STATE_DIR), { recursive: true });
+      await chmod(join(dir, STATE_DIR), 0o500);
+      const res = await s.startRepair('owner');
+      expect(res).toMatchObject({ ok: false, status: 500 });
+      expect(s.moving()).toBe(false);
+      expect(fake.versions()).toBe(0);
+      // the held hand-over does not throw either
+      const held: UpdateRun = { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } };
+      await expect(s['afterUpdate'](held)).resolves.toBeUndefined();
+      expect(logs[0]).toMatch(/^the held update could not hand its parts to a repair: the repair could not be saved/);
+      await chmod(join(dir, STATE_DIR), 0o700);
+      expect((await s.startRepair('owner')).ok).toBe(true);
+    });
+
+    it('an installer repair marked running for over an hour has stopped', async () => {
+      await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-old', 'installer', new Date(Date.now() - 2 * 3600_000)));
+      const { repair } = await statusOf();
+      expect(repair).toMatchObject({ id: 'installer-old', status: 'failed', reason: 'The repair stopped. Press Repair again.' });
+      expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ status: 'failed' });
+      expect(fake.reports).toEqual([{ status: 'failed', cause: null }]);
+      // under an hour it still runs
+      await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-new', 'installer', new Date()));
+      expect((await statusOf()).repair).toMatchObject({ id: 'installer-new', status: 'running' });
+    });
+
+    it('a reading begun before the parts changed is not kept', async () => {
+      const s = make({ partsDeadlineMs: 20 });
+      let open!: () => void;
+      const gate = new Promise<void>((r) => { open = r; });
+      const docker = fake.docker;
+      const gated: typeof docker = async (args, opts) => { if (args[1] === 'ps') await gate; return docker(args, opts); };
+      s['opts'].docker = gated;
+      expect((await s.status()).parts?.every((p) => p.state === 'stuck')).toBe(true);
+      const inFlight = s['partsRefresh']!.done;
+      s['partsChanged']();
+      open();
+      await inFlight;
+      expect(s['partsCache']).toBeNull();
+    });
+
     it('a waiting repair does not block an update', async () => {
       await toWaiting();
       expect(service.moving()).toBe(false);
@@ -367,6 +423,8 @@ describe('updater HTTP API', () => {
         expect(repair).toMatchObject({ id: 'rr1', status: 'failed', reason: 'The updater restarted during the repair. Press Repair again.' });
         expect(repair.steps[0]!.status).toBe('failed');
         expect(fake.versions()).toBe(0);
+        // the app's audit log gets its end row
+        expect(fake.reports).toEqual([{ status: 'failed', cause: null }]);
       });
 
       it('after a restart, a held update with a part down starts a repair', async () => {
