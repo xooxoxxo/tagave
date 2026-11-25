@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -305,19 +305,43 @@ describe('updater HTTP API', () => {
     it('a repair that cannot be saved does not linger', async () => {
       const logs: string[] = [];
       const s = make({ log: (_level, m) => { logs.push(m); } });
-      // .updater is read-only: repair.json cannot be written
-      await mkdir(join(dir, STATE_DIR), { recursive: true });
-      await chmod(join(dir, STATE_DIR), 0o500);
+      // the write fails (a seam, not file modes: root ignores those)
+      const write = s['writeRepair'].bind(s);
+      s['writeRepair'] = async () => { throw new Error('ENOSPC: no space left on device'); };
       const res = await s.startRepair('owner');
-      expect(res).toMatchObject({ ok: false, status: 500 });
+      expect(res).toMatchObject({ ok: false, status: 500, error: 'the repair could not be saved: ENOSPC: no space left on device' });
       expect(s.moving()).toBe(false);
       expect(fake.versions()).toBe(0);
       // the held hand-over does not throw either
       const held: UpdateRun = { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } };
       await expect(s['afterUpdate'](held)).resolves.toBeUndefined();
       expect(logs[0]).toMatch(/^the held update could not hand its parts to a repair: the repair could not be saved/);
-      await chmod(join(dir, STATE_DIR), 0o700);
+      s['writeRepair'] = write;
       expect((await s.startRepair('owner')).ok).toBe(true);
+    });
+
+    it('a status call during the first save never replaces the new repair, and its later saves land', async () => {
+      await writeRun(REPAIR_STATE_FILE, { ...newRepairRun('old', 'owner', new Date()), status: 'repaired' });
+      expect((await statusOf()).repair?.id).toBe('old');
+      let open!: () => void;
+      const gate = new Promise<void>((r) => { open = r; });
+      const write = service['writeRepair'].bind(service);
+      let first = true;
+      service['writeRepair'] = async (run: RepairRun) => {
+        if (first) { first = false; await gate; }
+        return write(run);
+      };
+      const started = service.startRepair('owner');
+      // the old file is read while the new run's first write waits
+      const during = await statusOf();
+      expect(during.repair?.id).not.toBe('old');
+      open();
+      const res = await started;
+      expect(res.ok).toBe(true);
+      const id = res.ok ? res.run.id : '';
+      await service.idle();
+      expect((await statusOf()).repair).toMatchObject({ id, status: 'repaired' });
+      expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ id, status: 'repaired' });
     });
 
     it('an installer repair marked running for over an hour has stopped', async () => {
@@ -326,6 +350,10 @@ describe('updater HTTP API', () => {
       expect(repair).toMatchObject({ id: 'installer-old', status: 'failed', reason: 'The repair stopped. Press Repair again.' });
       expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ status: 'failed' });
       expect(fake.reports).toEqual([{ status: 'failed', cause: null }]);
+      // two reads at once fail it once
+      await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-old2', 'installer', new Date(Date.now() - 2 * 3600_000)));
+      await Promise.all([statusOf(), statusOf()]);
+      expect(fake.reports).toEqual([{ status: 'failed', cause: null }, { status: 'failed', cause: null }]);
       // under an hour it still runs
       await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-new', 'installer', new Date()));
       expect((await statusOf()).repair).toMatchObject({ id: 'installer-new', status: 'running' });
