@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { HELPER_NAME, MusicHealer, gapAfter, healDecision, helperArgs, hostCommand, musicContainers, musicDirOf, selfHealOn, type HealReport } from './music-heal.js';
 import type { MusicProber, MusicReading, ServerAnswer } from './music-probe.js';
+import { assertAllowed } from './argv-guard.testkit.js';
 import type { CommandResult, Runner } from './runner.js';
 
 const cfg = { minGapMs: 10 * 60_000, maxGapMs: 6 * 60 * 60_000 };
@@ -72,6 +73,7 @@ describe('the helper', () => {
 function fakeDocker(answer: (args: string[]) => Partial<CommandResult>): { docker: Runner; calls: string[][] } {
   const calls: string[][] = [];
   const docker: Runner = async (args) => {
+    assertAllowed(args);
     calls.push(args);
     return { code: 0, stdout: '', stderr: '', ...answer(args) };
   };
@@ -310,6 +312,7 @@ describe('the music share comes first (fake prober)', () => {
     const answer = hostAnswers();
     const calls: string[][] = [];
     const docker: Runner = async (args) => {
+      assertAllowed(args);
       calls.push(args);
       if (blocked && args[0] === 'inspect' && args[2] === '{{.Image}}') { blocked = false; await held; }
       return { code: 0, stdout: '', stderr: '', ...answer(args) };
@@ -344,6 +347,7 @@ describe('the music share comes first (fake prober)', () => {
     let most = 0;
     const answer = hostAnswers();
     const docker: Runner = async (args) => {
+      assertAllowed(args);
       if (args[0] === 'inspect' && args[2] === '{{.Image}}') { active++; most = Math.max(most, active); }
       await new Promise((r) => setTimeout(r, 1));
       if (args[0] === 'restart') active--;
