@@ -299,4 +299,9 @@ describe('part names', () => {
     expect(partName('postgres')).toBe('the database');
     expect(partName('worker-x')).toBe('worker-x');
   });
+  it('take no name from the object prototype', () => {
+    expect(partName('constructor')).toBe('constructor');
+    expect(partName('toString')).toBe('toString');
+    expect(partName('__proto__')).toBe('__proto__');
+  });
 });

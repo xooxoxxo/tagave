@@ -39,7 +39,7 @@ export const PART_LABELS: Readonly<Record<string, string>> = {
 
 /** A part as a sentence names it ("the file worker"); an unknown service comes back as itself. */
 export function partName(service: string): string {
-  const label = PART_LABELS[service];
+  const label = Object.hasOwn(PART_LABELS, service) ? PART_LABELS[service] : undefined;
   return label ? `the ${label.toLowerCase()}` : service;
 }
 

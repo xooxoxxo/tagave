@@ -359,6 +359,15 @@ describe('readParts', () => {
     ]);
   });
 
+  it('reads an empty status as stuck and a paused part as stopped', async () => {
+    const f = reader({ app: { stdout: '\n' }, postgres: { stdout: '|\n' }, 'worker-files': { stdout: 'paused|\n' } });
+    expect(await readParts(f.docker, ['app', 'postgres', 'worker-files'])).toEqual([
+      { service: 'app', state: 'stuck', health: null },
+      { service: 'postgres', state: 'stuck', health: null },
+      { service: 'worker-files', state: 'stopped', health: null },
+    ]);
+  });
+
   it('runs ps and inspect with 5 s limits and fixed argv', async () => {
     const seen: Array<[string[], number | undefined]> = [];
     const f = reader({ app: { stdout: 'running|\n' } });

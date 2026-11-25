@@ -297,10 +297,12 @@ export async function readParts(docker: Runner, services: string[], opts: { time
 
     const res = await call(['inspect', '--format', READ_FORMAT, id]);
     if (res.code !== 0) return part(service, GONE.test(res.stderr) ? 'missing' : 'stuck');
-    const [status = '', healthText = ''] = res.stdout.trim().split('|');
+    const [statusText = '', healthText = ''] = res.stdout.trim().split('|');
+    const status = statusText.trim();
     const health = healthText.trim() || null;
-    if (READ_STUCK.has(status)) return part(service, 'stuck', health);
-    if (status === 'exited') return part(service, 'stopped', health);
+    // An inspect that answers without a status said nothing: not running.
+    if (!status || READ_STUCK.has(status)) return part(service, 'stuck', health);
+    if (status === 'exited' || status === 'paused') return part(service, 'stopped', health);
     if (status === 'restarting' || (status === 'running' && health === 'starting')) return part(service, 'starting', health);
     return part(service, 'running', health);
   }));
