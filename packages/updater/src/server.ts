@@ -241,7 +241,7 @@ export class UpdaterService {
 
   /** An installer's repair marked running for over an hour has stopped (R29). */
   private async failStale(run: RepairRun): Promise<void> {
-    if (run.status !== 'running' || this.now().getTime() - Date.parse(run.startedAt) < ELSEWHERE_MS) return;
+    if (run.trigger !== 'installer' || run.status !== 'running' || this.now().getTime() - Date.parse(run.startedAt) < ELSEWHERE_MS) return;
     // Two reads at once both see it: it fails (and is reported) once.
     if (this.failedStale.has(run.id)) return;
     this.failedStale.add(run.id);
@@ -444,6 +444,8 @@ export class UpdaterService {
     } catch {
       return; /* keep what we have */
     }
+    // Our own run read back is an older save of it (a read in the gap of its last write): ours is newer.
+    if (run.id === this.repair?.run.id) return;
     this.repairRun = run;
     await this.failStale(run);
   }
@@ -712,18 +714,21 @@ export class UpdaterService {
     this.run = run;
     await this.save(run);
     this.partsChanged();
-    this.active = update.execute()
+    // Cleared only while it is still this update's: a later update may claim the slot while afterUpdate awaits.
+    const active: Promise<UpdateRun> = update.execute()
       .then(async (r) => {
-        this.active = null;
+        if (this.active === active) this.active = null;
         this.partsChanged();
         await this.afterUpdate(r);
         return r;
       })
       .finally(() => {
         // Also when execute() rejects: the parts moved either way.
-        if (this.active !== null) this.partsChanged();
+        if (this.active !== active) return;
+        this.partsChanged();
         this.active = null;
       });
+    this.active = active;
     return { ok: true, run };
   }
 
