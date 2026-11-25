@@ -1,8 +1,10 @@
 /**
  * The opt-in updater from the app's side: step-up (fresh sign-in or a
  * re-verification within five minutes, enforced by the server), the owner
- * routes that talk to a (fake) updater with signed calls, and the internal
- * versions route the updater calls back.
+ * routes that talk to a (fake) updater with signed calls, the internal
+ * versions route the updater calls back, and Repair: the owner starts it
+ * (no step-up) and the updater reports how it ended, each an audit entry
+ * with fixed codes.
  */
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -24,9 +26,12 @@ import {
 } from '../testkit/authApp.js';
 import { readBuildInfo } from '@tagave/core';
 import type { UpdateRun } from '@tagave/shared';
+import type { RepairCause, RepairStatus } from '@tagave/shared/updater';
+import { REPAIR_CAUSES, REPAIR_STATUSES } from '@tagave/db';
 import { initDb } from '../db.js';
 import { createUpdaterInternalRoutes, createUpdaterRoutes, runSettled } from './updater.js';
 import { resetStepUpFailures } from './stepUp.js';
+import { createTestUser } from '../testkit/users.js';
 
 const url = process.env.TEST_DATABASE_URL;
 const EMAIL = 'owner@example.com';
@@ -52,6 +57,12 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
   const json = (j: Jar = jar) => ({ origin: TEST_PUBLIC_URL, 'content-type': 'application/json', cookie: cookieHeader(j) });
   const get = (path: string, j: Jar = jar) => app.inject({ method: 'GET', url: path, headers: { cookie: cookieHeader(j) } });
   const post = (path: string, payload: unknown, j: Jar = jar) => app.inject({ method: 'POST', url: path, headers: json(j), payload: payload as object });
+  const signedPost = (path: string, body: unknown) => {
+    const text = JSON.stringify(body);
+    return app.inject({ method: 'POST', url: path, headers: { ...signRequest(TEST_APP_SECRET, 'POST', path, text), 'content-type': 'application/json' }, payload: text });
+  };
+  const repairAudit = () => handle.sql<Array<{ action: string; actor_user_id: string | null; library_id: string | null; payload: unknown }>>`
+    select action, actor_user_id, library_id, payload from audit_log where action like 'updater.repair%' order by at`;
   const age = (minutes: number) => handle.sql`update auth_sessions set created_at = now() - make_interval(mins => ${minutes})`;
 
   beforeAll(async () => {
@@ -95,7 +106,9 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
           return;
         }
         res.writeHead(req.method === 'POST' ? 202 : 200, { 'content-type': 'application/json' });
-        res.end(req.method === 'POST'
+        res.end(req.url === '/v1/repair'
+          ? JSON.stringify({ run: { kind: 'repair', id: 'p1', trigger: 'owner', status: 'running' } })
+          : req.method === 'POST'
           ? JSON.stringify({ run: { id: 'r1', from: '0.7.0', target: JSON.parse(body).version, status: 'running' } })
           : JSON.stringify({ version: '0.7.0', configuredVersion: '0.7.0', role: 'all', services: ['postgres', 'app'], run: statusRun }));
       });
@@ -125,6 +138,7 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     refuseRelease = false;
     statusRun = null;
     resetStepUpFailures();
+    await handle.sql`delete from audit_log where action like 'updater.repair%'`;
     const res = await app.inject({ method: 'POST', url: '/api/auth/sign-in/email', headers: { origin: TEST_PUBLIC_URL, 'content-type': 'application/json' }, payload: { email: EMAIL, password: PASSWORD } });
     jar = cookieJar(res.headers['set-cookie']);
   });
@@ -234,6 +248,65 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     expect(wrong.statusCode).toBe(401);
   });
 
+  it('owner starts a repair (202), a listener gets 403', async () => {
+    const res = await post('/api/v1/updater/repair', {});
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toMatchObject({ run: { kind: 'repair', id: 'p1', status: 'running' } });
+    expect(received).toEqual([{ method: 'POST', path: '/v1/repair', body: '', verified: true }]);
+
+    const listener = await createTestUser(handle, { role: 'listener' });
+    const refused = await app.inject({ method: 'POST', url: '/api/v1/updater/repair', headers: { origin: TEST_PUBLIC_URL, 'content-type': 'application/json', cookie: listener.cookie }, payload: {} });
+    expect(refused.statusCode).toBe(403);
+    expect(received).toHaveLength(1);
+  });
+
+  it('no step-up is asked', async () => {
+    await age(6);
+    expect((await get('/api/v1/auth/step-up')).json()).toMatchObject({ fresh: false });
+    expect((await post('/api/v1/updater/repair', {})).statusCode).toBe(202);
+    expect(received.at(-1)).toMatchObject({ method: 'POST', path: '/v1/repair', verified: true });
+  });
+
+  it('passes on the updater being busy or restarting as /updater/update does', async () => {
+    busy = true;
+    const other = await post('/api/v1/updater/repair', {});
+    expect(other.statusCode).toBe(409);
+    expect(other.json()).toMatchObject({ title: 'Conflict', detail: 'an update is already running' });
+    busy = false;
+    restarting = true;
+    const self = await post('/api/v1/updater/repair', {});
+    expect(self.statusCode).toBe(409);
+    expect(self.json()).toMatchObject({ title: 'Updater restarting' });
+    // a refused start is not a repair
+    expect(await repairAudit()).toEqual([]);
+  });
+
+  it('the start and the end write fixed audit entries', async () => {
+    const [owner] = await handle.sql<Array<{ id: string }>>`select id from users where email = ${EMAIL}`;
+    expect((await post('/api/v1/updater/repair', {})).statusCode).toBe(202);
+    const path = '/api/v1/internal/updater/repair';
+    expect((await app.inject({ method: 'POST', url: path, headers: { 'content-type': 'application/json' }, payload: { status: 'repaired', cause: null } })).statusCode).toBe(401);
+    expect((await signedPost(path, { status: 'waiting', cause: 'music_unreachable' })).statusCode).toBe(200);
+    expect((await signedPost(path, { status: 'repaired', cause: null })).statusCode).toBe(200);
+    expect(await repairAudit()).toEqual([
+      { action: 'updater.repair.start', actor_user_id: owner!.id, library_id: null, payload: {} },
+      { action: 'updater.repair', actor_user_id: null, library_id: null, payload: { status: 'waiting', cause: 'music_unreachable' } },
+      { action: 'updater.repair', actor_user_id: null, library_id: null, payload: { status: 'repaired', cause: null } },
+    ]);
+  });
+
+  it('host text in cause is refused (400)', async () => {
+    const path = '/api/v1/internal/updater/repair';
+    for (const body of [
+      { status: 'failed', cause: 'mount.nfs: 192.0.2.10:/music timed out' },
+      { status: 'running', cause: null },
+      { status: 'failed: disk /srv/tagave full', cause: 'disk_full' },
+      { status: 'failed' },
+      {},
+    ]) expect((await signedPost(path, body)).statusCode, JSON.stringify(body)).toBe(400);
+    expect(await repairAudit()).toEqual([]);
+  });
+
   it('with the authenticator app on, re-verifies with a code and no longer with the password', async () => {
     const enable = await post('/api/auth/two-factor/enable', { password: PASSWORD });
     const totpUri = enable.json().totpURI as string;
@@ -264,5 +337,21 @@ describe('updater routes without the updater', () => {
     const { updaterUrl } = await import('./updater.js');
     expect(updaterUrl({})).toBeNull();
     expect(updaterUrl({ TAGAVE_UPDATER_URL: 'http://updater:8080/' })).toBe('http://updater:8080');
+  });
+});
+
+describe('repair audit codes', () => {
+  // shared exports the unions as types only: a Record over each union fails
+  // the typecheck when a key is missing or extra, and the test compares keys
+  const STATUSES = { running: true, repaired: true, waiting: true, needs_you: true, failed: true } satisfies Record<RepairStatus, true>;
+  const CAUSES = {
+    music_unreachable: true, music_unmounted: true, not_in_fstab: true, stuck_stop: true, crash_loop: true, disk_full: true, oom: true,
+    port_conflict: true, app_unhealthy: true, db_recovering: true, docker_unresponsive: true, migration_refused: true, missing: true,
+  } satisfies Record<RepairCause, true>;
+  const typed: { statuses: readonly RepairStatus[]; causes: readonly RepairCause[] } = { statuses: REPAIR_STATUSES, causes: REPAIR_CAUSES };
+
+  it('copy the shared unions: every end status (running is no end) and every cause', () => {
+    expect([...typed.statuses].sort()).toEqual(Object.keys(STATUSES).filter((s) => s !== 'running').sort());
+    expect([...typed.causes].sort()).toEqual(Object.keys(CAUSES).sort());
   });
 });

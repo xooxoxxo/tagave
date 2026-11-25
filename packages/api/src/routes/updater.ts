@@ -5,6 +5,8 @@
  *
  *   GET  /api/v1/updater          owner: is it installed and reachable, and its current or last run
  *   POST /api/v1/updater/update   owner + fresh step-up: { version } starts an update
+ *   POST /api/v1/updater/repair   owner (no step-up: Repair changes no version, setting or
+ *                                 data): starts a repair; an audit entry (db › repairAudit.ts)
  *
  * The updater holds the state of a run, so the page keeps polling the GET
  * while the app restarts and picks the run up again afterwards.
@@ -12,12 +14,17 @@
  * And for the updater (no session, signed by it instead):
  *
  *   GET  /api/v1/internal/updater/versions   the app's version and the live workers' heartbeats
+ *   POST /api/v1/internal/updater/repair     { status, cause }: how a repair settled, an audit
+ *                                            entry with fixed codes (anything else is a 400)
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { readBuildInfo } from '@tagave/core';
+import { parseRepairEnd, recordRepairEnd, recordRepairStart } from '@tagave/db';
 import { startUpdateSchema, type UpdateRun, type UpdaterStatus, type UpdaterView } from '@tagave/shared';
+import type { RepairRun } from '@tagave/shared/updater';
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER, signRequest } from '@tagave/updater/token';
 import { ApiError } from '../middleware/errorHandler.js';
+import { getAuthHandle } from '../middleware/auth.js';
 import { liveWorkers } from './updates.js';
 import { fetchReleaseFiles } from '../lib/releaseFiles.js';
 import { requireFreshStepUp } from './stepUp.js';
@@ -105,27 +112,57 @@ export async function createUpdaterRoutes(fastify: FastifyInstance) {
       throw new ApiError(502, 'Bad Gateway', `The signed manifest of ${parsed.data.version} could not be downloaded: ${(err as Error).message}. Nothing was changed.`);
     }
     const res = await callUpdater<{ run: UpdateRun }>(base, 'POST', '/v1/update', { version: parsed.data.version, ...files });
-    if (!res.ok && res.restarting) throw new ApiError(409, UPDATER_RESTARTING_TITLE, res.error);
     if (!res.ok && res.status === 422) throw new ApiError(422, RELEASE_REFUSED_TITLE, res.error);
-    if (!res.ok) throw new ApiError(res.status === 409 || res.status === 400 ? res.status : 502, res.status === 409 ? 'Conflict' : 'Bad Gateway', res.error);
+    if (!res.ok) throwRefusal(res);
     request.log.info({ event: 'update.started', userId: user.id, version: parsed.data.version, runId: res.body.run.id }, 'in-app update started');
+    return reply.status(202).send(res.body);
+  });
+
+  fastify.post('/updater/repair', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = requireOwner(request);
+    const base = updaterUrl();
+    if (!base) throw new ApiError(409, 'Conflict', 'The updater is not installed on this server');
+    const res = await callUpdater<{ run: RepairRun }>(base, 'POST', '/v1/repair');
+    if (!res.ok) throwRefusal(res);
+    await recordRepairStart(getAuthHandle().sql, user.id);
+    request.log.info({ event: 'updater.repair.start', userId: user.id, runId: res.body.run.id }, 'repair started');
     return reply.status(202).send(res.body);
   });
 }
 
+/** The updater said no: restarting itself, busy (409), a bad body (400), or it did not answer (502). */
+function throwRefusal(res: Extract<CallResult<unknown>, { ok: false }>): never {
+  if (res.restarting) throw new ApiError(409, UPDATER_RESTARTING_TITLE, res.error);
+  throw new ApiError(res.status === 409 || res.status === 400 ? res.status : 502, res.status === 409 ? 'Conflict' : 'Bad Gateway', res.error);
+}
+
 let verifier: SignatureVerifier | null = null;
+
+function verifyUpdater(request: FastifyRequest, method: 'GET' | 'POST', body: string): void {
+  if (!updaterUrl()) throw new ApiError(404, 'Not Found', 'The updater is not installed on this server');
+  verifier ??= new SignatureVerifier(appSecret());
+  const header = (n: string) => {
+    const v = request.headers[n];
+    return Array.isArray(v) ? v[0] : v;
+  };
+  const auth = verifier.verify({ method, path: request.url, body, time: header(TIME_HEADER), signature: header(SIGNATURE_HEADER) });
+  if (!auth.ok) throw new ApiError(401, 'Unauthorized', auth.reason);
+}
 
 /** Registered outside the signed-in routes: the updater signs instead of holding a session. */
 export async function createUpdaterInternalRoutes(fastify: FastifyInstance) {
+  fastify.post('/internal/updater/repair', async (request: FastifyRequest) => {
+    // the updater signs the JSON it sent; parsed and written again it is the same text
+    verifyUpdater(request, 'POST', request.body === undefined ? '' : JSON.stringify(request.body));
+    const end = parseRepairEnd(request.body);
+    if (!end) throw new ApiError(400, 'Bad Request', 'status repaired, waiting, needs_you or failed, and a known cause or null');
+    await recordRepairEnd(getAuthHandle().sql, end);
+    request.log.info({ event: 'updater.repair', ...end }, 'repair settled');
+    return { ok: true };
+  });
+
   fastify.get('/internal/updater/versions', { logLevel: 'warn' }, async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!updaterUrl()) throw new ApiError(404, 'Not Found', 'The updater is not installed on this server');
-    verifier ??= new SignatureVerifier(appSecret());
-    const header = (n: string) => {
-      const v = request.headers[n];
-      return Array.isArray(v) ? v[0] : v;
-    };
-    const auth = verifier.verify({ method: 'GET', path: request.url, body: '', time: header(TIME_HEADER), signature: header(SIGNATURE_HEADER) });
-    if (!auth.ok) throw new ApiError(401, 'Unauthorized', auth.reason);
+    verifyUpdater(request, 'GET', '');
     const workers = await liveWorkers();
     return reply.send({
       app: readBuildInfo().version,
