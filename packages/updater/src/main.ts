@@ -19,34 +19,18 @@
  * POST /api/v1/internal/updater/repair {"status", "cause"}.
  */
 import { existsSync } from 'node:fs';
-import type { RepairCause, RepairStatus } from '@tagave/shared/updater';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from './update.js';
-import { dockerRunner, httpAppProbe } from './runner.js';
+import { dockerRunner, httpAppProbe, httpRepairReport } from './runner.js';
 import { UpdaterService } from './server.js';
 import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 import { MusicHealer, httpMusicApp } from './music-heal.js';
 import { cachedProber, musicProber } from './music-probe.js';
-import { signRequest } from './token.js';
 
 function num(name: string, fallback: number): number {
   const raw = process.env[name];
   const n = raw === undefined || raw.trim() === '' ? NaN : Number(raw);
   return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-/** How a repair settled, for the app's audit entry; signed like httpMusicApp's report, and it never throws. */
-function httpRepairReport(baseUrl: string, appSecret: string): (end: { status: RepairStatus; cause: RepairCause | null }) => Promise<void> {
-  const path = '/api/v1/internal/updater/repair';
-  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
-  return async ({ status, cause }) => {
-    const text = JSON.stringify({ status, cause });
-    try {
-      await fetch(url, { method: 'POST', headers: { ...signRequest(appSecret, 'POST', path, text), 'content-type': 'application/json' }, body: text, signal: AbortSignal.timeout(5000) });
-    } catch {
-      /* the run on disk still says how it ended */
-    }
-  };
 }
 
 async function main(): Promise<void> {
@@ -99,6 +83,8 @@ async function main(): Promise<void> {
   service.attachHealer(healer);
   // load() picks up a waiting repair, and repairs an update left with stuck parts.
   await service.load();
+  // A repair the installer's one-off left waiting gets this process's watcher.
+  service.followRepairFile();
   const server = service.listen(port);
   healer.start();
   console.log(JSON.stringify({ msg: 'updater ready', port, installDir, releaseKeys: keys.map((k) => k.id) }));
