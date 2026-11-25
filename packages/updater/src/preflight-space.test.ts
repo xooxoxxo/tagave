@@ -20,6 +20,7 @@ import {
   type Layer,
   type SpaceProbeDeps,
 } from './preflight-space.js';
+import { assertAllowed } from './argv-guard.testkit.js';
 import type { CommandResult } from './runner.js';
 
 const docker = (free: number, total: number | null = 100 * GB): FsReading => ({ where: '/var/lib/docker', freeBytes: free, totalBytes: total });
@@ -226,6 +227,7 @@ function probe(opts: {
   const bad: CommandResult = { code: 1, stdout: '', stderr: 'no' };
   const deps: SpaceProbeDeps = {
     docker: async (args, o) => {
+      assertAllowed(args);
       const a = args.join(' ');
       if (a === 'compose config --images') {
         if (opts.composeFails) return bad;

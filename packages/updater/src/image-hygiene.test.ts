@@ -9,6 +9,7 @@ import {
   tagaveGroups,
   type LocalImage,
 } from './image-hygiene.js';
+import { assertAllowed } from './argv-guard.testkit.js';
 import type { CommandResult, Runner } from './runner.js';
 
 const REG = 'ghcr.io/xooxoxxo';
@@ -154,6 +155,7 @@ class FakeDocker {
   }
 
   runner: Runner = async (args) => {
+    assertAllowed(args);
     const a = args.join(' ');
     this.calls.push(a);
     const ok = (stdout = ''): CommandResult => ({ code: 0, stdout, stderr: '' });

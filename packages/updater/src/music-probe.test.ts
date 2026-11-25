@@ -25,6 +25,7 @@ import {
   tcpConnect,
   validServer,
 } from './music-probe.js';
+import { assertAllowed } from './argv-guard.testkit.js';
 import type { CommandResult, Runner } from './runner.js';
 
 /** One real /proc/self/mountinfo line. */
@@ -134,6 +135,7 @@ describe('helper argv', () => {
 function fakeDocker(answer: (args: string[]) => Partial<CommandResult>): { docker: Runner; calls: string[][] } {
   const calls: string[][] = [];
   const docker: Runner = async (args) => {
+    assertAllowed(args);
     calls.push(args);
     return { code: 0, stdout: '', stderr: '', ...answer(args) };
   };
@@ -178,6 +180,7 @@ describe('musicProber (fake Docker, fake network)', () => {
     const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
     const limits: Array<[string, number | undefined]> = [];
     const docker: Runner = async (args, opts) => {
+      assertAllowed(args);
       limits.push([args.includes('nc') ? 'nc' : args.includes('cat') ? 'cat' : args[0]!, opts?.timeoutMs]);
       return { code: 0, stdout: '', stderr: '', ...hostWith()(args) };
     };
@@ -205,6 +208,7 @@ describe('musicProber (fake Docker, fake network)', () => {
   it('a host check whose docker call throws is no answer, not a throw', async () => {
     const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
     const docker: Runner = async (args) => {
+      assertAllowed(args);
       if (args.includes('nc')) throw new Error('spawn failed');
       return { code: 0, stdout: '', stderr: '', ...hostWith()(args) };
     };
@@ -285,6 +289,7 @@ describe('cachedProber', () => {
     const calls: string[][] = [];
     const answer = hostWith();
     const docker: Runner = async (args) => {
+      assertAllowed(args);
       calls.push(args);
       if (args.includes('/proc/self/mountinfo')) await held;
       return { code: 0, stdout: '', stderr: '', ...answer(args) };

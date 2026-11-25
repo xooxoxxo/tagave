@@ -205,7 +205,7 @@ export class MusicHealer {
   async tick(): Promise<HealReason | null> {
     if (this.locked) return null;
     return this.withLock(async () => {
-      const env = await readFile(join(this.deps.installDir, '.env'), 'utf8').catch(() => '');
+      const env = await this.readEnv();
       const musicDir = musicDirOf(env);
       const on = selfHealOn(env);
       const unmounted = on && musicDir ? await this.deps.app.unmounted() : false;
@@ -224,11 +224,16 @@ export class MusicHealer {
    */
   async remount(dir: string, project: string): Promise<RemountResult> {
     return this.withLock(async (): Promise<RemountResult> => {
-      const env = await readFile(join(this.deps.installDir, '.env'), 'utf8').catch(() => '');
+      const env = await this.readEnv();
       if (!selfHealOn(env)) return 'off';
       if (this.deps.updating?.()) return 'busy';
       return this.record(await this.attempt(dir, project));
     });
+  }
+
+  /** The install's .env; empty when it cannot be read. */
+  private readEnv(): Promise<string> {
+    return readFile(join(this.deps.installDir, '.env'), 'utf8').catch(() => '');
   }
 
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -272,7 +277,7 @@ export class MusicHealer {
     const network = reading?.mount.kind === 'network';
     // Nothing below may touch MUSIC_DIR unless its server answers: a hard mount would hang.
     if (network && reading.answer !== 'answers') return 'server_silent';
-    if (network && reading.mount.mountPoint === dir && reading.answer === 'answers') {
+    if (network && reading.mount.mountPoint === dir) {
       await this.deps.app.report({ phase: 'start' });
       return this.restart(project, dir);
     }
