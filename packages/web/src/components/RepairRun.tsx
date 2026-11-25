@@ -7,6 +7,7 @@
  * again on its own, and the "?" says when it last did.
  */
 import { useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useStartRepair } from '../hooks/useUpdater';
 import type { UpdaterStatus } from '@tagave/shared';
 // the repair types are not in the package's index yet: the updater subpath has them
@@ -21,15 +22,60 @@ import own from './RepairRun.module.css';
 const NEEDS_REPAIR_AFTER = ['held', 'rollback_failed'];
 
 /**
- * Whether Settings › Updates offers Repair: a part does not run, the last
- * update ended held or with a failed roll back, or a repair waits for the
- * music share.
+ * Whether Settings › Updates offers Repair: a part does not run, a repair
+ * waits for the music share, or the last update ended held or with a failed
+ * roll back and no repair since has repaired everything.
  */
 export function showRepair(status: UpdaterStatus | null): boolean {
   if (!status) return false;
   if (status.parts?.some((p) => p.state !== 'running')) return true;
-  if (status.run && NEEDS_REPAIR_AFTER.includes(status.run.status)) return true;
-  return status.repair?.status === 'waiting';
+  const repair = status.repair ?? null;
+  if (repair?.status === 'waiting') return true;
+  const run = status.run;
+  if (!run || !NEEDS_REPAIR_AFTER.includes(run.status)) return false;
+  const repairedSince = repair?.status === 'repaired' && !!repair.finishedAt && !!run.finishedAt && Date.parse(repair.finishedAt) >= Date.parse(run.finishedAt);
+  return !repairedSince;
+}
+
+/**
+ * What Repair does: a repair that runs is shown again; otherwise a new one
+ * starts, also while one waits for the share (the updater then starts again
+ * at check).
+ */
+export function repairAction(repair: RepairRunData | null | undefined): 'show' | 'start' {
+  return repair?.status === 'running' ? 'show' : 'start';
+}
+
+/** How often the view's clock ticks: every second while it runs, every minute while it waits ("Checked N min ago"); never on a fixed clock. */
+export function repairTickMs(run: RepairRunData, fixedClock: boolean): number | null {
+  if (fixedClock) return null;
+  if (run.status === 'running') return 1000;
+  if (run.status === 'waiting') return 60_000;
+  return null;
+}
+
+/** What Copy details copies: the headline, then the details (the last error among them). */
+export function copyText(run: RepairRunData): string {
+  return [run.headline, ...run.details].filter(Boolean).join('\n');
+}
+
+/** Copy details, with "Copied" for a moment (the Settings › Modules command's pattern). */
+function CopyDetails({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }, () => undefined);
+      }}
+    >
+      {copied ? 'Copied' : 'Copy details'}
+    </Button>
+  );
 }
 
 /** "Checked now" under a minute, then "Checked 2 min ago", "Checked 3 h ago". */
@@ -78,7 +124,8 @@ export function RepairRunView({ run, onDismiss, now: fixedNow, glyphTime }: {
 }) {
   const running = run.status === 'running';
   const waiting = run.status === 'waiting';
-  const ticking = useNow(running && fixedNow === undefined);
+  const tick = repairTickMs(run, fixedNow !== undefined);
+  const ticking = useNow(tick !== null, tick ?? 1000);
   const now = fixedNow ?? ticking;
   const end = run.finishedAt ? Date.parse(run.finishedAt) : running ? now : null;
 
@@ -92,10 +139,12 @@ export function RepairRunView({ run, onDismiss, now: fixedNow, glyphTime }: {
   if (current) {
     const note = runningNote(run, current, now);
     if (note) notes[current.id] = note;
-  } else if (failedStep && run.reason && sentence(run.reason) !== run.headline) {
+  } else if (failedStep && run.reason && !run.headline) {
+    // the headline says why; without one (an older updater) the failed step does
     notes[failedStep.id] = { text: detailText(run.reason), tone: 'error' };
   }
 
+  const cause = run.outcome?.cause ?? null;
   const help = [...run.details, ...(waiting && run.checkedAt ? [checkedLine(run.checkedAt, now)] : [])];
 
   return (
@@ -113,11 +162,13 @@ export function RepairRunView({ run, onDismiss, now: fixedNow, glyphTime }: {
         <header className={styles.runHead}>
           <div className={own.head}>
             <h2 id="repair-run-title" className={styles.runTitle}>{run.headline ?? fallbackTitle(run)}</h2>
-            {help.length > 0 && (
+            {(help.length > 0 || cause === 'disk_full' || cause === 'crash_loop') && (
               <HelpToggle label="Repair details">
                 <ul className={own.details}>
                   {help.map((line, i) => <li key={i}>{line}</li>)}
+                  {cause === 'disk_full' && <li><Link to="/settings/$section" params={{ section: 'status' }}>Storage in Settings › Status</Link></li>}
                 </ul>
+                {cause === 'crash_loop' && <CopyDetails text={copyText(run)} />}
               </HelpToggle>
             )}
           </div>
@@ -168,16 +219,16 @@ export function useShownRepair(repair: RepairRunData | null | undefined): { run:
 export const REPAIR_HELP = 'Repair checks every part of tagave and fixes what it safely can.';
 
 /**
- * Repair, in Running now. A repair that runs or waits for the share is
- * shown again rather than started a second time; otherwise it starts one
- * (`onShow` then brings its view up).
+ * Repair, in Running now. A repair that runs is shown again rather than
+ * started a second time; otherwise it starts one, also while one waits for
+ * the share (`onShow` then brings its view up).
  */
 export function RepairButton({ repair, onShow }: { repair: RepairRunData | null | undefined; onShow: () => void }) {
   const start = useStartRepair();
   const [error, setError] = useState<string | null>(null);
   const go = async () => {
     setError(null);
-    if (repair?.status === 'running' || repair?.status === 'waiting') {
+    if (repairAction(repair) === 'show') {
       onShow();
       return;
     }

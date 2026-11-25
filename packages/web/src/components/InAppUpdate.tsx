@@ -48,13 +48,14 @@ function time(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-export function useNow(active: boolean): number {
+/** The browser's clock, ticking every `everyMs` (a second by default) while `active`. */
+export function useNow(active: boolean, everyMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const t = setInterval(() => setNow(Date.now()), everyMs);
     return () => clearInterval(t);
-  }, [active]);
+  }, [active, everyMs]);
   return now;
 }
 

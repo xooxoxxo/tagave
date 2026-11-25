@@ -3,11 +3,13 @@
  * view (the headline, the details behind "?", nothing that spins while it
  * waits for the music share).
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import type { UpdateRun, UpdaterStatus } from '@tagave/shared';
 import type { PartState } from '@tagave/shared/updater';
-import { RepairRunView, showRepair } from './RepairRun';
+import { RepairRunView, copyText, repairAction, repairTickMs, showRepair } from './RepairRun';
 import { REPAIR_WAITING_NOW, heldRun, nowAt, repairCrashLoopRun, repairDiskFullRun, repairRunning, repairWaitingRun, repairedRun, rolledBackRun, simulatedRun } from '../stories/updateFixtures';
 
 const SERVICES = ['app', 'postgres', 'worker-identify', 'worker-files', 'player'];
@@ -48,11 +50,38 @@ describe('showRepair', () => {
     }
   });
 
+  it('hides it once a repair after the held or failed update repaired everything', () => {
+    const held = heldRun(); // finished at 400 s
+    const after = { ...repairedRun(), finishedAt: new Date(Date.parse(held.finishedAt!) + 60_000).toISOString() };
+    const before = { ...repairedRun(), finishedAt: new Date(Date.parse(held.finishedAt!) - 60_000).toISOString() };
+    expect(showRepair(status({ run: held, repair: after }))).toBe(false);
+    expect(showRepair(status({ run: finished('rollback_failed'), repair: { ...after, finishedAt: new Date(Date.parse(finished('rollback_failed').finishedAt!) + 1000).toISOString() } }))).toBe(false);
+    // a repair from before the update does not count
+    expect(showRepair(status({ run: held, repair: before }))).toBe(true);
+    // a repair that did not repair does not count
+    expect(showRepair(status({ run: held, repair: { ...repairDiskFullRun(), finishedAt: after.finishedAt } }))).toBe(true);
+    // a part that stopped since still shows it
+    expect(showRepair(status({ run: held, repair: after, parts: parts({ 'worker-files': 'stopped' }) }))).toBe(true);
+  });
+
   it('shows it while a repair waits for the music share', () => {
     expect(showRepair(status({ repair: repairWaitingRun() }))).toBe(true);
     expect(showRepair(status({ repair: repairDiskFullRun() }))).toBe(false);
   });
 });
+
+/** A view with a link needs a router. */
+async function inRouter(node: ReactNode): Promise<string> {
+  const root = createRootRoute({ component: () => <>{node}</> });
+  const router = createRouter({
+    routeTree: root.addChildren([createRoute({ getParentRoute: () => root, path: '/settings/$section' })]),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  });
+  await router.load();
+  return renderToStaticMarkup(<RouterProvider router={router} />);
+}
+const routed = (run = repairWaitingRun(), now = REPAIR_WAITING_NOW) => inRouter(<RepairRunView run={run} now={now} onDismiss={() => undefined} />);
+const count = (html: string, text: string) => html.split(text).length - 1;
 
 describe('RepairRunView', () => {
   const render = (run = repairWaitingRun(), now = REPAIR_WAITING_NOW) =>
@@ -89,20 +118,75 @@ describe('RepairRunView', () => {
     expect(render(repairRunning(), nowAt(12))).toContain('aria-current="step"');
   });
 
-  it('has Done once the run is not running', () => {
+  it('has Done once the run is not running', async () => {
     expect(render()).toContain('>Done<');
-    expect(render(repairDiskFullRun())).toContain('>Done<');
+    expect(await routed(repairDiskFullRun())).toContain('>Done<');
     expect(render(repairCrashLoopRun())).toContain('>Done<');
     expect(render(repairRunning(), nowAt(12))).not.toContain('>Done<');
   });
 
-  it('says what the owner has to do in the title when it needs them', () => {
-    expect(render(repairDiskFullRun())).toContain('The disk is full (180 MB free). Free up space, then press Repair.');
+  it('says what the owner has to do in the title when it needs them', async () => {
+    expect(await routed(repairDiskFullRun())).toContain('The disk is full (180 MB free). Free up space, then press Repair.');
     expect(render(repairCrashLoopRun())).toContain('The file worker keeps stopping. tagave restarted it once.');
     expect(hidden(render(repairCrashLoopRun()))).toContain('Last error: Error: EACCES');
   });
 
   it('has a title while it runs, before the updater sends a headline', () => {
     expect(render(repairRunning(), nowAt(12))).toMatch(/<h2[^>]*>Repairing tagave<\/h2>/);
+  });
+});
+
+describe('RepairRunView, the help per cause and the clock', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('links Settings › Status (where Storage is) behind "?" when the disk is full', async () => {
+    const html = await routed(repairDiskFullRun());
+    expect(hidden(html)).toMatch(/<a[^>]*href="\/settings\/status"[^>]*>Storage in Settings › Status<\/a>/);
+    expect(hidden(html)).toContain('tagave never deletes files for you.');
+    expect(renderToStaticMarkup(<RepairRunView run={repairWaitingRun()} now={REPAIR_WAITING_NOW} onDismiss={() => undefined} />)).not.toContain('Settings › Status');
+  });
+
+  it('offers Copy details behind "?" for a crash loop, copying the last error and the details', () => {
+    const run = repairCrashLoopRun();
+    const html = renderToStaticMarkup(<RepairRunView run={run} now={nowAt(45)} onDismiss={() => undefined} />);
+    expect(hidden(html)).toContain('>Copy details<');
+    expect(renderToStaticMarkup(<RepairRunView run={repairWaitingRun()} now={REPAIR_WAITING_NOW} onDismiss={() => undefined} />)).not.toContain('Copy details');
+    expect(copyText(run)).toBe([run.headline, ...run.details].join('\n'));
+    expect(copyText(run)).toContain('Last error: Error: EACCES');
+  });
+
+  it('says the headline once: no note under the failed step repeats it', () => {
+    const html = renderToStaticMarkup(<RepairRunView run={repairCrashLoopRun()} now={nowAt(45)} onDismiss={() => undefined} />);
+    expect(count(html, 'keeps stopping')).toBe(1);
+    // without a headline (an older updater) the failed step still says why
+    const bare = { ...repairCrashLoopRun(), headline: null, reason: 'the file worker keeps stopping' };
+    expect(renderToStaticMarkup(<RepairRunView run={bare} now={nowAt(45)} onDismiss={() => undefined} />)).toContain('The file worker keeps stopping');
+  });
+
+  it('ticks every second while it runs and every minute while it waits; a fixed clock never ticks', () => {
+    expect(repairTickMs(repairRunning(), false)).toBe(1000);
+    expect(repairTickMs(repairWaitingRun(), false)).toBe(60_000);
+    expect(repairTickMs(repairedRun(), false)).toBeNull();
+    expect(repairTickMs(repairWaitingRun(), true)).toBeNull();
+  });
+
+  it('reads "Checked" from the browser clock without a fixed one', () => {
+    const run = repairWaitingRun();
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse(run.checkedAt!) + 10_000);
+    expect(hidden(renderToStaticMarkup(<RepairRunView run={run} onDismiss={() => undefined} />))).toContain('Checked now');
+    vi.setSystemTime(Date.parse(run.checkedAt!) + 3 * 60_000);
+    expect(hidden(renderToStaticMarkup(<RepairRunView run={run} onDismiss={() => undefined} />))).toContain('Checked 3 min ago');
+  });
+});
+
+describe('repairAction (the Repair button)', () => {
+  it('shows a repair that runs, and starts one otherwise: pressing Repair while it waits starts again at check', () => {
+    expect(repairAction(repairRunning())).toBe('show');
+    expect(repairAction(repairWaitingRun())).toBe('start');
+    expect(repairAction(repairedRun())).toBe('start');
+    expect(repairAction(repairDiskFullRun())).toBe('start');
+    expect(repairAction(null)).toBe('start');
+    expect(repairAction(undefined)).toBe('start');
   });
 });
