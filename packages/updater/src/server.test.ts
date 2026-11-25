@@ -38,6 +38,14 @@ class Fake {
   hangPs = new Set<string>();
   /** `docker version` waits for this when set. */
   versionGate: Promise<void> | null = null;
+  /** `compose config --services` lists these (updater too); null: it fails. */
+  configList: string[] | null = SERVICES;
+  /** `compose config --services` waits for this when set. */
+  configGate: Promise<void> | null = null;
+  /** The hand-over `ps` waits for this when set. */
+  handoverGate: Promise<void> | null = null;
+  /** The hand-over `ps` lists this. */
+  handoverPs = '';
   reports: Array<{ status: string; cause: string | null }> = [];
 
   docker: Runner = async (args) => {
@@ -52,7 +60,10 @@ class Fake {
       await this.versionGate;
       return { stdout: '28.0.0\n' };
     }
-    if (j === 'compose config --services') return { stdout: `${SERVICES.join('\n')}\nupdater\n` };
+    if (j === 'compose config --services') {
+      await this.configGate;
+      return this.configList ? { stdout: `${this.configList.join('\n')}\nupdater\n` } : { code: 1, stderr: 'no' };
+    }
     if (a[0] === 'compose' && a[1] === 'ps') {
       const svc = a.at(-1)!;
       if (this.hangPs.has(svc)) return new Promise(() => {});
@@ -72,7 +83,10 @@ class Fake {
       this.status.set(a.at(-1)!, 'exited');
       return {};
     }
-    if (j === 'ps -q --filter label=tagave.updater.handover') return {};
+    if (j === 'ps -q --filter label=tagave.updater.handover') {
+      await this.handoverGate;
+      return { stdout: this.handoverPs };
+    }
     return { code: 1, stderr: 'no' };
   }
 
@@ -85,6 +99,10 @@ class Fake {
 
   versions(): number {
     return this.calls.filter((c) => c[0] === 'version').length;
+  }
+
+  configReads(): number {
+    return this.calls.filter((c) => c.join(' ') === 'compose config --services').length;
   }
 }
 
@@ -559,6 +577,103 @@ describe('updater HTTP API', () => {
         { service: 'app', state: 'running', health: null },
         { service: 'worker-files', state: 'stuck', health: null },
       ]);
+    });
+
+    describe('answers within its budget', () => {
+      const never = new Promise<void>(() => {});
+
+      it('when the service list never comes: no services and no parts', async () => {
+        const s = make({ statusDeadlineMs: 150 });
+        fake.configGate = never;
+        const t = Date.now();
+        const status = await s.status();
+        expect(Date.now() - t).toBeLessThan(1000);
+        expect(status).toMatchObject({ services: [], parts: [] });
+        // a second call reuses the read in flight
+        await s.status();
+        expect(fake.configReads()).toBe(1);
+      });
+
+      it('once the late list comes, the next status shows its parts', async () => {
+        const s = make({ statusDeadlineMs: 50 });
+        let open!: () => void;
+        fake.configGate = new Promise((r) => { open = r; });
+        expect((await s.status()).parts).toEqual([]);
+        open();
+        await s['servicesRead'];
+        expect((await s.status()).parts?.map((p) => p.service)).toEqual(SERVICES);
+      });
+
+      it('when every part hangs: the parts get the time left, not a fresh 6 s', async () => {
+        const s = make({ statusDeadlineMs: 300, partsDeadlineMs: 10_000 });
+        fake.configGate = new Promise((r) => setTimeout(r, 100));
+        for (const svc of SERVICES) fake.hangPs.add(svc);
+        const t = Date.now();
+        const status = await s.status();
+        expect(Date.now() - t).toBeLessThan(1000);
+        expect(status.services).toEqual(SERVICES);
+        expect(status.parts?.map((p) => p.state)).toEqual(['stuck', 'stuck', 'stuck']);
+      });
+
+      it('when the hand-over check hangs: the marker known so far', async () => {
+        await writeRun(join(STATE_DIR, 'state.json'), { ...newRun('r1', '0.6.0', '0.7.0', new Date()), status: 'succeeded', selfReplace: { expectedVersion: '0.8.0', fromVersion: '0.7.0', runId: 'r1', since: new Date().toISOString() } });
+        fake.handoverPs = 'ho1\n';
+        const s = make({ statusDeadlineMs: 200 });
+        await s.load();
+        await s.idle();
+        fake.handoverGate = never;
+        const t = Date.now();
+        const status = await s.status();
+        expect(Date.now() - t).toBeLessThan(1000);
+        expect(status.selfReplace).toMatchObject({ expectedVersion: '0.8.0', fromVersion: '0.7.0', ageMs: expect.any(Number) });
+        expect(status.services).toEqual(SERVICES);
+      });
+    });
+
+    describe('the service list', () => {
+      const loaded = async () => {
+        const s = make();
+        await s.load();
+        await s.idle();
+        await s['servicesRead'];
+        expect(s['servicesList']).toEqual(SERVICES);
+        return s;
+      };
+
+      it('is read once at load, and status reads it no more', async () => {
+        const s = await loaded();
+        expect(fake.configReads()).toBe(1);
+        expect((await s.status()).services).toEqual(SERVICES);
+        await s.status();
+        expect(fake.configReads()).toBe(1);
+      });
+
+      it('is read again once an update ends', async () => {
+        const s = await loaded();
+        fake.configList = ['postgres', 'app'];
+        expect((await s.start('0.8.0', signed(KEY, testManifest('0.8.0')).text, signed(KEY, testManifest('0.8.0')).signature)).ok).toBe(true);
+        await s.idle();
+        await s['servicesRead'];
+        expect((await s.status()).services).toEqual(['postgres', 'app']);
+      });
+
+      it('is read again once a repair ends', async () => {
+        const s = await loaded();
+        fake.configList = ['postgres', 'app'];
+        expect((await s.startRepair('owner')).ok).toBe(true);
+        await s.idle();
+        await s['servicesRead'];
+        expect((await s.status()).services).toEqual(['postgres', 'app']);
+      });
+
+      it('a failed read keeps the last good list', async () => {
+        const s = await loaded();
+        fake.configList = null;
+        expect((await s.startRepair('owner')).ok).toBe(true);
+        await s.idle();
+        await s['servicesRead'];
+        expect((await s.status()).services).toEqual(SERVICES);
+      });
     });
 
     it('keeps the parts 10 s', async () => {

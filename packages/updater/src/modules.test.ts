@@ -426,6 +426,9 @@ describe('module runs through the updater service', () => {
     expect(await svc.start('0.11.0', upd.text, upd.signature)).toMatchObject({ ok: false, status: 409 });
     await svc.idle();
     expect((await svc.modules()).modules.find((m) => m.id === 'dummy')!.state).toBe('on');
+    // the run's end reads the service list again, in the background
+    await svc['servicesRead'];
+    expect(svc['servicesList']).toEqual(['postgres', 'app', 'worker-identify', 'worker-files', 'player']);
     await svc['selfReplace'].begin('0.11.0', 'r1');
     const refused = await svc.startModule('dummy', 'disable', false);
     expect(refused).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/restarting itself on version 0\.11\.0/) });
