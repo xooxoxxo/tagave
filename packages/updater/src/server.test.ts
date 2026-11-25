@@ -499,6 +499,43 @@ describe('updater HTTP API', () => {
         expect(s['repairWatch']).toBeNull();
       });
 
+      it('a waiting save whose read is still out never wins over a repair started meanwhile', async () => {
+        const s = make({ repairConfig: quick });
+        fake.status.set('worker-files', 'removing');
+        fake.share = 'silent';
+        const first = await s.startRepair('owner');
+        if (!first.ok) throw new Error(first.error);
+        await s.idle();
+        expect(first.run.status).toBe('waiting');
+        // the next waiting save reads the file (it still names the first run) and is held before it goes on
+        let open!: () => void;
+        const gate = new Promise<void>((r) => { open = r; });
+        let reading!: () => void;
+        const read = new Promise<void>((r) => { reading = r; });
+        const replacedOnDisk = s['replacedOnDisk'].bind(s);
+        let held = false;
+        s['replacedOnDisk'] = async (run: RepairRun) => {
+          const answer = await replacedOnDisk(run);
+          if (!held) {
+            held = true;
+            reading();
+            await gate;
+          }
+          return answer;
+        };
+        await read;
+        // Repair is pressed while that read is out; the share answers again
+        fake.share = 'answers';
+        fake.status.set('worker-files', 'exited');
+        const second = await s.startRepair('owner');
+        if (!second.ok) throw new Error(second.error);
+        open();
+        await s.idle();
+        await s.repairSaved();
+        expect((await s.status()).repair).toMatchObject({ id: second.run.id, status: 'repaired' });
+        expect(await onDisk()).toMatchObject({ id: second.run.id, status: 'repaired' });
+      });
+
       it('the service reads repair.json on its own timer, and stop() ends the timer', async () => {
         const s = make({ repairConfig: quick });
         s.followRepairFile(10);

@@ -556,7 +556,11 @@ export class UpdaterService {
     // A run the owner replaced (Repair pressed while it waited) writes nothing more.
     if (this.repairRun && run.id !== this.repairRun.id) return;
     // A running or ending save is the claim's to protect; a waiting one checks the file first.
-    if (run.status === 'waiting' && await this.replacedOnDisk(run)) return;
+    if (run.status === 'waiting') {
+      if (await this.replacedOnDisk(run)) return;
+      // A repair started here while it read (the file may still name this run): that one owns the file now.
+      if (this.claimed === 'repair' || (this.repairRun && this.repairRun.id !== run.id)) return;
+    }
     // running, waiting and the end move parts: the next status reads them again.
     if (this.savedStatus !== run.status) this.partsChanged();
     this.savedStatus = run.status;
