@@ -215,7 +215,7 @@ export function repairRun(status: RepairRun['status'], steps: Partial<Record<Rep
     }),
     log: [
       { at: at(0), level: 'info', message: 'Check every part' },
-      { at: at(2), level: 'info', message: 'parts: app running, postgres running, worker-identify running, worker-files stopped, player running' },
+      { at: at(2), level: 'info', message: 'parts: the web app running, the database running, the identify worker running, the file worker stopped, the player running' },
     ],
     progress: null,
     stall: null,
@@ -268,7 +268,7 @@ export function repairDiskFullRun(): RepairRun {
 export function repairCrashLoopRun(): RepairRun {
   return repairRun('needs_you', { check: 'done', stop: 'done', music: 'done', start: 'done', verify: 'failed' }, {
     headline: 'The file worker keeps stopping. tagave restarted it once.',
-    details: ['Started the file worker again from a fresh container.', 'Last error: Error: EACCES: permission denied, open /mnt/music/.tagave-probe', '4 of 5 parts running.'],
+    details: ['Started the file worker again from scratch.', 'Last error: Error: EACCES: permission denied, open /mnt/music/.tagave-probe', '4 of 5 parts running.'],
     outcome: { cause: 'crash_loop', service: 'worker-files', server: null, partsRunning: 4, partsTotal: 5 },
     reason: 'The file worker keeps stopping. tagave restarted it once.',
   });
