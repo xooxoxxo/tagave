@@ -193,8 +193,8 @@ const REPAIR_LABELS: Record<RepairStepId, string> = {
   check: 'Check every part',
   stop: 'Stop the parts that are stuck',
   music: 'Check the music share',
-  start: 'Start the parts',
-  verify: 'Check every part runs',
+  start: 'Start the parts that are not running',
+  verify: 'Check that every part runs',
 };
 
 type RepairStepStatus = RepairRun['steps'][number]['status'];
@@ -215,7 +215,7 @@ export function repairRun(status: RepairRun['status'], steps: Partial<Record<Rep
     }),
     log: [
       { at: at(0), level: 'info', message: 'Check every part' },
-      { at: at(2), level: 'info', message: '4 of 5 parts running: worker-files is stuck' },
+      { at: at(2), level: 'info', message: 'parts: app running, postgres running, worker-identify running, worker-files stopped, player running' },
     ],
     progress: null,
     stall: null,
@@ -233,12 +233,12 @@ export function repairRunning(): RepairRun {
   return repairRun('running', { check: 'done', stop: 'running' }, { progress: { step: 'stop', message: 'stopping the file worker', at: at(9) } });
 }
 
-/** The file worker was stuck; restarted, every part runs. */
+/** The file worker had stopped; started again, every part runs. */
 export function repairedRun(): RepairRun {
-  return repairRun('repaired', { check: 'done', stop: 'done', music: 'done', start: 'done', verify: 'done' }, {
+  return repairRun('repaired', { check: 'done', stop: 'skipped', music: 'done', start: 'done', verify: 'done' }, {
     headline: 'Repaired. All 5 parts running.',
-    details: ['Stopped the file worker.', 'Started the file worker.', '5 of 5 parts running.'],
-    outcome: { cause: 'stuck_stop', service: 'worker-files', server: null, partsRunning: 5, partsTotal: 5 },
+    details: ['Started the file worker.', '5 of 5 parts running.'],
+    outcome: { cause: null, service: null, server: null, partsRunning: 5, partsTotal: 5 },
   });
 }
 
@@ -260,16 +260,16 @@ export function repairDiskFullRun(): RepairRun {
     headline: 'The disk is full (180 MB free). Free up space, then press Repair.',
     details: ['tagave never deletes files for you.', '3 of 5 parts running.'],
     outcome: { cause: 'disk_full', service: null, server: null, partsRunning: 3, partsTotal: 5 },
-    reason: 'the disk is full (180 MB free)',
+    reason: 'The disk is full (180 MB free). Free up space, then press Repair.',
   });
 }
 
 /** The file worker keeps stopping after one restart. */
 export function repairCrashLoopRun(): RepairRun {
-  return repairRun('failed', { check: 'done', stop: 'done', music: 'done', start: 'done', verify: 'failed' }, {
+  return repairRun('needs_you', { check: 'done', stop: 'done', music: 'done', start: 'done', verify: 'failed' }, {
     headline: 'The file worker keeps stopping. tagave restarted it once.',
-    details: ['Last error: Error: EACCES: permission denied, open /mnt/music/.tagave-probe', 'Restarted the file worker.', '4 of 5 parts running.'],
+    details: ['Started the file worker again from a fresh container.', 'Last error: Error: EACCES: permission denied, open /mnt/music/.tagave-probe', '4 of 5 parts running.'],
     outcome: { cause: 'crash_loop', service: 'worker-files', server: null, partsRunning: 4, partsTotal: 5 },
-    reason: 'the file worker keeps stopping (restarted 6 times, last exit code 1)',
+    reason: 'The file worker keeps stopping. tagave restarted it once.',
   });
 }

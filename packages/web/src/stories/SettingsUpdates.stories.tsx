@@ -47,8 +47,8 @@ const repair = (run: Parameters<typeof RepairRunView>[0]['run'], now: number) =>
 export const RepairRepaired: Story = { name: 'Repair, repaired', tags: ['!no-shot'], render: () => repair(repairedRun(), nowAt(45)) };
 /** The music share does not answer: nothing spins, the updater checks again on its own. */
 export const RepairWaiting: Story = { name: 'Repair, waiting for the share', tags: ['!no-shot'], render: () => repair(repairWaitingRun(), REPAIR_WAITING_NOW) };
-/** Only the owner can free space: the title says what to do. */
+/** Only the owner can free space: the title says what to do, the "?" links Storage. */
 export const RepairNeedsYouDiskFull: Story = { name: 'Repair, disk full', tags: ['!no-shot'], render: () => repair(repairDiskFullRun(), nowAt(45)) };
-/** The file worker keeps stopping after one restart; its last error is behind "?". */
+/** The file worker keeps stopping after one restart (needs you): its last error and Copy details are behind "?". */
 export const RepairCrashLoop: Story = { name: 'Repair, crash loop', tags: ['!no-shot'], render: () => repair(repairCrashLoopRun(), nowAt(45)) };
 export const PhoneRepairWaiting: Story = { name: 'Phone, repair waiting', tags: ['phone', 'shot-full', '!no-shot'], globals: { viewport: { value: 'phone' } }, render: () => repair(repairWaitingRun(), REPAIR_WAITING_NOW) };
