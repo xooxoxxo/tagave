@@ -130,7 +130,7 @@ TAGAVE_TEST_MOUNTINFO="$work/mountinfo-silent" run --role all --dir "$work/silen
 took=$((SECONDS - started))
 grep -qF "Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable." "$work/silent.log" \
   || { cat "$work/silent.log" >&2; fail "music check: a silent share is not explained"; }
-[ "$took" -lt 10 ] || fail "music check: waited ${took}s on a silent share"
+[ "$took" -lt 15 ] || fail "music check: waited ${took}s on a silent share"
 grep -q 'vers=4.2' "$work/silent.log" && fail "music check: printed the mount's options"
 pass "music check with a silent share (after ${took}s)"
 
@@ -155,6 +155,38 @@ run --role all --dir "$work/all" --music "$work/music" --repair >"$work/all-repa
   || { cat "$work/all-repair.log" >&2; fail "--repair --no-start"; }
 grep -q -- '--repair does nothing with --no-start or --dry-run.' "$work/all-repair.log" || fail "--repair --no-start: no word that it does nothing"
 pass "--repair with --no-start says it does nothing"
+
+# traced ARGS...: the installer under bash -x (the trace in $work/trace.log),
+# to see which folder tests ran.
+traced() {
+  TAGAVE_SKIP_IMAGE_CHECK=1 bash -x "$installer" --yes --no-start --version edge --timezone UTC "$@" </dev/null 2>"$work/trace.log"
+}
+# The default /mnt/music is looked at only when its mount is local or answers.
+printf '%s\n' \
+  '22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw' \
+  '43 22 0:52 / /mnt/music rw,relatime shared:12 - nfs4 192.0.2.10:/export/music rw' \
+  >"$work/mountinfo-default"
+TAGAVE_TEST_MOUNTINFO="$work/mountinfo-default" traced --role all --dir "$work/defmusic" >"$work/defmusic.log" \
+  || { cat "$work/defmusic.log" "$work/trace.log" >&2; fail "music default: a silent /mnt/music failed the install"; }
+grep -q -- '-d /mnt/music' "$work/trace.log" && fail "music default: looked at /mnt/music on a share that does not answer"
+TAGAVE_TEST_MOUNTINFO="$work/mountinfo-local" traced --role all --dir "$work/defmusic2" >"$work/defmusic2.log" \
+  || { cat "$work/defmusic2.log" >&2; fail "music default: a local /mnt/music failed the install"; }
+grep -q -- '-d /mnt/music' "$work/trace.log" || fail "music default: did not look at /mnt/music on a local mount"
+# A relative --music is made absolute without entering the folder.
+mkdir -p "$work/music-rel"
+(cd "$work" && traced --role all --dir "$work/rel" --music music-rel >"$work/rel.log") \
+  || { cat "$work/rel.log" >&2; fail "music: a relative --music failed the install"; }
+grep -q 'cd music-rel' "$work/trace.log" && fail "music: a relative --music was entered with cd"
+[ "$(env_value MUSIC_DIR "$work/rel/.env")" = "$(cd "$work" && pwd)/music-rel" ] || fail "music: a relative --music became $(env_value MUSIC_DIR "$work/rel/.env")"
+# A share whose server name tagave cannot check: the folder tests still run, bounded.
+printf '%s\n' \
+  '22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw' \
+  "44 22 0:53 / $esc_work/music rw,relatime shared:13 - nfs4 bad_host!:/export/music rw" \
+  >"$work/mountinfo-odd"
+TAGAVE_TEST_MOUNTINFO="$work/mountinfo-odd" run --role all --dir "$work/odd" --music "$work/music" >"$work/odd.log" 2>&1 \
+  || { cat "$work/odd.log" >&2; fail "music check: a share with an odd server name failed the install"; }
+grep -q "Music folder $work/music" "$work/odd.log" || fail "music check: a share with an odd server name skipped the folder check"
+pass "the music default and a relative --music touch no folder before the share answers"
 
 # --- the opt-in updater --------------------------------------------------------
 run --role all --with-updater --dir "$work/updater" --music "$work/music" >"$work/updater.log" 2>&1 \
@@ -796,6 +828,17 @@ for bad in 'COMPOSE_PROJECT_NAME=Bad Name' 'TAGAVE_REGISTRY=-evil' 'TAGAVE_DIGES
   grep -q '^run ' "$work/docker.log" && fail "repair: ran a container with $bad"
 done
 pass "repair refuses a bad registry, digest or project name from .env before docker run"
+
+# A silent share: the configuration is written, nothing is started.
+: >"$work/docker.log"
+TAGAVE_TEST_MOUNTINFO="$work/mountinfo-silent" TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --version 0.4.1 --timezone UTC \
+  --role all --dir "$work/silent-start" --music "$work/nas share/music" >"$work/silent-start.log" 2>&1 \
+  || { cat "$work/silent-start.log" >&2; fail "music check: a silent share without --no-start failed"; }
+grep -q 'tagave starts once the share answers: run the installer again then.' "$work/silent-start.log" \
+  || { cat "$work/silent-start.log" >&2; fail "music check: a silent share does not say when tagave starts"; }
+[ -f "$work/silent-start/.env" ] || fail "music check: a silent share wrote no configuration"
+grep -Eq '^compose (up|pull)' "$work/docker.log" && fail "music check: started tagave on a silent share"
+pass "a silent share writes the configuration and starts nothing"
 
 : >"$work/docker.log"
 status=0

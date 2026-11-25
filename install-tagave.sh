@@ -843,7 +843,15 @@ collect_answers() {
 
   if [ "$ROLE" != "app" ]; then
     local default_music=""
-    [ -d /mnt/music ] && default_music="/mnt/music"
+    # /mnt/music is often the share's mount point itself: look at it only
+    # when its mount is local or its server answers.
+    if [ -z "$MUSIC_DIR" ]; then
+      music_share /mnt/music
+      case "$SHARE_KIND" in
+        local|answers) if [ -d /mnt/music ]; then default_music="/mnt/music"; fi ;;
+        unknown) if run_limited 10 test -d /mnt/music; then default_music="/mnt/music"; fi ;;
+      esac
+    fi
     if [ -n "$TTY" ] && [ -z "$MUSIC_DIR" ]; then
       say "  Your music folder on this computer. A network share (NFS, SMB) has to be"
       say "  mounted on this computer first; give the folder it is mounted on."
@@ -853,7 +861,8 @@ collect_answers() {
       MUSIC_DIR="$INSTALL_DIR/music"
       warn "No music folder given. Using the empty folder $MUSIC_DIR; point MUSIC_DIR in .env at your library later."
     fi
-    case "$MUSIC_DIR" in /*) ;; *) MUSIC_DIR="$(cd "$MUSIC_DIR" 2>/dev/null && pwd || echo "$PWD/$MUSIC_DIR")" ;; esac
+    # By the text alone: a cd into the folder could hang on a dead share.
+    case "$MUSIC_DIR" in /*) ;; *) MUSIC_DIR="$PWD/${MUSIC_DIR#./}" ;; esac
   fi
 
   ask TIMEZONE "Timezone" "$(detect_timezone)"
@@ -994,25 +1003,55 @@ music_mount() {
 
 MUSIC_SILENT=0  # 1: the music share did not answer, so the folder was not looked at
 
-check_music_dir() {
-  [ "$ROLE" != "app" ] || return 0
+# music_share DIR: what holds DIR, before anything looks at DIR itself. Sets
+# SHARE_KIND to local, answers (a share whose server answers), silent (a
+# share whose server does not) or unknown (a share whose server name tagave
+# cannot check), and SHARE_SERVER. A folder test on a share whose server is
+# gone can hang for good, so the server is asked first. One try is enough:
+# this only decides whether to look at the folder now.
+SHARE_KIND=local
+SHARE_SERVER=""
+music_share() {
   local fstype="" server="" port=""
-  MUSIC_SILENT=0
-  read -r fstype server <<<"$(music_mount "$MUSIC_DIR")" || true
+  SHARE_KIND=local; SHARE_SERVER=""
+  read -r fstype server <<<"$(music_mount "$1")" || true
   case "$fstype" in
     nfs|nfs4)  port=2049 ;;
     cifs|smb3) port=445 ;;
+    *) return 0 ;;
   esac
-  # A folder test on a share whose server is gone can hang for good, so ask
-  # the server first. One try is enough: this only decides whether to look
-  # at the folder now, and a silent share does not stop the install.
+  SHARE_SERVER="$server"
+  if [ -z "$server" ]; then SHARE_KIND=unknown; return 0; fi
   # shellcheck disable=SC2016 # $1 and $2 expand in the inner bash
-  if [ -n "$port" ] && [ -n "$server" ] \
-     && ! run_limited 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$server" "$port" >/dev/null 2>&1; then
-    MUSIC_SILENT=1
-    warn "Your music share at $server doesn't answer. Turn the NAS on or check its cable."
-    return 0
+  if run_limited 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$server" "$port" >/dev/null 2>&1; then
+    SHARE_KIND=answers
+  else
+    SHARE_KIND=silent
   fi
+}
+
+check_music_dir() {
+  [ "$ROLE" != "app" ] || return 0
+  local rc=0
+  MUSIC_SILENT=0
+  music_share "$MUSIC_DIR"
+  case "$SHARE_KIND" in
+    silent)
+      MUSIC_SILENT=1
+      warn "Your music share at $SHARE_SERVER doesn't answer. Turn the NAS on or check its cable."
+      return 0 ;;
+    unknown)
+      # The server could not be asked, so the folder tests run with a limit.
+      # shellcheck disable=SC2016 # $1 expands in the inner bash
+      run_limited 10 bash -c '[ -d "$1" ] || exit 3; [ -r "$1" ] && [ -x "$1" ] || exit 4' _ "$MUSIC_DIR" || rc=$?
+      case "$rc" in
+        0) ok "Music folder $MUSIC_DIR" ;;
+        3) die "the music folder $MUSIC_DIR does not exist. Check the path, or mount the share first." ;;
+        4) die "the music folder $MUSIC_DIR is not readable." ;;
+        *) warn "tagave can't tell whether the music folder $MUSIC_DIR is there: its share doesn't answer in time." ;;
+      esac
+      return 0 ;;
+  esac
   if [ "$MUSIC_DIR" = "$INSTALL_DIR/music" ]; then
     mkdir -p "$MUSIC_DIR"
   elif [ ! -d "$MUSIC_DIR" ]; then
@@ -1694,6 +1733,13 @@ main() {
   write_env
   apply_release_pins "$VERSION"
   validate_compose
+
+  # Starting would bind the dead share, and the parts would hang on it.
+  if [ "$MUSIC_SILENT" = "1" ] && [ "$NO_START" != "1" ]; then
+    step "Configuration written; nothing started"
+    say "tagave starts once the share answers: run the installer again then."
+    return 0
+  fi
 
   if [ "$NO_START" = "1" ]; then
     step "Configuration written; nothing started (--no-start)"
@@ -2874,11 +2920,14 @@ run_updater_cli() {
   project="$(env_get COMPOSE_PROJECT_NAME "$env_file")"
   project="${project:-$PROJECT_NAME}"
   # These go into docker run's arguments: only plain names get there.
-  printf '%s' "$TAGAVE_REGISTRY" | grep -Eqx '[A-Za-z0-9][A-Za-z0-9./:-]*' \
-    || die "TAGAVE_REGISTRY in $env_file is not a registry name. Fix that line, then run this again."
-  [ -z "$digest" ] || printf '%s' "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}' \
+  local registry_re='^[A-Za-z0-9][A-Za-z0-9./:-]*$' digest_re='^sha256:[0-9a-f]{64}$' project_re='^[a-z0-9][a-z0-9_-]*$'
+  local registry_from="$env_file"
+  [ -n "$(env_get TAGAVE_REGISTRY "$env_file")" ] || registry_from="the environment"
+  [[ $TAGAVE_REGISTRY =~ $registry_re ]] \
+    || die "TAGAVE_REGISTRY in $registry_from is not a registry name. Fix it, then run this again."
+  [ -z "$digest" ] || [[ $digest =~ $digest_re ]] \
     || die "TAGAVE_DIGEST_UPDATER in $env_file is not an image digest. Fix that line, then run this again."
-  printf '%s' "$project" | grep -Eqx '[a-z0-9][a-z0-9_-]*' \
+  [[ $project =~ $project_re ]] \
     || die "COMPOSE_PROJECT_NAME in $env_file is not a project name. Fix that line, then run this again."
   docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null \
     || die "could not download $image (see above)."
