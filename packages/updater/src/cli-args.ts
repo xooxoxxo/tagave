@@ -30,7 +30,7 @@ export async function updaterServiceRuns(docker: Runner): Promise<boolean> {
 /** How a waiting headline ends: the updater service's watcher finishes the run (repair.ts). */
 const SERVICE_FINISHES = "tagave finishes on its own when it's back.";
 /** Its ending when no updater service runs here: the one-off container watches no longer. */
-export const INSTALLER_AGAIN = 'Turn the NAS on, then run the installer again.';
+export const INSTALLER_AGAIN = "Run the installer again once it's back.";
 
 /**
  * The headline as cli.js prints it: the saved one (the web shows it), but

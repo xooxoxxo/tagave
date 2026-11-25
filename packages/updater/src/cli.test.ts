@@ -31,7 +31,7 @@ describe('cli.js repair', () => {
     });
 
     it('waiting, without it: run the installer again, never the promise', () => {
-      expect(printedHeadline('waiting', waiting, false)).toBe("Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. Turn the NAS on, then run the installer again.");
+      expect(printedHeadline('waiting', waiting, false)).toBe("Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable. Run the installer again once it's back.");
     });
 
     it('needs you, without the updater service: the installer, not the Repair button', () => {

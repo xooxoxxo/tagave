@@ -58,12 +58,12 @@ cd ~/tagave
 
 Without a terminal, or with `--yes`, a re-run that finds a part down stops with exit 3 and `Run again with --repair`, and changes nothing.
 
-Repair needs tagave 0.34.0 or newer, installed under a release number, in a folder whose path has no spaces. Otherwise a re-run with a part down says `This tagave version can't repair itself yet, so the installer starts the parts as usual.` and starts them as before, and `./install-tagave.sh repair` stops with exit 1.
+Repair needs tagave 0.34.0 or newer, installed under a release number, in a folder whose path has no spaces. Otherwise a re-run with a part down says why the repair can't run (for example `This tagave version can't repair itself yet, so the installer starts the parts as usual.`) and starts them as before, and `./install-tagave.sh repair` stops with exit 1.
 
 This is the same repair as the **Repair** button in Settings › Updates, run from the updater of the release you have installed, so it works without the in-app updater. [Operations: Repair](operations.md#repair) says what it fixes and what it never does. It ends with one sentence, and its exit says how it went:
 
 - **0**: repaired, or nothing to repair.
-- **4**: waiting for the music share. With the in-app updater, tagave finishes on its own when the share answers. Without it, turn the NAS on, then run the installer again. Or add `--wait MINUTES` (1 to 120) to keep watching that long; with the updater it is not needed and is left out.
+- **4**: waiting for the music share. With the in-app updater, tagave finishes on its own when the share answers. Without it, run the installer again once the share answers. Or add `--wait MINUTES` (1 to 120) to keep watching that long; with the updater it is not needed and is left out.
 - **5**: something only you can fix, such as a full disk or another program on tagave's port. The sentence says what to do; then run it again.
 - **6**: Docker isn't answering when the installer checks, before the repair starts. The installer reports this and never restarts Docker: restart Docker or the computer, then run the installer again. When Docker stops answering as the repair starts, it ends with 5.
 - **1**: the repair failed, or the installer could not start it (for example the install runs a version before 0.34.0, or the download of the updater failed). The log or the error says why.
