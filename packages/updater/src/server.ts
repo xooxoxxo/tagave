@@ -122,6 +122,8 @@ export class UpdaterService {
   private repairRun: RepairRun | null = null;
   /** The status repair.json was last written with by this process. */
   private savedStatus: RepairRun['status'] | null = null;
+  /** Stale installer repairs already failed here, by id. */
+  private readonly failedStale = new Set<string>();
   /** The repair of this process: running, or waiting with its watcher. */
   private repair: Repair | null = null;
   private repairActive: Promise<RepairRun> | null = null;
@@ -240,6 +242,9 @@ export class UpdaterService {
   /** An installer's repair marked running for over an hour has stopped (R29). */
   private async failStale(run: RepairRun): Promise<void> {
     if (run.status !== 'running' || this.now().getTime() - Date.parse(run.startedAt) < ELSEWHERE_MS) return;
+    // Two reads at once both see it: it fails (and is reported) once.
+    if (this.failedStale.has(run.id)) return;
+    this.failedStale.add(run.id);
     await this.failRepair(run, STOPPED_REPAIR, 'this repair stopped without an end');
   }
 
@@ -390,7 +395,7 @@ export class UpdaterService {
     if (restarting) return { ok: false, status: 409, error: restarting, selfReplace: this.selfReplace.current };
     if (this.active) return { ok: false, status: 409, error: 'an update is already running' };
     await this.refreshModuleRun();
-    const elsewhere = !this.moduleActive && this.moduleRun?.status === 'running' && Date.now() - Date.parse(this.moduleRun.startedAt) < 60 * 60_000;
+    const elsewhere = !this.moduleActive && this.moduleRun?.status === 'running' && this.now().getTime() - Date.parse(this.moduleRun.startedAt) < 60 * 60_000;
     if (this.moduleActive || elsewhere) return this.claimedRefusal('module');
     if (await this.repairElsewhereOrHere()) return this.claimedRefusal('repair');
     // No await from here on: the checks and the claim are one step.
@@ -428,15 +433,24 @@ export class UpdaterService {
 
   /** repair.json, unless this process's repair runs or waits: the installer's one-off writes the same file. */
   private async refreshRepair(): Promise<void> {
-    if (this.repair && (this.repair.run.status === 'running' || this.repair.run.status === 'waiting')) return;
+    if (this.ownRepair()) return;
+    const known = this.repairRun;
     const text = await readText(this.repairPath);
-    if (!text) return;
+    // A repair started here while it read (or another read landed first): the file is not newer.
+    if (!text || this.ownRepair() || this.repairRun !== known) return;
+    let run: RepairRun;
     try {
-      this.repairRun = JSON.parse(text) as RepairRun;
+      run = JSON.parse(text) as RepairRun;
     } catch {
       return; /* keep what we have */
     }
-    await this.failStale(this.repairRun);
+    this.repairRun = run;
+    await this.failStale(run);
+  }
+
+  /** This process starts, runs or waits on a repair: repair.json is ours, never read back over it. */
+  private ownRepair(): boolean {
+    return this.claimed === 'repair' || this.repair?.run.status === 'running' || this.repair?.run.status === 'waiting';
   }
 
   private repairDeps(): RepairDeps {
@@ -490,14 +504,14 @@ export class UpdaterService {
 
   private async beginRepair(trigger: RepairRun['trigger']): Promise<{ ok: true; run: RepairRun } | RefusedStart> {
     const run = newRepairRun(randomUUID(), trigger, this.now());
-    const before = { run: this.repairRun, status: this.savedStatus };
+    const before = this.repairRun;
     // The new run is the current one first, so a waiting watcher's late save is ignored.
     this.repairRun = run;
     try {
       await this.writeRepair(run);
     } catch (err) {
       // Nothing started: the old run (a waiting one goes on waiting) stays current.
-      this.repairRun = before.run;
+      this.repairRun = before;
       return { ok: false, status: 500, error: `the repair could not be saved: ${(err as Error).message}` };
     }
     // Pressed again while it waits: the watcher stops and the new run starts at check.
@@ -705,7 +719,11 @@ export class UpdaterService {
         await this.afterUpdate(r);
         return r;
       })
-      .finally(() => { this.active = null; });
+      .finally(() => {
+        // Also when execute() rejects: the parts moved either way.
+        if (this.active !== null) this.partsChanged();
+        this.active = null;
+      });
     return { ok: true, run };
   }
 
