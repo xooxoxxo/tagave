@@ -19,21 +19,23 @@
  * install-tagave.sh repair runs the same repair as Settings › Updates ›
  * Repair (trigger installer), saved to .updater/repair.json. It prints each
  * log line, then the headline. Exit 0 repaired, 4 waiting on the music share,
- * 5 needs you, 1 failed or refused, 2 bad arguments. A waiting repair is left
- * waiting in repair.json, where the updater service (when installed) takes it
- * over; --wait keeps watching here up to MINUTES (1 to 120) first.
+ * 5 needs you, 1 failed, refused or stopped (SIGINT, SIGTERM), 2 bad
+ * arguments. A waiting repair is left waiting in repair.json, where the
+ * updater service (when installed) takes it over; --wait keeps watching here
+ * up to MINUTES (1 to 120) first. Without that service the printed headline
+ * names the installer instead of the service and the Repair button.
  */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RepairRun } from '@tagave/shared/updater';
 import { DEFAULT_CONFIG } from './update.js';
 import { dockerRunner, httpAppProbe, httpRepairReport } from './runner.js';
-import { UpdaterService } from './server.js';
+import { STOPPED_REPAIR, UpdaterService } from './server.js';
 import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 import { envGet, readText } from './envFile.js';
 import { MusicHealer, httpMusicApp, type MusicApp } from './music-heal.js';
 import { cachedProber, musicProber } from './music-probe.js';
-import { USAGE, WAIT_NOT_NEEDED, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import { USAGE, WAIT_NOT_NEEDED, parseRepairArgs, printedHeadline, repairExitCode, updaterServiceRuns } from './cli-args.js';
 
 /** Only the app's health is asked for with it; nothing is signed with it. */
 const UNUSED_SECRET = 'unused-by-module-runs';
@@ -164,10 +166,30 @@ async function repair(args: string[]): Promise<number> {
     printed = run.log.length;
   };
   const timer = setInterval(flush, 1000);
+  // Ctrl-C (or docker stopping the one-off) while it runs: the run ends
+  // failed and saved, never left "running" in repair.json for the hour other
+  // starts wait. A waiting run stays waiting.
+  const onSignal = () => {
+    clearInterval(timer);
+    void (async () => {
+      const wasRunning = run.status === 'running';
+      await service.interruptRepair().catch(() => undefined);
+      service.stop();
+      await service.repairSaved().catch(() => undefined);
+      flush();
+      if (wasRunning) console.error(STOPPED_REPAIR);
+      process.exit(wasRunning ? 1 : repairExitCode(run.status));
+    })();
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
   await service.idle();
+  // One call, 10 s: whether this install's updater service takes a waiting
+  // run over and has the Repair button. It decides --wait and the headline's ending.
+  const serviceRuns = await updaterServiceRuns(docker);
   if (run.status === 'waiting' && parsed.waitMinutes !== null) {
     // The service's watcher takes the run over: one watcher per run.
-    if (await updaterServiceRuns(docker)) {
+    if (serviceRuns) {
       flush();
       console.log(WAIT_NOT_NEEDED);
     } else {
@@ -180,7 +202,9 @@ async function repair(args: string[]): Promise<number> {
   await service.repairSaved();
   flush();
   const code = repairExitCode(run.status);
-  const headline = run.headline ?? `${run.status}${run.reason ? `: ${run.reason}` : ''}`;
+  const headline = run.headline !== null
+    ? printedHeadline(run.status, run.headline, serviceRuns)
+    : `${run.status}${run.reason ? `: ${run.reason}` : ''}`;
   if (code === 0 || code === 4) console.log(headline);
   else console.error(headline);
   return code;

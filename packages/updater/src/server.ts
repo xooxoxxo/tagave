@@ -64,6 +64,11 @@ const PARTS_CACHE_MS = 10_000;
 const PARTS_DEADLINE_MS = 6_000;
 /** The limit on one read of the service list (`compose config --services`). */
 const SERVICES_READ_MS = 5_000;
+/** The limit on one read of the service list when nobody waits for the answer (the repair of an interrupted update after a start). */
+const SERVICES_PATIENT_READ_MS = 30_000;
+/** How many such reads before it gives up, and the pause between them. */
+const SERVICES_PATIENT_TRIES = 3;
+const SERVICES_RETRY_MS = 3_000;
 /** The longest a status call waits, for everything it reads; the app gives up on /v1/status after 8 s. */
 const STATUS_DEADLINE_MS = 6_000;
 /** A service list that comes with less of the status budget left counts as late for that call (no parts that would all read stuck). */
@@ -73,7 +78,8 @@ const ELSEWHERE_MS = 60 * 60_000;
 /** How often the service reads repair.json for a waiting repair another process left (followRepairFile). */
 const REPAIR_FILE_POLL_MS = 60_000;
 const RESTARTED_DURING_REPAIR = 'The updater restarted during the repair. Press Repair again.';
-const STOPPED_REPAIR = 'The repair stopped. Press Repair again.';
+/** A repair that ended without an end: stale (R29), or stopped by SIGINT or SIGTERM in cli.js. */
+export const STOPPED_REPAIR = 'The repair stopped. Press Repair again.';
 
 /** What `p` gives if it answers before `end` (a Date.now() time), else `late()`; `p` goes on in the background. */
 async function beforeEnd<T>(end: number, p: Promise<T>, late: () => T): Promise<T> {
@@ -120,6 +126,8 @@ export interface UpdaterOptions {
   partsDeadlineMs?: number;
   /** How long a status call waits in all (default 6 s). */
   statusDeadlineMs?: number;
+  /** The pause between the patient service list reads after a start (default 3 s). */
+  servicesRetryMs?: number;
 }
 
 /** What the service needs of the music healer (music-heal.ts). */
@@ -160,6 +168,8 @@ export class UpdaterService {
   private savedStatus: RepairRun['status'] | null = null;
   /** Stale installer repairs already failed here, by id. */
   private readonly failedStale = new Set<string>();
+  /** A repair this process stopped (interruptRepair) and the end written for it: the run's own later saves are dropped. */
+  private stoppedRepair: { id: string; end: RepairRun | null } | null = null;
   /** The repair of this process: running, or waiting with its watcher. */
   private repair: Repair | null = null;
   private repairActive: Promise<RepairRun> | null = null;
@@ -366,8 +376,12 @@ export class UpdaterService {
     const last = this.repairRun;
     if (last?.status === 'running' || last?.status === 'waiting') return;
     if (last && run.finishedAt && Date.parse(last.startedAt) >= Date.parse(run.finishedAt)) return;
-    const services = await this.services();
-    if (services.length === 0) return;
+    // After a reboot nobody can press Repair: a slow list is read again, not skipped.
+    const services = await this.servicesPatiently();
+    if (services.length === 0) {
+      this.warn('the update ended with stuck parts, but the list of parts could not be read, so no repair started', { runId: run.id });
+      return;
+    }
     const parts = await readParts(this.opts.docker, services);
     if (!parts.some((p) => p.state === 'stopped' || p.state === 'missing' || p.state === 'stuck')) return;
     const started = await this.startRepairAfterHeal();
@@ -606,6 +620,25 @@ export class UpdaterService {
     await Promise.race([watching, deadline]).finally(() => clearTimeout(timer));
   }
 
+  /**
+   * cli.js repair on SIGINT or SIGTERM: this process's running repair ends
+   * failed ("The repair stopped. Press Repair again."), saved before it
+   * resolves, so repair.json never says running for the hour R29 waits. A
+   * waiting repair stays waiting (another start or the service resumes it).
+   */
+  async interruptRepair(): Promise<void> {
+    const repair = this.repair;
+    if (repair?.run.status !== 'running') return;
+    const stopped: { id: string; end: RepairRun | null } = { id: repair.run.id, end: null };
+    this.stoppedRepair = stopped;
+    repair.cancel();
+    // Its saves in flight land first; the end below is the last write.
+    await repair.saved().catch(() => undefined);
+    // A copy: the run object goes on changing until the process exits.
+    stopped.end = structuredClone(repair.run);
+    await this.failRepair(stopped.end, STOPPED_REPAIR, 'the repair was stopped before it ended');
+  }
+
   /** Resolves when this process's repair has written every save it asked for (cli.js, before it exits). */
   async repairSaved(): Promise<void> {
     await this.repair?.saved();
@@ -632,6 +665,8 @@ export class UpdaterService {
   private async saveRepair(run: RepairRun): Promise<void> {
     // A run the owner replaced (Repair pressed while it waited) writes nothing more.
     if (this.repairRun && run.id !== this.repairRun.id) return;
+    // A stopped run: only its end (interruptRepair's) is written.
+    if (this.stoppedRepair?.id === run.id && run !== this.stoppedRepair.end) return;
     // A running or ending save is the claim's to protect; a waiting one checks the file first.
     if (run.status === 'waiting') {
       if (await this.replacedOnDisk(run)) return;
@@ -761,13 +796,30 @@ export class UpdaterService {
   }
 
   /**
+   * The service list for a caller nobody waits on: the last good list, else
+   * the read in flight, else up to SERVICES_PATIENT_TRIES reads with the
+   * longer limit, a few seconds apart. None after that gives none.
+   */
+  private async servicesPatiently(): Promise<string[]> {
+    if (this.servicesList?.length) return this.servicesList;
+    const inFlight = await this.servicesRead;
+    if (inFlight?.length) return inFlight;
+    for (let tries = 1; ; tries++) {
+      const list = this.servicesList?.length ? this.servicesList : await this.readServices(SERVICES_PATIENT_READ_MS);
+      if (list?.length) return list;
+      if (tries >= SERVICES_PATIENT_TRIES) return [];
+      await new Promise((resolve) => setTimeout(resolve, this.opts.servicesRetryMs ?? SERVICES_RETRY_MS));
+    }
+  }
+
+  /**
    * Reads the service list (without the updater); a second call while one
    * reads gets the same read. A good answer is kept; a failed one (null)
    * keeps the last good list.
    */
-  private readServices(): Promise<string[] | null> {
+  private readServices(timeoutMs = SERVICES_READ_MS): Promise<string[] | null> {
     if (this.servicesRead) return this.servicesRead;
-    const read = this.opts.docker(['compose', 'config', '--services'], { timeoutMs: SERVICES_READ_MS })
+    const read = this.opts.docker(['compose', 'config', '--services'], { timeoutMs })
       .then((svc) => (svc.code === 0 ? svc.stdout.split('\n').map((s) => s.trim()).filter((s) => s && s !== 'updater') : null), () => null)
       .then((list) => {
         if (!list) return null;
