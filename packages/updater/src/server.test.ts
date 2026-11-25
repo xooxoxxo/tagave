@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PartState, RepairRun, UpdateRun } from '@tagave/shared/updater';
 import { assertAllowed } from './argv-guard.testkit.js';
 import { musicVerdict, type MusicProber, type ServerAnswer } from './music-probe.js';
@@ -11,7 +11,8 @@ import { INSPECT_FORMAT } from './progress.js';
 import { REPAIR_STATE_FILE, newRepairRun } from './repair.js';
 import type { CommandResult, Runner } from './runner.js';
 import { SignatureVerifier, signRequest, SIGNATURE_HEADER, TIME_HEADER } from './token.js';
-import { UpdaterService, STATE_DIR, type UpdaterOptions } from './server.js';
+import { UpdaterService, STATE_DIR, type RepairHealer, type UpdaterOptions } from './server.js';
+import type { RemountResult } from './music-heal.js';
 import { DEFAULT_CONFIG, newRun } from './update.js';
 import { signed, testKey, testManifest } from './release.testkit.js';
 
@@ -111,6 +112,35 @@ class Fake {
     return this.calls.filter((c) => c.join(' ') === 'compose config --services').length;
   }
 }
+
+/** A music healer the test drives: whether an attempt runs, when it settles, and what a remount does. */
+class FakeHealer implements RepairHealer {
+  busy = false;
+  settledCalls = 0;
+  remounts = 0;
+  /** settled() waits for this; null: it resolves at once. */
+  gate: Promise<void> | null = null;
+  /** Runs on each settled() call, before it waits. */
+  onSettled: (() => void) | null = null;
+  remountGate: Promise<void> | null = null;
+  attempting(): boolean {
+    return this.busy;
+  }
+  settled(): Promise<void> {
+    this.settledCalls++;
+    this.onSettled?.();
+    return this.gate ?? Promise.resolve();
+  }
+  async remount(): Promise<RemountResult> {
+    this.remounts++;
+    this.busy = true;
+    await this.remountGate;
+    this.busy = false;
+    return 'mounted';
+  }
+}
+
+const HEALING = 'tagave is connecting the music share again. Try again in a minute.';
 
 describe('request signatures', () => {
   const req = (h: Record<string, string>, body = '') => ({ method: 'POST', path: '/v1/update', body, time: h[TIME_HEADER], signature: h[SIGNATURE_HEADER] });
@@ -315,6 +345,129 @@ describe('updater HTTP API', () => {
       const res = await call('POST', '/v1/repair');
       expect(res.status).toBe(409);
       expect(await res.json()).toMatchObject({ selfReplace: { expectedVersion: '0.8.0' } });
+    });
+
+    describe('while the music self-heal attempts', () => {
+      const moved = () => fake.calls.filter((c) => c[0] === 'version' || (c[0] === 'compose' && (c[1] === 'stop' || c[1] === 'up')));
+
+      it('a repair, an update and a module start are refused, and nothing runs; once it ends the repair starts', async () => {
+        const healer = new FakeHealer();
+        healer.busy = true;
+        service.attachHealer(healer);
+        const repair = await call('POST', '/v1/repair');
+        expect(repair.status).toBe(409);
+        expect(await repair.json()).toEqual({ error: HEALING });
+        const update = await call('POST', '/v1/update', release('0.8.0'));
+        expect(update.status).toBe(409);
+        expect(await update.json()).toEqual({ error: HEALING });
+        expect(await service.startModule('player', 'enable', false)).toEqual({ ok: false, status: 409, error: HEALING });
+        expect(service['claimed']).toBeNull();
+        expect(moved()).toEqual([]);
+        expect((await statusOf()).repair).toBeNull();
+
+        healer.busy = false;
+        expect((await call('POST', '/v1/repair')).status).toBe(202);
+        await service.idle();
+        expect((await statusOf()).repair).toMatchObject({ trigger: 'owner', status: 'repaired' });
+      });
+
+      it("a repair's own remount goes through, and blocks other starts as a repair", async () => {
+        const absent: MusicProber = {
+          read: async ({ parts, appUnmounted }) => {
+            const mount = { kind: 'absent' as const, fstype: null, server: null, export: null, hard: false, mountPoint: null };
+            return { dir: '/mnt/music', mount, answer: null, verdict: musicVerdict(mount, null, parts, appUnmounted), server: null };
+          },
+        };
+        const s = make({ music: absent, musicUnmounted: async () => true });
+        const healer = new FakeHealer();
+        let open!: () => void;
+        healer.remountGate = new Promise((r) => { open = r; });
+        s.attachHealer(healer);
+        expect((await s.startRepair('owner')).ok).toBe(true);
+        await vi.waitFor(() => expect(healer.remounts).toBe(1));
+        expect(healer.attempting()).toBe(true);
+        expect(await s.startRepair('owner')).toEqual({ ok: false, status: 409, error: 'a repair is running' });
+        open();
+        await s.idle();
+        expect(healer.remounts).toBe(1);
+        expect((await s.status()).repair?.steps.find((st) => st.id === 'music')?.status).toBe('done');
+      });
+
+      it("a held update's hand-over waits for the attempt to settle, then starts its repair", async () => {
+        const healer = new FakeHealer();
+        healer.busy = true;
+        let settle!: () => void;
+        healer.gate = new Promise((r) => { settle = r; });
+        service.attachHealer(healer);
+        const held: UpdateRun = { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } };
+        let done = false;
+        const after = service['afterUpdate'](held).then(() => { done = true; });
+        await new Promise((r) => setTimeout(r, 20));
+        expect(done).toBe(false);
+        expect(healer.settledCalls).toBe(1);
+        expect(service['repairRun']).toBeNull();
+        healer.busy = false;
+        settle();
+        await after;
+        await service.idle();
+        expect((await statusOf()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+      });
+
+      it('a hand-over refused by a new attempt waits once more and tries once more, then warns', async () => {
+        const logs: string[] = [];
+        const s = make({ log: (_level, m) => { logs.push(m); } });
+        const healer = new FakeHealer();
+        healer.busy = true;
+        // the attempt ends at the second wait
+        healer.onSettled = () => { if (healer.settledCalls === 2) healer.busy = false; };
+        s.attachHealer(healer);
+        const held: UpdateRun = { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } };
+        await s['afterUpdate'](held);
+        await s.idle();
+        expect(healer.settledCalls).toBe(2);
+        expect((await s.status()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+        expect(logs).toEqual([]);
+
+        // an attempt that never ends: two tries, then the usual warning
+        const s2 = make({ log: (_level, m) => { logs.push(m); } });
+        const stuck = new FakeHealer();
+        stuck.busy = true;
+        s2.attachHealer(stuck);
+        await s2['afterUpdate']({ ...held, id: 'u2' });
+        expect(stuck.settledCalls).toBe(2);
+        expect(logs).toEqual([`the held update could not hand its parts to a repair: ${HEALING}`]);
+      });
+
+      it('a settle that never comes stops blocking after its limit', async () => {
+        const healer = new FakeHealer();
+        healer.gate = new Promise(() => {});
+        service.attachHealer(healer);
+        service['healWaitMs'] = 20;
+        const held: UpdateRun = { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } };
+        await service['afterUpdate'](held);
+        await service.idle();
+        expect((await statusOf()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+      });
+
+      it('after a restart, the repair of a held update waits for the attempt to settle', async () => {
+        fake.status.set('worker-files', 'exited');
+        await writeRun(join(STATE_DIR, 'state.json'), { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } });
+        const s = make();
+        const healer = new FakeHealer();
+        healer.busy = true;
+        let settle!: () => void;
+        healer.gate = new Promise((r) => { settle = r; });
+        s.attachHealer(healer);
+        await s.load();
+        await vi.waitFor(() => expect(healer.settledCalls).toBe(1));
+        expect(s['repairRun']).toBeNull();
+        expect(fake.status.get('worker-files')).toBe('exited');
+        healer.busy = false;
+        settle();
+        await s.idle();
+        expect((await s.status()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+        expect(fake.status.get('worker-files')).toBe('running');
+      });
     });
 
     it('one run at a time: two Repair presses, or an update and a repair, started together', async () => {

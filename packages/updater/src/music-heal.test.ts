@@ -431,6 +431,78 @@ describe('remount obeys the switch and a run that moves containers', () => {
   });
 });
 
+describe('attempting and settled: what a repair or update start waits for', () => {
+  it('attempting is false while a tick only decides no', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    let release!: (v: boolean) => void;
+    const answer = new Promise<boolean>((r) => { release = r; });
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const app = { unmounted: () => answer, report: async () => undefined };
+    const healer = new MusicHealer({ installDir, docker, app, busy: () => true, self: 's' });
+    const tick = healer.tick();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(healer.attempting()).toBe(false);
+    release(true);
+    expect(await tick).toBeNull();
+    expect(healer.attempting()).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('attempting is true during an attempt and false after; settled resolves once it ends', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let blocked = true;
+    const answer = hostAnswers();
+    const calls: string[][] = [];
+    const docker: Runner = async (args) => {
+      assertAllowed(args);
+      calls.push(args);
+      if (blocked && args[0] === 'inspect' && args[2] === '{{.Image}}') { blocked = false; await held; }
+      return { code: 0, stdout: '', stderr: '', ...answer(args) };
+    };
+    const { app } = fakeApp(true);
+    const healer = new MusicHealer({ installDir, docker, app, music: null, busy: () => false, self: 's' });
+    await healer.settled();
+    const tick = healer.tick();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(healer.attempting()).toBe(true);
+    let settled = false;
+    const waiting = healer.settled().then(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(settled).toBe(false);
+    release();
+    expect(await tick).toBe('mounted');
+    await waiting;
+    expect(settled).toBe(true);
+    expect(healer.attempting()).toBe(false);
+  });
+
+  it('a remount is attempting only past its off and busy checks', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let blocked = true;
+    const answer = hostAnswers();
+    const docker: Runner = async (args) => {
+      assertAllowed(args);
+      if (blocked && args[0] === 'inspect' && args[2] === '{{.Image}}') { blocked = false; await held; }
+      return { code: 0, stdout: '', stderr: '', ...answer(args) };
+    };
+    const { app } = fakeApp(true);
+    let updating = true;
+    const healer = new MusicHealer({ installDir, docker, app, music: null, busy: () => false, updating: () => updating, self: 's' });
+    expect(await healer.remount('/mnt/music', 'tagave')).toBe('busy');
+    expect(healer.attempting()).toBe(false);
+    updating = false;
+    const remount = healer.remount('/mnt/music', 'tagave');
+    await vi.waitFor(() => expect(healer.attempting()).toBe(true));
+    release();
+    expect(await remount).toBe('mounted');
+    expect(healer.attempting()).toBe(false);
+  });
+});
+
 describe('musicContainers', () => {
   it('only this project’s music services that bind MUSIC_DIR', async () => {
     const { docker } = fakeDocker(hostAnswers());
