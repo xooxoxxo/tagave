@@ -14,8 +14,12 @@
  * From the install's .env, read on every check: MUSIC_DIR (the folder the
  * music self-heal mounts again, music-heal.ts) and TAGAVE_MUSIC_SELF_HEAL
  * (0 turns it off).
+ *
+ * A repair (repair.ts) tells the app how it settled with a signed
+ * POST /api/v1/internal/updater/repair {"status", "cause"}.
  */
 import { existsSync } from 'node:fs';
+import type { RepairCause, RepairStatus } from '@tagave/shared/updater';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from './update.js';
 import { dockerRunner, httpAppProbe } from './runner.js';
@@ -23,11 +27,26 @@ import { UpdaterService } from './server.js';
 import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 import { MusicHealer, httpMusicApp } from './music-heal.js';
 import { cachedProber, musicProber } from './music-probe.js';
+import { signRequest } from './token.js';
 
 function num(name: string, fallback: number): number {
   const raw = process.env[name];
   const n = raw === undefined || raw.trim() === '' ? NaN : Number(raw);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** How a repair settled, for the app's audit entry; signed like httpMusicApp's report, and it never throws. */
+function httpRepairReport(baseUrl: string, appSecret: string): (end: { status: RepairStatus; cause: RepairCause | null }) => Promise<void> {
+  const path = '/api/v1/internal/updater/repair';
+  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  return async ({ status, cause }) => {
+    const text = JSON.stringify({ status, cause });
+    try {
+      await fetch(url, { method: 'POST', headers: { ...signRequest(appSecret, 'POST', path, text), 'content-type': 'application/json' }, body: text, signal: AbortSignal.timeout(5000) });
+    } catch {
+      /* the run on disk still says how it ended */
+    }
+  };
 }
 
 async function main(): Promise<void> {
@@ -46,6 +65,7 @@ async function main(): Promise<void> {
   if (keys.length === 0) console.error(JSON.stringify({ msg: `no release key in ${IMAGE_KEYS_DIR}: every update and module is refused` }));
   // One shared music reading, so the healer and an update probe the share once.
   const music = cachedProber(musicProber({ installDir, docker: dockerRunner(installDir) }), Date.now);
+  const musicApp = httpMusicApp(appUrl, appSecret);
   const service = new UpdaterService({
     keys,
     installDir,
@@ -61,20 +81,28 @@ async function main(): Promise<void> {
       stallMs: num('TAGAVE_UPDATER_STALL_SECONDS', DEFAULT_CONFIG.stallMs / 1000) * 1000,
     },
     music,
+    musicUnmounted: () => musicApp.unmounted(),
+    report: httpRepairReport(appUrl, appSecret),
   });
-  await service.load();
-  const server = service.listen(port);
+  // The healer's tick waits while anything moves containers, a repair too;
+  // its remount is refused only during an update or a module run, so a
+  // repair's own remount goes through.
   const healer = new MusicHealer({
     installDir,
     docker: dockerRunner(installDir),
     music,
-    app: httpMusicApp(appUrl, appSecret),
+    app: musicApp,
     busy: () => service.moving(),
+    updating: () => service.updating(),
     log: (m) => console.log(JSON.stringify(m)),
   });
+  service.attachHealer(healer);
+  // load() picks up a waiting repair, and repairs an update left with stuck parts.
+  await service.load();
+  const server = service.listen(port);
   healer.start();
   console.log(JSON.stringify({ msg: 'updater ready', port, installDir, releaseKeys: keys.map((k) => k.id) }));
-  const stop = () => { healer.stop(); server.close(() => process.exit(0)); };
+  const stop = () => { healer.stop(); service.stop(); server.close(() => process.exit(0)); };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
 }

@@ -1462,6 +1462,8 @@ export class Update {
           : `by hand, in the install folder: check TAGAVE_VERSION in .env is ${this.run.from}, then docker compose up -d${
             this.run.backup ? `; if the app refuses the database, restore ${this.run.backup} with tagave-doctor restore (docs/operations.md, Roll back)` : ''}`);
       }
+      // The parts left stuck: after an updater restart, a repair starts them (server.ts load()).
+      if ((err instanceof RollbackStuck || err instanceof KeepNewVersion) && this.stuck.size > 0) this.run.stuck = [...this.stuck.keys()];
     }
     this.run.rollback = {
       version: filesBack ? envGet(this.originals.get('.env') ?? '', 'TAGAVE_VERSION') ?? this.run.from : this.run.target,

@@ -558,6 +558,24 @@ describe('repair', () => {
     expect(run.headline).toBe("Your music share doesn't answer. Turn the NAS on or check its cable, then press Repair.");
   });
 
+  it('a cancel while the share is probed never resumes the run (Repair pressed again)', async () => {
+    fake.box('worker-files').status = 'removing';
+    fake.share = 'silent';
+    const r = repair();
+    await r.execute();
+    const changes = fake.changes().length;
+    const read = fake.music.read;
+    fake.music.read = async (input) => {
+      // the owner presses Repair while this probe runs, and the share answers
+      r.cancel();
+      fake.share = 'answers';
+      return read(input);
+    };
+    const run = await r.watch();
+    expect(run.status).toBe('waiting');
+    expect(fake.changes()).toHaveLength(changes);
+  });
+
   it('the watcher with no music prober says once that it cannot check the share', async () => {
     fake.box('worker-files').status = 'removing';
     fake.share = 'silent';
