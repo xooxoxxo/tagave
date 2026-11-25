@@ -196,7 +196,13 @@ export class SelfReplaceGate implements SelfReplaceHooks {
 
   /** The marker as /v1/status shows it, with its age by this process's clock (the page never compares clocks). */
   async status(): Promise<(SelfReplaceMarker & { ageMs: number }) | null> {
-    const m = await this.check();
+    await this.check();
+    return this.shown();
+  }
+
+  /** The marker known now, shaped as status() shapes it, without checking it again (a status call that cannot wait). */
+  shown(): (SelfReplaceMarker & { ageMs: number }) | null {
+    const m = this.marker;
     if (!m) return null;
     const age = ageMs(m, this.now());
     return { ...m, ageMs: Number.isFinite(age) ? Math.max(0, age) : this.staleMs };

@@ -60,12 +60,31 @@ export const STATE_DIR = '.updater';
 const PARTS_CACHE_MS = 10_000;
 /** The longest a status call waits for the parts; a part with no answer by then reads stuck. */
 const PARTS_DEADLINE_MS = 6_000;
+/** The limit on one read of the service list (`compose config --services`). */
+const SERVICES_READ_MS = 5_000;
+/** The longest a status call waits, for everything it reads; the app gives up on /v1/status after 8 s. */
+const STATUS_DEADLINE_MS = 6_000;
 /** A repair.json marked running by another process (the installer's one-off) counts for this long. */
 const ELSEWHERE_MS = 60 * 60_000;
 /** How often the service reads repair.json for a waiting repair another process left (followRepairFile). */
 const REPAIR_FILE_POLL_MS = 60_000;
 const RESTARTED_DURING_REPAIR = 'The updater restarted during the repair. Press Repair again.';
 const STOPPED_REPAIR = 'The repair stopped. Press Repair again.';
+
+/** What `p` gives if it answers before `end` (a Date.now() time), else `late()`; `p` goes on in the background. */
+async function beforeEnd<T>(end: number, p: Promise<T>, late: () => T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<{ late: true }>((resolve) => {
+    timer = setTimeout(() => resolve({ late: true }), Math.max(0, end - Date.now()));
+    (timer as { unref?: () => void }).unref?.();
+  });
+  try {
+    const won = await Promise.race([p.then((value) => ({ late: false as const, value })), timeout]);
+    return won.late ? late() : won.value;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Which run holds the one run slot while it starts. */
 type Claim = 'update' | 'module' | 'repair';
@@ -93,8 +112,10 @@ export interface UpdaterOptions {
   musicUnmounted?: RepairDeps['musicUnmounted'];
   /** Repair limits; default DEFAULT_REPAIR_CONFIG with `config`'s health limit and poll. */
   repairConfig?: Partial<RepairConfig>;
-  /** How long a status call waits for the parts (default 6 s). */
+  /** How long a status call waits for the parts (default 6 s, never more than the time left in its budget). */
   partsDeadlineMs?: number;
+  /** How long a status call waits in all (default 6 s). */
+  statusDeadlineMs?: number;
 }
 
 /** What a repair needs of the music healer (music-heal.ts). */
@@ -145,6 +166,10 @@ export class UpdaterService {
   private claimed: Claim | null = null;
   /** Bumped when the parts change: a reading begun before it is not kept. */
   private partsGen = 0;
+  /** The last good service list (without the updater), or null before the first read answers. */
+  private servicesList: string[] | null = null;
+  /** The service list read in flight: one at a time. */
+  private servicesRead: Promise<string[] | null> | null = null;
 
   constructor(private readonly opts: UpdaterOptions) {
     this.verifier = new SignatureVerifier(opts.appSecret);
@@ -183,6 +208,12 @@ export class UpdaterService {
     this.partsGen++;
   }
 
+  /** A run ended: the parts read again, and the service list (it may have changed) in the background. */
+  private runEnded(): void {
+    this.partsChanged();
+    void this.readServices();
+  }
+
   private now(): Date {
     return (this.opts.now ?? (() => new Date()))();
   }
@@ -194,6 +225,7 @@ export class UpdaterService {
 
   /** Loads the last runs; a run still marked running was cut off (the updater or the host restarted). */
   async load(): Promise<void> {
+    void this.readServices();
     await this.loadModuleRun();
     await this.loadUpdateRun();
     await this.loadRepair();
@@ -580,7 +612,7 @@ export class UpdaterService {
     this.savedStatus = repair.run.status;
     const watching: Promise<unknown> = repair.watch().catch(() => undefined).finally(() => {
       if (this.repairWatch === watching) this.repairWatch = null;
-      this.partsChanged();
+      this.runEnded();
     });
     this.repairWatch = watching;
   }
@@ -619,7 +651,7 @@ export class UpdaterService {
       })
       .finally(() => {
         this.repairActive = null;
-        this.partsChanged();
+        this.runEnded();
       });
     return { ok: true, run };
   }
@@ -653,9 +685,30 @@ export class UpdaterService {
 
   // -- parts -----------------------------------------------------------------------
 
+  /** The service list: the last good one, else the read (a failed read gives none). */
   private async services(): Promise<string[]> {
-    const svc = await this.opts.docker(['compose', 'config', '--services'], { timeoutMs: 30_000 }).catch(() => null);
-    return svc?.code === 0 ? svc.stdout.split('\n').map((s) => s.trim()).filter((s) => s && s !== 'updater') : [];
+    return this.servicesList ?? (await this.readServices()) ?? [];
+  }
+
+  /**
+   * Reads the service list (without the updater); a second call while one
+   * reads gets the same read. A good answer is kept; a failed one (null)
+   * keeps the last good list.
+   */
+  private readServices(): Promise<string[] | null> {
+    if (this.servicesRead) return this.servicesRead;
+    const read = this.opts.docker(['compose', 'config', '--services'], { timeoutMs: SERVICES_READ_MS })
+      .then((svc) => (svc.code === 0 ? svc.stdout.split('\n').map((s) => s.trim()).filter((s) => s && s !== 'updater') : null), () => null)
+      .then((list) => {
+        if (!list) return null;
+        // Another list: a parts reading kept for the old one is not served.
+        if (this.servicesList && this.servicesList.join('\n') !== list.join('\n')) this.partsChanged();
+        this.servicesList = list;
+        return list;
+      })
+      .finally(() => { if (this.servicesRead === read) this.servicesRead = null; });
+    this.servicesRead = read;
+    return read;
   }
 
   /**
@@ -663,7 +716,7 @@ export class UpdaterService {
    * background, and a status call waits for it at most partsDeadlineMs. A
    * part with no answer by then reads stuck.
    */
-  private async partStates(services: string[]): Promise<PartState[]> {
+  private async partStates(services: string[], deadlineMs: number): Promise<PartState[]> {
     const cached = this.partsCache;
     if (cached && Date.now() - cached.at < PARTS_CACHE_MS) return cached.parts;
     if (!this.partsRefresh) {
@@ -683,7 +736,7 @@ export class UpdaterService {
     const { answered, done } = this.partsRefresh;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, this.opts.partsDeadlineMs ?? PARTS_DEADLINE_MS);
+      timer = setTimeout(resolve, deadlineMs);
       (timer as { unref?: () => void }).unref?.();
     });
     await Promise.race([done, deadline]).finally(() => clearTimeout(timer));
@@ -734,7 +787,7 @@ export class UpdaterService {
     );
     await this.saveModuleRun(run);
     this.partsChanged();
-    this.moduleActive = op.execute().finally(() => { this.moduleActive = null; this.partsChanged(); });
+    this.moduleActive = op.execute().finally(() => { this.moduleActive = null; this.runEnded(); });
     return { ok: true, run };
   }
 
@@ -755,18 +808,30 @@ export class UpdaterService {
     return next;
   }
 
+  /**
+   * GET /v1/status. One budget (statusDeadlineMs) for all it waits on: the
+   * service list (cached; read only when none is known yet), the parts and
+   * the hand-over check. What is late is left to finish in the background.
+   */
   async status(): Promise<UpdaterStatus> {
+    const end = Date.now() + (this.opts.statusDeadlineMs ?? STATUS_DEADLINE_MS);
     const env = (await readText(join(this.opts.installDir, '.env'))) ?? '';
-    const services = await this.services();
+    const services = this.servicesList ?? (await beforeEnd(end, this.readServices(), () => null)) ?? [];
     await this.refreshRepair();
+    const marker = this.selfReplace.status();
+    // No services known (yet): no parts, and nothing kept that hides them once the list comes.
+    const parts = services.length === 0
+      ? Promise.resolve([])
+      : this.partStates(services, Math.min(this.opts.partsDeadlineMs ?? PARTS_DEADLINE_MS, Math.max(0, end - Date.now())));
     return {
       version: this.opts.version,
       configuredVersion: envGet(env, 'TAGAVE_VERSION'),
       role: envGet(env, 'TAGAVE_ROLE'),
       services,
       run: this.run,
-      selfReplace: await this.selfReplace.status(),
-      parts: await this.partStates(services),
+      // A hand-over check still waiting on Docker: the marker known so far.
+      selfReplace: await beforeEnd(end, marker, () => this.selfReplace.shown()),
+      parts: await parts,
       repair: this.repairRun,
     };
   }
@@ -815,6 +880,7 @@ export class UpdaterService {
         return r;
       })
       .finally(() => {
+        void this.readServices();
         // Also when execute() rejects: the parts moved either way.
         if (this.active !== active) return;
         this.partsChanged();
