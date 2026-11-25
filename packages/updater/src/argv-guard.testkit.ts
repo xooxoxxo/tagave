@@ -5,6 +5,8 @@
  * `-v`/`--volumes`, any unmount (`umount` or stopping a `.mount` unit, also
  * inside a helper's nsenter command or a `sh -c` string), and a `ps` filter
  * that is not scoped to the compose project label or the hand-over label.
+ * A `ps` with no filter at all passes on purpose: image hygiene lists every
+ * container on the host (`ps -a --format`) to keep the images any of them use.
  *
  * The updater often turns a failed docker call into a result instead of a
  * throw, so a throw alone could be swallowed. Every violation is also kept,
