@@ -2,7 +2,8 @@
  * Settings › Updates (spec PLT-5, XO-313): whether a newer release exists
  * and what it changes, the update steps for the way this server was
  * installed (that one first, the others folded away), what is running where
- * (app vs workers, with a warning for a host on an older build), and the update-check
+ * (app vs workers, with a warning for a host on an older build, and Repair
+ * when a part does not run, RepairRun), and the update-check
  * switch. The server checks the official release feed on its own at most
  * every 12 hours. With the opt-in updater installed, the page also starts
  * an update and follows it (InAppUpdate); without it, it shows the command.
@@ -19,6 +20,7 @@ import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
 import { restartingOn, useUpdater, type SeenUpdaterView } from '../hooks/useUpdater';
 import { InAppUpdate, RunView, useNow, useShownRun } from '../components/InAppUpdate';
+import { REPAIR_HELP, RepairButton, RepairRunView, showRepair, useShownRepair } from '../components/RepairRun';
 import { Banner, Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, useSaveFlash, useSettingsDraft, type SaveState } from '../components/ui';
 import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
 import { shortDate } from '../utils/time';
@@ -299,6 +301,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   // "Up to date" only when a check actually ran and found nothing newer.
   const upToDate = feed.enabled && !!feed.lastCheckedAt && !feed.error && feed.newer.length === 0;
   const shown = useShownRun(uv);
+  const repair = useShownRepair(uv?.updater?.repair);
   const appChangedAt = useAppChangedAt(app.sha);
   // ticks only while an update settles, so Updating turns into Older build on time
   const [ticking, setTicking] = useState(false);
@@ -310,6 +313,9 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   // While a run is on screen it is the whole pane (the section list steps aside).
   if (inApp && shown.run) {
     return <RunView run={shown.run} disconnected={disconnected} reloading={shown.reloading} restart={shown.restart} onDismiss={shown.dismiss} />;
+  }
+  if (inApp && repair.run) {
+    return <RepairRunView run={repair.run} onDismiss={repair.dismiss} />;
   }
 
   const manual = confirmed ? (
@@ -401,7 +407,14 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
         </>}
       />
 
-      <SettingsGroup title="Running now" after={<RunningNow app={app} workers={workers} updating={updating} now={current} />} />
+      <SettingsGroup
+        title="Running now"
+        help={inApp ? REPAIR_HELP : null}
+        after={<>
+          {inApp && showRepair(uv?.updater ?? null) && <RepairButton repair={uv?.updater?.repair} onShow={repair.reopen} />}
+          <RunningNow app={app} workers={workers} updating={updating} now={current} />
+        </>}
+      />
 
       <UpdateChecksView
         feed={feed}

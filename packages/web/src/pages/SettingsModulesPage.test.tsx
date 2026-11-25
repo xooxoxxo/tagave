@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import type { ModulesView } from '@tagave/shared';
-import { CatalogueModuleView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, mcDeleted, moduleLink, moduleRows, turnOffKey, type ModuleRowView, type OffChoice } from './SettingsModulesPage';
+import { CatalogueModuleView, ModuleRunView, ModuleSwitchView, ModulesListView, SettingOffChoices, TurnOffChoices, mcDeleted, moduleLink, moduleRows, turnOffKey, type ModuleRowView, type OffChoice } from './SettingsModulesPage';
 import { MOVED_SECTIONS, moduleSlug } from './moduleSettings';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from '../stories/modulesFixtures';
 import { LidarrSettingsForm, draftOf } from '../components/LidarrSettings';
@@ -163,6 +163,15 @@ describe('Off | On', () => {
     expect(html).toContain('aria-label="Get missing albums"');
     expect(option(html, 'On')).toMatch(/checked/);
     expect(html).toContain('2 getting');
+  });
+});
+
+describe('a module run that ended held', () => {
+  it('says the module is on, with its reason, never that the roll back failed', () => {
+    const html = renderToStaticMarkup(<ModuleRunView run={playerRun('held', 'the player waits for the music share')} disconnected={false} onDismiss={() => undefined} />);
+    expect(html).toContain('Player is on');
+    expect(html).toContain('The player waits for the music share.');
+    expect(html).not.toContain('roll back');
   });
 });
 

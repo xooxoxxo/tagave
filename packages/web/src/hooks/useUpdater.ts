@@ -12,6 +12,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SELF_REPLACE_STALE_MS, type UpdateRun, type UpdaterSelfReplace, type UpdaterView } from '@tagave/shared';
+import type { RepairRun } from '@tagave/shared/updater';
 import { api } from '../services/api';
 
 export const updaterKey = ['updater'] as const;
@@ -56,16 +57,26 @@ export function useUpdater(enabled = true) {
     enabled,
     retry: false,
     refetchOnWindowFocus: true,
-    refetchInterval: (query) => {
-      const run = query.state.data?.updater?.run;
-      if (run?.status === 'running') return 2000;
-      // Restarting itself: poll until it answers on the new version.
-      if (restartingOn(query.state.data)) return 2000;
-      // The app (or the updater) went away mid-run: keep knocking.
-      if (query.state.error && query.state.data?.updater?.run) return 2000;
-      return 60_000;
-    },
+    refetchInterval: (query) => updaterPollMs(query.state.data, !!query.state.error),
   });
+}
+
+/**
+ * How often the page asks: every two seconds while an update or a repair
+ * runs, while the updater restarts itself, and while the app (or the
+ * updater) went away mid-run; every minute otherwise. A repair that waits
+ * for the music share is checked by the updater itself, so the page keeps
+ * its minute.
+ */
+export function updaterPollMs(data: SeenUpdaterView | undefined, failed: boolean): number {
+  const run = data?.updater?.run;
+  if (run?.status === 'running') return 2000;
+  if (data?.updater?.repair?.status === 'running') return 2000;
+  // Restarting itself: poll until it answers on the new version.
+  if (restartingOn(data)) return 2000;
+  // The app (or the updater) went away mid-run: keep knocking.
+  if (failed && run) return 2000;
+  return 60_000;
 }
 
 export function useStartUpdate() {
@@ -75,6 +86,19 @@ export function useStartUpdate() {
     onSuccess: ({ run }) => {
       queryClient.setQueryData<SeenUpdaterView>(updaterKey, (prev) =>
         prev?.updater ? { ...prev, updater: { ...prev.updater, run } } : prev);
+      void queryClient.invalidateQueries({ queryKey: updaterKey });
+    },
+  });
+}
+
+/** Repair: the updater checks every part and fixes what it safely can (202 with the run; 409 while something else runs). */
+export function useStartRepair() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ run: RepairRun }>('/updater/repair', {}),
+    onSuccess: ({ run }) => {
+      queryClient.setQueryData<SeenUpdaterView>(updaterKey, (prev) =>
+        prev?.updater ? { ...prev, updater: { ...prev.updater, repair: run } } : prev);
       void queryClient.invalidateQueries({ queryKey: updaterKey });
     },
   });

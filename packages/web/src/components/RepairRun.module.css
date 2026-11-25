@@ -1,0 +1,27 @@
+/*
+ * The repair run: InAppUpdate's takeover, with the "?" beside the headline
+ * and what was done under it, a line each.
+ */
+.head {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.details {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Repair in Running now, above the table */
+.action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
