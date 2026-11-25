@@ -156,7 +156,7 @@ describe('updater HTTP API', () => {
       s.stop();
       // a watcher's last saves land before the folder goes
       await s['repairWatch'];
-      await s['repair']?.['saving'];
+      await s.repairSaved();
     }
     await new Promise((r) => server.close(r));
     await rm(dir, { recursive: true, force: true });
@@ -442,6 +442,8 @@ describe('updater HTTP API', () => {
       it('a waiting installer repair is adopted, and its watcher finishes it when the share answers', async () => {
         const run = await installerWaiting();
         const s = make({ repairConfig: quick });
+        // the long-running service follows the file (its timer never fires here)
+        s.followRepairFile(3_600_000);
         expect((await s.status()).repair).toMatchObject({ id: run.id, trigger: 'installer', status: 'waiting' });
         expect(s['repair']?.run.id).toBe(run.id);
         fake.share = 'answers';
@@ -469,6 +471,32 @@ describe('updater HTTP API', () => {
         await new Promise((r) => setTimeout(r, 50));
         expect((await onDisk()).id).toBe('installer-1');
         expect(await s.startRepair('owner')).toMatchObject({ ok: false, error: 'a repair is running' });
+      });
+
+      it('a process that does not follow the file (cli.js) never adopts a waiting run', async () => {
+        const run = await installerWaiting();
+        const s = make({ repairConfig: quick });
+        expect((await s.status()).repair).toMatchObject({ id: run.id, status: 'waiting' });
+        expect(s['repair']).toBeNull();
+      });
+
+      it('a waiting watcher whose file another process replaced writes nothing more and stops, with no status call', async () => {
+        const s = make({ repairConfig: quick });
+        fake.status.set('worker-files', 'removing');
+        fake.share = 'silent';
+        const own = await s.startRepair('installer');
+        if (!own.ok) throw new Error(own.error);
+        await s.idle();
+        expect(own.run.status).toBe('waiting');
+        const watcher = s['repair']!;
+        // the service starts a repair (Repair pressed in Settings) while this one waits
+        await writeRun(REPAIR_STATE_FILE, newRepairRun('owner-1', 'owner', new Date()));
+        await until(() => watcher['cancelled'] === true);
+        await s.repairSaved();
+        await new Promise((r) => setTimeout(r, 50));
+        expect((await onDisk()).id).toBe('owner-1');
+        expect(s['repair']).toBeNull();
+        expect(s['repairWatch']).toBeNull();
       });
 
       it('the service reads repair.json on its own timer, and stop() ends the timer', async () => {

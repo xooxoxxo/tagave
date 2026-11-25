@@ -1,5 +1,6 @@
 /** The pure parts of cli.js: its usage, the repair's arguments and exit codes (kept apart so tests import them without running the CLI). */
 import type { RepairStatus } from '@tagave/shared/updater';
+import type { Runner } from './runner.js';
 
 export const USAGE = [
   'usage: cli.js module enable|disable <id> [--delete-data [--delete-history]] [--manifest FILE --signature FILE]',
@@ -15,6 +16,15 @@ export function parseRepairArgs(args: string[]): { ok: true; waitMinutes: number
   if (args.length !== 2 || args[0] !== '--wait' || !/^[0-9]{1,3}$/.test(args[1]!)) return { ok: false };
   const minutes = Number(args[1]);
   return minutes >= 1 && minutes <= MAX_WAIT_MINUTES ? { ok: true, waitMinutes: minutes } : { ok: false };
+}
+
+/** Printed instead of watching when --wait is given and the updater service runs here. */
+export const WAIT_NOT_NEEDED = 'The updater keeps watching the music share, so --wait is not needed here.';
+
+/** This install's updater service runs (one call, 10 s): its watcher takes a waiting repair over. A failed or slow call says no. */
+export async function updaterServiceRuns(docker: Runner): Promise<boolean> {
+  const res = await docker(['compose', 'ps', '-q', 'updater'], { timeoutMs: 10_000 }).catch(() => null);
+  return res?.code === 0 && res.stdout.trim() !== '';
 }
 
 /** 0 repaired, 4 waiting on the music share, 5 needs the owner, 1 failed (or, never expected, still running). */

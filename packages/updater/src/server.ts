@@ -133,6 +133,8 @@ export class UpdaterService {
   private repairWatch: Promise<unknown> | null = null;
   /** followRepairFile's timer. */
   private repairTimer: ReturnType<typeof setInterval> | null = null;
+  /** followRepairFile was called: this is the long-running service, which takes over a waiting run another process left. */
+  private following = false;
   private readonly repairPath: string;
   private healer: RepairHealer | null = null;
   private partsCache: { at: number; parts: PartState[] } | null = null;
@@ -445,8 +447,8 @@ export class UpdaterService {
   /**
    * repair.json, unless this process starts or runs a repair: the installer's
    * one-off writes the same file. A waiting watcher here yields to another
-   * run named there, and a waiting run of another process (the one-off has
-   * exited) gets this process's watcher.
+   * run named there, and in the long-running service (followRepairFile) a
+   * waiting run of another process gets this process's watcher.
    */
   private async refreshRepair(): Promise<void> {
     if (this.ownRepair()) return;
@@ -468,8 +470,35 @@ export class UpdaterService {
       this.repair.cancel();
       this.repair = null;
     }
-    if (run.status === 'waiting') this.watchRepair(new Repair(this.repairDeps(), run));
+    if (run.status === 'waiting' && this.following) this.watchRepair(new Repair(this.repairDeps(), run));
     else await this.failStale(run);
+  }
+
+  /**
+   * Before a waiting run's save: another process may have started a repair
+   * over repair.json since (Repair in Settings while cli.js waits, or the
+   * installer while the service waits). Then this watcher stops, the file's
+   * run is current (taken over here per followRepairFile), and nothing is
+   * written. True when the save must not land.
+   */
+  private async replacedOnDisk(run: RepairRun): Promise<boolean> {
+    let file: RepairRun | null;
+    try {
+      const text = await readText(this.repairPath);
+      file = text ? (JSON.parse(text) as RepairRun) : null;
+    } catch {
+      return false; /* unreadable: the save puts it right */
+    }
+    if (!file || file.id === run.id) return false;
+    // A repair started here while it read: that one owns the file.
+    if (this.claimed === 'repair' || (this.repairRun && this.repairRun.id !== run.id)) return true;
+    this.repairRun = file;
+    if (this.repair?.run.id === run.id) {
+      this.repair.cancel();
+      this.repair = null;
+    }
+    if (file.status === 'waiting' && this.following) this.watchRepair(new Repair(this.repairDeps(), file));
+    return true;
   }
 
   /** This process starts or runs a repair: repair.json is ours, never read back over it. */
@@ -483,6 +512,7 @@ export class UpdaterService {
    * no status call comes for hours. stop() ends it.
    */
   followRepairFile(everyMs = REPAIR_FILE_POLL_MS): void {
+    this.following = true;
     if (this.repairTimer) return;
     this.repairTimer = setInterval(() => void this.refreshRepair().catch(() => undefined), everyMs);
     this.repairTimer.unref();
@@ -498,6 +528,11 @@ export class UpdaterService {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); });
     await Promise.race([watching, deadline]).finally(() => clearTimeout(timer));
+  }
+
+  /** Resolves when this process's repair has written every save it asked for (cli.js, before it exits). */
+  async repairSaved(): Promise<void> {
+    await this.repair?.saved();
   }
 
   private repairDeps(): RepairDeps {
@@ -520,6 +555,8 @@ export class UpdaterService {
   private async saveRepair(run: RepairRun): Promise<void> {
     // A run the owner replaced (Repair pressed while it waited) writes nothing more.
     if (this.repairRun && run.id !== this.repairRun.id) return;
+    // A running or ending save is the claim's to protect; a waiting one checks the file first.
+    if (run.status === 'waiting' && await this.replacedOnDisk(run)) return;
     // running, waiting and the end move parts: the next status reads them again.
     if (this.savedStatus !== run.status) this.partsChanged();
     this.savedStatus = run.status;
