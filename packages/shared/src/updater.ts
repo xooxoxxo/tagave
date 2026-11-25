@@ -152,6 +152,12 @@ export interface UpdateRun {
   stall?: UpdateStall | null;
   /** Set when the status is held: which parts wait for the music share. */
   held?: UpdateHeld | null;
+  /**
+   * Set when the run ended rollback_failed with parts that would not stop or
+   * start (compose service names): only these runs get a repair after an
+   * updater restart. Absent: none, or an older updater.
+   */
+  stuck?: string[];
 }
 
 /** The steps of one repair, in order. */

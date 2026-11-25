@@ -308,6 +308,7 @@ export class Repair {
         if (this.deps.busy?.()) continue;
         if (!this.services) await this.loadInstall();
         const down = (await this.readParts()).filter((p) => MUSIC_BOUND.includes(p.service) && p.state !== 'running').map((p) => p.service);
+        if (this.cancelled) break;
         if (down.length === 0) {
           this.log('info', 'the parts that waited for the music share run again');
           await this.resume(down, null);
@@ -321,6 +322,8 @@ export class Repair {
         }
         const unmounted = this.deps.musicUnmounted ? await this.deps.musicUnmounted().catch(() => null) : null;
         const reading = await this.deps.music.read({ parts: down.map((service) => ({ service, stuck: true })), appUnmounted: unmounted }).catch(() => null);
+        // Cancelled while it probed (Repair pressed again): a fresh run owns the parts now.
+        if (this.cancelled) break;
         this.run.checkedAt = this.now().toISOString();
         if (reading?.answer === 'answers') {
           this.log('info', 'the music share answers again');

@@ -4,9 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { UpdateRun } from '@tagave/shared/updater';
+import type { PartState, RepairRun, UpdateRun } from '@tagave/shared/updater';
+import { assertAllowed } from './argv-guard.testkit.js';
+import { musicVerdict, type MusicProber, type ServerAnswer } from './music-probe.js';
+import { INSPECT_FORMAT } from './progress.js';
+import { REPAIR_STATE_FILE, newRepairRun } from './repair.js';
+import type { CommandResult, Runner } from './runner.js';
 import { SignatureVerifier, signRequest, SIGNATURE_HEADER, TIME_HEADER } from './token.js';
-import { UpdaterService, STATE_DIR } from './server.js';
+import { UpdaterService, STATE_DIR, type UpdaterOptions } from './server.js';
 import { DEFAULT_CONFIG, newRun } from './update.js';
 import { signed, testKey, testManifest } from './release.testkit.js';
 
@@ -17,6 +22,71 @@ const release = (version: string) => {
 };
 
 const SECRET = 'a'.repeat(44);
+const SERVICES = ['postgres', 'app', 'worker-files'];
+const cid = (svc: string) => Buffer.from(svc).toString('hex').padEnd(12, '0');
+const serviceOf = (id: string) => SERVICES.find((s) => cid(s) === id)!;
+
+/**
+ * A small install: each part's container status, a share that answers or
+ * not, and calls that can be made to hang. Every argv passes the allowlist.
+ */
+class Fake {
+  calls: string[][] = [];
+  status = new Map<string, string>(SERVICES.map((s) => [s, 'running']));
+  share: ServerAnswer = 'answers';
+  /** `compose ps` for these never answers. */
+  hangPs = new Set<string>();
+  /** `docker version` waits for this when set. */
+  versionGate: Promise<void> | null = null;
+  reports: Array<{ status: string; cause: string | null }> = [];
+
+  docker: Runner = async (args) => {
+    assertAllowed(args);
+    this.calls.push(args);
+    return { code: 0, stdout: '', stderr: '', ...(await this.answer(args)) };
+  };
+
+  private async answer(a: string[]): Promise<Partial<CommandResult>> {
+    const j = a.join(' ');
+    if (a[0] === 'version') {
+      await this.versionGate;
+      return { stdout: '28.0.0\n' };
+    }
+    if (j === 'compose config --services') return { stdout: `${SERVICES.join('\n')}\nupdater\n` };
+    if (a[0] === 'compose' && a[1] === 'ps') {
+      const svc = a.at(-1)!;
+      if (this.hangPs.has(svc)) return new Promise(() => {});
+      return { stdout: `${cid(svc)}\n` };
+    }
+    if (a[0] === 'inspect') {
+      const st = this.status.get(serviceOf(a.at(-1)!))!;
+      if (a[2] === INSPECT_FORMAT) return { stdout: `${JSON.stringify({ Status: st, Restarting: false, OOMKilled: false, ExitCode: 0, Error: '', Health: null })}|0\n` };
+      return { stdout: a[2] === '{{.State.Status}}' ? `${st}\n` : `${st}|\n` };
+    }
+    if (a[0] === 'logs') return {};
+    if (a[0] === 'compose' && a[1] === 'up') {
+      this.status.set(a.at(-1)!, 'running');
+      return {};
+    }
+    if (a[0] === 'compose' && a[1] === 'stop') {
+      this.status.set(a.at(-1)!, 'exited');
+      return {};
+    }
+    if (j === 'ps -q --filter label=tagave.updater.handover') return {};
+    return { code: 1, stderr: 'no' };
+  }
+
+  music: MusicProber = {
+    read: async ({ parts, appUnmounted }) => {
+      const mount = { kind: 'network' as const, fstype: 'nfs4', server: '192.0.2.10', export: '/music', hard: true, mountPoint: '/mnt/music' };
+      return { dir: '/mnt/music', mount, answer: this.share, verdict: musicVerdict(mount, this.share, parts, appUnmounted), server: '192.0.2.10' };
+    },
+  };
+
+  versions(): number {
+    return this.calls.filter((c) => c[0] === 'version').length;
+  }
+}
 
 describe('request signatures', () => {
   const req = (h: Record<string, string>, body = '') => ({ method: 'POST', path: '/v1/update', body, time: h[TIME_HEADER], signature: h[SIGNATURE_HEADER] });
@@ -46,27 +116,45 @@ describe('updater HTTP API', () => {
   let server: Server;
   let base: string;
   let service: UpdaterService;
+  let fake: Fake;
+  let services: UpdaterService[];
 
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'tagave-updater-srv-'));
-    await writeFile(join(dir, '.env'), 'TAGAVE_ROLE=all\nTAGAVE_VERSION=0.7.0\n');
-    service = new UpdaterService({
+  const make = (over: Partial<UpdaterOptions> = {}) => {
+    const s = new UpdaterService({
       installDir: dir,
       appSecret: SECRET,
       keys: [KEY.trusted],
       version: '0.7.0',
-      // a docker that cannot do anything: an update fails at preflight
-      docker: async (args) => (args.join(' ') === 'compose config --services' ? { code: 0, stdout: 'postgres\napp\nupdater\n', stderr: '' } : { code: 1, stdout: '', stderr: 'no' }),
-      app: { health: async () => ({ ok: false, detail: 'down' }), versions: async () => null },
-      config: { ...DEFAULT_CONFIG, selfUpdate: false },
+      // parts that run, but nothing else Docker is asked does: an update fails at preflight
+      docker: fake.docker,
+      app: { health: async () => ({ ok: true, detail: 'ok' }), versions: async () => ({ app: '0.7.0', workers: [] }) },
+      config: { ...DEFAULT_CONFIG, selfUpdate: false, pollMs: 5 },
+      music: fake.music,
+      musicUnmounted: async () => false,
+      report: async (end) => { fake.reports.push(end); },
+      repairConfig: { healthTimeoutMs: 2000, pollMs: 5, waitFirstMs: 3_600_000 },
+      ...over,
     });
+    services.push(s);
+    return s;
+  };
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'tagave-updater-srv-'));
+    await writeFile(join(dir, '.env'), 'TAGAVE_ROLE=all\nTAGAVE_VERSION=0.7.0\nCOMPOSE_PROJECT_NAME=tagave\nMUSIC_DIR=/mnt/music\n');
+    fake = new Fake();
+    services = [];
+    service = make();
     server = service.listen(0, '127.0.0.1');
     await new Promise((r) => server.once('listening', r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 
   afterEach(async () => {
-    await service.idle();
+    for (const s of services) {
+      await s.idle();
+      s.stop();
+    }
     await new Promise((r) => server.close(r));
     await rm(dir, { recursive: true, force: true });
   });
@@ -82,7 +170,11 @@ describe('updater HTTP API', () => {
   it('reports its status, the configured version and the services an update restarts', async () => {
     const res = await call('GET', '/v1/status');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ version: '0.7.0', configuredVersion: '0.7.0', role: 'all', services: ['postgres', 'app'], run: null, selfReplace: null });
+    const running = (service: string): PartState => ({ service, state: 'running', health: null });
+    expect(await res.json()).toEqual({
+      version: '0.7.0', configuredVersion: '0.7.0', role: 'all', services: SERVICES, run: null, selfReplace: null,
+      parts: SERVICES.map(running), repair: null,
+    });
   });
 
   it('starts a run, keeps its state on disk, and refuses a bad version', async () => {
@@ -122,6 +214,204 @@ describe('updater HTTP API', () => {
     const status = (await (await call('GET', '/v1/status')).json()) as { run: UpdateRun };
     expect(status.run.reason).toContain('the first one under Before update in Settings › Backups taken after 2026-10-16T10:00:00.000Z');
     expect(status.run.progress).toBeNull();
+  });
+
+  describe('repair', () => {
+    const writeRun = async (file: string, value: unknown) => {
+      await mkdir(join(dir, STATE_DIR), { recursive: true });
+      await writeFile(join(dir, file), JSON.stringify(value));
+    };
+    const statusOf = async () => (await (await call('GET', '/v1/status')).json()) as { repair: RepairRun | null; parts: PartState[] };
+    /** The file worker stuck on a silent share: the repair ends waiting. */
+    const toWaiting = async () => {
+      fake.status.set('worker-files', 'removing');
+      fake.share = 'silent';
+      const res = await call('POST', '/v1/repair');
+      expect(res.status).toBe(202);
+      await service.idle();
+      const { repair } = await statusOf();
+      expect(repair?.status).toBe('waiting');
+      return repair!;
+    };
+
+    it('signed /v1/repair starts one, unsigned is 401', async () => {
+      expect((await fetch(`${base}/v1/repair`, { method: 'POST' })).status).toBe(401);
+      expect(fake.versions()).toBe(0);
+      // the app's call: an empty body signed over '', no content-type
+      const res = await call('POST', '/v1/repair');
+      expect(res.status).toBe(202);
+      const { run } = (await res.json()) as { run: RepairRun };
+      expect(run).toMatchObject({ kind: 'repair', trigger: 'owner', status: 'running' });
+      await service.idle();
+      const { repair } = await statusOf();
+      expect(repair).toMatchObject({ id: run.id, status: 'repaired', headline: 'All 3 parts running. Nothing to repair.' });
+      expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ id: run.id, status: 'repaired' });
+      expect(fake.reports).toEqual([{ status: 'repaired', cause: null }]);
+    });
+
+    it('409 while an update, a module run, a repair or a self-replace runs', async () => {
+      // a repair: the first one waits on Docker
+      let open!: () => void;
+      fake.versionGate = new Promise((r) => { open = r; });
+      expect((await call('POST', '/v1/repair')).status).toBe(202);
+      expect(service.moving()).toBe(true);
+      expect(service.updating()).toBe(false);
+      const again = await call('POST', '/v1/repair');
+      expect(again.status).toBe(409);
+      expect(await again.json()).toEqual({ error: 'a repair is running' });
+      // ...and an update or a module run waits for it too
+      expect((await call('POST', '/v1/update', release('0.8.0'))).status).toBe(409);
+      open();
+      await service.idle();
+      fake.versionGate = null;
+
+      // an update
+      service['active'] = new Promise(() => {});
+      expect((await call('POST', '/v1/repair')).status).toBe(409);
+      service['active'] = null;
+
+      // a module run (the installer's one-off writes the same file)
+      await writeRun(join(STATE_DIR, 'module-run.json'), { status: 'running', startedAt: new Date().toISOString(), moduleName: 'Player', action: 'enable' });
+      expect(await (await call('POST', '/v1/repair')).json()).toEqual({ error: 'Player is being turned on' });
+      await rm(join(dir, STATE_DIR, 'module-run.json'));
+      service['moduleRun'] = null;
+
+      // a repair the installer's one-off runs, under 1 h old
+      await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-1', 'installer', new Date()));
+      expect((await call('POST', '/v1/repair')).status).toBe(409);
+      await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-2', 'installer', new Date(Date.now() - 2 * 3600_000)));
+      expect((await call('POST', '/v1/repair')).status).toBe(202);
+      await service.idle();
+
+      // a self-replace
+      await service['selfReplace'].begin('0.8.0', 'r1');
+      const res = await call('POST', '/v1/repair');
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ selfReplace: { expectedVersion: '0.8.0' } });
+    });
+
+    it('a waiting repair does not block an update', async () => {
+      await toWaiting();
+      expect(service.moving()).toBe(false);
+      expect((await call('POST', '/v1/update', release('0.8.0'))).status).toBe(202);
+    });
+
+    it('Repair while waiting restarts at check', async () => {
+      const first = await toWaiting();
+      expect(fake.versions()).toBe(1);
+      fake.share = 'answers';
+      fake.status.set('worker-files', 'exited');
+      const res = await call('POST', '/v1/repair');
+      expect(res.status).toBe(202);
+      const { run } = (await res.json()) as { run: RepairRun };
+      expect(run.id).not.toBe(first.id);
+      await service.idle();
+      expect(fake.versions()).toBe(2);
+      const { repair } = await statusOf();
+      expect(repair).toMatchObject({ id: run.id, status: 'repaired' });
+      expect(fake.status.get('worker-files')).toBe('running');
+      // the old run's watcher writes nothing more
+      expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ id: run.id });
+    });
+
+    it('status answers in time with a hanging part (parts shows it stuck)', async () => {
+      const slow = make({ partsDeadlineMs: 200 });
+      fake.hangPs.add('worker-files');
+      const t = Date.now();
+      const status = await slow.status();
+      expect(Date.now() - t).toBeLessThan(2000);
+      expect(status.parts).toEqual([
+        { service: 'postgres', state: 'running', health: null },
+        { service: 'app', state: 'running', health: null },
+        { service: 'worker-files', state: 'stuck', health: null },
+      ]);
+    });
+
+    it('keeps the parts 10 s', async () => {
+      await statusOf();
+      const reads = fake.calls.filter((c) => c[1] === 'ps').length;
+      await statusOf();
+      expect(fake.calls.filter((c) => c[1] === 'ps').length).toBe(reads);
+    });
+
+    it('a held update hands its parts to a repair', async () => {
+      fake.status.set('worker-files', 'removing');
+      fake.share = 'silent';
+      const held: UpdateRun = { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } };
+      await service['afterUpdate'](held);
+      await service.idle();
+      const { repair } = await statusOf();
+      expect(repair).toMatchObject({ trigger: 'update', status: 'waiting' });
+      // an update that did not end held starts none
+      const versions = fake.versions();
+      await service['afterUpdate']({ ...held, status: 'succeeded', held: null });
+      await service.idle();
+      expect(fake.versions()).toBe(versions);
+      expect((await statusOf()).repair?.id).toBe(repair?.id);
+    });
+
+    describe('after a restart', () => {
+      const restart = async () => {
+        const s = make();
+        await s.load();
+        await s.idle();
+        return s;
+      };
+
+      it('a running repair fails and says to press Repair again', async () => {
+        const cut = newRepairRun('rr1', 'owner', new Date());
+        cut.steps[0]!.status = 'running';
+        await writeRun(REPAIR_STATE_FILE, cut);
+        const s = await restart();
+        const repair = (await s.status()).repair!;
+        expect(repair).toMatchObject({ id: 'rr1', status: 'failed', reason: 'The updater restarted during the repair. Press Repair again.' });
+        expect(repair.steps[0]!.status).toBe('failed');
+        expect(fake.versions()).toBe(0);
+      });
+
+      it('after a restart, a held update with a part down starts a repair', async () => {
+        fake.status.set('worker-files', 'exited');
+        await writeRun(join(STATE_DIR, 'state.json'), { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } });
+        const s = await restart();
+        expect((await s.status()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+        expect(fake.status.get('worker-files')).toBe('running');
+      });
+
+      it('after a restart, a rollback_failed run with stuck parts starts a repair', async () => {
+        fake.status.set('app', 'exited');
+        await writeRun(join(STATE_DIR, 'state.json'), { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'rollback_failed', stuck: ['app'] });
+        const s = await restart();
+        expect((await s.status()).repair).toMatchObject({ trigger: 'update', status: 'repaired' });
+        expect(fake.status.get('app')).toBe('running');
+      });
+
+      it('a rollback_failed run without stuck parts starts none', async () => {
+        fake.status.set('app', 'exited');
+        await writeRun(join(STATE_DIR, 'state.json'), { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'rollback_failed' });
+        const s = await restart();
+        expect((await s.status()).repair).toBeNull();
+        expect(fake.versions()).toBe(0);
+        expect(fake.status.get('app')).toBe('exited');
+      });
+
+      it('no repair when every part runs', async () => {
+        await writeRun(join(STATE_DIR, 'state.json'), { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } });
+        const s = await restart();
+        expect((await s.status()).repair).toBeNull();
+        expect(fake.versions()).toBe(0);
+      });
+
+      it('a waiting repair is resumed, not started twice', async () => {
+        const waiting = await toWaiting();
+        service.stop();
+        await writeRun(join(STATE_DIR, 'state.json'), { ...newRun('u1', '0.7.0', '0.8.0', new Date()), status: 'held', held: { cause: 'music_unreachable', parts: ['worker-files'], server: '192.0.2.10' } });
+        const s = await restart();
+        expect(fake.versions()).toBe(1);
+        expect((await s.status()).repair).toMatchObject({ id: waiting.id, status: 'waiting' });
+        // its watcher runs again
+        expect(s['repair']?.run.id).toBe(waiting.id);
+      });
+    });
   });
 
   describe('while it restarts itself on a new version', () => {

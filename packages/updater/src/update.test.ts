@@ -1049,6 +1049,8 @@ describe('update state machine', () => {
       // the stuck app is left alone: nothing is restored under it, and the reason says what to do
       expect(run.status).toBe('rollback_failed');
       expect(run.reason).toMatch(/The roll back did not finish\. The web app is stuck and won't stop\. Restart the computer tagave runs on\. 3 of 4 parts running\.$/);
+      // the parts a repair starts after the computer restarts
+      expect(run.stuck).toEqual(['app']);
       expect(run.reason).not.toContain('stays in place');
       expect(run.reason).not.toContain('tagave-manual-20261011');
       expect(fake.restored).toBe(false);

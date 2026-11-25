@@ -17,14 +17,23 @@
  *                     state, and the current or last module run
  *   POST /v1/modules/<id>/enable           turn a module on (202)
  *   POST /v1/modules/<id>/disable          {"deleteData": false, "deleteHistory": false}: turn it off (202)
+ *   POST /v1/repair   (empty body): check every part and fix what it safely
+ *                     can (202, repair.ts); 409 while an update, a module
+ *                     run, a repair or a self-replace runs. A repair that
+ *                     waits for the music share is restarted at check.
  *
- * One run at a time: an update and a module run refuse each other (409),
- * and both wait while the updater replaces itself.
+ * GET /v1/status also says what each part is doing (`parts`, read with short
+ * limits and kept 10 s) and the last repair (`repair`).
+ *
+ * One run at a time: an update, a module run and a running repair refuse
+ * each other (409), and all wait while the updater replaces itself. A
+ * repair that waits for the music share blocks nothing; its watcher pauses
+ * while anything else moves containers.
  */
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
-import type { UpdateRun, UpdaterStatus } from '@tagave/shared/updater';
+import type { PartState, RepairRun, UpdateRun, UpdaterStatus } from '@tagave/shared/updater';
 import type { ModuleRun, UpdaterModules } from '@tagave/shared/modules';
 import { ModuleOperation, moduleStatuses, newModuleRun, type ModuleConfig } from './modules.js';
 import { dockerArch } from './preflight-space.js';
@@ -37,6 +46,9 @@ import type { AppProbe, Runner } from './runner.js';
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER } from './token.js';
 import { RELEASE_FLOOR_FILE, Update, newRun, type UpdateConfig } from './update.js';
 import type { MusicProber } from './music-probe.js';
+import type { RemountResult } from './music-heal.js';
+import { readParts } from './parts.js';
+import { DEFAULT_REPAIR_CONFIG, REPAIR_STATE_FILE, Repair, newRepairRun, type RepairConfig, type RepairDeps } from './repair.js';
 
 /** Same rule as @tagave/shared UPDATE_TARGET_RE (kept here so the image needs no runtime packages). */
 const TARGET_RE = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]{1,40})?$/;
@@ -44,6 +56,13 @@ const TARGET_RE = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]{1,40})?$/;
 const MAX_BODY = 600 * 1024;
 const MODULE_PATH_RE = /^\/v1\/modules\/([a-z][a-z0-9-]{0,30})\/(enable|disable)$/;
 export const STATE_DIR = '.updater';
+/** How long a reading of the parts is served before it is read again. */
+const PARTS_CACHE_MS = 10_000;
+/** The longest a status call waits for the parts; a part with no answer by then reads stuck. */
+const PARTS_DEADLINE_MS = 6_000;
+/** A repair.json marked running by another process (the installer's one-off) counts for this long. */
+const ELSEWHERE_MS = 60 * 60_000;
+const RESTARTED_DURING_REPAIR = 'The updater restarted during the repair. Press Repair again.';
 
 export interface UpdaterOptions {
   installDir: string;
@@ -62,6 +81,19 @@ export interface UpdaterOptions {
   moduleConfig?: Partial<ModuleConfig>;
   /** Reads the music share for an update whose parts will not stop or start; the healer shares it (main.ts). */
   music?: MusicProber | null;
+  /** Tells the app how a repair settled (its audit entry); never throws. */
+  report?: RepairDeps['report'];
+  /** The app's own music check: true when it says the music folder is unmounted. */
+  musicUnmounted?: RepairDeps['musicUnmounted'];
+  /** Repair limits; default DEFAULT_REPAIR_CONFIG with `config`'s health limit and poll. */
+  repairConfig?: Partial<RepairConfig>;
+  /** How long a status call waits for the parts (default 6 s). */
+  partsDeadlineMs?: number;
+}
+
+/** What a repair needs of the music healer (music-heal.ts). */
+export interface RepairHealer {
+  remount(dir: string, project: string): Promise<RemountResult>;
 }
 
 export interface RefusedStart {
@@ -83,11 +115,22 @@ export class UpdaterService {
   private moduleRun: ModuleRun | null = null;
   private moduleActive: Promise<ModuleRun> | null = null;
   private readonly modulePath: string;
+  private repairRun: RepairRun | null = null;
+  /** The repair of this process: running, or waiting with its watcher. */
+  private repair: Repair | null = null;
+  private repairActive: Promise<RepairRun> | null = null;
+  private readonly repairPath: string;
+  private healer: RepairHealer | null = null;
+  private partsCache: { at: number; parts: PartState[] } | null = null;
+  private partsRefresh: { answered: Map<string, PartState>; done: Promise<void> } | null = null;
+  /** load()'s repair of an update that ended with stuck parts. */
+  private resuming: Promise<void> | null = null;
 
   constructor(private readonly opts: UpdaterOptions) {
     this.verifier = new SignatureVerifier(opts.appSecret);
     this.statePath = join(opts.installDir, STATE_DIR, 'state.json');
     this.modulePath = join(opts.installDir, STATE_DIR, 'module-run.json');
+    this.repairPath = join(opts.installDir, REPAIR_STATE_FILE);
     this.selfReplace = new SelfReplaceGate({
       version: opts.version,
       persist: () => this.writeState(),
@@ -100,14 +143,34 @@ export class UpdaterService {
     });
   }
 
-  /** An update or a module run is moving containers (the music self-heal waits). */
+  /** An update, a module run or a repair (not one that waits for the share) is moving containers: the music self-heal waits. */
   moving(): boolean {
+    return this.updating() || this.repairRunning();
+  }
+
+  /** An update or a module run is moving containers (never a repair: a repair's own remount must not be refused). */
+  updating(): boolean {
     return this.active !== null || this.moduleActive !== null;
+  }
+
+  private repairRunning(): boolean {
+    return this.repair?.run.status === 'running';
+  }
+
+  /** The music healer, for a repair's remount (main.ts: the healer's busy reads moving(), so it comes after the service). */
+  attachHealer(healer: RepairHealer): void {
+    this.healer = healer;
   }
 
   /** Loads the last runs; a run still marked running was cut off (the updater or the host restarted). */
   async load(): Promise<void> {
     await this.loadModuleRun();
+    await this.loadUpdateRun();
+    await this.loadRepair();
+    this.resuming = this.finishStuckUpdate().catch(() => undefined).finally(() => { this.resuming = null; });
+  }
+
+  private async loadUpdateRun(): Promise<void> {
     const text = await readText(this.statePath);
     if (!text) return;
     try {
@@ -132,6 +195,59 @@ export class UpdaterService {
     } catch {
       /* an unreadable state file is ignored */
     }
+  }
+
+  /** repair.json: a running repair was cut off and fails; a waiting one gets its watcher back. */
+  private async loadRepair(): Promise<void> {
+    const text = await readText(this.repairPath);
+    if (!text) return;
+    let run: RepairRun;
+    try {
+      run = JSON.parse(text) as RepairRun;
+    } catch {
+      return; /* an unreadable state file is ignored */
+    }
+    this.repairRun = run;
+    if (run.status === 'running') {
+      // The installer's one-off may still run it; only a repair of an updater counts as cut off.
+      if (run.trigger === 'installer' && Date.now() - Date.parse(run.startedAt) < ELSEWHERE_MS) return;
+      const step = run.steps.find((s) => s.status === 'running');
+      if (step) Object.assign(step, { status: 'failed', finishedAt: new Date().toISOString() });
+      Object.assign(run, { status: 'failed', finishedAt: new Date().toISOString(), reason: RESTARTED_DURING_REPAIR, headline: RESTARTED_DURING_REPAIR, progress: null, stall: null });
+      run.log.push({ at: run.finishedAt!, level: 'error', message: 'the updater restarted in the middle of this repair' });
+      await this.saveRepair(run).catch(() => undefined);
+    } else if (run.status === 'waiting') {
+      this.watchRepair(new Repair(this.repairDeps(), run));
+    }
+  }
+
+  /**
+   * After an updater start, an update that ended with stuck parts gets a
+   * repair: held (the parts wait for the music share), or rollback_failed
+   * with `stuck` parts (nothing starts them again after a host restart).
+   *
+   * Decision 3 (automatic repair only for the music cases) is extended by one
+   * case: after an updater start, a repair finishes an update that was
+   * interrupted by stuck parts (held, or rollback_failed with stuck parts).
+   * It only starts parts; it never changes a version, a setting or the
+   * database.
+   *
+   * A rollback_failed run without `stuck` never gets one: its files or
+   * database may be half restored. Once per load, and only when a part does
+   * not run.
+   */
+  private async finishStuckUpdate(): Promise<void> {
+    const run = this.run;
+    if (!run) return;
+    const stuck = (run.status === 'held' && (run.held?.parts.length ?? 0) > 0) || (run.status === 'rollback_failed' && (run.stuck?.length ?? 0) > 0);
+    if (!stuck) return;
+    if (this.repairRun?.status === 'running' || this.repairRun?.status === 'waiting') return;
+    const services = await this.services();
+    if (services.length === 0) return;
+    const parts = await readParts(this.opts.docker, services);
+    if (parts.every((p) => p.state === 'running')) return;
+    const started = await this.startRepair('update');
+    if (!started.ok) this.warn(`the update ended with stuck parts, and no repair could start: ${started.error}`, { runId: run.id });
   }
 
   private async loadModuleRun(): Promise<void> {
@@ -231,7 +347,142 @@ export class UpdaterService {
     await this.refreshModuleRun();
     const elsewhere = !this.moduleActive && this.moduleRun?.status === 'running' && Date.now() - Date.parse(this.moduleRun.startedAt) < 60 * 60_000;
     if (this.moduleActive || elsewhere) return { ok: false, status: 409, error: `${this.moduleRun?.moduleName ?? 'a module'} is being turned ${this.moduleRun?.action === 'disable' ? 'off' : 'on'}` };
+    if (await this.repairElsewhereOrHere()) return { ok: false, status: 409, error: 'a repair is running' };
     return null;
+  }
+
+  // -- repair ----------------------------------------------------------------------
+
+  /** A repair runs in this process, or repair.json says one runs elsewhere (the installer's one-off, under 1 h old). */
+  private async repairElsewhereOrHere(): Promise<boolean> {
+    if (this.repairRunning()) return true;
+    await this.refreshRepair();
+    const r = this.repairRun;
+    return r?.status === 'running' && r.id !== this.repair?.run.id && Date.now() - Date.parse(r.startedAt) < ELSEWHERE_MS;
+  }
+
+  /** repair.json, unless this process's repair runs or waits: the installer's one-off writes the same file. */
+  private async refreshRepair(): Promise<void> {
+    if (this.repair && (this.repair.run.status === 'running' || this.repair.run.status === 'waiting')) return;
+    const text = await readText(this.repairPath);
+    if (!text) return;
+    try {
+      this.repairRun = JSON.parse(text) as RepairRun;
+    } catch {
+      /* keep what we have */
+    }
+  }
+
+  private repairDeps(): RepairDeps {
+    const c = this.opts.config;
+    return {
+      installDir: this.opts.installDir,
+      docker: this.opts.docker,
+      app: this.opts.app,
+      music: this.opts.music ?? null,
+      ...(this.opts.musicUnmounted ? { musicUnmounted: this.opts.musicUnmounted } : {}),
+      healer: this.healer,
+      ...(this.opts.report ? { report: this.opts.report } : {}),
+      save: (r) => this.saveRepair(r),
+      config: { ...DEFAULT_REPAIR_CONFIG, healthTimeoutMs: c.healthTimeoutMs, pollMs: c.pollMs, ...this.opts.repairConfig },
+      ...(this.opts.now ? { now: this.opts.now } : {}),
+      busy: () => this.moving(),
+    };
+  }
+
+  private async saveRepair(run: RepairRun): Promise<void> {
+    // A run the owner replaced (Repair pressed while it waited) writes nothing more.
+    if (this.repairRun && run.id !== this.repairRun.id) return;
+    this.repairRun = run;
+    await mkdirKeepingOwner(join(this.opts.installDir, STATE_DIR), 0o700);
+    await writeFileAtomic(this.repairPath, `${JSON.stringify(run, null, 2)}\n`, false);
+  }
+
+  /** A waiting repair's watcher: it finishes the run when the share answers. */
+  private watchRepair(repair: Repair): void {
+    this.repair = repair;
+    this.repairRun = repair.run;
+    void repair.watch().catch(() => undefined);
+  }
+
+  /**
+   * Starts a repair in the background (POST /v1/repair, a held update, or an
+   * update left with stuck parts after a restart). A repair that waits for
+   * the share is cancelled and a fresh one starts at check.
+   */
+  async startRepair(trigger: RepairRun['trigger']): Promise<{ ok: true; run: RepairRun } | RefusedStart> {
+    const busy = await this.busy();
+    if (busy) return busy;
+    // Pressed again while it waits: the watcher stops and the new run starts at check.
+    if (this.repair?.run.status === 'waiting') this.repair.cancel();
+    const run = newRepairRun(randomUUID(), trigger, (this.opts.now ?? (() => new Date()))());
+    const repair = new Repair(this.repairDeps(), run);
+    this.repair = repair;
+    this.repairRun = run;
+    this.partsCache = null;
+    await this.saveRepair(run);
+    this.repairActive = repair.execute()
+      .then((r) => {
+        if (r.status === 'waiting' && this.repair === repair) this.watchRepair(repair);
+        return r;
+      })
+      .finally(() => {
+        this.repairActive = null;
+        this.partsCache = null;
+      });
+    return { ok: true, run };
+  }
+
+  /** Stops a waiting repair's watcher (the updater is stopping); the run stays waiting in repair.json. */
+  stop(): void {
+    this.repair?.cancel();
+  }
+
+  /** An update that ended held hands its stuck parts to a repair (Decision 3: the music case). */
+  private async afterUpdate(run: UpdateRun): Promise<void> {
+    if (run.status !== 'held') return;
+    const started = await this.startRepair('update');
+    if (!started.ok) this.warn(`the held update could not hand its parts to a repair: ${started.error}`, { runId: run.id });
+  }
+
+  private warn(message: string, fields: Record<string, unknown>): void {
+    if (this.opts.log) this.opts.log('warn', message, fields);
+    else console.warn(JSON.stringify({ msg: message, level: 'warn', ...fields }));
+  }
+
+  // -- parts -----------------------------------------------------------------------
+
+  private async services(): Promise<string[]> {
+    const svc = await this.opts.docker(['compose', 'config', '--services'], { timeoutMs: 30_000 }).catch(() => null);
+    return svc?.code === 0 ? svc.stdout.split('\n').map((s) => s.trim()).filter((s) => s && s !== 'updater') : [];
+  }
+
+  /**
+   * Each part's state for /v1/status: kept 10 s; a new reading runs in the
+   * background, and a status call waits for it at most partsDeadlineMs. A
+   * part with no answer by then reads stuck.
+   */
+  private async partStates(services: string[]): Promise<PartState[]> {
+    const cached = this.partsCache;
+    if (cached && Date.now() - cached.at < PARTS_CACHE_MS) return cached.parts;
+    if (!this.partsRefresh) {
+      const answered = new Map<string, PartState>();
+      const done = Promise.all(services.map(async (service) => {
+        const [p] = await readParts(this.opts.docker, [service]);
+        answered.set(service, p ?? { service, state: 'stuck', health: null });
+      }))
+        .then(() => { this.partsCache = { at: Date.now(), parts: services.map((s) => answered.get(s)!) }; })
+        .finally(() => { this.partsRefresh = null; });
+      this.partsRefresh = { answered, done };
+    }
+    const { answered, done } = this.partsRefresh;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, this.opts.partsDeadlineMs ?? PARTS_DEADLINE_MS);
+      (timer as { unref?: () => void }).unref?.();
+    });
+    await Promise.race([done, deadline]).finally(() => clearTimeout(timer));
+    return services.map((service) => answered.get(service) ?? { service, state: 'stuck', health: null });
   }
 
   // -- modules ---------------------------------------------------------------------
@@ -298,14 +549,17 @@ export class UpdaterService {
 
   async status(): Promise<UpdaterStatus> {
     const env = (await readText(join(this.opts.installDir, '.env'))) ?? '';
-    const svc = await this.opts.docker(['compose', 'config', '--services'], { timeoutMs: 30_000 });
+    const services = await this.services();
+    await this.refreshRepair();
     return {
       version: this.opts.version,
       configuredVersion: envGet(env, 'TAGAVE_VERSION'),
       role: envGet(env, 'TAGAVE_ROLE'),
-      services: svc.code === 0 ? svc.stdout.split('\n').map((s) => s.trim()).filter((s) => s && s !== 'updater') : [],
+      services,
       run: this.run,
       selfReplace: await this.selfReplace.status(),
+      parts: await this.partStates(services),
+      repair: this.repairRun,
     };
   }
 
@@ -341,14 +595,22 @@ export class UpdaterService {
     );
     this.run = run;
     await this.save(run);
-    this.active = update.execute().finally(() => { this.active = null; });
+    this.active = update.execute()
+      .then(async (r) => {
+        this.active = null;
+        await this.afterUpdate(r);
+        return r;
+      })
+      .finally(() => { this.active = null; });
     return { ok: true, run };
   }
 
-  /** Resolves when the running update (if any) has finished. For tests. */
+  /** Resolves when the running update, module run and repair (if any) have finished; a waiting repair's watcher goes on. For tests. */
   async idle(): Promise<void> {
     await this.active?.catch(() => undefined);
     await this.moduleActive?.catch(() => undefined);
+    await this.resuming;
+    await this.repairActive?.catch(() => undefined);
   }
 
   async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -383,6 +645,10 @@ export class UpdaterService {
     const refused = (r: RefusedStart) => send(r.status, { error: r.error, ...(r.check ? { check: r.check } : {}), ...(r.selfReplace ? { selfReplace: r.selfReplace } : {}) });
     if (req.method === 'POST' && path === '/v1/update') {
       const result = await this.start(text('version') ?? '', text('manifest'), text('signature'));
+      return result.ok ? send(202, { run: result.run }) : refused(result);
+    }
+    if (req.method === 'POST' && path === '/v1/repair') {
+      const result = await this.startRepair('owner');
       return result.ok ? send(202, { run: result.run }) : refused(result);
     }
     if (req.method === 'GET' && path === '/v1/modules') return send(200, await this.modules());
