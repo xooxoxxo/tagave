@@ -137,7 +137,7 @@ When a scan finds no files in a music folder that had files, it marks nothing mi
 
 ## Repair
 
-tagave runs as five parts: the web app, the database, the identify worker, the file worker and the player. With the in-app updater, Settings › Updates shows **Repair** when a part is not running, when the last update could not finish, or while a repair waits for the music share. The "?" next to Running now says what Repair does.
+tagave runs as five parts: the web app, the database, the identify worker, the file worker and the player. With the in-app updater, Settings › Updates shows **Repair** when a part is not running, when the last update could not finish, or while a repair waits for the music share. The "?" next to **Running now** says what Repair does.
 
 Repair checks each part, the disk, the web app and the music share, then fixes what it safely can:
 
@@ -148,7 +148,7 @@ Repair checks each part, the disk, the web app and the music share, then fixes w
 
 The result is one sentence, such as "Repaired. All 5 parts running." Below it are the steps and a folded run log; what Repair did sits behind "?".
 
-When only you can fix the cause, Repair stops and says what to do. Free up disk space, stop the program on tagave's port or close other programs, then press Repair again. A part that will not stop needs a computer restart; when Docker does not answer, also run the installer again. A database that recovers after an unclean stop needs only time.
+When only you can fix the cause, Repair stops and says what to do. Free up disk space, stop the program on tagave's port or close other programs, then press Repair again. A part that will not stop or will not start needs a computer restart; when Docker does not answer, also run the installer again. A database that recovers after an unclean stop needs only time.
 
 Repair never deletes files, music or data, never restores a backup, never unmounts a share or changes how it is mounted, and never touches programs outside this tagave. It changes no version or setting, so the owner's session is enough.
 

@@ -131,6 +131,14 @@ describe('RepairRunView', () => {
     expect(hidden(render(repairCrashLoopRun()))).toContain('Last error: Error: EACCES');
   });
 
+  it("shows the updater's action lines as it writes them", () => {
+    // repair.ts: `Started ${partName(s)} again from scratch.` for a recreate
+    expect(render(repairCrashLoopRun())).toContain('Started the file worker again from scratch.');
+    expect(render(repairCrashLoopRun())).not.toContain('fresh container');
+    // the run log names the parts by their label
+    expect(render(repairCrashLoopRun())).toContain('parts: the web app running, the database running');
+  });
+
   it('has a title while it runs, before the updater sends a headline', () => {
     expect(render(repairRunning(), nowAt(12))).toMatch(/<h2[^>]*>Repairing tagave<\/h2>/);
   });
