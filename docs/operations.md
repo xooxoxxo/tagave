@@ -135,6 +135,27 @@ Add `--expect-workers 0` while no worker runs yet. Or on a worker host: `pnpm do
 
 When a scan finds no files in a music folder that had files, it marks nothing missing, and the owner sees **Music folder unreachable** above every page until a scan finishes. With the in-app updater, tagave also mounts the folder again by itself. If the latest scan stopped this way, the updater runs a short helper container from its own image with `--privileged --pid=host`. Only when `MUSIC_DIR` (from `.env`) is a mount in the host's `/etc/fstab` and the host runs systemd, the helper starts that mount unit (`systemctl start`). It then checks that the folder is mounted and not empty, restarts only the containers that bind it (`worker-files`, `app`, `player`), and scans again. The banner says **Reconnecting music folder** in the meantime. It tries at most once every 10 minutes, waits longer after each failure in a row, and writes each attempt to the audit log. It never unmounts anything, never edits fstab and never touches another path or container. Set `TAGAVE_MUSIC_SELF_HEAL=0` in `.env` to turn it off.
 
+## Repair
+
+tagave runs as five parts: the web app, the database, the identify worker, the file worker and the player. With the in-app updater, Settings › Updates shows **Repair** when a part is not running, when the last update could not finish, or while a repair waits for the music share.
+
+Repair checks each part, the free disk space, the web app and the music share, then fixes what it safely can:
+
+1. It stops parts that are stuck.
+2. It connects the music share again when it is not connected, the same way as in [A music folder that did not mount](#a-music-folder-that-did-not-mount).
+3. It starts the parts that do not run. A part that crashed or ran out of memory gets one fresh start, and the web app gets one restart.
+4. It checks that every part runs and the web app answers.
+
+The result is one sentence, such as "Repaired. All 5 parts running." The steps and the log sit behind "?".
+
+When only you can fix the cause, Repair stops and says what to do: free up disk space, stop the program that uses tagave's port, close other programs when memory runs out, or restart the computer when a part will not stop. Do that, then press Repair again.
+
+Repair never deletes files, music or data, never restores a backup, never unmounts a share or changes how it is mounted, and never touches programs that are not part of this tagave. It changes no version and no setting, so the owner's session is enough to press it.
+
+**When the music share does not answer** (the NAS is off or unplugged), Repair starts every part that does not need the share and lets the file worker wait. The page names the share's address, for example 192.0.2.10, and asks you to turn the NAS on or check its cable. You do not need to press Repair again: tagave checks the share every minute, then less often up to every 5 minutes, and finishes on its own when the share answers. A waiting repair carries on after the updater restarts.
+
+**Without a press**, tagave repairs only in the music cases: the music folder healer above, a repair that waits for the share, and one more. When an update kept the new version but some parts could not start (the share went silent during the update, or a rollback stopped at stuck parts), the updater starts a repair the next time it starts, if a part still does not run. That repair only starts parts. An update that ended with the files or the database half restored never starts a repair by itself.
+
 ## A page that freezes
 
 The web app can record what keeps the browser busy, so a hang can be looked
