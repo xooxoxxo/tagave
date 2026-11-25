@@ -195,6 +195,12 @@ class FakeInstall {
       if (service === 'app') return ok(`${this.appUp ? 'running' : 'exited'}\n`);
       return ok(`${this.status.get(service) ?? 'running'}\n`);
     }
+    // readParts: the state and health of a service's container.
+    if (args[0] === 'inspect' && args[1] === '--format' && args[2]!.startsWith('{{.State.Status}}|')) {
+      const service = this.serviceOf(args[3]!);
+      if (!service) return bad(`Error: No such object: ${args[3]}`);
+      return ok(`${service === 'app' ? (this.appUp ? 'running' : 'exited') : this.status.get(service) ?? 'running'}|\n`);
+    }
     if (args[0] === 'kill') {
       const service = this.serviceOf(args[1]!);
       if (service && this.stuckStop.has(service)) return this.timeout(args, opts?.timeoutMs);
@@ -1266,6 +1272,35 @@ describe('update state machine', () => {
       expect(run.reason).toMatch(/The roll back did not finish\. The player is stuck and won't stop\. Restart the computer tagave runs on\. 1 of 5 parts running\.$/);
     });
 
+    it('counts the parts that run when the player will not stop for its restore, as docker reads them', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.2');
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const docker: Runner = async (args, opts) => {
+        assertAllowed(args);
+        if (args.includes('restore') && args.includes('--yes')) fake.stuckStop.add('player');
+        // the database went down too by the time the parts are counted
+        if (args[0] === 'inspect' && args[2]!.startsWith('{{.State.Status}}|') && fake.serviceOf(args[3]!) === 'postgres') return { code: 0, stdout: 'exited|\n', stderr: '' };
+        return fake.runner(args, opts);
+      };
+      const run = await update('0.8.0', {}, { docker });
+      expect(run.reason).toMatch(/The player is stuck and won't stop\. Restart the computer tagave runs on\. 0 of 5 parts running\.$/);
+    });
+
+    it('falls back to counting the database when docker cannot say which parts run', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.2');
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const docker: Runner = async (args, opts) => {
+        assertAllowed(args);
+        if (args.includes('restore') && args.includes('--yes')) fake.stuckStop.add('player');
+        if (args[0] === 'inspect' && args[2]!.startsWith('{{.State.Status}}|')) return { code: 1, stdout: '', stderr: 'Cannot connect to the Docker daemon' };
+        return fake.runner(args, opts);
+      };
+      const run = await update('0.8.0', {}, { docker });
+      expect(run.reason).toMatch(/1 of 5 parts running\.$/);
+    });
+
     it('rolls back the configuration only when the copy fails, before the new app starts', async () => {
       fake.newCompose = PLAYER_COMPOSE('0.64.2');
       fake.failSnapshot = true;
@@ -1361,6 +1396,63 @@ describe('parts that will not stop or start', () => {
     expect(await envNow()).toBe('0.7.0');
   });
 
+
+  it("shows the parts' own docker calls in the run log, but not their ps and inspect polls", async () => {
+    fake.stuckStop.add('worker-files');
+    const run = await update('0.8.0');
+    const lines = run.log.map((l) => l.message);
+    expect(lines).toContain('$ docker compose stop -t 30 worker-files');
+    expect(lines.some((m) => m.startsWith('$ docker kill '))).toBe(true);
+    expect(lines).toContain('$ docker compose up -d --no-deps worker-identify');
+    expect(lines.some((m) => /^\$ docker (compose ps|inspect)/.test(m))).toBe(false);
+  });
+
+  it('an app start that never returns ends within 2 fake minutes, in the update and in the roll back', async () => {
+    fake.stuckStart.add('app');
+    const limits: Array<number | undefined> = [];
+    const docker: Runner = async (args, opts) => {
+      if (args.join(' ') === 'compose up -d app') limits.push(opts?.timeoutMs);
+      return fake.runner(args, opts);
+    };
+    const run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('rollback_failed');
+    expect(limits).toEqual([120_000, 120_000]);
+    const restart = run.steps.find((s) => s.id === 'restart')!;
+    expect(Date.parse(restart.finishedAt!) - Date.parse(restart.startedAt!)).toBeLessThan(3 * 60_000);
+    const rollback = run.steps.find((s) => s.id === 'rollback')!;
+    expect(Date.parse(rollback.finishedAt!) - Date.parse(rollback.startedAt!)).toBeLessThan(3 * 60_000);
+  });
+
+  describe('a new version that stays because the app will not stop', () => {
+    const keep = () => {
+      fake.migratesOn.add('0.8.0'); fake.stuckStart.add('worker-files'); fake.musicReading = answering; fake.stuckStop.add('app');
+    };
+
+    it('says once how many parts run, as docker reads them after the start', async () => {
+      keep();
+      const docker: Runner = async (args, opts) => {
+        // the identify worker ended right after its start
+        if (args[0] === 'inspect' && args[2]!.startsWith('{{.State.Status}}|') && fake.serviceOf(args[3]!) === 'worker-identify') return { code: 0, stdout: 'exited|\n', stderr: '' };
+        return fake.runner(args, opts);
+      };
+      const run = await update('0.8.0', {}, { docker });
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).toContain('stays in place');
+      expect(run.reason).toContain("The file worker won't start.");
+      expect(run.reason).toContain("The web app is stuck and won't stop.");
+      expect(run.reason!.match(/\d+ of \d+ parts running/g)).toEqual(['1 of 4 parts running']);
+    });
+
+    it('counts the parts it started when docker cannot say', async () => {
+      keep();
+      const docker: Runner = async (args, opts) => {
+        if (args[0] === 'inspect' && args[2]!.startsWith('{{.State.Status}}|')) return { code: 1, stdout: '', stderr: 'Cannot connect to the Docker daemon' };
+        return fake.runner(args, opts);
+      };
+      const run = await update('0.8.0', {}, { docker });
+      expect(run.reason!.match(/\d+ of \d+ parts running/g)).toEqual(['2 of 4 parts running']);
+    });
+  });
 
   it('does not hold when the file worker starts on its own after the share returns', async () => {
     fake.stuckStartOnce.add('worker-files'); fake.musicReading = answering;
