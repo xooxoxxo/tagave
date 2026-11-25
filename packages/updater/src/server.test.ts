@@ -48,9 +48,13 @@ class Fake {
   handoverPs = '';
   reports: Array<{ status: string; cause: string | null }> = [];
 
-  docker: Runner = async (args) => {
+  /** The service-list reads of the service itself (its 5 s limit; an update's or a repair's own reads have longer ones). */
+  listReads = 0;
+
+  docker: Runner = async (args, opts) => {
     assertAllowed(args);
     this.calls.push(args);
+    if (args.join(' ') === 'compose config --services' && opts?.timeoutMs === 5_000) this.listReads++;
     return { code: 0, stdout: '', stderr: '', ...(await this.answer(args)) };
   };
 
@@ -61,8 +65,10 @@ class Fake {
       return { stdout: '28.0.0\n' };
     }
     if (j === 'compose config --services') {
+      // the list as it is when the read starts
+      const list = this.configList;
       await this.configGate;
-      return this.configList ? { stdout: `${this.configList.join('\n')}\nupdater\n` } : { code: 1, stderr: 'no' };
+      return list ? { stdout: `${list.join('\n')}\nupdater\n` } : { code: 1, stderr: 'no' };
     }
     if (a[0] === 'compose' && a[1] === 'ps') {
       const svc = a.at(-1)!;
@@ -587,7 +593,7 @@ describe('updater HTTP API', () => {
         fake.configGate = never;
         const t = Date.now();
         const status = await s.status();
-        expect(Date.now() - t).toBeLessThan(1000);
+        expect(Date.now() - t).toBeLessThan(150 + 150);
         expect(status).toMatchObject({ services: [], parts: [] });
         // a second call reuses the read in flight
         await s.status();
@@ -605,14 +611,38 @@ describe('updater HTTP API', () => {
       });
 
       it('when every part hangs: the parts get the time left, not a fresh 6 s', async () => {
-        const s = make({ statusDeadlineMs: 300, partsDeadlineMs: 10_000 });
-        fake.configGate = new Promise((r) => setTimeout(r, 100));
+        // the list takes 350 ms of 900: a fresh budget for the parts would end near 1250 ms
+        const s = make({ statusDeadlineMs: 900, partsDeadlineMs: 10_000 });
+        fake.configGate = new Promise((r) => setTimeout(r, 350));
         for (const svc of SERVICES) fake.hangPs.add(svc);
         const t = Date.now();
         const status = await s.status();
-        expect(Date.now() - t).toBeLessThan(1000);
+        expect(Date.now() - t).toBeLessThan(900 + 150);
         expect(status.services).toEqual(SERVICES);
         expect(status.parts?.map((p) => p.state)).toEqual(['stuck', 'stuck', 'stuck']);
+      });
+
+      it('a list that comes with under 500 ms left counts as late: no parts this call', async () => {
+        const s = make({ statusDeadlineMs: 600 });
+        fake.configGate = new Promise((r) => setTimeout(r, 300));
+        for (const svc of SERVICES) fake.hangPs.add(svc);
+        const t = Date.now();
+        const status = await s.status();
+        expect(Date.now() - t).toBeLessThan(600 + 150);
+        expect(status).toMatchObject({ services: [], parts: [] });
+        // the cache has it for the next call
+        expect(s['servicesList']).toEqual(SERVICES);
+      });
+
+      it("when the app never takes a stale repair's report", async () => {
+        await writeRun(REPAIR_STATE_FILE, newRepairRun('installer-old', 'installer', new Date(Date.now() - 2 * 3600_000)));
+        let asked = 0;
+        const s = make({ statusDeadlineMs: 200, report: () => { asked++; return new Promise<void>(() => {}); } });
+        const t = Date.now();
+        const status = await s.status();
+        expect(Date.now() - t).toBeLessThan(200 + 150);
+        expect(status.repair).toMatchObject({ id: 'installer-old', status: 'failed' });
+        expect(asked).toBe(1);
       });
 
       it('when the hand-over check hangs: the marker known so far', async () => {
@@ -624,13 +654,20 @@ describe('updater HTTP API', () => {
         fake.handoverGate = never;
         const t = Date.now();
         const status = await s.status();
-        expect(Date.now() - t).toBeLessThan(1000);
+        expect(Date.now() - t).toBeLessThan(200 + 150);
         expect(status.selfReplace).toMatchObject({ expectedVersion: '0.8.0', fromVersion: '0.7.0', ageMs: expect.any(Number) });
         expect(status.services).toEqual(SERVICES);
       });
     });
 
     describe('the service list', () => {
+      /** Until no list read is in flight or queued. */
+      const listRead = async (s: UpdaterService) => {
+        while (s['servicesRead'] || s['servicesNext']) {
+          await s['servicesNext'];
+          await s['servicesRead'];
+        }
+      };
       const loaded = async () => {
         const s = make();
         await s.load();
@@ -643,6 +680,7 @@ describe('updater HTTP API', () => {
       it('is read once at load, and status reads it no more', async () => {
         const s = await loaded();
         expect(fake.configReads()).toBe(1);
+        expect(fake.listReads).toBe(1);
         expect((await s.status()).services).toEqual(SERVICES);
         await s.status();
         expect(fake.configReads()).toBe(1);
@@ -653,8 +691,9 @@ describe('updater HTTP API', () => {
         fake.configList = ['postgres', 'app'];
         expect((await s.start('0.8.0', signed(KEY, testManifest('0.8.0')).text, signed(KEY, testManifest('0.8.0')).signature)).ok).toBe(true);
         await s.idle();
-        await s['servicesRead'];
+        await listRead(s);
         expect((await s.status()).services).toEqual(['postgres', 'app']);
+        expect(fake.listReads).toBe(2);
       });
 
       it('is read again once a repair ends', async () => {
@@ -662,8 +701,9 @@ describe('updater HTTP API', () => {
         fake.configList = ['postgres', 'app'];
         expect((await s.startRepair('owner')).ok).toBe(true);
         await s.idle();
-        await s['servicesRead'];
+        await listRead(s);
         expect((await s.status()).services).toEqual(['postgres', 'app']);
+        expect(fake.listReads).toBe(2);
       });
 
       it('a failed read keeps the last good list', async () => {
@@ -671,8 +711,25 @@ describe('updater HTTP API', () => {
         fake.configList = null;
         expect((await s.startRepair('owner')).ok).toBe(true);
         await s.idle();
-        await s['servicesRead'];
+        await listRead(s);
         expect((await s.status()).services).toEqual(SERVICES);
+        expect(fake.listReads).toBe(2);
+      });
+
+      it('a run that ends during a read gets one more read after it', async () => {
+        const s = await loaded();
+        let open!: () => void;
+        fake.configGate = new Promise((r) => { open = r; });
+        void s['readServices']();
+        // the run changed the list after that read began
+        fake.configList = ['postgres', 'app'];
+        s['runEnded']();
+        s['runEnded']();
+        fake.configGate = null;
+        open();
+        await listRead(s);
+        expect(s['servicesList']).toEqual(['postgres', 'app']);
+        expect(fake.listReads).toBe(3);
       });
     });
 
