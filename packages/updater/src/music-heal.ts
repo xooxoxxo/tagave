@@ -19,8 +19,8 @@
  *      (worker-files, app, player), found by the compose project label
  *
  * Before any of that it reads the host mount table (music-probe.ts, which
- * never touches MUSIC_DIR). A network share whose server does not answer
- * ends the attempt as `server_silent`: on a dead hard NFS mount
+ * never touches MUSIC_DIR). A network share whose server does not answer,
+ * or whose answer is not known, ends the attempt as `server_silent`: on a dead hard NFS mount
  * `mountpoint` and `find` would hang in the kernel. A network share already
  * mounted on MUSIC_DIR that answers skips steps 1 to 4. A silent share does
  * not count as a failure (the wait does not grow) and is reported once, when the
@@ -48,6 +48,8 @@ import { signRequest } from './token.js';
  */
 export const HEAL_REASONS = ['mounted', 'no_systemd', 'not_in_fstab', 'mount_failed', 'still_empty', 'restart_failed', 'docker_failed', 'server_silent'] as const;
 export type HealReason = (typeof HEAL_REASONS)[number];
+/** How a remount ended: an attempt's reason, or `off` / `busy` when none ran (neither is recorded nor reported). */
+export type RemountResult = HealReason | 'off' | 'busy';
 export type HealReport = { phase: 'start' } | { phase: 'done'; ok: boolean; reason: HealReason };
 
 /** The services of tagave's own that may bind the music; any other container is never touched. */
@@ -161,6 +163,11 @@ export interface HealerDeps {
   docker: Runner;
   app: MusicApp;
   busy: () => boolean;
+  /**
+   * An update or a module run moves containers (never a repair: a repair
+   * calls remount). While true, remount answers `busy`. Absent means never.
+   */
+  updating?: () => boolean;
   now?: () => number;
   /** this container's id (its hostname by default) */
   self?: string;
@@ -209,9 +216,19 @@ export class MusicHealer {
     });
   }
 
-  /** One attempt for `dir`, under the lock: waits for a running tick or remount, then runs. */
-  async remount(dir: string, project: string): Promise<HealReason> {
-    return this.withLock(async () => this.record(await this.attempt(dir, project)));
+  /**
+   * One attempt for `dir`, under the lock: waits for a running tick or
+   * remount, then runs. `off` when TAGAVE_MUSIC_SELF_HEAL is off and `busy`
+   * while an update or module run moves containers: nothing runs, nothing
+   * is recorded or reported.
+   */
+  async remount(dir: string, project: string): Promise<RemountResult> {
+    return this.withLock(async (): Promise<RemountResult> => {
+      const env = await readFile(join(this.deps.installDir, '.env'), 'utf8').catch(() => '');
+      if (!selfHealOn(env)) return 'off';
+      if (this.deps.updating?.()) return 'busy';
+      return this.record(await this.attempt(dir, project));
+    });
   }
 
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -253,8 +270,8 @@ export class MusicHealer {
     const d = this.deps.docker;
     const reading = this.deps.music ? await this.deps.music.read({ parts: [], appUnmounted: true }).catch(() => null) : null;
     const network = reading?.mount.kind === 'network';
-    // Nothing below may touch MUSIC_DIR while its server is silent: a hard mount would hang.
-    if (network && reading.answer === 'silent') return 'server_silent';
+    // Nothing below may touch MUSIC_DIR unless its server answers: a hard mount would hang.
+    if (network && reading.answer !== 'answers') return 'server_silent';
     if (network && reading.mount.mountPoint === dir && reading.answer === 'answers') {
       await this.deps.app.report({ phase: 'start' });
       return this.restart(project, dir);
