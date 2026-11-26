@@ -175,6 +175,13 @@ export interface HealerDeps {
   log?: (msg: Record<string, unknown>) => void;
   /** reads the music mount and whether its server answers; null or absent skips the check */
   music?: MusicProber | null;
+  /**
+   * The cross-process lock (repair-lock.ts) a tick's attempt holds: its
+   * release, or null while another process repairs or heals (the tick then
+   * skips, and nothing is recorded). Absent: no lock. A remount never takes
+   * it: the repair that asks for it holds it already.
+   */
+  lockParts?: () => Promise<(() => Promise<void>) | null>;
 }
 
 export class MusicHealer {
@@ -221,12 +228,21 @@ export class MusicHealer {
       const musicDir = musicDirOf(env);
       const on = selfHealOn(env);
       const unmounted = on && musicDir ? await this.deps.app.unmounted() : false;
-      // No await from busy() to `running`: a start's claim (set after its last
-      // await, server.ts) and this go are each one step, so exactly one wins.
-      const decision = healDecision({ on, musicDir, unmounted, busy: this.deps.busy(), now: this.now(), last: this.last, cfg: this.cfg });
-      if (!decision.go) return null;
-      const project = envGet(env, 'COMPOSE_PROJECT_NAME') || 'tagave';
-      return this.attemptRecorded(musicDir!, project);
+      const decide = () => healDecision({ on, musicDir, unmounted, busy: this.deps.busy(), now: this.now(), last: this.last, cfg: this.cfg });
+      if (!decide().go) return null;
+      // Another process (the installer's repair) may move the same parts: one at a time.
+      const release = this.deps.lockParts ? await this.deps.lockParts() : async () => undefined;
+      if (!release) return null;
+      try {
+        // Decided again after that await, and no await from busy() to
+        // `running`: a start's claim (set after its last await, server.ts) and
+        // this go are each one step, so exactly one wins.
+        if (!decide().go) return null;
+        const project = envGet(env, 'COMPOSE_PROJECT_NAME') || 'tagave';
+        return await this.attemptRecorded(musicDir!, project);
+      } finally {
+        await release().catch(() => undefined);
+      }
     });
   }
 

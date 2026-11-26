@@ -30,7 +30,10 @@
  * music self-heal runs an attempt (music-heal.ts; an update's own repair
  * waits for that attempt to settle, then starts). A
  * repair that waits for the music share blocks nothing; its watcher pauses
- * while anything else moves containers.
+ * while anything else moves containers. Across processes (this service and
+ * the installer's one-off cli.js repair) a repair, each resume of a waiting
+ * one and each self-heal attempt hold .updater/repair.lock (repair-lock.ts):
+ * a second start is refused as running, never failed.
  */
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -51,6 +54,7 @@ import type { MusicProber } from './music-probe.js';
 import type { RemountResult } from './music-heal.js';
 import { readParts } from './parts.js';
 import { DEFAULT_REPAIR_CONFIG, REPAIR_STATE_FILE, Repair, newRepairRun, type RepairConfig, type RepairDeps } from './repair.js';
+import { RepairLock, type LockHolder, type Release } from './repair-lock.js';
 
 /** Same rule as @tagave/shared UPDATE_TARGET_RE (kept here so the image needs no runtime packages). */
 const TARGET_RE = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]{1,40})?$/;
@@ -128,6 +132,10 @@ export interface UpdaterOptions {
   statusDeadlineMs?: number;
   /** The pause between the patient service list reads after a start (default 3 s). */
   servicesRetryMs?: number;
+  /** How long a stopped repair waits for the app to take its end (the audit entry) before the process exits (default 6 s). */
+  reportWaitMs?: number;
+  /** The lock that keeps repairs and self-heal attempts of separate processes apart (default: .updater/repair.lock); null: none. */
+  lock?: RepairLock | null;
 }
 
 /** What the service needs of the music healer (music-heal.ts). */
@@ -141,6 +149,8 @@ export interface RepairHealer {
 
 /** The refusal while the music self-heal attempts (409). */
 export const HEALING_ERROR = 'The music share is being connected again. Try again in a minute.';
+/** The longest a stopped repair waits for the app to take its end; httpRepairReport gives up after 5 s. */
+const REPORT_WAIT_MS = 6000;
 /** The longest an automatic start waits for the self-heal to settle (its helper calls have their own limits). */
 const HEAL_WAIT_MS = 10 * 60_000;
 
@@ -189,6 +199,11 @@ export class UpdaterService {
   private resuming: Promise<void> | null = null;
   /** The run that is starting (between its checks and its run being under way). */
   private claimed: Claim | null = null;
+  /** The cross-process lock a repair's claim took, until beginRepair takes it over. */
+  private claimRelease: Release | null = null;
+  /** The lock this process's running repair holds, released when it settles. */
+  private repairRelease: Release | null = null;
+  private readonly lock: RepairLock | null;
   /** Bumped when the parts change: a reading begun before it is not kept. */
   private partsGen = 0;
   /** The last good service list (without the updater), or null before the first read answers. */
@@ -203,6 +218,9 @@ export class UpdaterService {
     this.statePath = join(opts.installDir, STATE_DIR, 'state.json');
     this.modulePath = join(opts.installDir, STATE_DIR, 'module-run.json');
     this.repairPath = join(opts.installDir, REPAIR_STATE_FILE);
+    this.lock = opts.lock === undefined
+      ? new RepairLock({ installDir: opts.installDir, ...(opts.now ? { now: () => opts.now!().getTime() } : {}) })
+      : opts.lock;
     this.selfReplace = new SelfReplaceGate({
       version: opts.version,
       persist: () => this.writeState(),
@@ -333,20 +351,27 @@ export class UpdaterService {
     await this.failRepair(run, STOPPED_REPAIR, 'this repair stopped without an end');
   }
 
-  /** Ends a repair that no process runs any more: failed, saved, and told to the app (its audit end row). */
-  private async failRepair(run: RepairRun, reason: string, message: string): Promise<void> {
+  /**
+   * Ends a repair that no process runs any more: failed, saved, and told to
+   * the app (its audit end row). Resolves once saved; `told` resolves once the
+   * app took the end or gave up. A status call that found the run stale never
+   * waits on the app; a process about to exit (interruptRepair) does.
+   */
+  private async failRepair(run: RepairRun, reason: string, message: string): Promise<{ told: Promise<void> }> {
     const at = this.now().toISOString();
     const step = run.steps.find((s) => s.status === 'running');
     if (step) Object.assign(step, { status: 'failed', finishedAt: at });
     Object.assign(run, { status: 'failed', finishedAt: at, reason, headline: reason, progress: null, stall: null });
     run.log.push({ at, level: 'error', message });
     await this.saveRepair(run).catch(() => undefined);
-    // Sent in the background: a status call that found the run stale never waits on the app.
+    let told: Promise<void>;
     try {
-      void Promise.resolve(this.opts.report?.({ status: 'failed', cause: null })).catch(() => undefined);
+      told = Promise.resolve(this.opts.report?.({ status: 'failed', cause: null })).catch(() => undefined);
     } catch {
       /* the run on disk says how it ended */
+      told = Promise.resolve();
     }
+    return { told };
   }
 
   /**
@@ -493,13 +518,41 @@ export class UpdaterService {
     const elsewhere = !this.moduleActive && this.moduleRun?.status === 'running' && this.now().getTime() - Date.parse(this.moduleRun.startedAt) < 60 * 60_000;
     if (this.moduleActive || elsewhere) return this.claimedRefusal('module');
     if (await this.repairElsewhereOrHere()) return this.claimedRefusal('repair');
+    // A repair also takes the lock other processes see (the installer's
+    // one-off, or the service): held there, this one is refused, not failed.
+    let release: Release | null = null;
+    if (kind === 'repair') {
+      const got = await this.lockParts('repair');
+      if (got === 'repair') return this.claimedRefusal('repair');
+      if (got === 'heal') return { ok: false, status: 409, error: HEALING_ERROR };
+      release = got;
+    }
     // No await from here on: the checks and the claim are one step. The
     // healer sets attempting() with no await after its busy() (moving())
     // read either, so of a start and a self-heal attempt exactly one goes.
-    if (this.claimed) return this.claimedRefusal(this.claimed);
-    if (this.healer?.attempting()) return { ok: false, status: 409, error: HEALING_ERROR };
+    const refused = this.claimed ? this.claimedRefusal(this.claimed)
+      : this.healer?.attempting() ? { ok: false as const, status: 409, error: HEALING_ERROR }
+      : null;
+    if (refused) {
+      // Let go before answering: a caller that tries again at once finds it free.
+      await release?.();
+      return refused;
+    }
     this.claimed = kind;
+    this.claimRelease = release;
     return null;
+  }
+
+  /**
+   * Takes the cross-process lock (repair-lock.ts) for `holder`: its release,
+   * or who holds it now. Without a lock, or when it cannot be written here,
+   * a release that does nothing (the in-process checks still apply).
+   */
+  async lockParts(holder: LockHolder): Promise<Release | LockHolder> {
+    if (!this.lock) return async () => undefined;
+    const got = await this.lock.acquire(holder);
+    if (got.ok) return got.release;
+    return got.holder ?? (async () => undefined);
   }
 
   private claimedRefusal(kind: Claim): RefusedStart {
@@ -516,6 +569,10 @@ export class UpdaterService {
       return await start();
     } finally {
       this.claimed = null;
+      // A start that did not take the lock over (it threw) lets it go.
+      const left = this.claimRelease;
+      this.claimRelease = null;
+      await left?.();
     }
   }
 
@@ -625,9 +682,13 @@ export class UpdaterService {
    * failed ("The repair stopped. Press Repair again."), saved before it
    * resolves, so repair.json never says running for the hour R29 waits. A
    * waiting repair stays waiting (another start or the service resumes it).
+   * It resolves once the app took the end (the audit entry) or reportWaitMs
+   * passed: the process exits right after, and a report still in flight
+   * would be lost. A run that had just ended gets its own report the same time.
    */
   async interruptRepair(): Promise<void> {
     const repair = this.repair;
+    if (repair && repair.run.status !== 'running') return this.within(repair.reported());
     if (repair?.run.status !== 'running') return;
     const stopped: { id: string; end: RepairRun | null } = { id: repair.run.id, end: null };
     this.stoppedRepair = stopped;
@@ -636,7 +697,22 @@ export class UpdaterService {
     await repair.saved().catch(() => undefined);
     // A copy: the run object goes on changing until the process exits.
     stopped.end = structuredClone(repair.run);
-    await this.failRepair(stopped.end, STOPPED_REPAIR, 'the repair was stopped before it ended');
+    const { told } = await this.failRepair(stopped.end, STOPPED_REPAIR, 'the repair was stopped before it ended');
+    // The process exits next: the lock goes now, so the next start need not wait for it to go stale.
+    await this.releaseRepair(this.repairRelease);
+    await this.within(told);
+  }
+
+  private async releaseRepair(release: Release | null): Promise<void> {
+    if (this.repairRelease === release) this.repairRelease = null;
+    await release?.().catch(() => undefined);
+  }
+
+  /** `p`, or reportWaitMs, whichever comes first. */
+  private async within(p: Promise<void>): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<void>((resolve) => { timer = setTimeout(resolve, this.opts.reportWaitMs ?? REPORT_WAIT_MS); });
+    await Promise.race([p.catch(() => undefined), limit]).finally(() => clearTimeout(timer));
   }
 
   /** Resolves when this process's repair has written every save it asked for (cli.js, before it exits). */
@@ -659,6 +735,11 @@ export class UpdaterService {
       ...(this.opts.now ? { now: this.opts.now } : {}),
       // Read only by a waiting repair's watcher: it does not resume while a self-heal attempt restarts the same parts.
       busy: () => this.moving() || !!this.healer?.attempting(),
+      // ... nor while another process repairs or heals: each resume holds the lock.
+      lockParts: async () => {
+        const got = await this.lockParts('repair');
+        return typeof got === 'function' ? got : null;
+      },
     };
   }
 
@@ -709,6 +790,8 @@ export class UpdaterService {
   private async beginRepair(trigger: RepairRun['trigger']): Promise<{ ok: true; run: RepairRun } | RefusedStart> {
     const run = newRepairRun(randomUUID(), trigger, this.now());
     const before = this.repairRun;
+    const release = this.claimRelease;
+    this.claimRelease = null;
     // The new run is the current one first, so a waiting watcher's late save is ignored.
     this.repairRun = run;
     try {
@@ -716,6 +799,7 @@ export class UpdaterService {
     } catch (err) {
       // Nothing started: the old run (a waiting one goes on waiting) stays current.
       this.repairRun = before;
+      await release?.();
       return { ok: false, status: 500, error: `the repair could not be saved: ${(err as Error).message}` };
     }
     // Pressed again while it waits: the watcher stops and the new run starts at check.
@@ -724,9 +808,12 @@ export class UpdaterService {
     this.repair = repair;
     this.savedStatus = run.status;
     this.partsChanged();
+    this.repairRelease = release;
     this.repairActive = repair.execute()
-      .then((r) => {
+      .then(async (r) => {
         if (r.status === 'waiting' && this.repair === repair) this.watchRepair(repair);
+        // Settled: the lock goes (a waiting run's watcher takes it again for each resume).
+        await this.releaseRepair(release);
         return r;
       })
       .finally(() => {

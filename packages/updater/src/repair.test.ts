@@ -687,6 +687,31 @@ describe('repair', () => {
     expect(fake.changes()).toHaveLength(changes);
   });
 
+  it('the watcher never resumes while another process holds repair.lock, and resumes once it is free', async () => {
+    fake.box('worker-files').status = 'removing';
+    fake.share = 'silent';
+    const first = await repair().execute();
+    expect(first.status).toBe('waiting');
+    const changes = fake.changes().length;
+    fake.share = 'answers';
+    // held elsewhere for the first two probes (the installer's repair, a self-heal)
+    let asked = 0;
+    let released = 0;
+    const r = new Repair(deps({
+      lockParts: async () => {
+        asked++;
+        return asked <= 2 ? null : async () => { released++; };
+      },
+    }), structuredClone(first));
+    fake.onSleep = (n) => { if (n === 2) expect(fake.changes()).toHaveLength(changes); };
+    const run = await r.watch();
+    expect(asked).toBe(3);
+    expect(released).toBe(1);
+    expect(run.status).toBe('repaired');
+    expect(run.log.filter((l) => l.message === 'another repair is under way, so tagave checks again later')).toHaveLength(2);
+    expect(fake.box('worker-files').status).toBe('running');
+  });
+
   it('the watcher with no music prober says once that it cannot check the share', async () => {
     fake.box('worker-files').status = 'removing';
     fake.share = 'silent';

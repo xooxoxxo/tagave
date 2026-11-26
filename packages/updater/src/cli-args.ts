@@ -18,6 +18,9 @@ export function parseRepairArgs(args: string[]): { ok: true; waitMinutes: number
   return minutes >= 1 && minutes <= MAX_WAIT_MINUTES ? { ok: true, waitMinutes: minutes } : { ok: false };
 }
 
+/** A repair or a self-heal of this install runs in another process (or this one): nothing else starts. */
+export const ALREADY_RUNNING = 'A repair is already running. Wait for it to end, then run the installer again with --repair if a part still does not run.';
+
 /** Printed instead of watching when --wait is given and the updater service runs here. */
 export const WAIT_NOT_NEEDED = 'The updater keeps watching the music share, so --wait is not needed here.';
 
@@ -32,12 +35,17 @@ const SERVICE_FINISHES = "tagave finishes on its own when it's back.";
 /** Its ending when no updater service runs here: the one-off container watches no longer. */
 export const INSTALLER_AGAIN = "Run the installer again once it's back.";
 
+/** What a failed run says to run instead of pressing Repair again: the terminal has no button. */
+export const RUN_AGAIN = 'Run the installer again with --repair';
+
 /**
- * The headline as cli.js prints it: the saved one (the web shows it), but
- * when this install's updater service does not run, nothing finishes a
- * waiting run on its own and there is no Repair button to press.
+ * The headline as cli.js prints it: the saved one (the web shows it), but a
+ * failed run's "Press Repair again" names the installer (it was run from the
+ * terminal), and when this install's updater service does not run, nothing
+ * finishes a waiting run on its own and there is no Repair button to press.
  */
 export function printedHeadline(status: RepairStatus, headline: string, updaterRuns: boolean): string {
+  if (status === 'failed') return headline.replaceAll('Press Repair again', RUN_AGAIN);
   if (updaterRuns) return headline;
   if (status === 'waiting' && headline.endsWith(SERVICE_FINISHES)) return `${headline.slice(0, -SERVICE_FINISHES.length)}${INSTALLER_AGAIN}`;
   if (status === 'needs_you') return headline.replaceAll('press Repair', 'run the installer again with --repair');

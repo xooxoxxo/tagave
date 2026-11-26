@@ -144,6 +144,46 @@ describe('an attempt (fake Docker, fake app)', () => {
     expect(reports).toEqual([{ phase: 'start' }, { phase: 'done', ok: true, reason: 'mounted' }]);
   });
 
+  it('another process repairs (repair.lock held): the tick skips, runs nothing and records nothing', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\n');
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app, reports } = fakeApp(true);
+    let held = true;
+    let released = 0;
+    const healer = new MusicHealer({
+      installDir, docker, app, busy: () => false, self: 'self-id', now: () => 1e9,
+      lockParts: async () => (held ? null : async () => { released++; }),
+    });
+    expect(await healer.tick()).toBeNull();
+    expect(calls).toEqual([]);
+    expect(reports).toEqual([]);
+    // no failure counted: the next tick, once the lock is free, attempts at once
+    held = false;
+    expect(await healer.tick()).toBe('mounted');
+    expect(released).toBe(1);
+  });
+
+  it('the lock is let go even when the attempt throws, and a busy() that turns true while it waits for the lock stops it', async () => {
+    const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app } = fakeApp(true);
+    let busy = false;
+    let released = 0;
+    const healer = new MusicHealer({
+      installDir, docker, app, busy: () => busy, self: 's',
+      lockParts: async () => { busy = true; return async () => { released++; }; },
+    });
+    expect(await healer.tick()).toBeNull();
+    expect(calls).toEqual([]);
+    expect(released).toBe(1);
+    const boom = new MusicHealer({
+      installDir, docker: async () => { throw new Error('docker gone'); }, app, busy: () => false, self: 's',
+      lockParts: async () => async () => { released++; },
+    });
+    await expect(boom.tick()).rejects.toThrow('docker gone');
+    expect(released).toBe(2);
+  });
+
   it('without systemd, or MUSIC_DIR not in fstab: nothing is started, the failure is reported', async () => {
     const installDir = await installWith('MUSIC_DIR=/mnt/music\n');
     for (const [over, reason] of [[{ escape: { code: 127, stdout: '' } }, 'no_systemd'], [{ source: { stdout: '\n' } }, 'not_in_fstab'], [{ source: { stdout: '/run/systemd/generator/x\n' } }, 'not_in_fstab']] as const) {

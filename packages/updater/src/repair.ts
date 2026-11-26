@@ -75,6 +75,12 @@ export interface RepairDeps {
   statfs?: (path: string) => Promise<StatfsLike>;
   /** Lets the waiting watcher pause while an update or module run moves containers. */
   busy?: () => boolean;
+  /**
+   * The cross-process lock for one resume of a waiting run (repair-lock.ts):
+   * its release, or null while another process repairs or heals (the watcher
+   * tries again at its next probe). Absent: no lock.
+   */
+  lockParts?: () => Promise<(() => Promise<void>) | null>;
 }
 
 export const REPAIR_STEP_LABELS: Record<RepairStepId, string> = {
@@ -272,6 +278,8 @@ export class Repair {
   private cancelled = false;
   private wake: (() => void) | null = null;
   private saving: Promise<void> = Promise.resolve();
+  /** The last settle's report to the app, until it is taken (or fails). */
+  private reporting: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: RepairDeps, run: RepairRun) {
     this.run = run;
@@ -315,8 +323,7 @@ export class Repair {
         // An update or a module run may have started while it read: never move parts under it.
         if (this.deps.busy?.()) continue;
         if (down.length === 0) {
-          this.log('info', 'the parts that waited for the music share run again');
-          await this.resume(down, null);
+          await this.resumeLocked(down, null, 'the parts that waited for the music share run again');
           continue;
         }
         if (!this.deps.music) {
@@ -332,12 +339,10 @@ export class Repair {
         this.run.checkedAt = this.now().toISOString();
         if (reading?.answer !== 'silent' && reading?.answer !== 'unknown' && reading && this.deps.busy?.()) continue;
         if (reading?.answer === 'answers') {
-          this.log('info', 'the music share answers again');
-          await this.resume(down, null);
+          await this.resumeLocked(down, null, 'the music share answers again');
         } else if (reading && reading.answer === null) {
           // No longer a network share (a local folder, or not mounted at all): the music step decides.
-          this.log('info', 'the music folder is no longer on a network share');
-          await this.resume(down, reading);
+          await this.resumeLocked(down, reading, 'the music folder is no longer on a network share');
         } else {
           delay = Math.min(delay * 2, this.deps.config.waitMaxMs);
           void this.persist();
@@ -352,6 +357,11 @@ export class Repair {
   /** Resolves when every save asked for so far has landed. */
   saved(): Promise<void> {
     return this.saving;
+  }
+
+  /** Resolves when the app has been told of the last settle (or the telling failed). */
+  reported(): Promise<void> {
+    return this.reporting;
   }
 
   /** Stops the watcher; the run stays as it is. */
@@ -569,6 +579,27 @@ export class Repair {
   }
 
   /**
+   * resume() under the cross-process lock. False when another process
+   * repairs or heals right now: nothing moves, and the next probe tries again.
+   */
+  private async resumeLocked(down: string[], reading: MusicReading | null, why: string): Promise<boolean> {
+    const release = this.deps.lockParts ? await this.deps.lockParts() : async () => undefined;
+    if (!release) {
+      this.log('info', 'another repair is under way, so tagave checks again later');
+      return false;
+    }
+    try {
+      // Cancelled while it waited for the lock (Repair pressed again): a fresh run owns the parts now.
+      if (this.cancelled) return false;
+      this.log('info', why);
+      await this.resume(down, reading);
+      return true;
+    } finally {
+      await release().catch(() => undefined);
+    }
+  }
+
+  /**
    * The watcher's way back in: stop what is still stuck, start, verify.
    * `reading`: the share is no longer a network one, so the music step runs
    * on it first (a folder that is not connected goes to the remount).
@@ -647,6 +678,14 @@ export class Repair {
     if (status === 'waiting') Object.assign(this.step('verify'), { status: 'pending', startedAt: null, finishedAt: null });
     this.log(status === 'repaired' || status === 'waiting' ? 'info' : 'warn', this.run.headline);
     await this.persist();
+    // Cancelled while it ran (interruptRepair): the one that stopped it writes and reports the end, once.
+    if (this.cancelled) return;
+    const telling = this.tell(status);
+    this.reporting = telling;
+    await telling;
+  }
+
+  private async tell(status: Exclude<RepairStatus, 'running'>): Promise<void> {
     try {
       await this.deps.report?.({ status, cause: this.cause });
     } catch (err) {
