@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -320,7 +320,63 @@ describe('updater HTTP API', () => {
       await service.idle();
       await service.repairSaved();
       expect(await onDisk()).toMatchObject({ status: 'failed', reason: 'The repair stopped. Press Repair again.' });
+      // ... nor adds a second audit entry
+      expect(fake.reports).toEqual([{ status: 'failed', cause: null }]);
       fake.versionGate = null;
+    });
+
+    describe('a stopped repair still leaves its audit entry (cli.js exits right after)', () => {
+      /** The app takes a report after `ms`, like the real signed POST. */
+      const slowReport = (ms: number) => {
+        const landed: Array<{ status: string; cause: string | null }> = [];
+        const report = (end: { status: string; cause: string | null }) => new Promise<void>((resolve) => setTimeout(() => { landed.push(end); resolve(); }, ms));
+        return { landed, report };
+      };
+
+      it('interruptRepair resolves only once the app took the failed end', async () => {
+        const app = slowReport(80);
+        const s = make({ report: app.report });
+        let open!: () => void;
+        fake.versionGate = new Promise((r) => { open = r; });
+        expect((await s.startRepair('installer')).ok).toBe(true);
+        await s.interruptRepair();
+        expect(app.landed).toEqual([{ status: 'failed', cause: null }]);
+        open();
+        await s.idle();
+        expect(app.landed).toEqual([{ status: 'failed', cause: null }]);
+        fake.versionGate = null;
+      });
+
+      it('a run that ended just before the stop: its own report lands first', async () => {
+        let take: (() => void) | undefined;
+        const landed: Array<{ status: string; cause: string | null }> = [];
+        const s = make({ report: (end) => new Promise<void>((resolve) => { take = () => { landed.push(end); resolve(); }; }) });
+        expect((await s.startRepair('installer')).ok).toBe(true);
+        for (let i = 0; i < 400 && take === undefined; i++) await new Promise((r) => setTimeout(r, 5));
+        expect(take).toBeDefined();
+        // ended repaired, its report in flight: the stop waits for it and changes nothing
+        let done = false;
+        const stopping = s.interruptRepair().then(() => { done = true; });
+        await new Promise((r) => setTimeout(r, 30));
+        expect(done).toBe(false);
+        take!();
+        await stopping;
+        expect(landed).toEqual([{ status: 'repaired', cause: null }]);
+        await s.idle();
+      });
+
+      it('an app that never answers holds the stop for reportWaitMs at most', async () => {
+        const s = make({ report: () => new Promise<void>(() => {}), reportWaitMs: 50 });
+        let open!: () => void;
+        fake.versionGate = new Promise((r) => { open = r; });
+        expect((await s.startRepair('installer')).ok).toBe(true);
+        const t0 = Date.now();
+        await s.interruptRepair();
+        expect(Date.now() - t0).toBeLessThan(2000);
+        expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ status: 'failed' });
+        open();
+        fake.versionGate = null;
+      });
     });
 
     it('stopping without a running repair changes nothing', async () => {
@@ -368,6 +424,63 @@ describe('updater HTTP API', () => {
       const res = await call('POST', '/v1/repair');
       expect(res.status).toBe(409);
       expect(await res.json()).toMatchObject({ selfReplace: { expectedVersion: '0.8.0' } });
+    });
+
+    describe('across processes (.updater/repair.lock)', () => {
+      it('of two processes that start a repair at the same moment, one runs and the other is told one is running', async () => {
+        const installer = make();
+        const [a, b] = await Promise.all([service.startRepair('owner'), installer.startRepair('installer')]);
+        expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+        const refused = a.ok ? b : a;
+        expect(refused).toEqual({ ok: false, status: 409, error: 'a repair is running' });
+        await service.idle();
+        await installer.idle();
+        const won = a.ok ? a.run : b.ok ? b.run : null;
+        expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ id: won!.id, status: 'repaired' });
+        // one repair, one audit entry, nothing written as failed
+        expect(fake.reports).toEqual([{ status: 'repaired', cause: null }]);
+        // the lock went with it: the next start runs
+        expect((await installer.startRepair('installer')).ok).toBe(true);
+        await installer.idle();
+      });
+
+      it("a self-heal attempt in the service holds it: the installer's repair is refused with the self-heal's words, and nothing moves", async () => {
+        const heal = await service.lockParts('heal');
+        expect(typeof heal).toBe('function');
+        const installer = make();
+        expect(await installer.startRepair('installer')).toEqual({ ok: false, status: 409, error: HEALING });
+        expect(fake.calls.filter((c) => c[0] === 'version')).toEqual([]);
+        await (heal as () => Promise<void>)();
+        expect((await installer.startRepair('installer')).ok).toBe(true);
+        await installer.idle();
+      });
+
+      it("the installer's running repair holds it: the service's self-heal and Repair both wait", async () => {
+        let open!: () => void;
+        fake.versionGate = new Promise((r) => { open = r; });
+        const installer = make();
+        expect((await installer.startRepair('installer')).ok).toBe(true);
+        expect(await service.lockParts('heal')).toBe('repair');
+        expect(await service.startRepair('owner')).toEqual({ ok: false, status: 409, error: 'a repair is running' });
+        open();
+        await installer.idle();
+        fake.versionGate = null;
+        const heal = await service.lockParts('heal');
+        expect(typeof heal).toBe('function');
+        await (heal as () => Promise<void>)();
+      });
+
+      it('a stopped repair lets the lock go before the process exits', async () => {
+        let open!: () => void;
+        fake.versionGate = new Promise((r) => { open = r; });
+        const installer = make();
+        expect((await installer.startRepair('installer')).ok).toBe(true);
+        await installer.interruptRepair();
+        expect(await readdir(join(dir, STATE_DIR))).not.toContain('repair.lock');
+        open();
+        await installer.idle();
+        fake.versionGate = null;
+      });
     });
 
     describe('while the music self-heal attempts', () => {
@@ -561,12 +674,15 @@ describe('updater HTTP API', () => {
       const gate = new Promise<void>((r) => { open = r; });
       const write = service['writeRepair'].bind(service);
       let first = true;
+      let entered!: () => void;
+      const writing = new Promise<void>((r) => { entered = r; });
       service['writeRepair'] = async (run: RepairRun) => {
-        if (first) { first = false; await gate; }
+        if (first) { first = false; entered(); await gate; }
         return write(run);
       };
       const started = service.startRepair('owner');
-      // the old file is read while the new run's first write waits
+      // the old file is read while the new run's first write waits (after the claim and its lock)
+      await writing;
       const during = await statusOf();
       expect(during.repair?.id).not.toBe('old');
       open();

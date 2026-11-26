@@ -19,7 +19,9 @@
  * install-tagave.sh repair runs the same repair as Settings › Updates ›
  * Repair (trigger installer), saved to .updater/repair.json. It prints each
  * log line, then the headline. Exit 0 repaired, 4 waiting on the music share,
- * 5 needs you, 1 failed, refused or stopped (SIGINT, SIGTERM), 2 bad
+ * 5 needs you, 1 failed, refused (a repair or self-heal already runs, here
+ * or in the updater service: .updater/repair.lock) or stopped (SIGINT,
+ * SIGTERM; the end is saved and told to the app before it exits), 2 bad
  * arguments. A waiting repair is left waiting in repair.json, where the
  * updater service (when installed) takes it over; --wait keeps watching here
  * up to MINUTES (1 to 120) first. Without that service the printed headline
@@ -35,7 +37,7 @@ import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 import { envGet, readText } from './envFile.js';
 import { MusicHealer, httpMusicApp, type MusicApp } from './music-heal.js';
 import { cachedProber, musicProber } from './music-probe.js';
-import { USAGE, WAIT_NOT_NEEDED, parseRepairArgs, printedHeadline, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import { ALREADY_RUNNING, USAGE, WAIT_NOT_NEEDED, parseRepairArgs, printedHeadline, repairExitCode, updaterServiceRuns } from './cli-args.js';
 
 /** Only the app's health is asked for with it; nothing is signed with it. */
 const UNUSED_SECRET = 'unused-by-module-runs';
@@ -152,7 +154,7 @@ async function repair(args: string[]): Promise<number> {
   }));
   const started = await service.startRepair('installer');
   if (!started.ok) {
-    console.error(started.error === 'a repair is running' ? 'A repair is already running' : `refused: ${started.error}`);
+    console.error(started.error === 'a repair is running' ? ALREADY_RUNNING : `refused: ${started.error}`);
     return 1;
   }
   const run: RepairRun = started.run;
@@ -177,7 +179,7 @@ async function repair(args: string[]): Promise<number> {
       service.stop();
       await service.repairSaved().catch(() => undefined);
       flush();
-      if (wasRunning) console.error(STOPPED_REPAIR);
+      if (wasRunning) console.error(printedHeadline('failed', STOPPED_REPAIR, false));
       process.exit(wasRunning ? 1 : repairExitCode(run.status));
     })();
   };

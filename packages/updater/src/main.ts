@@ -78,6 +78,11 @@ async function main(): Promise<void> {
     app: musicApp,
     busy: () => service.moving(),
     updating: () => service.updating(),
+    // The installer's one-off repair may run at the same time: each attempt holds .updater/repair.lock.
+    lockParts: async () => {
+      const got = await service.lockParts('heal');
+      return typeof got === 'function' ? got : null;
+    },
     log: (m) => console.log(JSON.stringify(m)),
   });
   service.attachHealer(healer);

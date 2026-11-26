@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { RepairStatus } from '@tagave/shared/updater';
 import { assertAllowed } from './argv-guard.testkit.js';
-import { USAGE, printedHeadline, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import { ALREADY_RUNNING, USAGE, printedHeadline, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
 import { repairHeadline } from './repair.js';
+import { STOPPED_REPAIR } from './server.js';
 import type { CommandResult, Runner } from './runner.js';
 
 describe('cli.js repair', () => {
@@ -42,10 +43,41 @@ describe('cli.js repair', () => {
       expect(printedHeadline('needs_you', oom, true)).toBe(oom);
     });
 
+    it('failed: what to run in the terminal, never a button to press', () => {
+      const saved = [
+        'The repair stopped. Press Repair again.',
+        'The updater restarted during the repair. Press Repair again.',
+        'Another change is under way. Press Repair again when it ends.',
+        'The web app is still busy (backing up the database). Press Repair again when it is done.',
+      ];
+      const printed = [
+        'The repair stopped. Run the installer again with --repair.',
+        'The updater restarted during the repair. Run the installer again with --repair.',
+        'Another change is under way. Run the installer again with --repair when it ends.',
+        'The web app is still busy (backing up the database). Run the installer again with --repair when it is done.',
+      ];
+      for (const runs of [false, true]) {
+        expect(saved.map((h) => printedHeadline('failed', h, runs))).toEqual(printed);
+      }
+      for (const line of printed) {
+        expect(line).not.toMatch(/press|button|\u2014/i);
+        expect(line.length).toBeLessThan(300);
+      }
+      expect(printedHeadline('failed', 'The repair could not finish. The run log says why.', false)).toBe('The repair could not finish. The run log says why.');
+    });
+
+    it('the stop on Ctrl-C names the installer', () => {
+      expect(printedHeadline('failed', STOPPED_REPAIR, true)).toBe('The repair stopped. Run the installer again with --repair.');
+    });
+
     it('any other end is printed as saved', () => {
       expect(printedHeadline('repaired', 'Repaired. All 5 parts running.', false)).toBe('Repaired. All 5 parts running.');
-      expect(printedHeadline('failed', 'The repair stopped. Press Repair again.', false)).toBe('The repair stopped. Press Repair again.');
     });
+  });
+
+  it('a second repair is told one is already running, in plain words', () => {
+    expect(ALREADY_RUNNING).toBe('A repair is already running. Wait for it to end, then run the installer again with --repair if a part still does not run.');
+    expect(ALREADY_RUNNING).not.toMatch(/\u2014/);
   });
 
   it('the usage names both commands', () => {
