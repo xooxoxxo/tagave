@@ -216,6 +216,9 @@ class Ended extends Error {
   }
 }
 
+/** cancel() was called while the run ran: it stops between steps, and whoever stopped it writes the end. */
+class Cancelled extends Error {}
+
 /** One container as repair reads it: its state (null: none, or Docker did not say) and last log lines. */
 interface Seen {
   state: ContainerState | null;
@@ -278,6 +281,12 @@ export class Repair {
   private cancelled = false;
   private wake: (() => void) | null = null;
   private saving: Promise<void> = Promise.resolve();
+  /** The lock a watcher's resume holds right now (resumeLocked), for interruptRepair to let go. */
+  private held: (() => Promise<void>) | null = null;
+  /** Every Docker call of this run: none is sent once it is cancelled. */
+  private readonly runner: Runner = (args, opts) => (this.cancelled
+    ? Promise.resolve({ code: -1, stdout: '', stderr: 'the repair was stopped' })
+    : this.deps.docker(args, opts));
   /** The last settle's report to the app, until it is taken (or fails). */
   private reporting: Promise<void> = Promise.resolve();
 
@@ -285,7 +294,7 @@ export class Repair {
     this.run = run;
     this.now = deps.now ?? (() => new Date());
     this.sleep = deps.sleep ?? realSleep;
-    this.parts = new Parts({ docker: deps.docker, music: deps.music, now: () => this.now().getTime(), log: (l, m) => this.log(l, m) });
+    this.parts = new Parts({ docker: this.runner, music: deps.music, now: () => this.now().getTime(), log: (l, m) => this.log(l, m) });
     // A run loaded from repair.json carries what it found.
     if (run.outcome) {
       this.cause = run.outcome.cause;
@@ -298,15 +307,32 @@ export class Repair {
   async execute(): Promise<RepairRun> {
     try {
       await this.check();
+      this.halt();
       await this.stopStuck();
+      this.halt();
       await this.music();
+      this.halt();
       await this.start(null);
+      this.halt();
       await this.verify();
+      this.halt();
       await this.settle(this.waiting.size > 0 ? 'waiting' : 'repaired');
     } catch (err) {
-      await this.ended(err);
+      if (!(err instanceof Cancelled)) await this.ended(err);
     }
     return this.run;
+  }
+
+  /** Stops a cancelled run between steps. */
+  private halt(): void {
+    if (this.cancelled) throw new Cancelled();
+  }
+
+  /** Lets go of the lock a watcher's resume holds (interruptRepair, right before the process exits). */
+  async releaseHeld(): Promise<void> {
+    const release = this.held;
+    this.held = null;
+    await release?.().catch(() => undefined);
   }
 
   /** From waiting: probe every waitFirstMs, doubling to waitMaxMs; when the share answers, start → verify. Resolves when the run leaves waiting or is cancelled. */
@@ -349,7 +375,7 @@ export class Repair {
         }
       }
     } catch (err) {
-      await this.ended(err);
+      if (!(err instanceof Cancelled)) await this.ended(err);
     }
     return this.run;
   }
@@ -588,6 +614,7 @@ export class Repair {
       this.log('info', 'another repair is under way, so tagave checks again later');
       return false;
     }
+    this.held = release;
     try {
       // Cancelled while it waited for the lock (Repair pressed again): a fresh run owns the parts now.
       if (this.cancelled) return false;
@@ -595,6 +622,7 @@ export class Repair {
       await this.resume(down, reading);
       return true;
     } finally {
+      if (this.held === release) this.held = null;
       await release().catch(() => undefined);
     }
   }
@@ -615,12 +643,18 @@ export class Repair {
       this.server = null;
       this.reading = reading;
       await this.music();
+      this.halt();
     }
     const stuck = (await this.readParts()).filter((p) => down.includes(p.service) && p.state === 'stuck').map((p) => p.service);
+    this.halt();
     if (stuck.length) this.stuckOnes(await this.parts.stopParts(stuck), false);
+    this.halt();
     this.seen = await this.observe(down);
+    this.halt();
     await this.start(down);
+    this.halt();
     await this.verify();
+    this.halt();
     await this.settle(this.waiting.size > 0 ? 'waiting' : 'repaired');
   }
 
@@ -677,12 +711,11 @@ export class Repair {
     // Waiting: not every part runs yet, so the check that they do stays open until the watcher ends it.
     if (status === 'waiting') Object.assign(this.step('verify'), { status: 'pending', startedAt: null, finishedAt: null });
     this.log(status === 'repaired' || status === 'waiting' ? 'info' : 'warn', this.run.headline);
-    await this.persist();
+    // Set before the save is awaited: a signal while it saves waits for the report too.
     // Cancelled while it ran (interruptRepair): the one that stopped it writes and reports the end, once.
-    if (this.cancelled) return;
-    const telling = this.tell(status);
-    this.reporting = telling;
-    await telling;
+    const ending = this.persist().then(() => (this.cancelled ? undefined : this.tell(status)));
+    this.reporting = ending;
+    await ending;
   }
 
   private async tell(status: Exclude<RepairStatus, 'running'>): Promise<void> {
@@ -706,7 +739,7 @@ export class Repair {
   }
 
   private async readParts(): Promise<PartState[]> {
-    this.lastParts = await readParts(this.deps.docker, this.services ?? []);
+    this.lastParts = await readParts(this.runner, this.services ?? []);
     return this.lastParts;
   }
 
@@ -761,7 +794,7 @@ export class Repair {
   }
 
   private docker(args: string[], timeoutMs: number): Promise<CommandResult> {
-    return this.deps.docker(args, { timeoutMs }).catch((err: unknown): CommandResult => ({ code: -1, stdout: '', stderr: String(err) }));
+    return this.runner(args, { timeoutMs }).catch((err: unknown): CommandResult => ({ code: -1, stdout: '', stderr: String(err) }));
   }
 
   private pause(ms: number): Promise<void> {

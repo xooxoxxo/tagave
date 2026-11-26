@@ -698,9 +698,11 @@ export class UpdaterService {
     // A copy: the run object goes on changing until the process exits.
     stopped.end = structuredClone(repair.run);
     const { told } = await this.failRepair(stopped.end, STOPPED_REPAIR, 'the repair was stopped before it ended');
-    // The process exits next: the lock goes now, so the next start need not wait for it to go stale.
-    await this.releaseRepair(this.repairRelease);
     await this.within(told);
+    // Last, right before the process exits: the stopped run sends no more Docker calls,
+    // and the next start need not wait for the lock to go stale. A watcher's resume holds its own.
+    await this.releaseRepair(this.repairRelease);
+    await repair.releaseHeld();
   }
 
   private async releaseRepair(release: Release | null): Promise<void> {
