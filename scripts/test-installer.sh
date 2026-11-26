@@ -124,15 +124,27 @@ printf '%s\n' \
   '22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw' \
   "40 22 0:50 / $esc_work/nas\\040share rw,relatime shared:9 - nfs4 192.0.2.10:/export/music rw,vers=4.2,hard,addr=192.0.2.10" \
   >"$work/mountinfo-silent"
-started=$SECONDS
-TAGAVE_TEST_MOUNTINFO="$work/mountinfo-silent" run --role all --dir "$work/silent" --music "$work/nas share/music" \
-  >"$work/silent.log" 2>&1 || { cat "$work/silent.log" >&2; fail "music check: a silent share failed the install"; }
-took=$((SECONDS - started))
-grep -qF "Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable." "$work/silent.log" \
-  || { cat "$work/silent.log" >&2; fail "music check: a silent share is not explained"; }
-[ "$took" -lt 15 ] || fail "music check: waited ${took}s on a silent share"
-grep -q 'vers=4.2' "$work/silent.log" && fail "music check: printed the mount's options"
-pass "music check with a silent share (after ${took}s)"
+# This case waits the installer's full 5 s for the share, so it runs in the
+# background while the cases after it run; the checks at the end read it.
+(
+  started=$SECONDS
+  status=0
+  TAGAVE_TEST_MOUNTINFO="$work/mountinfo-silent" run --role all --dir "$work/silent" --music "$work/nas share/music" \
+    >"$work/silent.log" 2>&1 || status=$?
+  printf '%s %s\n' "$status" "$((SECONDS - started))" >"$work/silent.result"
+) &
+silent_share_job=$!
+check_silent_share() {
+  local status took
+  wait "$silent_share_job" || true
+  read -r status took <"$work/silent.result" || fail "music check: the silent share case left no result"
+  [ "$status" = 0 ] || { cat "$work/silent.log" >&2; fail "music check: a silent share failed the install"; }
+  grep -qF "Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable." "$work/silent.log" \
+    || { cat "$work/silent.log" >&2; fail "music check: a silent share is not explained"; }
+  [ "$took" -lt 15 ] || fail "music check: waited ${took}s on a silent share"
+  grep -q 'vers=4.2' "$work/silent.log" && fail "music check: printed the mount's options"
+  pass "music check with a silent share (after ${took}s)"
+}
 
 # A local mount, and an nfs4 mount on a longer name that is not a parent
 # folder ($work/mus is not over $work/music): the check runs as today.
@@ -162,11 +174,13 @@ traced() {
   TAGAVE_SKIP_IMAGE_CHECK=1 bash -x "$installer" --yes --no-start --version edge --timezone UTC "$@" </dev/null 2>"$work/trace.log"
 }
 # The default /mnt/music is looked at only when its mount is local or answers.
+# The silent share above waits the installer's full 5 s; the cases after it
+# wait 1 s (TAGAVE_TEST_SHARE_WAIT), the same check with a shorter limit.
 printf '%s\n' \
   '22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw' \
   '43 22 0:52 / /mnt/music rw,relatime shared:12 - nfs4 192.0.2.10:/export/music rw' \
   >"$work/mountinfo-default"
-TAGAVE_TEST_MOUNTINFO="$work/mountinfo-default" traced --role all --dir "$work/defmusic" >"$work/defmusic.log" \
+TAGAVE_TEST_SHARE_WAIT=1 TAGAVE_TEST_MOUNTINFO="$work/mountinfo-default" traced --role all --dir "$work/defmusic" >"$work/defmusic.log" \
   || { cat "$work/defmusic.log" "$work/trace.log" >&2; fail "music default: a silent /mnt/music failed the install"; }
 grep -q -- '-d /mnt/music' "$work/trace.log" && fail "music default: looked at /mnt/music on a share that does not answer"
 [ "$(env_value MUSIC_DIR "$work/defmusic/.env")" = "/mnt/music" ] \
@@ -488,6 +502,8 @@ at_version() {
 # line_of PATTERN: first line of the docker log matching PATTERN exactly.
 # Empty when nothing matches (grep's exit status would end the script under pipefail).
 line_of() { { grep -nx -- "$1" "$work/docker.log" || true; } | head -n 1 | cut -d: -f1; }
+# count TEXT FILE: how many lines of FILE hold TEXT.
+count() { grep -cF -- "$1" "$2" || true; }
 
 at_version 0.4.1 --role all --dir "$work/upd" --music "$work/music" >"$work/upd-install.log" 2>&1 \
   || { cat "$work/upd-install.log" >&2; fail "update: install 0.4.1"; }
@@ -832,6 +848,77 @@ grep -q 'cli.js repair' "$work/docker.log" && fail "repair: --yes without --repa
 grep -Eq '^compose (up|pull)' "$work/docker.log" && fail "repair: --yes without --repair started something"
 pass "unhealthy plus --yes exits 3 and prints \"Run again with --repair\""
 
+# on_terminal INPUT LOG CMD...: runs CMD on a new pseudo-terminal that is its
+# controlling terminal, so the installer's /dev/tty is that terminal. INPUT
+# is typed ahead, one line per question asked, then a dozen Enters, so a
+# question nobody expected takes its default instead of waiting. What the
+# terminal shows lands in LOG. Returns CMD's exit status, or 124 when it is
+# still running after 60 s (it is killed).
+on_terminal() {
+  python3 - "$@" <<'PY'
+import os, pty, select, signal, sys, time
+typed, log, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(argv[0], argv)
+os.write(fd, (typed + '\n' * 12).encode())
+shown = b''
+deadline = time.monotonic() + 60
+code = None
+while code is None:
+    left = deadline - time.monotonic()
+    if left <= 0:
+        os.killpg(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+        code = 124
+        break
+    ready, _, _ = select.select([fd], [], [], min(left, 1))
+    if not ready:
+        continue
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:
+        chunk = b''
+    if not chunk:
+        code = os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
+    shown += chunk
+with open(log, 'wb') as f:
+    f.write(shown)
+sys.exit(code)
+PY
+}
+# rep_tty INPUT LOG: rep without --yes, on a terminal, with the file worker down.
+rep_tty() {
+  on_terminal "$1" "$2" env PATH="$work/bin:$PATH" REAL_DOCKER="$real_docker" FAKE_LOG="$work/docker.log" FAKE_STATE="$work/state" \
+    TAGAVE_RELEASES_API="$releases" TAGAVE_SKIP_IMAGE_CHECK=1 FAKE_UNHEALTHY=worker-files \
+    "$installer" --dir "$work/rep" --app-url "file://$work/appsrv"
+}
+prompt="tagave is installed here, but 1 of 4 parts aren't running. Repair it now? (Y/n)"
+# A yes, and Enter alone (Y is the default), repair and stop there.
+for typed in 'y' ''; do
+  : >"$work/docker.log"
+  status=0
+  rep_tty "$typed"$'\n' "$work/rep-tty.log" || status=$?
+  [ "$status" = 0 ] || { cat "$work/rep-tty.log" >&2; fail "repair: the terminal answer '${typed:-Enter}' exited $status"; }
+  [ "$(count "$prompt" "$work/rep-tty.log")" = 1 ] || { cat "$work/rep-tty.log" >&2; fail "repair: the terminal was not asked once: $prompt"; }
+  grep -q 'cli.js repair' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "repair: the terminal answer '${typed:-Enter}' did not repair"; }
+  grep -q 'Repaired. All 4 parts running.' "$work/rep-tty.log" || fail "repair: the terminal answer '${typed:-Enter}' printed no headline"
+  grep -Eq '^compose (up|pull)' "$work/docker.log" && fail "repair: the terminal answer '${typed:-Enter}' also reinstalled"
+  cmp -s "$work/rep/.env" "$work/rep-env.before" || fail "repair: the terminal answer '${typed:-Enter}' changed .env"
+done
+# A no: no repair, the re-run carries on as before and starts the parts (the
+# Enters after the n take every later question's default).
+: >"$work/docker.log"
+status=0
+rep_tty $'n\n' "$work/rep-tty.log" || status=$?
+[ "$status" = 0 ] || { cat "$work/rep-tty.log" >&2; fail "repair: the terminal answer n exited $status"; }
+[ "$(count "$prompt" "$work/rep-tty.log")" = 1 ] || { cat "$work/rep-tty.log" >&2; fail "repair: the terminal was not asked once before a no"; }
+grep -q 'cli.js repair' "$work/docker.log" && fail "repair: the terminal answer n ran a repair"
+grep -q 'Repairing tagave' "$work/rep-tty.log" && fail "repair: the terminal answer n started repairing"
+[ -n "$(line_of 'compose up -d')" ] || { cat "$work/rep-tty.log" >&2; fail "repair: the terminal answer n did not carry on and start tagave"; }
+cp "$work/rep/.env" "$work/rep-env.before"
+pass "on a terminal, a re-run asks \"Repair it now? (Y/n)\": y and Enter repair, n carries on"
+
 : >"$work/docker.log"
 FAKE_UNHEALTHY=worker-files rep --yes --repair >"$work/rep-repair.log" 2>&1 || { cat "$work/rep-repair.log" >&2; fail "repair: unhealthy plus --repair"; }
 run_line="$(grep 'cli.js repair' "$work/docker.log" || true)"
@@ -844,26 +931,43 @@ grep -Eq '^compose (up|pull)' "$work/docker.log" && fail "repair: --repair also 
 cmp -s "$work/rep/.env" "$work/rep-env.before" || fail "repair: --repair changed .env"
 pass "unhealthy plus --repair runs cli.js repair in a one-off container with the socket and the install dir mounted"
 
-started=$SECONDS
-status=0
-FAKE_DOCKER_SILENT=1 rep --yes >"$work/rep-silent.log" 2>&1 || status=$?
-took=$((SECONDS - started))
-[ "$status" = 6 ] || { cat "$work/rep-silent.log" >&2; fail "repair: a silent Docker exited $status, not 6"; }
-grep -q "Docker isn't answering. Restart Docker or the computer, then run the installer again." "$work/rep-silent.log" || fail "repair: a silent Docker is not explained"
-[ "$took" -lt 20 ] || fail "repair: waited ${took}s on a silent Docker"
-cmp -s "$work/rep/.env" "$work/rep-env.before" || fail "repair: a silent Docker run changed .env"
-pass "Docker not answering exits 6 (after ${took}s)"
+# A re-run on a silent Docker waits the installer's full 10 s, so it runs in
+# the background, on its own copy of the install and its own docker log, while
+# the cases after it run; the checks at the end read it.
+cp -R "$work/rep" "$work/rep-dsilent"
+cp "$work/rep-dsilent/.env" "$work/rep-dsilent.env.before"
+(
+  started=$SECONDS
+  status=0
+  PATH="$work/bin:$PATH" REAL_DOCKER="$real_docker" FAKE_LOG="$work/docker-dsilent.log" FAKE_STATE="$work/state" \
+    FAKE_DOCKER_SILENT=1 TAGAVE_RELEASES_API="$releases" TAGAVE_SKIP_IMAGE_CHECK=1 \
+    "$installer" --yes --dir "$work/rep-dsilent" --app-url "file://$work/appsrv" </dev/null >"$work/rep-silent.log" 2>&1 || status=$?
+  printf '%s %s\n' "$status" "$((SECONDS - started))" >"$work/rep-silent.result"
+) &
+silent_docker_job=$!
+check_silent_docker() {
+  local status took
+  wait "$silent_docker_job" || true
+  read -r status took <"$work/rep-silent.result" || fail "repair: the silent Docker case left no result"
+  [ "$status" = 6 ] || { cat "$work/rep-silent.log" >&2; fail "repair: a silent Docker exited $status, not 6"; }
+  grep -q "Docker isn't answering. Restart Docker or the computer, then run the installer again." "$work/rep-silent.log" || fail "repair: a silent Docker is not explained"
+  [ "$took" -lt 20 ] || fail "repair: waited ${took}s on a silent Docker"
+  cmp -s "$work/rep-dsilent/.env" "$work/rep-dsilent.env.before" || fail "repair: a silent Docker run changed .env"
+  pass "Docker not answering exits 6 (after ${took}s)"
+}
 
+# The case above waits the installer's full 10 s for Docker; this one waits
+# 1 s (TAGAVE_TEST_DOCKER_WAIT), the same check with a shorter limit.
 started=$SECONDS
 status=0
 : >"$work/docker.log"
-FAKE_DOCKER_SILENT=1 fake repair --dir "$work/rep" --yes >"$work/rep-silent2.log" 2>&1 || status=$?
+FAKE_DOCKER_SILENT=1 TAGAVE_TEST_DOCKER_WAIT=1 fake repair --dir "$work/rep" --yes >"$work/rep-silent2.log" 2>&1 || status=$?
 took=$((SECONDS - started))
 [ "$status" = 6 ] || { cat "$work/rep-silent2.log" >&2; fail "repair command: a silent Docker exited $status, not 6"; }
 grep -q "Docker isn't answering. Restart Docker or the computer, then run the installer again." "$work/rep-silent2.log" \
   || fail "repair command: a silent Docker is not explained"
 grep -q 'cli.js repair' "$work/docker.log" && fail "repair command: ran the repair on a silent Docker"
-[ "$took" -lt 20 ] || fail "repair command: waited ${took}s on a silent Docker"
+[ "$took" -lt 8 ] || fail "repair command: waited ${took}s on a silent Docker with a 1 s limit"
 pass "the repair command on a silent Docker exits 6 (after ${took}s)"
 
 # compose cannot list the parts: say so, never call it healthy silently.
@@ -887,7 +991,7 @@ pass "repair refuses a bad registry, digest or project name from .env before doc
 
 # A silent share: the configuration is written, nothing is started.
 : >"$work/docker.log"
-TAGAVE_TEST_MOUNTINFO="$work/mountinfo-silent" TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --version 0.4.1 --timezone UTC \
+TAGAVE_TEST_SHARE_WAIT=1 TAGAVE_TEST_MOUNTINFO="$work/mountinfo-silent" TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --version 0.4.1 --timezone UTC \
   --role all --dir "$work/silent-start" --music "$work/nas share/music" >"$work/silent-start.log" 2>&1 \
   || { cat "$work/silent-start.log" >&2; fail "music check: a silent share without --no-start failed"; }
 grep -q 'tagave starts once the share answers: run the installer again then.' "$work/silent-start.log" \
@@ -902,8 +1006,6 @@ FAKE_REPAIR_EXIT=4 FAKE_REPAIR_HEADLINE="Your music share at 192.0.2.10 doesn't 
   fake repair --dir "$work/rep" --wait 30 --yes >"$work/rep-wait.log" 2>&1 || status=$?
 [ "$status" = 4 ] || { cat "$work/rep-wait.log" >&2; fail "repair: exit 4 became $status"; }
 grep -q 'cli.js repair --wait 30$' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "repair: --wait 30 was not passed on"; }
-# count TEXT FILE: how many lines of FILE hold TEXT.
-count() { grep -cF -- "$1" "$2" || true; }
 [ "$(count "Run the installer again once it's back." "$work/rep-wait.log")" = 1 ] \
   || { cat "$work/rep-wait.log" >&2; fail "repair: waiting on music without the updater does not say once to run the installer again"; }
 [ "$(count 'finishes on its own' "$work/rep-wait.log")" = 0 ] \
@@ -1175,4 +1277,7 @@ else
   echo "test-installer: skip signed releases (this openssl cannot check Ed25519 signatures)"
 fi
 
+# The two cases that wait the installer's full limits ran in the background.
+check_silent_share
+check_silent_docker
 echo "test-installer: all roles pass"
