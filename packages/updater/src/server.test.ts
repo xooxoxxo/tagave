@@ -39,6 +39,8 @@ class Fake {
   hangPs = new Set<string>();
   /** `docker version` waits for this when set. */
   versionGate: Promise<void> | null = null;
+  /** `compose up` and `compose stop` wait for this when set. */
+  moveGate: Promise<void> | null = null;
   /** `compose config --services` lists these (updater too); null: it fails. */
   configList: string[] | null = SERVICES;
   /** `compose config --services` waits for this when set. */
@@ -82,6 +84,7 @@ class Fake {
       return { stdout: a[2] === '{{.State.Status}}' ? `${st}\n` : `${st}|\n` };
     }
     if (a[0] === 'logs') return {};
+    if (a[0] === 'compose' && (a[1] === 'up' || a[1] === 'stop')) await this.moveGate;
     if (a[0] === 'compose' && a[1] === 'up') {
       this.status.set(a.at(-1)!, 'running');
       return {};
@@ -427,6 +430,15 @@ describe('updater HTTP API', () => {
     });
 
     describe('across processes (.updater/repair.lock)', () => {
+      /** A service whose Docker calls are counted, without its own 5 s service-list reads (not the repair's). */
+      const counted = (over: Partial<UpdaterOptions> = {}) => {
+        const sent: string[][] = [];
+        const s = make({ docker: async (args, opts) => {
+          if (!(args.join(' ') === 'compose config --services' && opts?.timeoutMs === 5_000)) sent.push(args);
+          return fake.docker(args, opts);
+        }, ...over });
+        return { s, sent };
+      };
       it('of two processes that start a repair at the same moment, one runs and the other is told one is running', async () => {
         const installer = make();
         const [a, b] = await Promise.all([service.startRepair('owner'), installer.startRepair('installer')]);
@@ -468,6 +480,53 @@ describe('updater HTTP API', () => {
         const heal = await service.lockParts('heal');
         expect(typeof heal).toBe('function');
         await (heal as () => Promise<void>)();
+      });
+
+      it('a stopped repair keeps the lock until the app took its end', async () => {
+        let take!: () => void;
+        const { s, sent } = counted({ report: () => new Promise<void>((r) => { take = r; }) });
+        let open!: () => void;
+        fake.versionGate = new Promise((r) => { open = r; });
+        expect((await s.startRepair('installer')).ok).toBe(true);
+        const stopping = s.interruptRepair();
+        for (let i = 0; i < 400 && take === undefined; i++) await new Promise((r) => setTimeout(r, 5));
+        // the end is saved, its report in flight: the lock is still held, so nothing else starts yet
+        expect(await readdir(join(dir, STATE_DIR))).toContain('repair.lock');
+        expect(await service.startRepair('owner')).toEqual({ ok: false, status: 409, error: 'a repair is running' });
+        take();
+        await stopping;
+        expect(await readdir(join(dir, STATE_DIR))).not.toContain('repair.lock');
+        const calls = sent.length;
+        open();
+        await s.idle();
+        // the stopped run sends nothing more to Docker
+        expect(sent.slice(calls)).toEqual([]);
+        fake.versionGate = null;
+      });
+
+      it("a stop during a waiting run's resume lets the resume's lock go, and nothing moves after it", async () => {
+        const { s, sent } = counted({ repairConfig: { healthTimeoutMs: 2000, pollMs: 5, waitFirstMs: 20 } });
+        fake.status.set('worker-files', 'removing');
+        fake.share = 'silent';
+        expect((await s.startRepair('installer')).ok).toBe(true);
+        await s.idle();
+        expect((await s.status()).repair?.status).toBe('waiting');
+        let open!: () => void;
+        fake.moveGate = new Promise((r) => { open = r; });
+        const moves = () => fake.calls.filter((c) => c[0] === 'compose' && (c[1] === 'up' || c[1] === 'stop')).length;
+        fake.share = 'answers';
+        for (let i = 0; i < 400 && moves() === 0; i++) await new Promise((r) => setTimeout(r, 5));
+        expect(moves()).toBe(1);
+        expect(await readdir(join(dir, STATE_DIR))).toContain('repair.lock');
+        await s.interruptRepair();
+        expect(await readdir(join(dir, STATE_DIR))).not.toContain('repair.lock');
+        const calls = sent.length;
+        open();
+        await new Promise((r) => setTimeout(r, 50));
+        expect(sent.slice(calls)).toEqual([]);
+        expect(JSON.parse(await readFile(join(dir, REPAIR_STATE_FILE), 'utf8'))).toMatchObject({ status: 'failed' });
+        fake.moveGate = null;
+        s.stop();
       });
 
       it('a stopped repair lets the lock go before the process exits', async () => {

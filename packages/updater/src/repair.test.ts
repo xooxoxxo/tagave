@@ -712,6 +712,44 @@ describe('repair', () => {
     expect(fake.box('worker-files').status).toBe('running');
   });
 
+  it('a stop at the moment a run ends still waits for its report (reported() is set before the last save)', async () => {
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    let gated = false;
+    const r = repair({
+      save: async (run) => {
+        if (run.status === 'repaired' && !gated) { gated = true; await gate; }
+        fake.saved.push(structuredClone(run));
+      },
+    });
+    const done = r.execute();
+    for (let i = 0; i < 400 && !gated; i++) await new Promise((res) => setTimeout(res, 5));
+    expect(gated).toBe(true);
+    // the run says repaired, its last save waits: a signal now waits on reported()
+    const told = r.reported();
+    open();
+    await told;
+    expect(fake.reports).toEqual([{ status: 'repaired', cause: null }]);
+    await done;
+  });
+
+  it('a stopped run sends no docker call after cancel(), and ends without an end of its own', async () => {
+    fake.box('player').status = 'none';
+    const docker = fake.docker;
+    let calls = 0;
+    fake.docker = async (args, opts) => {
+      calls++;
+      if (calls === 3) r2.cancel();
+      return docker(args, opts);
+    };
+    const r2 = new Repair(deps(), newRepairRun('repair-2', 'owner', new Date(fake.clock)));
+    const ended = await r2.execute();
+    expect(calls).toBe(3);
+    expect(ended.status).toBe('running');
+    expect(fake.changes()).not.toContainEqual(['compose', 'up', '-d', '--no-deps', 'player']);
+    expect(fake.reports).toEqual([]);
+  });
+
   it('the watcher with no music prober says once that it cannot check the share', async () => {
     fake.box('worker-files').status = 'removing';
     fake.share = 'silent';

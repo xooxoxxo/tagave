@@ -8,15 +8,15 @@
  * .updater/repair.lock is created exclusively (O_EXCL) by whoever starts and
  * removed when it ends. The holder writes the time into it again every
  * beatMs. A lock whose time is older than staleMs was left by a process that
- * died without letting go (SIGKILL, a host restart) and is taken over: moved
- * aside under a name of its own, then removed only when it is still the one
- * that looked stale (else it is put back).
+ * died without letting go (SIGKILL, a host restart) and is taken over: a hard
+ * link to it is read, and the path removed only when it still holds the file
+ * that looked stale, so the path is never empty while another taker looks.
  *
  * A caller that finds the lock held is told who holds it ("repair" or
  * "heal") and does nothing: that is "already running", never a failure.
  */
 import { randomUUID } from 'node:crypto';
-import { link, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { link, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { mkdirKeepingOwner } from './safe-write.js';
 
@@ -113,22 +113,32 @@ export class RepairLock {
   }
 
   /**
-   * Moves the stale lock aside and removes it. When another process took
-   * the lock over first, what was moved is its fresh lock: it goes back.
-   * True when the way is clear to try again.
+   * Removes the stale lock without ever leaving the path empty while it is
+   * looked at: a second name for the file at the path (a hard link), read;
+   * the path is removed only when that file is still the one that looked
+   * stale and is still the one at the path. A taker that comes second finds
+   * the first one's fresh lock there and leaves it alone. True when the way
+   * is clear to try again.
    */
   private async takeOver(seen: LockBody | null): Promise<boolean> {
     const aside = `${this.path}.${randomUUID()}.stale`;
     try {
-      await rename(this.path, aside);
+      await link(this.path, aside);
     } catch {
       return true; // gone already: try again
     }
-    const moved = await this.read(aside);
-    const same = moved !== 'missing' && (moved?.token ?? null) === (seen?.token ?? null);
-    if (!same) await link(aside, this.path).catch(() => undefined);
-    await unlink(aside).catch(() => undefined);
-    return same;
+    try {
+      const moved = await this.read(aside);
+      if (moved === 'missing' || (moved?.token ?? null) !== (seen?.token ?? null)) return false;
+      // Still the same file at the path (no taker replaced it in between)?
+      const [atPath, ours] = await Promise.all([stat(this.path).catch(() => null), stat(aside)]);
+      if (!atPath) return true;
+      if (atPath.ino !== ours.ino || atPath.dev !== ours.dev) return false;
+      await unlink(this.path).catch(() => undefined);
+      return true;
+    } finally {
+      await unlink(aside).catch(() => undefined);
+    }
   }
 
   /** Writes the time again every beatMs while it is still this lock; the release removes it. */

@@ -69,6 +69,30 @@ describe('repair.lock', () => {
     expect(await onDisk()).toMatchObject({ holder: 'heal' });
   });
 
+  it('a second taker of a stale lock never leaves the path empty, so a third cannot slip in', async () => {
+    await mkdir(join(dir, '.updater'));
+    await writeFile(join(dir, REPAIR_LOCK_FILE), JSON.stringify({ token: 'dead', holder: 'repair', at: new Date(now).toISOString() }));
+    now += 100_000;
+    const seen = { token: 'dead', holder: 'repair' as const, at: new Date(now - 100_000).toISOString() };
+    // the first taker has the lock already
+    const a = await lockOf().acquire('repair');
+    expect(a.ok).toBe(true);
+    const fresh = await onDisk();
+    // the second taker judged the dead lock stale before that; while it looks at what it took, a third tries
+    const b = lockOf();
+    let third: Awaited<ReturnType<RepairLock['acquire']>> | null = null;
+    const read = b['read'].bind(b);
+    b['read'] = async (path: string) => {
+      if (path.endsWith('.stale') && third === null) third = await lockOf().acquire('heal');
+      return read(path);
+    };
+    expect(await b['takeOver'](seen)).toBe(false);
+    expect(third).toEqual({ ok: false, holder: 'repair' });
+    expect(await onDisk()).toEqual(fresh);
+    expect(await readdir(join(dir, '.updater'))).toEqual(['repair.lock']);
+    if (a.ok) await a.release();
+  });
+
   it('a holder writes its time again, so a long repair never looks stale', async () => {
     const a = await lockOf({ beatMs: 10, staleMs: 90_000 }).acquire('repair');
     expect(a.ok).toBe(true);
