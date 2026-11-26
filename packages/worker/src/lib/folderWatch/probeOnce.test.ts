@@ -102,7 +102,14 @@ describe('probeOnce', () => {
 
   it('a child path that does not load is an error, not a missing folder', async () => {
     const dir = await tempDir();
-    expect(await probeOnce(dir, [], { childPath: join(dir, 'missing.js'), deadlineMs: 5_000 })).toEqual({ kind: 'error', code: 'EPROBE' });
+    expect(await probeOnce(dir, [], { childPath: join(dir, 'missing.js'), deadlineMs: 5_000, stderr: 'ignore' })).toEqual({ kind: 'error', code: 'EPROBE' });
+  });
+
+  it('asks about at most 5 known files', async () => {
+    const dir = await tempDir();
+    const names = Array.from({ length: 8 }, (_, i) => `t${i}.flac`);
+    await Promise.all(names.map((n) => writeFile(join(dir, n), 'x')));
+    expect(await probeOnce(dir, names)).toMatchObject({ kind: 'listing', knownFound: 5, knownAsked: 5 });
   });
 });
 
