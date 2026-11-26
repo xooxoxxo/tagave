@@ -659,10 +659,12 @@ descendants() {
 # here too. That is also why timeout(1) is not used even where it exists:
 # GNU timeout waits for its child after the KILL. (macOS has no timeout.)
 run_limited() {
-  local limit="$1" out err pid pids waited=0 status=0
+  local limit="$1" dir out err pid pids waited=0 status=0
   shift
-  out="$(mktemp "${TMPDIR:-/tmp}/tagave-run.XXXXXX")" || return 1
-  err="$(mktemp "${TMPDIR:-/tmp}/tagave-run.XXXXXX")" || { rm -f "$out"; return 1; }
+  # One private folder for both files: one mktemp, one rm.
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/tagave-run.XXXXXX")" || return 1
+  out="$dir/out"
+  err="$dir/err"
   "$@" >"$out" 2>"$err" </dev/null &
   pid=$!
   # waited is in hundredths of a second. Checks often at first, so a quick
@@ -674,10 +676,12 @@ run_limited() {
       disown "$pid" 2>/dev/null || true
       # shellcheck disable=SC2086 # one word per pid
       kill -TERM "$pid" $pids 2>/dev/null || true
-      sleep 1
+      # Up to 1 s for TERM to end it (most CMDs go at once), then KILL what is left.
+      waited=0
+      while [ "$waited" -lt 10 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; waited=$((waited + 1)); done
       # shellcheck disable=SC2086
       kill -KILL "$pid" $pids 2>/dev/null || true
-      rm -f "$out" "$err"
+      rm -rf "$dir"
       return 124
     fi
     if [ "$waited" -lt 50 ]; then
@@ -687,11 +691,21 @@ run_limited() {
     fi
   done
   wait "$pid" || status=$?
-  cat "$out"
-  cat "$err" >&2
-  rm -f "$out" "$err"
+  # An empty file is not printed: no cat for it.
+  [ ! -s "$out" ] || cat "$out"
+  [ ! -s "$err" ] || cat "$err" >&2
+  rm -rf "$dir"
   return "$status"
 }
+
+# How long tagave waits for Docker, and for a music share's server, before it
+# says they don't answer. TAGAVE_TEST_DOCKER_WAIT and TAGAVE_TEST_SHARE_WAIT
+# (test only, whole seconds) set them, so the tests of a silent Docker or
+# share need not wait the full time.
+DOCKER_WAIT=10
+SHARE_WAIT=5
+case "${TAGAVE_TEST_DOCKER_WAIT:-}" in ''|*[!0-9]*|0*) ;; *) DOCKER_WAIT="$TAGAVE_TEST_DOCKER_WAIT" ;; esac
+case "${TAGAVE_TEST_SHARE_WAIT:-}" in ''|*[!0-9]*|0*) ;; *) SHARE_WAIT="$TAGAVE_TEST_SHARE_WAIT" ;; esac
 
 docker_silent() {
   printf '%serror:%s %s\n' "$C_RED" "$C_OFF" "Docker isn't answering. Restart Docker or the computer, then run the installer again." >&2
@@ -730,18 +744,18 @@ check_prerequisites() {
     || die "Docker is not installed. Install it from https://docs.docker.com/get-docker/ and run this again."
   # Each Docker call is bounded: a Docker that does not answer exits 6.
   local rc=0 server_version=""
-  run_limited 10 docker info >/dev/null 2>&1 || rc=$?
+  run_limited "$DOCKER_WAIT" docker info >/dev/null 2>&1 || rc=$?
   [ "$rc" != 124 ] || docker_silent
   [ "$rc" = 0 ] \
     || die "Docker is installed but not reachable. Start Docker, or add your user to the docker group, then run this again."
   rc=0
-  server_version="$(run_limited 10 docker version --format '{{.Server.Version}}' 2>/dev/null)" || rc=$?
+  server_version="$(run_limited "$DOCKER_WAIT" docker version --format '{{.Server.Version}}' 2>/dev/null)" || rc=$?
   [ "$rc" != 124 ] || docker_silent
   ok "Docker $server_version"
 
   local compose_version="" major minor
   rc=0
-  compose_version="$(run_limited 10 docker compose version --short 2>/dev/null)" || rc=$?
+  compose_version="$(run_limited "$DOCKER_WAIT" docker compose version --short 2>/dev/null)" || rc=$?
   [ "$rc" != 124 ] || docker_silent
   [ -n "$compose_version" ] \
     || die "Docker Compose v2 is missing. Install the docker-compose-plugin package (or Docker Desktop)."
@@ -1031,7 +1045,7 @@ music_share() {
   SHARE_SERVER="$server"
   if [ -z "$server" ]; then SHARE_KIND=unknown; return 0; fi
   # shellcheck disable=SC2016 # $1 and $2 expand in the inner bash
-  if run_limited 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$server" "$port" >/dev/null 2>&1; then
+  if run_limited "$SHARE_WAIT" bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$server" "$port" >/dev/null 2>&1; then
     SHARE_KIND=answers
   else
     SHARE_KIND=silent
@@ -1800,7 +1814,7 @@ load_install() {
 check_docker() {
   command -v docker >/dev/null 2>&1 || die "Docker is not installed."
   local rc=0
-  run_limited 10 docker info >/dev/null 2>&1 || rc=$?
+  run_limited "$DOCKER_WAIT" docker info >/dev/null 2>&1 || rc=$?
   [ "$rc" != 124 ] || docker_silent
   [ "$rc" = 0 ] \
     || die "Docker is installed but not reachable. Start Docker, or add your user to the docker group, then run this again."
@@ -2963,7 +2977,7 @@ REPAIR_DOWN=0     # how many of them are not running
 repair_check() {
   local rc=0 list services service state app_runs=0
   REPAIR_DOCKER=ok; REPAIR_TOTAL=0; REPAIR_DOWN=0
-  run_limited 10 docker version >/dev/null 2>&1 || rc=$?
+  run_limited "$DOCKER_WAIT" docker version >/dev/null 2>&1 || rc=$?
   if [ "$rc" = 124 ]; then REPAIR_DOCKER=silent; return 0; fi
   list="$(run_limited 10 compose config --services 2>/dev/null)" || list=""
   services="$(printf '%s\n' "$list" | grep -vx updater | grep . || true)"
