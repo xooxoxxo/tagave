@@ -18,7 +18,8 @@
     "./player": "./dist/src/player.js",
     "./listening": "./dist/src/listening.js",
     "./env": "./dist/src/env.js",
-    "./listen-links": "./dist/src/listenLinks.js"
+    "./listen-links": "./dist/src/listenLinks.js",
+    "./mounts": "./dist/src/mounts.js"
   },
   "scripts": {
     "build": "tsc -b",

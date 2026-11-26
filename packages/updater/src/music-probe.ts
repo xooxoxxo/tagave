@@ -16,6 +16,10 @@
  *
  * music-heal.ts may only `import type` from this file, so the runtime
  * dependency stays one way.
+ *
+ * packages/shared/src/mounts.ts holds a copy of the mount parsing for the
+ * worker (the updater image ships no packages): change both;
+ * music-probe.test.ts checks they agree.
  */
 import { randomBytes } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
