@@ -63,6 +63,9 @@ export {
   type PatchLibrarySettings,
 } from './library.js';
 
+// Music folder reach: what the folder watch last saw on each root (0097)
+export { REACH_VALUES, type Reach, REACH_REASONS, type ReachReason } from './musicFolder.js';
+
 // Album data
 export {
   albumStateSchema,

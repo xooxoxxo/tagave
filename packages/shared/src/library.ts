@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { folderLinkBaseProblem } from './folderLink.js';
 import { tagPoliciesSchema } from './tagPlan.js';
+import { REACH_VALUES } from './musicFolder.js';
 
 /**
  * Scan root configuration per LIB-1
@@ -23,6 +24,13 @@ export const scanRootSchema = z.object({
   albumsFound: z.number().int().nonnegative().optional().describe('Albums with at least one present file under this root (list only)'),
   tracksFound: z.number().int().nonnegative().optional().describe('Present audio files under this root (list only)'),
   folderLink: z.string().nullable().optional().describe('Base the album page opens folders under this root with, e.g. smb://nas/music/ (null: no link)'),
+  reach: z.enum(REACH_VALUES).optional().describe('What the folder watch last saw (0097); unknown until its first reading'),
+  reachSince: z.string().datetime().nullable().optional().describe('ISO 8601 timestamp of the last reach change'),
+  waiting: z.object({
+    scans: z.number().int().nonnegative(),
+    tagWrites: z.number().int().nonnegative(),
+    other: z.number().int().nonnegative(),
+  }).optional().describe('Work that waits for this folder to come back, by kind'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 }).strict();
