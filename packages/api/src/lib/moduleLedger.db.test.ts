@@ -33,7 +33,7 @@ import { createScratchDb, migrateAll, migrateUpTo, migrationsBefore } from '../t
 const url = process.env.TEST_DATABASE_URL;
 const STEP2 = ['0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql'];
 /** Core migrations after step 2: they apply on the same upgrade. */
-const AFTER_STEP2 = ['0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql', '0078_album_splits.sql', '0079_playlist_collaborators.sql', '0080_album_moves.sql', '0081_naming_and_pool.sql', '0084_similar_artists.sql', '0085_likes.sql', '0086_dj_analysis.sql', '0087_user_prefs_dj.sql', '0089_split_with_plan.sql', '0090_maintenance_tasks.sql', '0091_embed_cover_task.sql', '0092_matching_evidence.sql', '0093_match_provenance.sql', '0094_identity_facet_provenance.sql', '0095_decider_batches.sql', '0096_libraries_app.sql'];
+const AFTER_STEP2 = ['0073_file_deletions.sql', '0074_oidc_sign_in.sql', '0075_lidarr_requests.sql', '0076_listen_primary.sql', '0077_relink_tracks.sql', '0078_album_splits.sql', '0079_playlist_collaborators.sql', '0080_album_moves.sql', '0081_naming_and_pool.sql', '0084_similar_artists.sql', '0085_likes.sql', '0086_dj_analysis.sql', '0087_user_prefs_dj.sql', '0089_split_with_plan.sql', '0090_maintenance_tasks.sql', '0091_embed_cover_task.sql', '0092_matching_evidence.sql', '0093_match_provenance.sql', '0094_identity_facet_provenance.sql', '0095_decider_batches.sql', '0096_libraries_app.sql', '0097_music_folder_reach.sql'];
 /** App chains (migrations/apps/<id>/): they follow the core chain (the books app, in development). */
 const APP_CHAINS = ['books/0001_books.sql'];
 /** Module chains (migrations/modules/<id>/): they follow the app chains. */

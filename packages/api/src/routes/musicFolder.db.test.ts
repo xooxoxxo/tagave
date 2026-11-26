@@ -162,3 +162,49 @@ describe.skipIf(!url)('music folder state (integration)', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/system/music-folder' })).statusCode).toBe(401);
   });
 });
+
+describe.skipIf(!url)('0097 reach columns', () => {
+  let admin: postgres.Sql;
+  let db: { url: string; name: string };
+  let sql: postgres.Sql;
+  let rootId: string;
+  let planId: string;
+
+  beforeAll(async () => {
+    admin = postgres(url!, { max: 1, onnotice: () => undefined });
+    db = await createScratchDb(url!, admin);
+    await migrateAll(db.url);
+    sql = postgres(db.url, { max: 2, onnotice: () => undefined });
+    const idOf = (rows: Array<{ id: string }>) => rows[0]!.id;
+    const userId = idOf(await sql<Array<{ id: string }>>`insert into users (email, display_name, password_hash) values ('robin@example.com', 'Robin', 'x') returning id`);
+    const libraryId = idOf(await sql<Array<{ id: string }>>`insert into libraries (owner_user_id, name, settings) values (${userId}, 'Robin', '{}') returning id`);
+    rootId = idOf(await sql<Array<{ id: string }>>`insert into scan_roots (library_id, path, display_name) values (${libraryId}, '/mnt/music', 'Music') returning id`);
+    planId = idOf(await sql<Array<{ id: string }>>`insert into tag_plans (library_id, name, scope, policy, status, created_by)
+      values (${libraryId}, 'p', '{"type":"library"}', '{"preset":"canonical_ids_and_fill"}', 'applying', ${userId}) returning id`);
+  });
+
+  afterAll(async () => {
+    await sql?.end({ timeout: 2 });
+    if (db) await admin.unsafe(`drop database if exists ${db.name} with (force)`).catch(() => undefined);
+    await admin?.end({ timeout: 2 });
+  });
+
+  it('a root starts unknown, and takes only the four reach values', async () => {
+    const [r] = await sql`select reach, reach_since from scan_roots where id = ${rootId}`;
+    expect(r).toEqual({ reach: 'unknown', reach_since: null });
+    await expect(sql`update scan_roots set reach = 'gone' where id = ${rootId}`).rejects.toThrow(/scan_roots_reach_check/);
+    await expect(sql`update scan_roots set reach_reason = '192.0.2.10 down' where id = ${rootId}`).rejects.toThrow();
+  });
+  it('a tag plan can be waiting', async () => {
+    await sql`update tag_plans set status = 'waiting' where id = ${planId}`;
+    expect((await sql`select status from tag_plans where id = ${planId}`)[0]?.status).toBe('waiting');
+    await expect(sql`update tag_plans set status = 'gone' where id = ${planId}`).rejects.toThrow(/tag_plans_status_check/);
+  });
+  it('parked_jobs keeps one row per root, queue and singleton key, and goes with its root', async () => {
+    await sql`insert into parked_jobs (scan_root_id, queue, data, singleton_key, reason) values (${rootId}, 'scan.root', '{}', ${'scan:' + rootId}, 'offline')`;
+    await sql`insert into parked_jobs (scan_root_id, queue, data, singleton_key, reason) values (${rootId}, 'scan.root', '{}', ${'scan:' + rootId}, 'offline') on conflict do nothing`;
+    expect((await sql`select count(*)::int as n from parked_jobs where scan_root_id = ${rootId}`)[0]?.n).toBe(1);
+    await sql`delete from scan_roots where id = ${rootId}`;
+    expect((await sql`select count(*)::int as n from parked_jobs`)[0]?.n).toBe(0);
+  });
+});

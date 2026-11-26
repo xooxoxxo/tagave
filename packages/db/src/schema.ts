@@ -286,11 +286,44 @@ export const scanRoots = pgTable(
     probeWritable: boolean('probe_writable'),
     /** 0073: the root on the computer that holds the music (the file worker's TAGAVE_MUSIC_HOST_DIR); null when unknown */
     hostPath: text('host_path'),
+    /** 0097: what the folder watch last saw: unknown (no reading yet), online, offline, unmounted */
+    reach: varchar({ length: 16 }).notNull().default('unknown'),
+    /** 0097: when reach last changed (a transition only, so it survives restarts) */
+    reachSince: timestamp('reach_since', { withTimezone: true }),
+    /** 0097: when the watch last looked */
+    reachCheckedAt: timestamp('reach_checked_at', { withTimezone: true }),
+    /** 0097: a fixed reason code (server_silent, timeout, io_error, stale, empty, not_mounted), never host text */
+    reachReason: varchar('reach_reason', { length: 32 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     libraryIdx: index('idx_scan_roots_library').on(table.libraryId),
     validationStatusCheck: check('validation_status_check', sql`validation_status in ('pending','ok','missing','not_directory','unreadable')`),
+    reachCheck: check('scan_roots_reach_check', sql`reach in ('unknown','online','offline','unmounted')`),
+    reachReasonCheck: check('scan_roots_reach_reason_check', sql`reach_reason is null or reach_reason in ('server_silent','timeout','io_error','stale','empty','not_mounted')`),
+  })
+);
+
+/**
+ * 0097: work held back while its music folder is offline, sent again when the
+ * folder comes back. One row per root, queue and singleton key.
+ */
+export const parkedJobs = pgTable(
+  'parked_jobs',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    scanRootId: uuid('scan_root_id')
+      .notNull()
+      .references(() => scanRoots.id, { onDelete: 'cascade' }),
+    queue: varchar({ length: 64 }).notNull(),
+    data: jsonb().notNull(),
+    singletonKey: varchar('singleton_key', { length: 255 }),
+    parkedAt: timestamp('parked_at', { withTimezone: true }).notNull().defaultNow(),
+    reason: varchar({ length: 32 }).notNull(),
+  },
+  (table) => ({
+    rootIdx: index('idx_parked_jobs_root').on(table.scanRootId),
+    rootQueueKey: uniqueIndex('parked_jobs_root_queue_key').on(table.scanRootId, table.queue, table.singletonKey).where(sql`singleton_key is not null`),
   })
 );
 
@@ -1146,6 +1179,7 @@ export const tagPlans = pgTable(
     nameByUser: boolean('name_by_user').notNull().default(false),
     scope: jsonb().notNull(),
     policy: jsonb().notNull(),
+    /** draft, previewed, applying, paused, waiting (0097: its music folder is offline), cancelled, applied, partially_failed, reverted */
     status: varchar({ length: 20 }).notNull().default('draft'),
     stats: jsonb().default('{}'),
     createdBy: uuid('created_by')

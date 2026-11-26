@@ -177,6 +177,7 @@ export const tagPlanSchema = z.object({
     'previewed',
     'applying',
     'paused',
+    'waiting',
     'cancelled',
     'applied',
     'partially_failed',
