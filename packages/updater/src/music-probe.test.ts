@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import * as shared from '@tagave/shared/mounts';
 import { MUSIC_SERVICES } from './music-heal.js';
 import {
   cachedProber,
@@ -55,6 +56,31 @@ describe('musicMount', () => {
   });
   it('never returns the mount options', () =>
     expect(JSON.stringify(musicMount(ROOT + line('/mnt/music', 'cifs', '//192.0.2.11/m', 'username=robin,domain=x'), '/mnt/music'))).not.toContain('robin'));
+});
+
+/** The mount tables and folders above, so the shared copy can be held to them. */
+const FIXTURES: [string, string][] = [
+  [ROOT + NFS, '/mnt/music'],
+  [ROOT + NFS, '/mnt/music/Jazz/'],
+  [ROOT + line('/mnt/music', 'nfs', '192.0.2.10:/m', 'rw,soft'), '/mnt/music'],
+  [ROOT + line('/mnt/music', 'cifs', '//192.0.2.11/music', 'rw,vers=3.0'), '/mnt/music'],
+  [ROOT + line('/mnt/music', 'cifs', '//192.0.2.11/m', 'username=robin,domain=x'), '/mnt/music'],
+  [ROOT + line('/mnt/music', 'ext4', '/dev/sdb1', 'rw'), '/mnt/music'],
+  [ROOT, '/srv/music'],
+  ['', '/srv/music'],
+  [ROOT + line('/mnt/nas', 'nfs4', '192.0.2.10:/vol', 'rw'), '/mnt/nas/music'],
+  [ROOT + line('/mnt/mus', 'nfs4', '192.0.2.10:/v', 'rw'), '/mnt/music'],
+  [ROOT + line('/mnt/my\\040music', 'nfs4', '192.0.2.10:/v', 'rw'), '/mnt/my music'],
+  [ROOT + line('/mnt/music', 'nfs4', '-oProxy=x:/v', 'rw'), '/mnt/music'],
+];
+
+describe('the shared copy', () => {
+  it('the shared copy agrees with this one', () => {
+    for (const [info, dir] of FIXTURES) expect(shared.musicMount(info, dir)).toEqual(musicMount(info, dir));
+    for (const s of ['192.0.2.10', '[2001:db8::1]', 'nas.example.com', '-oProxy', '192.0.2.10;rm']) expect(shared.validServer(s)).toBe(validServer(s));
+    for (const t of ['nfs', 'nfs4', 'cifs', 'smb3', 'ext4']) expect(shared.sharePort(t)).toBe(sharePort(t));
+    expect(shared.decodeMountPath('/a\\040b\\011c\\012d\\134e')).toBe(decodeMountPath('/a\\040b\\011c\\012d\\134e'));
+  });
 });
 
 describe('helpers', () => {
