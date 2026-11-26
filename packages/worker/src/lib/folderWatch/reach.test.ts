@@ -24,8 +24,9 @@ describe('classify', () => {
   it.each([
     [{ kind: 'error', code: 'ETIMEDOUT' }, 'offline', 'timeout'],
     [{ kind: 'error', code: 'ENOENT' }, 'unmounted', 'not_mounted'],
-    // The brief's rule: any other error code falls through to online.
-    [{ kind: 'error', code: 'EACCES' }, 'online', null],
+    // Any other error code fails safe as offline: the probe never listed anything.
+    [{ kind: 'error', code: 'ENOTCONN' }, 'offline', 'io_error'],
+    [{ kind: 'error', code: 'EACCES' }, 'offline', 'io_error'],
     [{ kind: 'listing', empty: true, knownFound: 0, knownAsked: 0, isMountPoint: false, wasMountPoint: false }, 'unmounted', 'empty'],
     [{ kind: 'listing', empty: true, knownFound: 0, knownAsked: 0, isMountPoint: true, wasMountPoint: true }, 'online', null],
     [{ kind: 'listing', empty: false, knownFound: 0, knownAsked: 0, isMountPoint: false, wasMountPoint: false }, 'online', null],

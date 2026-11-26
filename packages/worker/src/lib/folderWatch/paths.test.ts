@@ -13,6 +13,8 @@ describe('realRootPath', () => {
   it('leaves other roots alone', () => {
     expect(realRootPath('/srv/tagave/music', 'music')).toBe('/srv/tagave/music');
     expect(realRootPath('/mnt', 'music')).toBe('/mnt');
+    expect(realRootPath('/mnt/music/', 'music')).toBe('/mnt/.host/music/');
+    expect(realRootPath('/mnt/music/../x', 'music')).toBe('/mnt/.host/music/../x');
   });
   it('uses the constants', () => {
     expect(MUSIC_MOUNT).toBe('/mnt/music');

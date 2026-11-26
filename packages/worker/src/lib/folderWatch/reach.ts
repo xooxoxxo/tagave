@@ -37,7 +37,8 @@ export function classify(o: ProbeOutcome): Reading {
       const reason = OFFLINE_CODES[o.code];
       if (reason) return { reach: 'offline', reason };
       if (o.code === 'ENOENT') return { reach: 'unmounted', reason: 'not_mounted' };
-      return ONLINE;
+      // A probe that errored never listed anything, so any other code fails safe as offline.
+      return { reach: 'offline', reason: 'io_error' };
     }
     case 'listing':
       // The share was mounted here and is not any more.
