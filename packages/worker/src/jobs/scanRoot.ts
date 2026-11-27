@@ -128,6 +128,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     }
   } catch (err) {
     if (err instanceof FolderOfflineError) await offline(err);
+    else await fail('failed', `root probe failed: ${(err as Error).message}`);
     throw err;
   }
 

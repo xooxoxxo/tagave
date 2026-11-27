@@ -8,7 +8,7 @@ import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { fileGate } from '../lib/fileGate.js';
-import { FolderOfflineError } from '../lib/folderOffline.js';
+import { isAbsent } from '../lib/folderOffline.js';
 import { MUSIC_HANDLERS } from '../lib/musicFiles.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
 import { upsertTracks, type TrackRowInput } from '../lib/trackUpsert.js';
@@ -126,9 +126,10 @@ function tagsOf(tagsRaw: unknown): FileTags {
 /**
  * A cue sheet's bytes, through the file gate, trying the stored spelling,
  * then NFD and NFC (like openVariant in artFetch.ts); null when no spelling
- * opens. An offline folder throws FolderOfflineError: the sheet decides the
- * album's tracks, so cluster.dir must not group the folder without it (the
- * job parks whole, before it writes anything).
+ * opens. Only an absent spelling (isAbsent) tries the next. Anything else
+ * throws (an offline folder's FolderOfflineError parks the job, a failed
+ * helper fails it): the sheet decides the album's tracks, so cluster.dir
+ * must not group the folder without it, and it writes nothing before this.
  */
 export async function readCueSheet(scanRootId: string, rootPath: string, relPath: string): Promise<Buffer | null> {
   for (const cand of [relPath, relPath.normalize('NFD'), relPath.normalize('NFC')]) {
@@ -136,7 +137,7 @@ export async function readCueSheet(scanRootId: string, rootPath: string, relPath
       const bytes = await fileGate().run<Uint8Array>(scanRootId, { op: 'readSmall', path: rootPath + '/' + cand });
       return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     } catch (err) {
-      if (err instanceof FolderOfflineError) throw err;
+      if (!isAbsent(err)) throw err;
       /* try next */
     }
   }

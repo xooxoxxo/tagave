@@ -7,6 +7,9 @@
 //   slow:N   sends N progress messages 1 s apart, then answers with the path
 //   eio      answers { ok: false, code: 'EIO' }
 //   enoent   answers { ok: false, code: 'ENOENT' }
+//   sidecar:N   answers stuck (its tag writer's sidecar hung) with stuckToken N
+//   gone:N      sends { stuckGone: N } (that sidecar exited), then answers ok
+//   gonefirst:N sends { stuckGone: N } before its stuck answer with token N
 //   anything else answers { ok: true, value: path }, or for readdirPage a
 //   one-entry page { entries: [{ name: path, type: 'file' }], cursor: null }
 let stay = false;
@@ -21,6 +24,14 @@ process.on('message', (msg) => {
   }
   if (script === 'eio') return process.send({ id, ok: false, code: 'EIO', message: 'i/o error' });
   if (script === 'enoent') return process.send({ id, ok: false, code: 'ENOENT', message: 'no such file' });
+  const sidecar = /^(sidecar|gone|gonefirst):(\d+)$/.exec(script);
+  if (sidecar) {
+    const token = Number(sidecar[2]);
+    const stuck = { id, ok: false, code: 'ETIMEDOUT', message: 'The tag writer did not answer', stuck: true, stuckToken: token };
+    if (sidecar[1] === 'sidecar') return process.send(stuck);
+    process.send({ stuckGone: token });
+    return process.send(sidecar[1] === 'gone' ? { id, ok: true, value: script } : stuck);
+  }
   const slow = /^slow:(\d+)$/.exec(script);
   if (slow) {
     let left = Number(slow[1]);

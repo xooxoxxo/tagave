@@ -135,6 +135,19 @@ describe('gateProbe', () => {
     expect(await gateProbe(gate(), 'r1', dir, names)).toMatchObject({ kind: 'listing', knownFound: 5, knownAsked: 5 });
   });
 
+  it('a closed gate (shutdown) throws EGATECLOSED: no reading at all, neither an error nor a deadline', async () => {
+    const dir = await tempDir();
+    const g = gate();
+    await g.close();
+    await expect(gateProbe(g, 'r1', dir, [])).rejects.toMatchObject({ code: 'EGATECLOSED' });
+    // closed while a call is in flight: the same
+    const h = gate({ helperPath: FAKE, limits: { waitMs: 5_000 } });
+    const probing = gateProbe(h, 'r1', 'hang', []).then(() => 'answered', (e: unknown) => e);
+    await settle();
+    await h.close();
+    expect(await probing).toMatchObject({ code: 'EGATECLOSED' });
+  });
+
   it('passes the gate\'s stuck cap: a root at its cap can still read online', async () => {
     const dir = await tempDir();
     const g = gate({ limits: { stuckMax: 1 } });

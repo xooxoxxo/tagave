@@ -191,13 +191,64 @@ describe('FileGate', () => {
     expect(await g.run('r1', { op: 'stat', path: 'ok' })).toBe('ok');
   });
 
+  it('a stuck sidecar counts by its token until the helper says it is gone', async () => {
+    const g = gate({ helpers: 1, stuckMax: 1 });
+    await expect(g.run('r1', { op: 'writeTagged', path: 'sidecar:7', handlerId: 'audio', values: {} })).rejects.toMatchObject({ scanRootId: 'r1', reason: 'timeout' });
+    expect(suspects).toEqual(['r1']);
+    expect(g.stuckCount('r1')).toBe(1);
+    expect(g.refuses('r1')).toBe(true);
+    // another root's work runs on the same helper, which sends the sidecar's stuckGone
+    expect(await g.run('r2', { op: 'stat', path: 'gone:7' })).toBe('gone:7');
+    expect(g.stuckCount('r1')).toBe(0);
+    expect(g.refuses('r1')).toBe(false);
+  });
+
+  it('a stuckGone that comes before its stuck answer leaves no count behind', async () => {
+    const g = gate({ helpers: 1, stuckMax: 1 });
+    await expect(g.run('r1', { op: 'writeTagged', path: 'gonefirst:8', handlerId: 'audio', values: {} })).rejects.toMatchObject({ scanRootId: 'r1', reason: 'timeout' });
+    // the watch still hears of it, but the sidecar is gone, so nothing counts and the root is not refused
+    expect(suspects).toEqual(['r1']);
+    expect(g.stuckCount('r1')).toBe(0);
+    expect(g.refuses('r1')).toBe(false);
+    expect(await g.run('r1', { op: 'stat', path: 'ok' })).toBe('ok');
+    // a later sidecar of the same helper still counts
+    await expect(g.run('r1', { op: 'writeTagged', path: 'sidecar:9', handlerId: 'audio', values: {} })).rejects.toBeInstanceOf(FolderOfflineError);
+    expect(g.stuckCount('r1')).toBe(1);
+  });
+
+  it('a helper that exits takes its sidecars\' stuck counts with it', async () => {
+    const g = gate({ helpers: 1, stuckMax: 4 });
+    await expect(g.run('r1', { op: 'writeTagged', path: 'sidecar:3', handlerId: 'audio', values: {} })).rejects.toBeInstanceOf(FolderOfflineError);
+    expect(g.stuckCount('r1')).toBe(1);
+    // the same helper hangs and is killed at the deadline: once it exits, neither it nor its sidecar counts
+    await expect(g.run('r2', { op: 'stat', path: 'hang' })).rejects.toBeInstanceOf(FolderOfflineError);
+    await until(() => g.stuckCount() === 0);
+  });
+
+  it('dropQueued rejects the root\'s queued work at once, keeping probes and other roots\' work', async () => {
+    const g = gate({ helpers: 1, waitMs: 5_000 });
+    const busy = g.run('r1', { op: 'stat', path: 'slow:1' });
+    const mine = [g.run('r1', { op: 'stat', path: 'a' }), g.run('r1', { op: 'readSmall', path: 'b' })].map((p) => p.catch((e: unknown) => e));
+    const other = g.run('r2', { op: 'stat', path: 'c' });
+    const probe = g.run('r1', { op: 'stat', path: 'p' }, { probe: true });
+    const err = new FolderOfflineError('r1', 'timeout');
+    const t = Date.now();
+    g.dropQueued('r1', err);
+    expect(await Promise.all(mine)).toEqual([err, err]);
+    expect(Date.now() - t).toBeLessThan(100);
+    // the call a helper already took, the probe and the other root's call all run
+    expect(await busy).toBe('slow:1');
+    expect(await probe).toBe('p');
+    expect(await other).toBe('c');
+  }, 10_000);
+
   it('close lets go of every helper and refuses new work', async () => {
     const g = gate();
     const hung = g.run('r1', { op: 'readSmall', path: 'hang' }).catch((e: unknown) => e);
     expect(await g.run('r2', { op: 'stat', path: 'ok' })).toBe('ok');
     await g.close();
-    expect(await hung).toMatchObject({ message: expect.stringMatching(/closed/) });
-    await expect(g.run('r1', { op: 'stat', path: 'ok' })).rejects.toThrow(/closed/);
+    expect(await hung).toMatchObject({ code: 'EGATECLOSED', message: expect.stringMatching(/closed/) });
+    await expect(g.run('r1', { op: 'stat', path: 'ok' })).rejects.toMatchObject({ code: 'EGATECLOSED' });
     expect(fakeHelpers()).toEqual([]);
   });
 });

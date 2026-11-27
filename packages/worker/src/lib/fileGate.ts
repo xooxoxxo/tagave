@@ -111,6 +111,11 @@ function defaultHelperPath(): string {
   return fileURLToPath(new URL(rel, here));
 }
 
+/** The gate was closed (the worker is shutting down): code EGATECLOSED, nothing known about the path. */
+function gateClosed(): Error {
+  return Object.assign(new Error('The file gate is closed'), { code: 'EGATECLOSED' });
+}
+
 /** An error for a helper that failed without an answer: about the helper, not the share. */
 function helperFailed(message: string): Error {
   return Object.assign(new Error(message), { code: 'EHELPER' });
@@ -151,6 +156,12 @@ interface Helper {
   timer: NodeJS.Timeout | null;
   /** Its stuck sidecars by token: each releases its count once gone (or once the helper itself exits). */
   sidecars: Map<number, () => void>;
+  /**
+   * Tokens whose `stuckGone` came before their `stuck` answer: that answer
+   * then counts nothing, so the order of the two messages can never leave a
+   * count behind while the helper lives.
+   */
+  goneEarly: Set<number>;
 }
 
 /** Settles once the child has exited (at once for one that already has). Never holds anything. */
@@ -204,7 +215,7 @@ export class FileGate {
 
   /** Runs one operation for a file under this root. Throws FolderOfflineError on a deadline or an offline errno; other fs errors come back as Error with their code. */
   run<T>(rootId: string, op: GateOp, opts: RunOptions = {}): Promise<T> {
-    if (this.closed) return Promise.reject(new Error('The file gate is closed'));
+    if (this.closed) return Promise.reject(gateClosed());
     const probe = opts.probe === true;
     const refused = this.refusal(rootId, probe);
     if (refused) return Promise.reject(refused);
@@ -214,6 +225,20 @@ export class FileGate {
       else this.queue.push(job);
       this.pump();
     });
+  }
+
+  /**
+   * Rejects with `err` every queued call for this root that no helper has
+   * taken yet (probes are kept): a walk that met an offline folder does not
+   * spend another deadline, and the root's stuck slots, on its other calls.
+   */
+  dropQueued(rootId: string, err: unknown): void {
+    for (let i = this.queue.length - 1; i >= 0; i--) {
+      const job = this.queue[i]!;
+      if (job.rootId !== rootId || job.probe) continue;
+      this.queue.splice(i, 1);
+      job.reject(err);
+    }
   }
 
   /**
@@ -280,12 +305,11 @@ export class FileGate {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    const closedErr = () => new Error('The file gate is closed');
-    for (const job of this.queue.splice(0)) job.reject(closedErr());
+    for (const job of this.queue.splice(0)) job.reject(gateClosed());
     const children: ChildProcess[] = [...this.abandoned];
     for (const h of [...this.helpers]) {
       if (h.timer) clearTimeout(h.timer);
-      h.job?.reject(closedErr());
+      h.job?.reject(gateClosed());
       h.job = null;
       this.helpers.delete(h);
       children.push(h.child);
@@ -332,12 +356,13 @@ export class FileGate {
     // The helper is plain built JS: none of the parent's tsx or vitest flags.
     // 'advanced' serialization so Buffers and BigInts pass.
     const child = fork(this.helperPath, [], { execArgv: [], stdio: ['ignore', 'ignore', 'inherit', 'ipc'], serialization: 'advanced' });
-    const h: Helper = { child, job: null, timer: null, sidecars: new Map() };
+    const h: Helper = { child, job: null, timer: null, sidecars: new Map(), goneEarly: new Set() };
     this.helpers.add(h);
     // A helper that exits takes its sidecars' stuck counts with it: nothing is left to follow.
     void exitOf(child).then(() => {
       for (const release of h.sidecars.values()) release();
       h.sidecars.clear();
+      h.goneEarly.clear();
     });
     child.on('message', (msg: unknown) => this.onMessage(h, msg));
     // 'close', not 'exit': with an IPC channel it comes after every message.
@@ -375,8 +400,14 @@ export class FileGate {
     const job = h.job;
     const m = msg as Record<string, unknown> | null;
     if (m !== null && typeof m === 'object' && typeof m.stuckGone === 'number') {
-      h.sidecars.get(m.stuckGone)?.();
-      h.sidecars.delete(m.stuckGone);
+      const release = h.sidecars.get(m.stuckGone);
+      if (release) {
+        release();
+        h.sidecars.delete(m.stuckGone);
+      } else {
+        // Ahead of its `stuck` answer: that answer will count nothing.
+        h.goneEarly.add(m.stuckGone);
+      }
       return;
     }
     if (!job || m === null || typeof m !== 'object' || m.id !== job.id) return;
@@ -392,7 +423,12 @@ export class FileGate {
         // the helper says it is gone (or the helper itself exits).
         if (typeof m.stuckToken === 'number') {
           const token = m.stuckToken;
-          this.markStuck(job.rootId, new Promise<void>((done) => h.sidecars.set(token, done)));
+          if (h.goneEarly.delete(token)) {
+            // The sidecar is already gone (its stuckGone came first): nothing to count, the watch still looks.
+            this.suspect(job.rootId);
+          } else {
+            this.markStuck(job.rootId, new Promise<void>((done) => h.sidecars.set(token, done)));
+          }
         } else {
           this.markStuck(job.rootId);
         }

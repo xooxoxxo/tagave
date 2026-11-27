@@ -14,7 +14,7 @@
 import path from 'node:path';
 import type { FileGate } from '../fileGate.js';
 import type { DirPage } from '../fileHelper.js';
-import { FolderOfflineError } from '../folderOffline.js';
+import { FolderOfflineError, isGateClosed } from '../folderOffline.js';
 import type { ProbeOutcome } from './reach.js';
 
 /** At most this many known files are asked about (the `checkMusicFolder` sample rule). */
@@ -33,9 +33,12 @@ function codeOf(err: unknown): string {
 /**
  * What a failed gate call reads as: a deadline (the gate gave up), or the
  * error code (an offline code from the share, ENOENT for a missing root, or
- * EHELPER for a helper that failed). `classify` in reach.ts maps it.
+ * EHELPER for a helper that failed). `classify` in reach.ts maps it. A
+ * closed gate (EGATECLOSED, shutdown) throws: the watch records no reading.
  */
 function failed(err: unknown): ProbeOutcome {
+  // The gate shut down (the worker is stopping): no reading at all, not offline.
+  if (isGateClosed(err)) throw err;
   if (err instanceof FolderOfflineError) return err.code ? { kind: 'error', code: err.code } : { kind: 'deadline' };
   return { kind: 'error', code: codeOf(err) };
 }
