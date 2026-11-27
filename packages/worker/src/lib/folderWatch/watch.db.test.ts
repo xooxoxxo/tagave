@@ -230,6 +230,31 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
     expect((await w.tick()).get(rootId)).toEqual({ reach: 'unmounted', reason: 'empty' });
     expect(await reach(rootId)).toMatchObject({ reach: 'unmounted', reach_reason: 'empty', reach_since: T2 });
   });
+
+  it('skips a full tick while an earlier one still waits for its roots, but never waits on a probe', async () => {
+    const waiting: Array<() => void> = [];
+    let slow = true;
+    const roots = vi.fn(async (sql: Parameters<typeof rootsToWatch>[0]) => {
+      if (slow) await new Promise<void>((done) => { waiting.push(done); });
+      return rootsToWatch(sql);
+    });
+    const probe = vi.fn(() => new Promise<ProbeOutcome>(() => {})); // every probe hangs
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, probe, now: clock, roots });
+    const first = w.tick();
+    expect((await w.tick()).size).toBe(0); // skipped: the first still waits for the database
+    expect(roots).toHaveBeenCalledTimes(1);
+    w.suspect(rootId); // a check of one root is not skipped
+    expect(roots).toHaveBeenCalledTimes(2);
+    slow = false;
+    for (const done of waiting) done();
+    await flush();
+    void first;
+    // the first tick's probe hangs, yet the next full tick loads its roots again
+    void w.tick();
+    await flush();
+    expect(roots).toHaveBeenCalledTimes(3);
+    expect(probesOf(probe)).toHaveLength(1);
+  });
   it('a failed write loses no change: the next tick writes it, and queues the scan then', async () => {
     await setReach(rootId, 'offline', 'server_silent', T0);
     let fail = 1;

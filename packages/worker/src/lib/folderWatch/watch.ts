@@ -11,7 +11,9 @@
  *
  * One check per root at a time: a root whose check has not ended is skipped,
  * and a tick never waits on a check an earlier tick started, so one hung
- * share holds up neither the other roots nor the next tick.
+ * share holds up neither the other roots nor the next tick. A full tick that
+ * comes while an earlier one still waits for its roots from the database is
+ * skipped, so slow queries do not pile up.
  *
  * Without a mount table (not Linux, or procfs unreadable) the mount-point
  * rule is off for that tick: no root reads as having lost its mount point.
@@ -42,6 +44,8 @@ export interface FolderWatchDeps {
   onlineAgain?: (rootId: string, after: 'offline' | 'unmounted') => Promise<void>;
   /** default: db `recordReach` */
   record?: typeof recordReach;
+  /** default: db `rootsToWatch` */
+  roots?: typeof rootsToWatch;
 }
 
 type Deps = Required<Omit<FolderWatchDeps, 'env'>>;
@@ -68,6 +72,8 @@ export class FolderWatch {
   private readonly stuck = new Set<string>();
   /** Roots whose check has not ended. */
   private readonly inFlight = new Set<string>();
+  /** A full tick is waiting for its roots (and the mount table). */
+  private loadingRoots = false;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(deps: FolderWatchDeps, opts: { everyMs?: number } = {}) {
@@ -77,6 +83,7 @@ export class FolderWatch {
       readMountinfo: deps.readMountinfo ?? (() => readFile(MOUNTINFO, 'utf8')),
       probe: deps.probe ?? probeOnce,
       record: deps.record ?? recordReach,
+      roots: deps.roots ?? rootsToWatch,
       port: deps.port ?? portAnswers,
       now: deps.now ?? (() => new Date()),
       onlineAgain:
@@ -112,8 +119,17 @@ export class FolderWatch {
   /** One pass over every root (or the one given); returns the readings (tests). */
   async tick(only?: string): Promise<Map<string, Reading>> {
     const readings = new Map<string, Reading>();
-    const roots = await rootsToWatch(this.deps.ctx.sql);
-    const mountinfo = await this.mountinfo();
+    // A full tick while an earlier one still waits for the database is skipped (a check of one root is not).
+    if (only === undefined && this.loadingRoots) return readings;
+    if (only === undefined) this.loadingRoots = true;
+    let roots: RootToWatch[];
+    let mountinfo: string | null;
+    try {
+      roots = await this.deps.roots(this.deps.ctx.sql);
+      mountinfo = await this.mountinfo();
+    } finally {
+      if (only === undefined) this.loadingRoots = false;
+    }
     const seen = new Set(roots.map((r) => r.id));
     if (only === undefined) {
       for (const id of this.states.keys()) if (!seen.has(id)) this.states.delete(id);
