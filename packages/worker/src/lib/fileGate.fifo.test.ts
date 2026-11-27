@@ -57,10 +57,13 @@ afterAll(async () => {
   await Promise.all(made.map((d) => d.cleanup()));
 });
 
+/** libuv's threadpool: UV_THREADPOOL_SIZE, 4 when unset. That many hung opens take it all. */
+const POOL = Number(process.env.UV_THREADPOOL_SIZE) > 0 ? Math.min(Number(process.env.UV_THREADPOOL_SIZE), 1024) : 4;
+
 describe('a dead share', () => {
   it('today: four hung opens in this process freeze its fs', async () => {
     const dead = await deadFolder();
-    const opens = Array.from({ length: 4 }, () => open(dead.fifo, 'r').catch(() => null));
+    const opens = Array.from({ length: POOL }, () => open(dead.fifo, 'r').catch(() => null));
     const r = await Promise.race([readFile(__filename).then(() => 'read'), sleep(1_000).then(() => 'stuck')]);
     expect(r).toBe('stuck');
     await unblock(dead, opens); // opens the FIFO for writing once per reader, so the threads come back

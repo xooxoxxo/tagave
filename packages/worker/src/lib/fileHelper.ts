@@ -12,8 +12,8 @@
  * write whose tag-writer sidecar hung is answered with `stuck: true`.
  *
  * Progress: while a long op runs, every 5 s the helper reads its bytes read
- * (`rchar` in /proc/self/io) and sends `{ progress: bytes }` only when they
- * grew. A timer alone is not progress: this event loop keeps running while a
+ * (`rchar` in /proc/self/io, less its own reads of that file) and sends
+ * `{ progress: bytes }` once at least 64 KiB more were read. A timer alone is not progress: this event loop keeps running while a
  * read hangs in the threadpool. Without /proc/self/io (macOS) no progress is
  * sent and the gate's idle deadline is a plain deadline.
  */
@@ -28,6 +28,8 @@ import { MutagenTagWriter } from './tagWriter.js';
 import { OFFLINE_CODES } from './folderOffline.js';
 
 const PROGRESS_MS = 5_000;
+/** Bytes read since the last progress message before the next one is sent. */
+const PROGRESS_MIN_BYTES = 64 * 1024;
 const READ_SMALL_MAX = 32 * 1024 * 1024;
 const PAGE_LIMIT = 500;
 const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged']);
@@ -55,11 +57,32 @@ function handlerOf(id: unknown): FileTypeHandler {
   return h;
 }
 
-/** Bytes this process has read, or null where /proc/self/io is missing. Local procfs: never the share. */
-function bytesRead(): number | null {
+/**
+ * A test-only setting: read only under vitest (VITEST) or NODE_ENV=test, so
+ * a stray variable in production changes nothing.
+ */
+function testEnv(name: string): string | undefined {
+  return process.env.VITEST || process.env.NODE_ENV === 'test' ? process.env[name] : undefined;
+}
+
+/** How often progress is sampled: 5 s, or TAGAVE_HELPER_TEST_PROGRESS_MS in tests. */
+function progressMs(): number {
+  const n = Number(testEnv('TAGAVE_HELPER_TEST_PROGRESS_MS'));
+  return Number.isInteger(n) && n > 0 ? n : PROGRESS_MS;
+}
+
+/**
+ * A sample of the bytes this process has read (`rchar`), or null where
+ * /proc/self/io is missing. Reading /proc/self/io is a read too: the count
+ * shown leaves out the text being read, so `after` adds it back, and the
+ * next sample's growth past `after` is other reads only. Local procfs, never
+ * the share.
+ */
+function bytesRead(): { shown: number; after: number } | null {
   try {
-    const m = /^rchar:\s*(\d+)/m.exec(readFileSync('/proc/self/io', 'utf8'));
-    return m ? Number(m[1]) : null;
+    const text = readFileSync('/proc/self/io');
+    const m = /^rchar:\s*(\d+)/m.exec(text.toString('utf8'));
+    return m ? { shown: Number(m[1]), after: Number(m[1]) + text.length } : null;
   } catch {
     return null;
   }
@@ -138,13 +161,13 @@ let sidecarStuck = false;
 
 /** The sidecar's response deadline: the writer's own, or TAGAVE_HELPER_TEST_SIDECAR_MS in tests. */
 function sidecarMs(): number | undefined {
-  const n = Number(process.env.TAGAVE_HELPER_TEST_SIDECAR_MS);
+  const n = Number(testEnv('TAGAVE_HELPER_TEST_SIDECAR_MS'));
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
-/** The test hooks of the write steps (TAGAVE_HELPER_TEST_STOP_AFTER=copy hangs after the temp copy). */
+/** The test hooks of the write steps (TAGAVE_HELPER_TEST_STOP_AFTER=copy hangs after the temp copy; tests only). */
 function writeHooks(): WriteStepHooks {
-  if (process.env.TAGAVE_HELPER_TEST_STOP_AFTER === 'copy') return { afterCopy: () => new Promise<void>(() => undefined) };
+  if (testEnv('TAGAVE_HELPER_TEST_STOP_AFTER') === 'copy') return { afterCopy: () => new Promise<void>(() => undefined) };
   return {};
 }
 
@@ -225,30 +248,47 @@ async function runOp(op: GateOp, rootId: string | undefined): Promise<unknown> {
   }
 }
 
+/** Sends to the gate. A send that fails later (channel gone) is dropped: the gate already let go. */
 function send(msg: HelperMessage): void {
+  const dropped = () => undefined;
   try {
-    process.send?.(msg);
+    process.send?.(msg, undefined, {}, dropped);
   } catch (err) {
     // A value the channel cannot carry: answer that instead.
     if ('ok' in msg && msg.ok === true) {
-      process.send?.({ id: msg.id, ok: false, code: 'ESERIALIZE', message: `The answer could not be sent: ${(err as Error).message}` });
+      try {
+        process.send?.({ id: msg.id, ok: false, code: 'ESERIALIZE', message: `The answer could not be sent: ${(err as Error).message}` }, undefined, {}, dropped);
+      } catch {
+        // Nothing more to tell.
+      }
     }
   }
 }
+
+/** The request being worked on, so a crash can still answer it. */
+let current: number | null = null;
 
 async function handle(req: HelperRequest): Promise<void> {
   const { id, op } = req;
   const rootId = typeof req.rootId === 'string' ? req.rootId : undefined;
   let timer: NodeJS.Timeout | null = null;
-  let last = LONG_OPS.has((op as { op?: GateOp['op'] } | null)?.op as GateOp['op']) ? bytesRead() : null;
+  current = id;
+  let last = LONG_OPS.has((op as { op?: GateOp['op'] } | null)?.op as GateOp['op']) ? bytesRead()?.after ?? null : null;
   if (last !== null) {
+    let read = 0;
     timer = setInterval(() => {
       const now = bytesRead();
-      if (now !== null && last !== null && now > last) {
-        last = now;
-        send({ id, progress: now });
+      if (now === null || last === null) return;
+      // Growth past our own last procfs read; the read of this sample is left out.
+      read += Math.max(0, now.shown - last);
+      last = now.after;
+      // The event loop reads a few bytes of its own on wakeups (8-byte eventfd reads):
+      // only a real amount of file data counts as progress.
+      if (read >= PROGRESS_MIN_BYTES) {
+        read = 0;
+        send({ id, progress: now.shown });
       }
-    }, PROGRESS_MS);
+    }, progressMs());
   }
   try {
     send({ id, ok: true, value: await runOp(op, rootId) });
@@ -260,6 +300,7 @@ async function handle(req: HelperRequest): Promise<void> {
     send(answer);
   } finally {
     if (timer) clearInterval(timer);
+    current = null;
   }
 }
 
@@ -269,6 +310,15 @@ process.on('message', (msg: unknown) => {
   const req = msg as Partial<HelperRequest> | null;
   if (req === null || typeof req !== 'object' || typeof req.id !== 'number') return;
   chain = chain.then(() => handle(req as HelperRequest));
+});
+
+// An IPC error must not crash the helper: the gate sees a dead channel on its side.
+process.on('error', () => undefined);
+
+// A bug that escapes an op: answer it before leaving, so the gate need not wait for a deadline.
+process.on('uncaughtException', (err) => {
+  if (current !== null) send({ id: current, ok: false, code: 'EHELPER', message: `The file helper failed: ${err.message}` });
+  setTimeout(() => process.exit(1), 100);
 });
 
 // The gate let go of us: leave, and take the tag writer's sidecar along.
