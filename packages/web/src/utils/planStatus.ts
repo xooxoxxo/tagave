@@ -36,6 +36,29 @@ export function planStatusView(
   return view;
 }
 
+/**
+ * The plan header's run buttons: Pause and Cancel while it applies or waits
+ * for its music folder (the API takes both for 'waiting'), Resume and Cancel
+ * while paused. None while an apply task's line carries its own actions.
+ */
+export function planRunButtons(status: string, hasApplyTask: boolean): 'pause' | 'resume' | null {
+  if (hasApplyTask) return null;
+  if (status === 'applying' || status === 'waiting') return 'pause';
+  if (status === 'paused') return 'resume';
+  return null;
+}
+
+/**
+ * The tone of a paused plan's "The last run stopped early" line. Paused for
+ * the offline music folder, the apply task's line already says so with its
+ * help and Continue, so the line is left out (null); with no task line it is
+ * one quiet line. Any other stop is a danger line.
+ */
+export function pausedNoticeTone(lastError: string, taskLineShown: boolean): 'danger' | 'info' | null {
+  if (lastError !== PAUSED_OFFLINE_STAGE) return 'danger';
+  return taskLineShown ? null : 'info';
+}
+
 /** The toast after Apply: only when the plan's music folder is offline and the apply waits for it. */
 export function applyToast(response: { waiting?: boolean } | undefined): string | null {
   return response?.waiting ? 'Queued. tagave writes the tags when the music folder is back.' : null;

@@ -39,7 +39,7 @@ import {
   previewGuardKey,
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
-import { applyToast, planStatusView, planUsesId3, diffRowKind, diffValueText } from '../utils/planStatus';
+import { applyToast, pausedNoticeTone, planRunButtons, planStatusView, planUsesId3, diffRowKind, diffValueText } from '../utils/planStatus';
 import styles from './PlanPage.module.css';
 import { awaitAfterPreview, canPreview, derivePreviewState, planPollMs, progressSignature, shouldPollPlan } from './planPreviewState';
 import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
@@ -597,6 +597,9 @@ export function PlanPage() {
   }
 
   const statusView = planStatusView(p.status, progress, stats?.lastError);
+  const runButtons = planRunButtons(p.status, !!applyTask);
+  // the apply task's line (below) shows only with a library
+  const pausedTone = p.status === 'paused' && stats?.lastError ? pausedNoticeTone(stats.lastError, !!(applyTask && libraryId)) : null;
   // a file the plan splits first is not skipped: its tracks are tagged by the split
   const skippedCount = (stats?.filesSkipped ?? []).filter((x) => x.reason !== 'split_first').length;
   // A plan that wrote files keeps its journal for Revert; the API refuses to
@@ -645,13 +648,13 @@ export function PlanPage() {
               {applyM.isPending || awaiting !== null ? 'Starting…' : 'Apply now'}
             </Button>
           )}
-          {p.status === 'applying' && !applyTask && (
+          {runButtons === 'pause' && (
             <>
               <Button variant="secondary" onClick={run(pauseM)} disabled={pauseM.isPending}>Pause</Button>
               <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
-          {p.status === 'paused' && !applyTask && (
+          {runButtons === 'resume' && (
             <>
               <Button variant="primary" onClick={run(resumeM)} disabled={resumeM.isPending || awaiting !== null}>{awaiting !== null ? 'Resuming…' : 'Resume'}</Button>
               <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
@@ -798,8 +801,8 @@ export function PlanPage() {
           </Banner>
         )}
 
-        {p.status === 'paused' && stats?.lastError && (
-          <Banner tone="danger">
+        {pausedTone && stats?.lastError && (
+          <Banner tone={pausedTone}>
             The last run stopped early: {stats.lastError}
             {statusView.help && <HelpToggle label={stats.lastError}>{statusView.help}</HelpToggle>}
           </Banner>
