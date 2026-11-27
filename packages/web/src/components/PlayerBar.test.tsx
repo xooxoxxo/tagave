@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PlayerBarView, type PlayerBarViewProps } from './PlayerBar';
+import { PlayerBarView, offlineSkipToast, type PlayerBarViewProps } from './PlayerBar';
 import { AlbumTracks } from '../pages/AlbumTracks';
 import type { DetailTrack } from '../pages/albumDetailTypes';
 
@@ -46,6 +46,19 @@ describe('PlayerBarView', () => {
     expect(html).toContain('tagave did not answer.');
     expect(html).toMatch(/<button[^>]*>.*Retry.*<\/button>/);
     expect(html).not.toContain('aria-label="Seek"');
+  });
+});
+
+describe('the toast for songs skipped because their files are offline', () => {
+  it('one toast for a run of skips: the count in words', () => {
+    expect(offlineSkipToast({ id: 1, count: 2 }, true)).toBe('Skipped 2 songs: their files are offline');
+    expect(offlineSkipToast({ id: 2, count: 1 }, true)).toBe('Skipped 1 song: its files are offline');
+  });
+
+  it('nothing skipped, or the player module off: no toast', () => {
+    expect(offlineSkipToast(null, true)).toBeNull();
+    expect(offlineSkipToast({ id: 1, count: 0 }, true)).toBeNull();
+    expect(offlineSkipToast({ id: 1, count: 2 }, false)).toBeNull();
   });
 });
 

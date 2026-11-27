@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { AlbumActionRow } from '../pages/AlbumActionRow';
 import { albumActionContext } from '../pages/albumActions';
+import { PLAY_OFFLINE_NOTE } from '../pages/albumOffline';
 
 const noop = () => undefined;
 const NOTE = 'On the player after its first scan';
@@ -32,3 +33,6 @@ export const PhonePlayFocused: Story = { tags: ['phone'], globals: { viewport: {
 export const PhonePlayHover: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, parameters: { pseudo: { hover: ['[data-album-play]'] } } };
 export const DesktopReady: Story = {};
 export const DesktopWaitingForTheFirstScan: Story = { args: { play: { mode: 'play', disabled: true, note: NOTE, onPlay: noop, onShuffle: noop } } };
+/** the album's music folder is offline: Play and Shuffle wait under one note */
+export const FilesOffline: Story = { args: { play: { mode: 'play', disabled: true, note: PLAY_OFFLINE_NOTE, onPlay: noop, onShuffle: noop } } };
+export const PhoneFilesOffline: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { play: { mode: 'play', disabled: true, note: PLAY_OFFLINE_NOTE, onPlay: noop, onShuffle: noop } } };
