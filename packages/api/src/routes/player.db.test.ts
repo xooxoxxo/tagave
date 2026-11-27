@@ -34,7 +34,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
   const recMbid2 = randomUUID();
   const tracks = { one: randomUUID(), two: randomUUID(), three: randomUUID(), cue: randomUUID() };
   const files = { one: randomUUID(), two: randomUUID(), three: randomUUID(), cue: randomUUID() };
-  const as = (user: string, role = 'owner') => ({ 'x-test-user': user, 'x-test-role': role });
+  // offline library: its own library so the scan-status file count above stays 4;
+  // `away` has every file on the offline root, `mixed` one file on each root
+  const off = {
+    libraryId: randomUUID(), onRoot: randomUUID(), offRoot: randomUUID(), away: randomUUID(), mixed: randomUUID(),
+    awayTrack: randomUUID(), mixedOn: randomUUID(), mixedOff: randomUUID(),
+  };
+  const OFF_SINCE = '2026-11-24T14:02:00.000Z';
+  /** the offline root reads offline only inside a test (an offline root holds every player scan) */
+  const withOfflineRoot = async (fn: () => Promise<void>) => {
+    await sql`update scan_roots set reach = 'offline', reach_since = ${OFF_SINCE} where id = ${off.offRoot}`;
+    try { await fn(); } finally { await sql`update scan_roots set reach = 'unknown', reach_since = null where id = ${off.offRoot}`; }
+  };
+  const as =(user: string, role = 'owner') => ({ 'x-test-user': user, 'x-test-role': role });
   const envKeys = ['TAGAVE_PLAYER_URL', 'TAGAVE_PLAYER_USER', 'TAGAVE_PLAYER_PASSWORD', 'APP_SECRET'] as const;
   const savedEnv: Record<string, string | undefined> = {};
 
@@ -84,6 +96,26 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     await track(tracks.three, files.three, 3, 'Three');
     await track(tracks.cue, files.cue, 4, 'Cue piece', { origin: 'cue' });
 
+    await sql`insert into libraries (id, owner_user_id, name, settings) values (${off.libraryId}, ${ownerId}, 'Offline', '{}'::jsonb)`;
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status)
+              values (${off.onRoot}, ${off.libraryId}, '/mnt/music/near', 'Near', 'ok'), (${off.offRoot}, ${off.libraryId}, '/mnt/music/far', 'Far', 'ok')`;
+    for (const [id, title] of [[off.away, 'Away Album'], [off.mixed, 'Mixed Album']] as const) {
+      await sql`insert into local_albums (id, library_id, cluster_key, title_guess, artist_guess, state)
+                values (${id}, ${off.libraryId}, ${`ck-${id}`}, ${title}, 'Robin', 'matched')`;
+    }
+    const offFile = async (trackId: string, albumOf: string, rootOf: string, rel: string, no: number) => {
+      const fileId = randomUUID();
+      await sql`insert into files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status, handler)
+                values (${fileId}, ${off.libraryId}, ${rootOf}, ${rel}, 'flac', 'FLAC', true, 200000, 'present', 'audio')`;
+      await sql`insert into local_tracks (id, local_album_id, audio_file_id, disc_no, track_no, title_guess, duration_ms, origin)
+                values (${trackId}, ${albumOf}, ${fileId}, 1, ${no}, ${`Song ${no}`}, 200000, 'file')`;
+      // known to the player already: only the offline check stands between Play and the server
+      await sql`insert into player_track_map (local_track_id, server_key, song_id, matched_by) values (${trackId}, 'bundled', 'song-1', 'path')`;
+    };
+    await offFile(off.awayTrack, off.away, off.offRoot, 'Robin/Away Album/01 Song.flac', 1);
+    await offFile(off.mixedOn, off.mixed, off.onRoot, 'Robin/Mixed Album/01 Song.flac', 1);
+    await offFile(off.mixedOff, off.mixed, off.offRoot, 'Robin/Mixed Album/02 Song.flac', 2);
+
     nav.state.albumMbid = releaseMbid;
     nav.state.songs = [
       // real path: matched by path
@@ -119,6 +151,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     await new Promise<void>((r) => nav.server.close(() => r()));
     if (sql) {
       await sql`delete from libraries where id = ${libraryId}`;
+      await sql`delete from libraries where id = ${off.libraryId}`;
       await sql`delete from releases where id = ${releaseId}`;
       await sql`delete from release_groups where id = ${rgId}`;
       await sql`delete from artists where id = ${artistId}`;
@@ -383,5 +416,53 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     } finally {
       await sql`update scan_roots set reach = 'unknown' where id = ${rootId}`;
     }
+  });
+
+  it('availability answers offline without calling the fake player', async () => {
+    bundled();
+    await withOfflineRoot(async () => {
+      nav.state.requests.length = 0;
+      const res = await app.inject({ method: 'GET', url: `/api/v1/player/albums/${off.away}/availability`, headers: as(ownerId) });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ albumId: off.away, tracks: 1, playable: 0, reason: 'offline', scan: null, since: OFF_SINCE });
+      expect(nav.state.requests).toEqual([]);
+      // some files offline: the album still plays its online songs
+      const mixed = await app.inject({ method: 'GET', url: `/api/v1/player/albums/${off.mixed}/availability`, headers: as(ownerId) });
+      expect(mixed.json()).toMatchObject({ albumId: off.mixed, tracks: 2, playable: 1, reason: null });
+    });
+    // back online: the usual answer
+    const back = await app.inject({ method: 'GET', url: `/api/v1/player/albums/${off.away}/availability`, headers: as(ownerId) });
+    expect(back.json()).toMatchObject({ playable: 1, reason: null });
+    expect(back.json()).not.toHaveProperty('since');
+  });
+
+  it('a stream of an offline track is 409 files_offline and never reaches the player', async () => {
+    bundled();
+    await withOfflineRoot(async () => {
+      nav.state.requests.length = 0;
+      const res = await app.inject({ method: 'GET', url: `/api/v1/player/stream/${off.awayTrack}`, headers: as(ownerId) });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ type: 'files_offline', title: 'Files offline', status: 409 });
+      expect(nav.state.requests).toEqual([]);
+      // a track of the same album on the online root still plays
+      const near = await app.inject({ method: 'GET', url: `/api/v1/player/stream/${off.mixedOn}`, headers: as(ownerId) });
+      expect(near.statusCode).toBe(200);
+    });
+  });
+
+  it('the queue leaves offline tracks out and counts them', async () => {
+    bundled();
+    await withOfflineRoot(async () => {
+      nav.state.requests.length = 0;
+      const res = await app.inject({ method: 'GET', url: `/api/v1/player/albums/${off.mixed}/queue`, headers: as(ownerId) });
+      expect(res.statusCode).toBe(200);
+      const q = res.json();
+      expect(q.tracks.map((t: any) => t.localTrackId)).toEqual([off.mixedOn]);
+      expect(q.skippedOffline).toBe(1);
+      expect(nav.state.requests).toEqual([]);
+    });
+    const back = await app.inject({ method: 'GET', url: `/api/v1/player/albums/${off.mixed}/queue`, headers: as(ownerId) });
+    expect(back.json().tracks).toHaveLength(2);
+    expect(back.json().skippedOffline).toBe(0);
   });
 });
