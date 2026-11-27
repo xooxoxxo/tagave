@@ -14,7 +14,8 @@
 #   space and dash; not . or ..) stops the worker with exit 64.
 # - /mnt/music listed as a mount point in /proc/self/mountinfo: left alone.
 #   This is read before anything looks at /mnt/music, because a test on a dead
-#   share's mount point can hang.
+#   share's mount point can hang. A mount table that cannot be read leaves
+#   /mnt/music alone too, with one line on stderr.
 # - Otherwise /mnt/music is on the container's own filesystem: absent or a
 #   link, it becomes the link; an empty folder is removed and becomes the link;
 #   a folder with files in it (or a file) is left alone with one line on
@@ -47,8 +48,9 @@ if [ ! -r "$table" ]; then
 fi
 
 # The mount point is the 5th field; mountinfo writes space, tab, newline and
-# backslash in it as \ooo, so it is decoded before the match.
-if awk '
+# backslash in it as \ooo, so it is decoded before the match. awk exits 0 for
+# a mount point and 1 for none; any other exit means the table was not read.
+awk '
   function decode(s,   out, i, c) {
     out = ""
     while ((i = index(s, "\\")) > 0) {
@@ -65,9 +67,15 @@ if awk '
   }
   decode($5) == "/mnt/music" { found = 1 }
   END { exit !found }
-' "$table"; then
-  exec "$@"
-fi
+' "$table"
+case $? in
+  0) exec "$@" ;;
+  1) ;;
+  *)
+    echo "tagave: the mount table cannot be read, so /mnt/music is left as it is" >&2
+    exec "$@"
+    ;;
+esac
 
 # Not a mount point, so these tests touch only the container's own files.
 # -L comes first: -d on a link would follow it into the share.
