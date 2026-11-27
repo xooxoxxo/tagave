@@ -6,11 +6,10 @@
  * plan's values; tags.revert undoes them (the source back from the trash, the
  * new tracks into it).
  */
-import { mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import type { TagPolicies } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
-import { exists, markLibraryDirty, onDisk, restoreWaiting, trashDay, trashOne } from '../lib/deletions.js';
+import { exists, makeDirs, markLibraryDirty, onDisk, renamePath, restoreWaiting, trashDay, trashOne } from '../lib/deletions.js';
 import { relDirname } from '../lib/helpers.js';
 import { finishSplit, runSplit, type SplitDeps, type SplitRow } from './filesSplit.js';
 
@@ -79,6 +78,10 @@ interface DoneSplit {
  * from the trash to where it was, and the folder is scanned again. A track
  * already gone is left; a source whose place is taken stays in the trash
  * (Library care › Deleting says why).
+ *
+ * Through the file gate: an offline music folder throws FolderOfflineError
+ * out of here (tags.revert parks and runs again once the folder is back). A
+ * source left 'restoring' by a cut-off run is taken up again.
  */
 export async function undoSplitsOfPlan(ctx: WorkerContext, planId: string, now = new Date()): Promise<{ tried: number; undone: number }> {
   const rows = (await ctx.sql`
@@ -92,15 +95,15 @@ export async function undoSplitsOfPlan(ctx: WorkerContext, planId: string, now =
     const [src] = (await ctx.sql`
       select fd.scan_root_id::text as "scanRootId", fd.rel_path as "relPath", fd.trash_rel_path as "trashRelPath", sr.path as root
         from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
-       where fd.file_id = ${r.fileId} and fd.kind = 'trash' and fd.state = 'trashed'`) as unknown as Array<{ scanRootId: string; relPath: string; trashRelPath: string | null; root: string }>;
-    if (!src || !src.trashRelPath || !(await onDisk(src.root, src.trashRelPath))) {
+       where fd.file_id = ${r.fileId} and fd.kind = 'trash' and fd.state in ('trashed', 'restoring')`) as unknown as Array<{ scanRootId: string; relPath: string; trashRelPath: string | null; root: string }>;
+    if (!src || !src.trashRelPath || !(await onDisk(src.scanRootId, src.root, src.trashRelPath))) {
       ctx.logger.warn({ splitId: r.id }, 'tags.revert: the split\'s source is no longer in the trash; its tracks stay');
       continue;
     }
     const day = trashDay(now);
     const trashed: Array<{ rel: string; trashRel: string }> = [];
     for (const rel of r.outputs ?? []) {
-      const out = await trashOne(src.root, rel, day);
+      const out = await trashOne(src.scanRootId, src.root, rel, day);
       if (out.outcome !== 'trashed') continue;
       trashed.push({ rel, trashRel: out.trashRelPath! });
       // a track the scan already knows becomes a trash row, so Restore and Empty trash see it
@@ -113,7 +116,7 @@ export async function undoSplitsOfPlan(ctx: WorkerContext, planId: string, now =
     // the source back where it was (restoreWaiting refuses a taken place)
     await ctx.sql`update file_deletions set state = 'restoring', error = null where file_id = ${r.fileId} and state = 'trashed'`;
     await restoreWaiting(ctx, r.libraryId);
-    const back = await exists(path.join(src.root, src.relPath));
+    const back = await exists(src.scanRootId, path.join(src.root, src.relPath));
     if (!back) {
       // the tracks stay where the owner can hear them: put them back
       for (const t of trashed) await untrash(ctx, src.root, src.scanRootId, t.rel, t.trashRel);
@@ -136,11 +139,11 @@ export async function undoSplitsOfPlan(ctx: WorkerContext, planId: string, now =
 
 /** A track moved into the trash a moment ago, back where it was (its trash row dropped). */
 async function untrash(ctx: WorkerContext, root: string, scanRootId: string, rel: string, trashRel: string): Promise<void> {
-  const from = await onDisk(root, trashRel);
+  const from = await onDisk(scanRootId, root, trashRel);
   const to = path.join(root, rel);
-  if (!from || (await exists(to))) return;
-  await mkdir(path.dirname(to), { recursive: true });
-  await rename(from, to);
+  if (!from || (await exists(scanRootId, to))) return;
+  await makeDirs(scanRootId, path.dirname(to));
+  await renamePath(scanRootId, from, to);
   await ctx.sql`delete from file_deletions fd using files f
                  where f.id = fd.file_id and f.scan_root_id = ${scanRootId} and f.rel_path = ${rel} and fd.trash_rel_path = ${trashRel}`;
 }

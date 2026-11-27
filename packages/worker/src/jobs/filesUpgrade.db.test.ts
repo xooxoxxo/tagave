@@ -9,7 +9,7 @@ import { sealSecret } from '@tagave/core';
 import { ledgerEntries } from '@tagave/core/facets';
 import { makeDb, lidarrEnabled, moduleSettings, restartMaintenanceTask, saveMaintenanceTask, setLidarrEnabled, setModuleSettings, syncInstalledModules, type MaintenanceRow } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
-import { fileDigest, fileStat } from '../lib/fileRecovery.js';
+import { fileDigest as gatedDigest, fileStat as gatedStat } from '../lib/fileRecovery.js';
 import { clusterKey, normKey } from '../lib/helpers.js';
 import type { UpgradeSwap } from './flacUpgradeFiles.js';
 import { ensureTrashDir } from '../lib/deletions.js';
@@ -34,6 +34,9 @@ describe.skipIf(!enabled)('Upgrade to FLAC with real audio and isolated Lidarr r
   const libraryId = randomUUID();
   const userId = randomUUID();
   const rootId = randomUUID();
+  // the checks the job makes, through the file gate, under this music folder
+  const fileStat = (p: string) => gatedStat(rootId, p);
+  const fileDigest = (p: string) => gatedDigest(rootId, p);
   const albumId = randomUUID();
   const artistId = randomUUID();
   const artistMbid = randomUUID();
@@ -248,7 +251,7 @@ describe.skipIf(!enabled)('Upgrade to FLAC with real audio and isolated Lidarr r
     const holding = (await task()).checkpoint as unknown as { swap: UpgradeSwap };
     holding.swap.phase = 'trash';
     holding.swap.replacementAlbumId = albumId;
-    await ensureTrashDir(root);
+    await ensureTrashDir(rootId, root);
     const first = holding.swap.files[0]!;
     await mkdir(path.dirname(abs(first.trash)), { recursive: true });
     await link(first.holding, abs(first.trash));

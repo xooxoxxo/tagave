@@ -19,7 +19,10 @@ import { parseFile } from 'music-metadata';
 import { makeDb } from '@tagave/db';
 import type { MovePlan, TagSet } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
+import { setFileGate } from '../lib/fileGate.js';
 import { SafeFileWriter } from '../lib/safeFileWriter.js';
+import { makeLab, type Lab } from '../testkit/moveLab.js';
+import { OutageGate } from '../testkit/outageGate.js';
 import { MutagenTagWriter, resolvePythonInterpreter } from '../lib/tagWriter.js';
 import { linkAlbumTracks } from '../lib/trackLinks.js';
 import { filesMoveJob, type MoveDeps } from './filesMove.js';
@@ -119,7 +122,8 @@ describe.skipIf(!tools)('files.move on the file worker (db, real FLAC)', () => {
     const boss = { send: async (name: string, data: unknown) => { sent.push({ name, data }); return randomUUID(); } };
     ctx = { db: made.db, sql: made.client, boss: boss as any, logger: pino({ level: 'silent' }) };
     tags = new MutagenTagWriter();
-    deps = { writer: new SafeFileWriter(tags), now: () => day };
+    // the move's writer as the worker makes it: the root's, through the file gate
+    deps = { writer: new SafeFileWriter(null, rootId), now: () => day };
     await sql`insert into users (id, email, password_hash) values (${userId}, ${`move-${userId}@test.com`}, 'x')`;
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'Move', ${userId}, ${JSON.stringify({ tagWritesEnabled: true })}::jsonb)`;
     rootPath = await mkdtemp(path.join(tmpdir(), 'rr73test-move-'));
@@ -278,7 +282,7 @@ describe.skipIf(!tools)('files.move on the file worker (db, real FLAC)', () => {
     const isaSongs = (await tracksOf(vertId)).filter((t) => t.title === 'Isa' || t.title === 'Return to Yggdrasill');
     const id = await newMove(vertId, isaSongs.map((t) => t.id), { albumId: isaId });
     await plan(id);
-    const real = deps.writer;
+    const real = deps.writer!;
     let n = 0;
     const writes: TagSet[] = [];
     deps = { ...deps, writer: { write: async (p, t, o) => { writes.push(t); n++; return n === 2 ? { error: 'audio changed', code: 'hash_mismatch' } : real.write(p, t, o); } } };
@@ -328,4 +332,82 @@ describe.skipIf(!tools)('files.move on the file worker (db, real FLAC)', () => {
     expect(row.candidates[0]).toMatchObject({ mbid: rel['isa']!.mbid, year: 2004, tracks: 1, localAlbumId: isaId });
     expect(row.candidates[1].localAlbumId).toBeNull();
   });
+});
+
+/**
+ * A move cut off by an outage (Decision 2): an organize move of a lab album
+ * (no tag writes, so no tag writer needed), with the share going away after
+ * the first file took its new name.
+ */
+describe.skipIf(!process.env.TEST_DATABASE_URL)('files.move and an offline music folder (db, moveLab)', () => {
+  let lab: Lab;
+  let gate: OutageGate;
+  const day = new Date('2026-11-04T10:00:00Z');
+
+  beforeAll(async () => {
+    lab = await makeLab(1);
+    await lab.sql`update scan_roots set writable = true, probe_writable = true where id = ${lab.roots[0]!.id}`;
+    gate = new OutageGate();
+    setFileGate(gate);
+  }, 60_000);
+
+  afterAll(async () => {
+    setFileGate(null);
+    await gate?.close();
+    await lab?.close();
+  });
+
+  it('a move cut off by an outage leaves every file where it was or where it went, never both missing', async () => {
+    const root = lab.roots[0]!;
+    await lab.album(0, 'Unsorted/lab drop', 3, { album: 'Lab Album', artist: 'Robin', cover: true });
+    await lab.scan(0);
+    const files = (await lab.sql`select id::text as id, rel_path as "relPath" from files where scan_root_id = ${root.id} order by rel_path`) as Array<{ id: string; relPath: string }>;
+    expect(files).toHaveLength(3);
+    const [move] = await lab.sql`
+      insert into album_moves (library_id, kind, source_track_ids, state, query, created_by)
+      values (${lab.libraryId}, 'organize', '{}'::uuid[], 'planning', ${JSON.stringify({ fileIds: files.map((f) => f.id) })}::jsonb, ${lab.userId})
+      returning id::text as id`;
+    const moveRow = async () => (await lab.sql`select state, error, plan, journal from album_moves where id = ${move.id}`)[0];
+    const onDiskNow = async (rel: string) => access(path.join(root.path, rel)).then(() => true, () => false);
+
+    // the share goes away as the second file is given its new name
+    gate.cutAt = (op, nth) => op.op === 'link' && nth === 2;
+    const out = await filesMoveJob(lab.ctx, { moveId: move.id, action: 'plan' }, { now: () => day });
+    expect(out).toMatchObject({ state: 'done', error: 'Paused while the music folder is offline', offlineRootId: root.id });
+    const paused = await moveRow();
+    expect(paused).toMatchObject({ state: 'done', error: 'Paused while the music folder is offline' });
+    const plan = paused.plan as MovePlan;
+    const moving = plan.files.filter((f) => f.toPath && f.toPath !== f.fromPath);
+    expect(moving).toHaveLength(3);
+    // each file is at exactly one of its two places, and its row says which
+    const rows = new Map(((await lab.sql`select id::text as id, rel_path as "relPath", status from files where scan_root_id = ${root.id}`) as Array<{ id: string; relPath: string; status: string }>)
+      .map((r) => [r.id, r]));
+    let went = 0;
+    for (const f of moving) {
+      const [from, to] = [await onDiskNow(f.fromPath), await onDiskNow(f.toPath!)];
+      expect(from || to).toBe(true);
+      expect(from && to).toBe(false);
+      const row = rows.get(f.fileId!)!;
+      expect(row.status).toBe('present');
+      expect(row.relPath).toBe(to ? f.toPath : f.fromPath);
+      if (to) went++;
+    }
+    expect(went).toBe(1);
+    expect(paused.journal.files.filter((f: { moved: boolean }) => f.moved)).toHaveLength(1);
+    // nothing is scanned, missing or forgotten while the folder is away
+    expect((await lab.sql`select count(*)::int as n from files where scan_root_id = ${root.id} and status <> 'present'`)[0].n).toBe(0);
+
+    // back: nothing resumes on its own; the owner's Undo puts the rest back
+    gate.up();
+    expect((await moveRow()).state).toBe('done');
+    await lab.sql`update album_moves set state = 'undoing' where id = ${move.id}`;
+    const undone = await filesMoveJob(lab.ctx, { moveId: move.id, action: 'undo' }, { now: () => day });
+    expect(undone).toMatchObject({ state: 'undone', problems: 0 });
+    for (const f of moving) {
+      expect(await onDiskNow(f.fromPath)).toBe(true);
+      expect(await onDiskNow(f.toPath!)).toBe(false);
+    }
+    const back = (await lab.sql`select rel_path as "relPath" from files where scan_root_id = ${root.id} order by rel_path`) as Array<{ relPath: string }>;
+    expect(back.map((r) => r.relPath)).toEqual(files.map((f) => f.relPath));
+  }, 60_000);
 });

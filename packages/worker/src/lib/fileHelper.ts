@@ -20,8 +20,10 @@
  * read hangs in the threadpool. Without /proc/self/io (macOS) no progress is
  * sent and the gate's idle deadline is a plain deadline.
  */
+import { createHash } from 'node:crypto';
+import { constants, createReadStream } from 'node:fs';
 import { join } from 'node:path';
-import { lstat, mkdir, open, opendir, realpath, rename, rmdir, stat, statfs, unlink, access } from 'node:fs/promises';
+import { copyFile, link, lstat, mkdir, open, opendir, realpath, rename, rm, rmdir, stat, statfs, unlink, access, writeFile } from 'node:fs/promises';
 import { parseFile } from 'music-metadata';
 import { fileTypeHandler, type FileTypeHandler } from '@tagave/core/files';
 import type { GateOp, HelperMessage, HelperRequest } from './fileGate.js';
@@ -35,7 +37,7 @@ const READ_SMALL_MAX = 32 * 1024 * 1024;
 const PAGE_LIMIT = 500;
 /** lstats in flight at once for a page's untyped entries. */
 const LSTAT_AT_ONCE = 16;
-const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover']);
+const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover', 'digest', 'copyFile']);
 
 type EntryType = 'file' | 'dir' | 'link' | 'other';
 export interface DirPage {
@@ -137,6 +139,14 @@ async function readSmall(path: string, maxBytes: number): Promise<Buffer> {
   }
 }
 
+/** The sha256 of a regular file (a folder, a link or a FIFO is refused before it is opened). */
+async function digest(path: string): Promise<string> {
+  if (!(await lstat(path)).isFile()) throw opError('EFTYPE', `Expected a regular file at ${path}`);
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest('hex');
+}
+
 function statValue(s: import('node:fs').Stats | import('node:fs').BigIntStats) {
   return { size: s.size, mtimeMs: s.mtimeMs, ino: s.ino, dev: s.dev, mode: s.mode, isFile: s.isFile(), isDirectory: s.isDirectory() };
 }
@@ -208,11 +218,27 @@ async function runOp(op: GateOp, rootId: string | undefined): Promise<unknown> {
       return readdirPage(str(o.path, 'path'), typeof op.cursor === 'string' ? op.cursor : null, limit);
     }
     case 'mkdir':
-      await mkdir(str(o.path, 'path'), { recursive: op.recursive === true });
-      return null;
+      return (await mkdir(str(o.path, 'path'), { recursive: op.recursive === true })) ?? null;
     case 'rename':
       await rename(str(o.from, 'from'), str(o.to, 'to'));
       return null;
+    case 'link':
+      await link(str(o.from, 'from'), str(o.to, 'to'));
+      return null;
+    case 'rm':
+      await rm(str(o.path, 'path'), { recursive: op.recursive === true, force: op.force === true });
+      return null;
+    case 'writeSmall': {
+      if (!(op.data instanceof Uint8Array)) throw opError('EINVAL', 'The op needs data');
+      if (op.data.length > READ_SMALL_MAX) throw opError('E2BIG', `The data is larger than ${READ_SMALL_MAX} bytes`);
+      await writeFile(str(o.path, 'path'), Buffer.from(op.data), { flag: op.exclusive === true ? 'wx' : 'w' });
+      return null;
+    }
+    case 'copyFile':
+      await copyFile(str(o.from, 'from'), str(o.to, 'to'), op.exclusive === true ? constants.COPYFILE_EXCL : 0);
+      return null;
+    case 'digest':
+      return digest(str(o.path, 'path'));
     case 'readSmall': {
       const max = typeof op.maxBytes === 'number' && op.maxBytes >= 0 ? op.maxBytes : READ_SMALL_MAX;
       return readSmall(str(o.path, 'path'), max);

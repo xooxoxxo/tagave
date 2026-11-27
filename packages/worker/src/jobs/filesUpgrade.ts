@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { realpath } from 'node:fs/promises';
 import {
   addAlbumInLidarr, checkLidarrRoot, flacProfileIssue, inScanRoot, LidarrClient, lidarrConnectionOf, lidarrPathOf, observeLidarr,
   type LidarrAlbum, type LidarrArtist, type ScanRootPath,
@@ -8,6 +7,8 @@ import { flacUpgradeSource, lidarrEnabled, lidarrStoredSettings, type FlacUpgrad
 import type { WorkerContext } from '../lib/context.js';
 import { fileDigest, fileStat, insideRoot } from '../lib/fileRecovery.js';
 import { onDisk } from '../lib/deletions.js';
+import { fileGate } from '../lib/fileGate.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 import { runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
 import { continueSwap, restoreUpgrade, stageUpgrade, type UpgradeOriginal, type UpgradeSwap } from './flacUpgradeFiles.js';
 import { dropPoolOf } from '../lib/naming.js';
@@ -46,6 +47,9 @@ function descendant(dir: string, candidate: string): boolean {
   return !!rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }
 
+/** The real path, through the file gate (both sides of a containment check are real paths). */
+const realOf = (rootId: string, p: string) => fileGate().run<string>(rootId, { op: 'realpath', path: p });
+
 function trackVersion(file: TrackFile): string {
   return JSON.stringify([file.id, file.path, file.dateAdded ?? null, file.size ?? null]);
 }
@@ -58,8 +62,8 @@ async function poolRoot(ctx: WorkerContext, libraryId: string): Promise<PoolRoot
     where id = ${settings.scanRootId} and library_id = ${libraryId} and enabled and writable`;
   if (!root) throw new Error('The drop pool’s music folder is unavailable.');
   const abs = path.resolve(root.path, settings.dirPath);
-  if (!descendant(root.path, abs) || !(await fileStat(abs))?.isDirectory()) throw new Error('The drop pool is unavailable on the file worker.');
-  if (!descendant(await realpath(root.path), await realpath(abs))) throw new Error('The drop pool leaves the music folder.');
+  if (!descendant(root.path, abs) || !(await fileStat(root.id, abs))?.isDirectory) throw new Error('The drop pool is unavailable on the file worker.');
+  if (!descendant(await realOf(root.id, root.path), await realOf(root.id, abs))) throw new Error('The drop pool leaves the music folder.');
   return { ...root, dir: path.relative(root.path, abs), abs };
 }
 
@@ -73,10 +77,14 @@ function mappedFile(file: string, pool: PoolRoot, map: Parameters<typeof inScanR
 async function requireStagedPath(file: string, pool: PoolRoot): Promise<void> {
   // An artist directory can be missing before its first import.
   let existing = file;
-  while (!(await fileStat(existing))) existing = path.dirname(existing);
-  if (existing !== pool.abs) await insideRoot(pool.abs, existing);
-  const resolved = await realpath(existing);
-  const base = await realpath(pool.abs);
+  while (!(await fileStat(pool.id, existing))) {
+    const up = path.dirname(existing);
+    if (up === existing) break;
+    existing = up;
+  }
+  if (existing !== pool.abs) await insideRoot(pool.id, pool.abs, existing);
+  const resolved = await realOf(pool.id, existing);
+  const base = await realOf(pool.id, pool.abs);
   if (resolved !== base && !descendant(base, resolved)) throw new Error('Lidarr’s path leaves the Tagave drop pool.');
 }
 
@@ -118,10 +126,10 @@ async function acquire(ctx: WorkerContext, data: FilesUpgradeJobData, claim: Mai
     if (profileIssue) return review(profileIssue);
     const originals: UpgradeOriginal[] = [];
     for (const file of source.files) {
-      const actual = await onDisk(source.root, file.rel);
+      const actual = await onDisk(source.scanRootId, source.root, file.rel);
       if (!actual) return review('An original album file is unavailable.');
-      await insideRoot(source.root, actual);
-      originals.push({ path: actual, hash: await fileDigest(actual) });
+      await insideRoot(source.scanRootId, source.root, actual);
+      originals.push({ path: actual, hash: await fileDigest(source.scanRootId, actual) });
     }
     await claim.current();
     album ??= await addAlbumInLidarr(client, conn, {
@@ -196,8 +204,10 @@ export async function filesUpgradeJob(ctx: WorkerContext, data: FilesUpgradeJobD
     await claim.update({ stage: 'Checking the FLAC edition', checkpoint: { ...acquisition } });
     let swap: UpgradeSwap;
     try {
-      swap = await stageUpgrade(ctx, claim, acquisition.source, acquisition.originals, acquisition.imports);
+      swap = await stageUpgrade(ctx, claim, acquisition.source, acquisition.originals, acquisition.imports, acquisition.pool.id);
     } catch (err) {
+      // offline is no review: it leaves the run, and the task pauses for the owner's Continue (Decision 2)
+      if (err instanceof FolderOfflineError) throw err;
       return review((err as Error).message);
     }
     await claim.update({ stage: 'FLAC edition verified and tagged', checkpoint: { swap } });

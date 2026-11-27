@@ -24,10 +24,14 @@
  * music mount reports "music folder unreachable" and makes nothing. What it
  * found (ready, unreachable, folder missing) is libraries.settings
  * .dropPoolStatus, the line on Settings › Library › Drop pool.
+ *
+ * Every file call goes through the file gate. A pool whose music folder goes
+ * offline is skipped for this look: nothing is made, forgotten or sent to
+ * Inbox, and an album being identified waits again; the next look (two
+ * minutes on) tries again.
  */
-import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { parseFile } from 'music-metadata';
+import type { IAudioMetadata } from 'music-metadata';
 import {
   currentFieldsFrom, evaluateAutoAccept, rankAcoustIdReleases, scoreCandidates,
   type AcoustIdRecording, type CanonicalRelease, type ReleaseQuery,
@@ -38,7 +42,10 @@ import {
   type DropPoolState, type PoolCandidate, type PoolFile, type PoolPairing, type PoolScanJobData,
 } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
-import { exists, NDIGNORE } from '../lib/deletions.js';
+import { exists, makeDirs, NDIGNORE, unanswered } from '../lib/deletions.js';
+import { fileGate } from '../lib/fileGate.js';
+import { gateStat } from '../lib/gatedPaths.js';
+import { isOfflineError } from '../lib/folderOffline.js';
 import { discDirNumber } from '../lib/helpers.js';
 import { dropPoolOf, dropPoolStatusOf, filesUnder, isAudioName, saveDropPoolStatus } from '../lib/naming.js';
 import { checkMusicFolder, MUSIC_FOLDER_UNREACHABLE } from '../lib/musicFolder.js';
@@ -73,8 +80,8 @@ interface Group {
 }
 
 /** The pool's albums: each folder of songs, disc folders folded into their album's. */
-export async function poolGroups(root: string, poolDir: string): Promise<Group[]> {
-  const files = await filesUnder(root, poolDir);
+export async function poolGroups(rootId: string, root: string, poolDir: string): Promise<Group[]> {
+  const files = await filesUnder(rootId, root, poolDir);
   const groups = new Map<string, Group>();
   const albumOf = (rel: string) => {
     let d = path.posix.dirname(rel);
@@ -84,9 +91,13 @@ export async function poolGroups(root: string, poolDir: string): Promise<Group[]
   const stats = new Map<string, { size: number; mtimeMs: number }>();
   for (const f of files) {
     try {
-      const s = await stat(path.join(root, f));
-      stats.set(f, { size: s.size, mtimeMs: s.mtimeMs });
-    } catch { /* gone meanwhile */ }
+      const s = await gateStat(rootId, path.join(root, f));
+      if (s) stats.set(f, { size: Number(s.size), mtimeMs: Number(s.mtimeMs) });
+    } catch (err) {
+      // offline: no look at all (a file that seems gone would start the album's wait again)
+      if (unanswered(err)) throw err;
+      /* unreadable meanwhile */
+    }
   }
   for (const f of files) {
     if (!isAudioName(path.posix.basename(f)) || !stats.has(f)) continue;
@@ -133,6 +144,12 @@ export async function poolScanJob(ctx: WorkerContext, data: PoolScanJobData = {}
     try {
       out[libraryId] = await scanPool(ctx, libraryId, data, deps);
     } catch (err) {
+      if (unanswered(err)) {
+        // the pool's folder is offline: skipped this time, the status left as it was
+        ctx.logger.warn({ libraryId, err: (err as Error).message }, 'pool.scan skipped: music folder offline');
+        out[libraryId] = { skipped: 'music folder offline' };
+        continue;
+      }
       ctx.logger.warn({ libraryId, err: (err as Error).message }, 'pool.scan failed');
       out[libraryId] = { error: (err as Error).message };
     }
@@ -161,19 +178,25 @@ async function scanPool(ctx: WorkerContext, libraryId: string, data: PoolScanJob
   // made when the owner turns the pool on, and until this folder was first seen
   // ready (an install whose pool was made on the wrong worker's disk): once
   // seen, a pool folder that goes is the owner's doing, and stays gone
-  if ((data.create || !prev?.seenReady) && !(await exists(poolAbs))) {
-    await mkdir(poolAbs, { recursive: true });
+  const rootId = pool.scanRootId;
+  if ((data.create || !prev?.seenReady) && !(await exists(rootId, poolAbs))) {
+    await makeDirs(rootId, poolAbs);
   }
-  if (!(await exists(poolAbs))) {
+  if (!(await exists(rootId, poolAbs))) {
     await report('missing', prev?.seenReady ?? false);
     return { skipped: 'no pool folder' };
   }
   await report('ready', true);
   // the player server's own scan leaves the pool alone too
-  if (!(await exists(path.join(poolAbs, NDIGNORE)))) await writeFile(path.join(poolAbs, NDIGNORE), '').catch(() => undefined);
+  const ignore = path.join(poolAbs, NDIGNORE);
+  if (!(await exists(rootId, ignore))) {
+    await fileGate().run(rootId, { op: 'writeSmall', path: ignore, data: new Uint8Array(0) }).catch((err: unknown) => {
+      if (unanswered(err)) throw err;
+    });
+  }
 
   const now = deps.now?.() ?? new Date();
-  const groups = await poolGroups(root.path, pool.dirPath);
+  const groups = await poolGroups(rootId, root.path, pool.dirPath);
   const items = (await ctx.sql`
     select id::text as id, dir_path as "dirPath", state, signature, stable_since as "stableSince"
       from pool_items where scan_root_id = ${pool.scanRootId} and library_id = ${libraryId}`) as unknown as Item[];
@@ -221,6 +244,11 @@ async function scanPool(ctx: WorkerContext, libraryId: string, data: PoolScanJob
       if (outcome === 'importing') imported++;
       else inbox++;
     } catch (err) {
+      if (unanswered(err)) {
+        // the folder went offline: the album waits again, it is not an Inbox failure
+        await ctx.sql`update pool_items set state = 'waiting', updated_at = now() where id = ${r.id} and state = 'identifying'`;
+        throw err;
+      }
       ctx.logger.warn({ itemId: r.id, err: (err as Error).message }, 'pool.scan: identify failed');
       await ctx.sql`update pool_items set state = 'inbox', reason = 'failed', error = ${(err as Error).message.slice(0, 300)}, updated_at = now() where id = ${r.id}`;
       inbox++;
@@ -244,7 +272,7 @@ async function identifyDrop(ctx: WorkerContext, libraryId: string, scanRoot: { i
   const read: Array<PoolFile & { fields: ReturnType<typeof currentFieldsFrom> }> = [];
   for (const a of g.audio.sort((x, y) => x.relPath.localeCompare(y.relPath))) {
     try {
-      const meta = await parseFile(path.join(root, a.relPath), { duration: true });
+      const meta = await fileGate().run<IAudioMetadata>(scanRoot.id, { op: 'parseAudio', path: path.join(root, a.relPath), options: { duration: true } });
       const fields = currentFieldsFrom(tagSnapshotOf(meta));
       read.push({
         relPath: a.relPath, size: a.size, fields,
@@ -253,6 +281,7 @@ async function identifyDrop(ctx: WorkerContext, libraryId: string, scanRoot: { i
         durationMs: meta.format.duration ? Math.round(meta.format.duration * 1000) : null,
       });
     } catch (err) {
+      if (unanswered(err)) throw err;
       ctx.logger.warn({ file: a.relPath, err: (err as Error).message }, 'pool.scan: unreadable file');
     }
   }
@@ -303,6 +332,7 @@ async function identifyDrop(ctx: WorkerContext, libraryId: string, scanRoot: { i
         perTrack.push(await cached<AcoustIdRecording[]>(ctx.sql, 'acoustid', key, 30 * 24 * 3600, () =>
           acoustidCall(ctx, () => p.acoustid!.lookup(fp.fingerprint, Math.round(fp.durationS)))));
       } catch (err) {
+        if (isOfflineError(err)) throw err;
         ctx.logger.warn({ file: r.relPath, err: (err as Error).message }, 'pool.scan: fingerprint lookup failed');
         perTrack.push([]);
       }

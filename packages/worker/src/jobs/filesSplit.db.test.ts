@@ -12,11 +12,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
-import { makeDb, oneFileAlbums } from '@tagave/db';
+import { makeDb, oneFileAlbums, restartMaintenanceTask, saveMaintenanceTask } from '@tagave/db';
 import type { TagSet } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
+import { setFileGate } from '../lib/fileGate.js';
 import { FlacTools, type BinaryRunner, type RunResult } from '../lib/flacTools.js';
 import { restoreWaiting } from '../lib/deletions.js';
+import { onlineAgain } from '../lib/folderWatch/watch.js';
+import { OutageGate } from '../testkit/outageGate.js';
 import { filesSplitJob, type SplitDeps } from './filesSplit.js';
 import { gapsRecomputeJob } from './gapsRecompute.js';
 
@@ -295,6 +298,60 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('files.split on the file worker 
     const finished = await splitRow(id);
     await Promise.all(finished.outputs.map((output: string) => rm(abs(output))));
     await sql`delete from audit_log where library_id = ${libraryId} and action = 'album.split'`;
+  });
+
+  it('a split cut off by an outage pauses and waits for Continue', async () => {
+    const id = await planned();
+    const task = async (taskId: string) =>
+      (await sql`select state, stage, attempt, attempt_id::text as "attemptId", checkpoint from maintenance_tasks where id = ${taskId}`)[0];
+    const saved = await saveMaintenanceTask(sql, {
+      libraryId, kind: 'split' as never, scope: id, queue: 'files.split', input: { splitId: id, action: 'split' } as never, stage: 'Split queued',
+    });
+    const gate = new OutageGate();
+    setFileGate(gate);
+    try {
+      // the share goes away as the second verified track is published
+      gate.cutAt = (op, nth) => op.op === 'link' && nth === 2;
+      await filesSplitJob(ctx, { splitId: id, action: 'split', maintenance: { taskId: saved.id, attemptId: saved.attempt_id } }, deps());
+      expect(await task(saved.id)).toMatchObject({
+        state: 'interrupted', stage: 'Paused while the music folder is offline', checkpoint: { splitId: id, offlineRootId: rootId },
+      });
+      // the split did not fail: what it wrote is kept for Continue, the source is where it was
+      const row = await splitRow(id);
+      expect(row).toMatchObject({ state: 'splitting', error: 'Paused while the music folder is offline' });
+      expect(row.write_checkpoint.digests).toHaveLength(3);
+      expect(await readFile(abs(rel), 'utf8')).toBe(`source ${rel}`);
+      expect((await sql`select count(*)::int as n from file_deletions where file_id = ${fileId}`)[0].n).toBe(0);
+      expect((await sql`select count(*)::int as n from audit_log where library_id = ${libraryId} and action = 'album.split.failed'
+                         and payload->>'splitId' = ${id}`)[0].n).toBe(0);
+
+      // the folder is back: nothing resumes on its own (Decision 2)
+      gate.up();
+      await sql`update scan_roots set reach = 'offline', reach_reason = 'timeout' where id = ${rootId}`;
+      await onlineAgain(ctx)(rootId, 'offline');
+      expect((await task(saved.id)).state).toBe('interrupted');
+      expect((await splitRow(id)).state).toBe('splitting');
+
+      // the owner's Continue finishes it from the same verified tracks
+      const before = await task(saved.id);
+      const again = await restartMaintenanceTask(sql, libraryId, saved.id, before.attempt);
+      await filesSplitJob(ctx, { splitId: id, action: 'split', maintenance: { taskId: saved.id, attemptId: again!.attempt_id } }, deps());
+      expect(await task(saved.id)).toMatchObject({ state: 'done', stage: 'Album split' });
+      expect((await splitRow(id)).state).toBe('done');
+      expect(f.calls.filter((c) => c.includes('-o'))).toHaveLength(3); // encoded once
+      expect(await there(abs(rel))).toBe(false);
+    } finally {
+      setFileGate(null);
+      await gate.close();
+      await sql`update scan_roots set reach = 'online', reach_reason = null where id = ${rootId}`;
+    }
+    // put back for the next test
+    await sql`update file_deletions set state = 'restoring' where file_id = ${fileId}`;
+    await restoreWaiting(ctx, libraryId);
+    const finished = await splitRow(id);
+    await Promise.all(finished.outputs.map((output: string) => rm(abs(output))));
+    await sql`delete from audit_log where library_id = ${libraryId} and action = 'album.split'`;
+    await sql`update gaps set state = 'open', resolved_at = null where kind = 'one_file_album' and subject_id = ${albumId}`;
   });
 
   it('splits: the tracks, tagged from the release; the source into the trash; a scan; an audit entry', async () => {

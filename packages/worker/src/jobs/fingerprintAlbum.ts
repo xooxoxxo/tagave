@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { WorkerContext } from '../lib/context.js';
 import { FPCALC_LENGTH_S, fpcalcFingerprint, fpcalcSliceFingerprint } from '../lib/fingerprint.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 
 export interface FingerprintAlbumJobData {
   localAlbumId: string;
@@ -35,6 +36,12 @@ interface CueTrackRow {
  * IDN-5, file-worker half: fingerprint every audio file of an album once
  * (a cue image counts once however many virtual tracks it carries), then
  * hand the album to acoustid.lookup on the identify worker.
+ *
+ * fpcalc runs guarded with the file's root (spawnGuarded): a hung music share
+ * throws FolderOfflineError. That is no fingerprint error: nothing is
+ * recorded for the file, the other files stop being started, and the error
+ * leaves the job so it parks (parkable) and runs again once the folder is
+ * back. Files fingerprinted before it keep their fingerprints.
  */
 export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintAlbumJobData): Promise<void> {
   const files = (await ctx.sql`
@@ -52,9 +59,10 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
   let ok = 0;
   let failed = 0;
 
+  let offline: FolderOfflineError | null = null;
   const queue = [...todo];
   const worker = async () => {
-    for (let f = queue.shift(); f; f = queue.shift()) {
+    for (let f = queue.shift(); f && !offline; f = queue.shift()) {
       const full = path.join(f.root_path, f.rel_path);
       try {
         const fp = await fpcalcFingerprint(full, { rootId: f.root_id });
@@ -65,6 +73,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
           where id = ${f.id}`;
         ok++;
       } catch (err) {
+        if (err instanceof FolderOfflineError) { offline ??= err; continue; }
         const message = (err as Error).message.slice(0, 500);
         await ctx.sql`update files set fingerprinted_at = now(), fingerprint_error = ${message} where id = ${f.id}`;
         failed++;
@@ -73,6 +82,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(1, todo.length)) }, worker));
+  if (offline) throw offline;
 
   // Cue images: the file fingerprint covers the first two minutes of a whole
   // album and never matches a recording; each virtual track gets its own slice.
@@ -89,7 +99,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
   let cueFailed = 0;
   const cueQueue = [...cueTodo];
   const cueWorker = async () => {
-    for (let t = cueQueue.shift(); t; t = cueQueue.shift()) {
+    for (let t = cueQueue.shift(); t && !offline; t = cueQueue.shift()) {
       const full = path.join(t.root_path, t.rel_path);
       const durationS = t.duration_ms ? Math.max(1, Math.round(t.duration_ms / 1000)) : FPCALC_LENGTH_S;
       try {
@@ -100,6 +110,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
           where id = ${t.id}`;
         cueOk++;
       } catch (err) {
+        if (err instanceof FolderOfflineError) { offline ??= err; continue; }
         const message = (err as Error).message.slice(0, 500);
         await ctx.sql`update local_tracks set fingerprinted_at = now(), fingerprint_error = ${message} where id = ${t.id}`;
         cueFailed++;
@@ -108,6 +119,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(1, cueTodo.length)) }, cueWorker));
+  if (offline) throw offline;
 
   ctx.logger.info({
     localAlbumId: data.localAlbumId, files: files.length, fingerprinted: ok, failed, skipped: files.length - todo.length,

@@ -1,39 +1,35 @@
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { lstat, realpath, stat } from 'node:fs/promises';
-import path from 'node:path';
+/**
+ * The checks a split, an upgrade or a trash action makes before it publishes,
+ * moves or deletes a file on a music share: all through the file gate
+ * (gatedPaths.ts), so the main process never touches the share. A dead share
+ * throws FolderOfflineError for the root; a failed helper or a closed gate
+ * throws its own error. Neither reads as a file that is not there.
+ */
+import { gateDigest, gateInsideRoot, gateLstat, gateMountIdentity, type GateStat } from './gatedPaths.js';
 
-export async function fileStat(file: string) {
-  try {
-    return await lstat(file);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw err;
-  }
+export type { GateStat };
+
+/** lstat of a file under the root; null when it is not there (ENOENT and its kin). */
+export function fileStat(rootId: string, file: string): Promise<GateStat | null> {
+  return gateLstat(rootId, file);
 }
 
-export async function fileDigest(file: string): Promise<string> {
-  if (!(await fileStat(file))?.isFile()) throw new Error(`Expected a regular file at ${file}`);
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(file)) hash.update(chunk);
-  return hash.digest('hex');
+/** The sha256 of a regular file under the root. */
+export function fileDigest(rootId: string, file: string): Promise<string> {
+  return gateDigest(rootId, file);
 }
 
-export async function mountIdentity(root: string): Promise<string> {
-  const info = await stat(root);
-  if (!info.isDirectory()) throw new Error('The music folder is unavailable');
-  return JSON.stringify([await realpath(root), info.dev, info.ino]);
+/** The root's real path, device and inode: a mount that changed reads different. */
+export function mountIdentity(rootId: string, root: string): Promise<string> {
+  return gateMountIdentity(rootId, root);
 }
 
-/** Reject redirected paths before moving, publishing or deleting a file. */
-export async function insideRoot(root: string, file: string): Promise<void> {
-  const isOutside = (base: string, target: string) => {
-    const rel = path.relative(base, target);
-    return rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel);
-  };
-  if (isOutside(root, file)) throw new Error('The file path leaves its music folder');
-  const base = await realpath(root);
-  let parent = path.dirname(file);
-  while (!(await fileStat(parent))) parent = path.dirname(parent);
-  if (isOutside(base, await realpath(parent))) throw new Error('The file path leaves its music folder');
+/** Rejects redirected paths before moving, publishing or deleting a file. Both sides are real paths. */
+export function insideRoot(rootId: string, root: string, file: string): Promise<void> {
+  return gateInsideRoot(rootId, root, file);
+}
+
+/** The same file: device and inode (a hard link of it counts). */
+export function sameFile(a: GateStat | null, b: GateStat | null): boolean {
+  return !!a && !!b && String(a.dev) === String(b.dev) && String(a.ino) === String(b.ino);
 }

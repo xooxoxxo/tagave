@@ -24,6 +24,7 @@ import { djEnabled, recordDjError, saveDjAnalysis } from '@tagave/db';
 import type { DjAnalysis } from '@tagave/core/dj';
 import type { WorkerContext } from '../lib/context.js';
 import { djAudioHash, djDecodeAndAnalyze, type DjWindow } from '../lib/djDecode.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 
 export interface DjAnalyzeJobData {
   localTrackId?: string;
@@ -130,6 +131,8 @@ async function analyzeTrack(ctx: WorkerContext, localTrackId: string, force: boo
     log.debug({ ms: Date.now() - started, bpm: a.bpm, durationMs: a.durationMs }, 'dj analysis done');
     return 'analyzed';
   } catch (err) {
+    // a hung music share (spawnGuarded with the file's root): no analysis error, the job parks (parkable)
+    if (err instanceof FolderOfflineError) throw err;
     const message = (err as Error).message;
     log.warn({ file: full, err: message }, 'dj analysis failed');
     await recordDjError(ctx.sql, localTrackId, message, file);

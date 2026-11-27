@@ -38,27 +38,41 @@
  *           then the files and their companions moved to their rule path;
  *           the files are not in the library until the scan after the move
  *           finds them (poolImport.ts plans it).
+ *
+ * Every file call goes through the file gate (fileGate.ts), tag writes
+ * included (SafeFileWriter with the move's root). A music folder that goes
+ * offline (Decision 2): a plan waits (parked, planned again when the folder
+ * is back: nothing was moved); a move or an undo stops and puts back what it
+ * can. Each file is where it was or where it went, never both missing, and
+ * its row says which. What could not be put back stays in the journal: the
+ * move reads 'done' with "Paused while the music folder is offline", and the
+ * owner's Undo finishes the put-back once the folder is back. Nothing
+ * resumes on its own.
  */
-import { link, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { organizePlanFor } from './organize.js';
 import { importPlanFor, afterImport, afterImportUndone } from './poolImport.js';
 import { emptyTree, highestEmpty } from '../lib/naming.js';
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { parseFile } from 'music-metadata';
+import type { IAudioMetadata } from 'music-metadata';
 import {
   DEFAULT_NAMING, describeNaming, folderNaming, movedFileName, newAlbumDir,
   type NamingPattern, type ReleaseCandidate, type ReleaseQuery,
 } from '@tagave/core';
 import { tagSnapshotOf } from '@tagave/core/files';
-import { writableRootIds } from '@tagave/db';
+import { parkJob, writableRootIds } from '@tagave/db';
 import {
   CanonicalField, IDENTIFY_REQUESTED_BY_OWNER, TRASH_DIR, moveConfidence,
   type AlbumMoveKind, type FilesMoveJobData, type MoveCandidate, type MoveJournal, type MoveJournalFile, type MovePlan, type MovePlanFile,
   type TagDiffEntry, type TagPolicies, type TagSet,
 } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
-import { exists, ensureTrashDir, markLibraryDirty, onDisk, trashDay } from '../lib/deletions.js';
+import { exists, ensureTrashDir, makeDirs, markLibraryDirty, onDisk, renamePath, trashDay, unanswered } from '../lib/deletions.js';
+import { fileGate } from '../lib/fileGate.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
+import { folderWatch } from '../lib/folderWatch/watch.js';
+import { gateDirEmpty, gateStat, type GateStat } from '../lib/gatedPaths.js';
+import { PAUSED_OFFLINE_STAGE } from '../lib/maintenance.js';
+import { PARKED_OUTPUT } from '../lib/parking.js';
 import { relDirname } from '../lib/helpers.js';
 import { currentFieldsFrom } from '../lib/canonicalTags.js';
 import { resolveForTarget } from '../lib/resolvedMetadata.js';
@@ -66,7 +80,6 @@ import { linkAlbumTracks, planTrackLinks } from '../lib/trackLinks.js';
 import { requestPlayerRescan } from '../lib/playerScan.js';
 import { getProviders, libraryProviderSettings } from '../lib/providers.js';
 import { SafeFileWriter, type WriteResult } from '../lib/safeFileWriter.js';
-import { MutagenTagWriter } from '../lib/tagWriter.js';
 import { decideField, fieldPolicyFor } from './tagsPreview.js';
 import { fieldsToWriteFrom, fileStateAfterWrite } from './tagsApply.js';
 import { revertDiffsFor } from './tagsRevert.js';
@@ -80,8 +93,12 @@ import { albumsChanged } from '../lib/albumCare.js';
 const MOVE_POLICY: TagPolicies = { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' };
 
 export interface MoveDeps {
-  /** writes tags safely (the audio hash unchanged); tests pass a SafeFileWriter over a stand-in */
-  writer: { sidecarRootId?: string | undefined; write(filePath: string, tags: TagSet, opts?: { id3Version?: '2.3' | '2.4'; multiValueSeparator?: string }): Promise<WriteResult> };
+  /**
+   * Writes tags safely (the audio hash unchanged). Default: a SafeFileWriter
+   * with the move's root, so the write runs in the file gate's helper.
+   * Tests pass their own.
+   */
+  writer?: { sidecarRootId?: string | undefined; write(filePath: string, tags: TagSet, opts?: { id3Version?: '2.3' | '2.4'; multiValueSeparator?: string }): Promise<WriteResult> };
   /** MusicBrainz release search; defaults to identify's (cached, paced) */
   search?: (q: ReleaseQuery) => Promise<ReleaseCandidate[]>;
   /** fetches and stores a MusicBrainz release; defaults to identify's */
@@ -307,7 +324,7 @@ export async function planMove(ctx: WorkerContext, row: MoveRow, deps: Pick<Move
     const [root] = (await ctx.sql`select path from scan_roots where id = ${rootId}`) as unknown as Array<{ path: string }>;
     if (!root) throw new MoveStop('The music folder is gone');
     const toDir = folders?.dir ?? newAlbumDir(albumArtist, rel.title, year);
-    const newFolder = !folders && !(await onDisk(root.path, toDir));
+    const newFolder = !folders && !(await onDisk(rootId, root.path, toDir));
     const pattern: NamingPattern = (await (async () => {
       const dirs = folders?.perDisc.size ? [...folders.perDisc.values()] : [toDir];
       const names = (await Promise.all(dirs.map((d) => namesIn(ctx, rootId, d)))).flat();
@@ -391,7 +408,7 @@ export async function planMove(ctx: WorkerContext, row: MoveRow, deps: Pick<Move
     for (const f of files) if (f.toPath) names.set(fold(f.toPath), (names.get(fold(f.toPath)) ?? 0) + 1);
     for (const f of files) {
       if (!f.toPath || fold(f.toPath) === fold(f.fromPath)) continue;
-      f.clash = names.get(fold(f.toPath))! > 1 || !!(await onDisk(root.path, f.toPath));
+      f.clash = names.get(fold(f.toPath))! > 1 || !!(await onDisk(rootId, root.path, f.toPath));
     }
 
     const plan: MovePlan = {
@@ -405,6 +422,8 @@ export async function planMove(ctx: WorkerContext, row: MoveRow, deps: Pick<Move
        where id = ${row.id} and state = 'planning' returning id`;
     return { state: updated.length ? 'ready' : 'superseded', files: files.length, moving: files.filter((f) => f.toPath).length };
   } catch (err) {
+    // offline: the plan waits for the folder (filesMoveJob parks it), nothing failed
+    if (err instanceof FolderOfflineError) throw err;
     ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: planning failed');
     return fail(ctx, row, err, 'planning');
   }
@@ -413,51 +432,54 @@ export async function planMove(ctx: WorkerContext, row: MoveRow, deps: Pick<Move
 // ---------------------------------------------------------------- move and undo
 
 /** Puts `from` at `to` only if nothing is there: a hard link refuses a taken name; where links are not possible, look first and rename. */
-export async function placeNew(from: string, to: string): Promise<void> {
+export async function placeNew(rootId: string, from: string, to: string): Promise<void> {
+  const gate = fileGate();
   try {
-    await link(from, to);
+    await gate.run(rootId, { op: 'link', from, to });
   } catch (err) {
+    if (unanswered(err)) throw err;
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'EEXIST') throw new MoveStop(`${path.basename(to)} is already in the folder`);
     for (const cand of new Set([to, to.normalize('NFD'), to.normalize('NFC')])) {
-      if (await exists(cand)) throw new MoveStop(`${path.basename(to)} is already in the folder`);
+      if (await exists(rootId, cand)) throw new MoveStop(`${path.basename(to)} is already in the folder`);
     }
-    await rename(from, to);
+    await renamePath(rootId, from, to);
     return;
   }
-  await unlink(from);
+  // cut off here: the file is at both names, never at neither
+  await gate.run(rootId, { op: 'unlink', path: from });
 }
 
 /** An empty folder into the root's trash (never rmdir): `.tagave-trash/<day>/<dir>`. Null when it holds anything. */
-async function trashEmptyDir(root: string, dir: string, day: string): Promise<string | null> {
+async function trashEmptyDir(rootId: string, root: string, dir: string, day: string): Promise<string | null> {
   if (dir === '') return null;
-  const abs = await onDisk(root, dir);
+  const abs = await onDisk(rootId, root, dir);
   if (!abs) return null;
-  if ((await readdir(abs)).length > 0) return null;
-  return trashTree(root, abs, dir, day);
+  if (!(await gateDirEmpty(rootId, abs))) return null;
+  return trashTree(rootId, root, abs, dir, day);
 }
 
 /** A folder that holds only empty folders into the trash, as one rename. */
-async function trashEmptyTree(root: string, dir: string, day: string): Promise<string | null> {
+async function trashEmptyTree(rootId: string, root: string, dir: string, day: string): Promise<string | null> {
   if (dir === '') return null;
-  const abs = await onDisk(root, dir);
-  if (!abs || !(await emptyTree(abs))) return null;
-  return trashTree(root, abs, dir, day);
+  const abs = await onDisk(rootId, root, dir);
+  if (!abs || !(await emptyTree(rootId, abs))) return null;
+  return trashTree(rootId, root, abs, dir, day);
 }
 
-async function trashTree(root: string, abs: string, dir: string, day: string): Promise<string> {
-  await ensureTrashDir(root);
+async function trashTree(rootId: string, root: string, abs: string, dir: string, day: string): Promise<string> {
+  await ensureTrashDir(rootId, root);
   let rel = `${TRASH_DIR}/${day}/${dir}`;
-  for (let n = 2; await exists(path.join(root, rel)); n++) rel = `${TRASH_DIR}/${day}-${n}/${dir}`;
-  await mkdir(path.dirname(path.join(root, rel)), { recursive: true });
-  await rename(abs, path.join(root, rel));
+  for (let n = 2; await exists(rootId, path.join(root, rel)); n++) rel = `${TRASH_DIR}/${day}-${n}/${dir}`;
+  await makeDirs(rootId, path.dirname(path.join(root, rel)));
+  await renamePath(rootId, abs, path.join(root, rel));
   return rel;
 }
 
 /** Empty folders from `dir` up to (and with) `top` go into the trash, deepest first. */
-async function trashEmptyUpTo(root: string, dir: string, top: string, day: string): Promise<void> {
+async function trashEmptyUpTo(rootId: string, root: string, dir: string, top: string, day: string): Promise<void> {
   for (let d = dir; d !== '' && (d === top || d.startsWith(`${top}/`)); d = relDirname(d)) {
-    if (!(await trashEmptyDir(root, d, day))) return;
+    if (!(await trashEmptyDir(rootId, root, d, day))) return;
   }
 }
 
@@ -465,12 +487,14 @@ async function trashEmptyUpTo(root: string, dir: string, top: string, day: strin
 async function writeTags(ctx: WorkerContext, deps: MoveDeps, rootId: string, fileId: string | null, abs: string, diff: TagDiffEntry[]): Promise<void> {
   const fields = fieldsToWriteFrom(diff);
   if (Object.keys(fields).length === 0) return;
-  deps.writer.sidecarRootId = rootId;
-  const result = await deps.writer.write(abs, fields as TagSet, { id3Version: '2.4', multiValueSeparator: '; ' });
+  // the gate's helper writes (a temp copy, the audio hash checked, the swap): nothing in this process touches the file
+  const writer = deps.writer ?? new SafeFileWriter(null, rootId);
+  if (deps.writer) deps.writer.sidecarRootId = rootId;
+  const result = await writer.write(abs, fields as TagSet, { id3Version: '2.4', multiValueSeparator: '; ' });
   if (result.error) throw new MoveStop(result.code === 'hash_mismatch' ? `${path.basename(abs)}: the audio would change` : `${path.basename(abs)}: ${result.error}`);
   if (!fileId) return;
-  const metadata = await parseFile(abs);
-  const stats = await fs.stat(abs, { bigint: true });
+  const metadata = await fileGate().run<IAudioMetadata>(rootId, { op: 'parseAudio', path: abs });
+  const stats = await fileGate().run<GateStat>(rootId, { op: 'stat', path: abs, bigint: true });
   const state = fileStateAfterWrite({ size: stats.size, mtimeMs: Number(stats.mtimeMs), dev: stats.dev, ino: stats.ino }, tagSnapshotOf(metadata), '');
   await ctx.sql`
     update files set size_bytes = ${state.sizeBytes}, mtime = ${state.mtime}, inode = ${state.inode},
@@ -568,6 +592,7 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
   const work = plan.files.filter((f): f is MovePlanFile & { toPath: string } => !!f.toPath);
   const journal: MoveJournal = { scanRootId: plan.scanRootId, files: [], trashedDir: null, madeDir: null, pins: [], trashedDirs: [], extras: [] };
   const extras = (plan.extras ?? []).filter((e) => fold(e.fromPath) !== fold(e.toPath));
+  const rootId = plan.scanRootId;
   let root = '';
   try {
     if (work.length === 0) throw new MoveStop(row.kind === 'move' ? 'No song pairs with a track of that album' : 'Nothing to move');
@@ -588,30 +613,35 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
         const now = byId.get(f.fileId);
         if (!now || now.status !== 'present' || now.relPath !== f.fromPath || now.rootId !== plan.scanRootId) throw new MoveStop(`${f.title}: the file changed since the preview`);
       }
-      const abs = await onDisk(root, f.fromPath);
+      const abs = await onDisk(rootId, root, f.fromPath);
       if (!abs) throw new MoveStop(`${f.title}: the file is not in its folder`);
       sources.set(key(f), abs);
       if (seen.has(fold(f.toPath))) throw new MoveStop(`${path.basename(f.toPath)} is given to two songs`);
       seen.add(fold(f.toPath));
-      if (fold(f.toPath) !== fold(f.fromPath) && (await onDisk(root, f.toPath))) throw new MoveStop(`${path.basename(f.toPath)} is already in the folder`);
+      if (fold(f.toPath) !== fold(f.fromPath) && (await onDisk(rootId, root, f.toPath))) throw new MoveStop(`${path.basename(f.toPath)} is already in the folder`);
     }
     const extraSources = new Map<string, string>();
     for (const e of extras) {
-      const abs = await onDisk(root, e.fromPath);
+      const abs = await onDisk(rootId, root, e.fromPath);
       if (!abs) continue; // gone since the plan: nothing to take along
-      if (seen.has(fold(e.toPath)) || (await onDisk(root, e.toPath))) throw new MoveStop(`${path.basename(e.toPath)} is already in the folder`);
+      if (seen.has(fold(e.toPath)) || (await onDisk(rootId, root, e.toPath))) throw new MoveStop(`${path.basename(e.toPath)} is already in the folder`);
       seen.add(fold(e.toPath));
       extraSources.set(e.fromPath, abs);
     }
     // one filesystem: a rename never copies
-    const rootDev = (await stat(root)).dev;
-    for (const abs of [...sources.values(), ...extraSources.values()]) if ((await stat(abs)).dev !== rootDev) throw new MoveStop('On another disk than its music folder');
+    const devOf = async (abs: string) => {
+      const s = await gateStat(rootId, abs);
+      if (!s) throw new MoveStop(`${path.basename(abs)} is not in its folder`);
+      return String(s.dev);
+    };
+    const rootDev = await devOf(root);
+    for (const abs of [...sources.values(), ...extraSources.values()]) if ((await devOf(abs)) !== rootDev) throw new MoveStop('On another disk than its music folder');
 
     // 1. the folder, when new
     const toAbs = path.join(root, plan.toDir);
-    const made = await mkdir(toAbs, { recursive: true });
+    const made = await makeDirs(rootId, toAbs);
     if (made) journal.madeDir = path.relative(root, made).split(path.sep).join('/');
-    for (const f of work) await mkdir(path.dirname(path.join(root, f.toPath)), { recursive: true });
+    for (const f of work) await makeDirs(rootId, path.dirname(path.join(root, f.toPath)));
 
     // 2. the tags, each file checked unchanged in its audio
     for (const f of work) {
@@ -622,7 +652,13 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
         tagged: false, moved: false,
       };
       journal.files.push(entry);
-      await writeTags(ctx, deps, plan.scanRootId, f.fileId, sources.get(key(f))!, f.diff);
+      try {
+        await writeTags(ctx, deps, rootId, f.fileId, sources.get(key(f))!, f.diff);
+      } catch (err) {
+        // a write the gate gave up on may have gone through: the put-back writes the old tags (the same either way)
+        if (err instanceof FolderOfflineError) entry.tagged = f.diff.length > 0;
+        throw err;
+      }
       entry.tagged = f.diff.length > 0;
     }
     await saveJournal(ctx, row, journal);
@@ -630,7 +666,7 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
     // 3. the names, never over a file
     for (const entry of journal.files) {
       if (fold(entry.toPath) === fold(entry.fromPath)) continue;
-      await placeNew(sources.get(key(entry))!, path.join(root, entry.toPath));
+      await placeNew(rootId, sources.get(key(entry))!, path.join(root, entry.toPath));
       entry.moved = true;
       if (entry.fileId) await ctx.sql`update files set rel_path = ${entry.toPath} where id = ${entry.fileId}`;
     }
@@ -640,14 +676,16 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
       if (!from) continue;
       const entry = { fromPath: e.fromPath, toPath: e.toPath, moved: false };
       journal.extras!.push(entry);
-      await mkdir(path.dirname(path.join(root, e.toPath)), { recursive: true });
-      await placeNew(from, path.join(root, e.toPath));
+      await makeDirs(rootId, path.dirname(path.join(root, e.toPath)));
+      await placeNew(rootId, from, path.join(root, e.toPath));
       entry.moved = true;
     }
     await saveJournal(ctx, row, journal);
   } catch (err) {
     ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: stopped, putting back');
-    if (root) await putBack(ctx, row, deps, root, journal, day);
+    const back = root ? await putBack(ctx, row, deps, root, journal, day) : { problems: [], offline: null };
+    const offline = err instanceof FolderOfflineError ? err : back.offline;
+    if (offline) return pausedOffline(ctx, row, journal, offline, 'moving');
     const r = await fail(ctx, row, err, 'moving');
     await audit(ctx, row, `${AUDIT_ACTION[row.kind]}.failed`, { moveId: row.id, error: r.error });
     return r;
@@ -666,14 +704,14 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
   for (const d of fromDirs.sort((a, b) => b.length - a.length)) {
     try {
       if (row.kind === 'move') {
-        const rel = await trashEmptyDir(root, d, day);
+        const rel = await trashEmptyDir(rootId, root, d, day);
         if (rel && !journal.trashedDir) journal.trashedDir = { dir: d, trashRelPath: rel };
         continue;
       }
       // organize, import: the emptied folder and the parents it leaves empty, as one
-      const top = await highestEmpty(root, d, plan.keepDir ? [plan.keepDir] : []);
+      const top = await highestEmpty(rootId, root, d, plan.keepDir ? [plan.keepDir] : []);
       if (!top) continue;
-      const rel = await trashEmptyTree(root, top, day);
+      const rel = await trashEmptyTree(rootId, root, top, day);
       if (rel) journal.trashedDirs!.push({ dir: top, trashRelPath: rel });
     } catch (err) {
       ctx.logger.warn({ moveId: row.id, dir: d, err: (err as Error).message }, 'files.move: the emptied folder stays');
@@ -719,74 +757,86 @@ export async function runMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps):
  * names (each file to its old name, never over a file), its companions, then
  * tags; the folders the move made and left empty into the trash. Returns the
  * problems; each entry is marked undone as it goes, so a second run continues.
+ *
+ * The music folder going offline stops the put-back at once (`offline`):
+ * what is left stays in the journal, each file where its row says, for the
+ * owner's Undo once the folder is back.
  */
-async function putBack(ctx: WorkerContext, row: MoveRow, deps: MoveDeps, root: string, journal: MoveJournal, day: string): Promise<string[]> {
+async function putBack(ctx: WorkerContext, row: MoveRow, deps: MoveDeps, root: string, journal: MoveJournal, day: string): Promise<{ problems: string[]; offline: FolderOfflineError | null }> {
+  const rootId = journal.scanRootId;
   const problems: string[] = [];
+  let offline: FolderOfflineError | null = null;
+  /** Runs one step; false when the folder is offline (now or before): the step's entry stays as it is. */
+  const step = async (fn: () => Promise<void>, problem: (err: unknown) => string): Promise<boolean> => {
+    if (offline) return false;
+    try {
+      await fn();
+      return true;
+    } catch (err) {
+      if (err instanceof FolderOfflineError) offline = err;
+      else problems.push(problem(err));
+      return false;
+    }
+  };
   const restore = async (t: { dir: string; trashRelPath: string }) => {
     const back = path.join(root, t.dir);
     const from = path.join(root, t.trashRelPath);
-    if (!(await exists(back)) && (await exists(from))) {
-      await mkdir(path.dirname(back), { recursive: true });
-      await rename(from, back);
+    if (!(await exists(rootId, back)) && (await exists(rootId, from))) {
+      await makeDirs(rootId, path.dirname(back));
+      await renamePath(rootId, from, back);
     }
   };
+  const inTrash = (err: unknown) => `The old folder stays in the trash: ${(err as Error).message}`;
+  const said = (err: unknown) => (err as Error).message;
   if (journal.trashedDir) {
-    try {
-      await restore(journal.trashedDir);
-      journal.trashedDir = null;
-    } catch (err) {
-      problems.push(`The old folder stays in the trash: ${(err as Error).message}`);
-    }
+    const t = journal.trashedDir;
+    if (await step(() => restore(t), inTrash)) journal.trashedDir = null;
   }
   // shallowest first: a parent comes back before what was inside it
   const trashed = [...(journal.trashedDirs ?? [])].sort((a, b) => a.dir.length - b.dir.length);
   journal.trashedDirs = [];
   for (const t of trashed) {
-    try {
-      await restore(t);
-    } catch (err) {
-      journal.trashedDirs.push(t);
-      problems.push(`The old folder stays in the trash: ${(err as Error).message}`);
-    }
+    if (!(await step(() => restore(t), inTrash))) journal.trashedDirs.push(t);
   }
   for (const f of [...journal.files].reverse()) {
-    try {
+    await step(async () => {
       if (f.moved) {
-        const at = await onDisk(root, f.toPath);
+        const at = await onDisk(rootId, root, f.toPath);
         if (!at) throw new MoveStop(`${path.basename(f.toPath)} is not where the move put it`);
-        await mkdir(path.dirname(path.join(root, f.fromPath)), { recursive: true });
-        await placeNew(at, path.join(root, f.fromPath));
+        await makeDirs(rootId, path.dirname(path.join(root, f.fromPath)));
+        await placeNew(rootId, at, path.join(root, f.fromPath));
         f.moved = false;
         if (f.fileId) await ctx.sql`update files set rel_path = ${f.fromPath} where id = ${f.fileId}`;
       }
       if (f.tagged) {
-        const at = await onDisk(root, f.fromPath);
+        const at = await onDisk(rootId, root, f.fromPath);
         if (!at) throw new MoveStop(`${path.basename(f.fromPath)} is gone`);
-        await writeTags(ctx, deps, journal.scanRootId, f.fileId, at, undoDiff(f));
+        // a write cut off by an outage may have left its temp copy beside the file (ruling R9)
+        await new SafeFileWriter(null, rootId).removeStaleTemps(at);
+        await writeTags(ctx, deps, rootId, f.fileId, at, undoDiff(f));
         f.tagged = false;
       }
-    } catch (err) {
-      problems.push((err as Error).message);
-    }
+    }, said);
   }
   for (const e of [...(journal.extras ?? [])].reverse()) {
     if (!e.moved) continue;
-    try {
-      const at = await onDisk(root, e.toPath);
+    await step(async () => {
+      const at = await onDisk(rootId, root, e.toPath);
       if (!at) throw new MoveStop(`${path.basename(e.toPath)} is not where the move put it`);
-      await mkdir(path.dirname(path.join(root, e.fromPath)), { recursive: true });
-      await placeNew(at, path.join(root, e.fromPath));
+      await makeDirs(rootId, path.dirname(path.join(root, e.fromPath)));
+      await placeNew(rootId, at, path.join(root, e.fromPath));
       e.moved = false;
-    } catch (err) {
-      problems.push((err as Error).message);
-    }
+    }, said);
   }
+  // the folders go only once every file is back
+  if (offline) return { problems, offline };
   if (journal.madeDir) {
+    const made = journal.madeDir;
     try {
       const dirs = [...new Set([...journal.files.map((f) => relDirname(f.toPath)), ...(journal.extras ?? []).map((e) => relDirname(e.toPath))])]
         .sort((a, b) => b.length - a.length);
-      for (const d of dirs) await trashEmptyUpTo(root, d, journal.madeDir, day);
-      await trashEmptyTree(root, journal.madeDir, day);
+      for (const d of dirs) await trashEmptyUpTo(rootId, root, d, made, day);
+      await trashEmptyTree(rootId, root, made, day);
       journal.madeDir = null;
     } catch (err) {
       ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: the made folder stays');
@@ -794,10 +844,38 @@ async function putBack(ctx: WorkerContext, row: MoveRow, deps: MoveDeps, root: s
   } else if (row.kind !== 'move') {
     // the album folder was there before (an organize into a folder of the same name, other case): only what it left empty goes
     for (const d of [...new Set(journal.files.map((f) => relDirname(f.toPath)))]) {
-      try { await trashEmptyTree(root, d, day); } catch { /* stays */ }
+      try { await trashEmptyTree(rootId, root, d, day); } catch { /* stays */ }
     }
   }
-  return problems;
+  return { problems, offline };
+}
+
+/** Anything a stopped move still has to put back. */
+const leftToPutBack = (j: MoveJournal): boolean =>
+  j.files.some((f) => f.moved || f.tagged) || (j.extras ?? []).some((e) => e.moved) || !!j.trashedDir || (j.trashedDirs ?? []).length > 0;
+
+/**
+ * A move or an undo cut off by an offline music folder (Decision 2). With
+ * nothing left to put back, the move failed with the line and can be planned
+ * again. Otherwise it reads 'done' with the line and its journal: each file
+ * is where its row says, and the owner's Undo finishes the put-back once the
+ * folder is back. Nothing resumes on its own.
+ */
+async function pausedOffline(ctx: WorkerContext, row: MoveRow, journal: MoveJournal, err: FolderOfflineError, from: 'moving' | 'undoing'): Promise<Record<string, unknown>> {
+  folderWatch()?.suspect(err.scanRootId);
+  ctx.logger.warn({ moveId: row.id, scanRootId: err.scanRootId, reason: err.reason }, 'files.move paused: music folder offline');
+  // an undo cut off is 'done' again, for another Undo
+  const state = from === 'undoing' || leftToPutBack(journal) ? 'done' : 'failed';
+  await ctx.sql.begin(async (tx) => {
+    await tx`update album_moves set state = ${state}, journal = ${JSON.stringify(journal)}::jsonb, error = ${PAUSED_OFFLINE_STAGE},
+                    undo_requested = false, updated_at = now(), finished_at = coalesce(finished_at, now())
+              where id = ${row.id} and state = ${from}`;
+    await tx`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id, payload)
+             values (${row.libraryId}, ${row.createdBy}, ${`${AUDIT_ACTION[row.kind]}.${from === 'undoing' ? 'undo_failed' : 'failed'}`}, 'local_album', ${row.sourceAlbumId},
+                     ${JSON.stringify({ moveId: row.id, kind: row.kind, error: PAUSED_OFFLINE_STAGE, offlineRootId: err.scanRootId })}::jsonb)`;
+  });
+  if (row.kind === 'import' && from === 'moving') await afterImport(ctx, row);
+  return { state, error: PAUSED_OFFLINE_STAGE, offlineRootId: err.scanRootId };
 }
 
 /** Undo from the journal ('undoing' → 'undone'; problems: back to 'done' with the reason, for another try). */
@@ -816,7 +894,9 @@ export async function undoMove(ctx: WorkerContext, row: MoveRow, deps: MoveDeps)
   // an import's files go back into the pool: their library rows (made by the scan after the import) go first
   const importedIds = row.kind === 'import' ? ((await ctx.sql`
     select id::text as id from files where scan_root_id = ${journal.scanRootId} and rel_path = any(${journal.files.map((f) => f.toPath)}::text[])`) as unknown as Array<{ id: string }>).map((x) => x.id) : [];
-  const problems = await putBack(ctx, row, deps, r.path, journal, day);
+  const { problems, offline } = await putBack(ctx, row, deps, r.path, journal, day);
+  // offline: what is left stays in the journal for the next Undo; no scan of a folder that is not there
+  if (offline) return pausedOffline(ctx, row, journal, offline, 'undoing');
   if (problems.length === 0) {
     // the pins the move lifted, where their albums still are
     for (const p of journal.pins) {
@@ -852,23 +932,26 @@ export async function filesMoveJob(ctx: WorkerContext, data: FilesMoveJobData, d
   const want = { search: 'searching', plan: 'planning', move: 'moving', undo: 'undoing' }[data.action];
   if (row.state !== want) return { skipped: `state ${row.state}` };
   if (data.action === 'search') return searchMove(ctx, row, deps ?? {});
-  if (data.action === 'plan' && row.kind === 'move') return planMove(ctx, row, deps ?? {});
-  const run = async (d: MoveDeps) => {
-    if (data.action === 'undo') return undoMove(ctx, row, d);
-    if (data.action === 'move') return runMove(ctx, row, d);
+  const d = deps ?? {};
+  try {
+    if (data.action === 'plan' && row.kind === 'move') return await planMove(ctx, row, d);
+    if (data.action === 'undo') return await undoMove(ctx, row, d);
+    if (data.action === 'move') return await runMove(ctx, row, d);
     // organize and import: planned, then moved in the same job when nothing stands in the way
     const planned = row.kind === 'organize' ? await planOrganize(ctx, row) : await planImport(ctx, row, d);
     if (planned.state !== 'moving') return planned;
     const fresh = await loadRow(ctx, row.id);
-    return fresh ? runMove(ctx, fresh, d) : planned;
-  };
-  if (deps) return run(deps);
-  // the mutagen sidecar only to write, closed after
-  const tags = new MutagenTagWriter();
-  try {
-    return await run({ writer: new SafeFileWriter(tags) });
-  } finally {
-    await tags.close();
+    return fresh ? await runMove(ctx, fresh, d) : planned;
+  } catch (err) {
+    // only a plan throws this (a move or an undo pauses itself): nothing moved yet, so the plan waits for the folder
+    if (!(err instanceof FolderOfflineError) || data.action !== 'plan') throw err;
+    await parkJob(ctx.sql, {
+      scanRootId: err.scanRootId, queue: 'files.move', data: { moveId: row.id, action: 'plan' },
+      singletonKey: `files.move:${row.id}:plan`, reason: err.reason,
+    });
+    folderWatch()?.suspect(err.scanRootId);
+    ctx.logger.warn({ moveId: row.id, scanRootId: err.scanRootId, reason: err.reason }, 'files.move plan parked: music folder offline');
+    return PARKED_OUTPUT;
   }
 }
 
@@ -878,6 +961,7 @@ async function planOrganize(ctx: WorkerContext, row: MoveRow): Promise<Record<st
     const { plan, sourceAlbumId } = await organizePlanFor(ctx, row.libraryId, row.query?.fileIds ?? []);
     return await startPlanned(ctx, row, plan, sourceAlbumId, null);
   } catch (err) {
+    if (err instanceof FolderOfflineError) throw err;
     ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: organize not planned');
     return fail(ctx, row, err, 'planning');
   }
@@ -890,6 +974,8 @@ async function planImport(ctx: WorkerContext, row: MoveRow, deps: MoveDeps): Pro
     void deps;
     return await startPlanned(ctx, row, plan, null, existingAlbumId);
   } catch (err) {
+    // the import waits for the folder, its pool item still importing
+    if (err instanceof FolderOfflineError) throw err;
     ctx.logger.warn({ moveId: row.id, err: (err as Error).message }, 'files.move: import not planned');
     const r = await fail(ctx, row, err, 'planning');
     if (row.kind === 'import') await afterImport(ctx, row);
