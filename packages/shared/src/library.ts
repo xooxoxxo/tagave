@@ -48,6 +48,13 @@ export interface StartScanResponse {
   waiting?: true;
 }
 
+/** 202 from POST /libraries/:id/albums/:albumId/rescan: a scan.dir per folder of the album's files. */
+export interface AlbumRescanResponse {
+  queued: Array<{ scanRootId: string; dirPath: string; jobId: string | null; alreadyQueued: boolean }>;
+  /** a folder it queued is on a music folder that is offline or not connected: the scans run once it is back */
+  waiting?: true;
+}
+
 /**
  * validationMessage the worker stores on an 'ok' root that has nothing in it.
  * Docker on macOS mounts a folder it does not share with its VM as an empty

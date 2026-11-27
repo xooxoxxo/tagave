@@ -6,6 +6,8 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMergeSplitAlbum, useRescanAlbumFolder, useSplitAlbumByFormat } from '../hooks/useAlbumMaintenance';
+import type { AlbumRescanResponse } from '@tagave/shared';
+import { SCAN_QUEUED } from '../utils/offlinePaused';
 import { confirmDialog } from './ui';
 
 export interface MaintenanceAlbum {
@@ -44,7 +46,7 @@ export function useAlbumFolderActions(libraryId: string | undefined, album: Main
     setNote(null);
     try {
       const r = await rescanM.mutateAsync(album.id);
-      setNote(`Rescanning ${r.queued.length} folder${r.queued.length === 1 ? '' : 's'}. The page updates as files are re-read.`);
+      setNote(rescanNote(r));
     } catch (err) {
       setNote(errorText(err, 'Rescan failed'));
     }
@@ -86,6 +88,12 @@ export function useAlbumFolderActions(libraryId: string | undefined, album: Main
     mergeBack,
     note,
   };
+}
+
+/** The note after Rescan folder: queued for the folder's return when the API says it waits (a folder is offline). */
+export function rescanNote(r: AlbumRescanResponse): string {
+  if (r.waiting === true) return SCAN_QUEUED;
+  return `Rescanning ${r.queued.length} folder${r.queued.length === 1 ? '' : 's'}. The page updates as files are re-read.`;
 }
 
 function errorText(err: unknown, fallback: string): string {

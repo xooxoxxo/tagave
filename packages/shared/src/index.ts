@@ -47,6 +47,7 @@ export {
   scanRootSchema,
   type ScanRoot,
   type StartScanResponse,
+  type AlbumRescanResponse,
   SCAN_ROOT_EMPTY_MESSAGE,
   createScanRootSchema,
   type CreateScanRootRequest,
