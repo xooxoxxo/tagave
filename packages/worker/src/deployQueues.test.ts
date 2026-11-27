@@ -162,6 +162,23 @@ describe('queues that touch the music folder', () => {
   it('pool.scan rides with the tag writer, on the file worker', () => {
     expect(QUEUES_RIDING_WITH['pool.scan']).toBe('tags.apply');
   });
+
+  // The park rule (vault "tagave - Offline Library Spec", section 4): a job that
+  // meets an offline music folder waits and comes back on its own. The owner's
+  // file actions stop for the owner's Continue instead (Decision 2).
+  it('each parks its jobs while the music folder is offline, but the owner\'s file actions', () => {
+    const OWNER_CONTINUE = ['files.split', 'files.move', 'files.upgrade', 'files.trash'];
+    const src = readFileSync(path.join(here, 'index.ts'), 'utf8');
+    const works = [...src.matchAll(/boss\.work(?:<[^(]*>)?\('([^']+)'/g)];
+    const body = (queue: string) => {
+      const i = works.findIndex((w) => w[1] === queue);
+      expect(i, queue).toBeGreaterThanOrEqual(0);
+      return src.slice(works[i]!.index!, works[i + 1]?.index ?? src.length);
+    };
+    const parking = [...MUSIC_FOLDER_QUEUES, 'books.group'].filter((q) => !OWNER_CONTINUE.includes(q));
+    expect(parking.filter((q) => !new RegExp(`parkable(<[^(]*>)?\\(ctx, '${q.replace('.', '\\.')}'`).test(body(q)))).toEqual([]);
+    expect(OWNER_CONTINUE.filter((q) => /parkable/.test(body(q)))).toEqual([]);
+  });
 });
 
 /** The queue of every maintenance task the app saves (saveMaintenanceTask({ …, queue: '…' })). */

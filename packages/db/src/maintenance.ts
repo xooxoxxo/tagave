@@ -77,12 +77,14 @@ export function maintenanceJobOptions(attemptId: string): { id: string; singleto
   return { id: attemptId, singletonKey: `maintenance:${attemptId}`, retryLimit: 0 };
 }
 
+/** pg-boss's `db` option over a postgres.js transaction: a send through it commits or rolls back with the transaction. */
+export function transactionDb(tx: Tx): { executeSql(query: string, values?: unknown[]): Promise<{ rows: unknown[] }> } {
+  return { executeSql: async (query: string, values?: unknown[]) => ({ rows: await tx.unsafe(query, values as never[] | undefined) }) };
+}
+
 /** Sends an attempt's job inside the dispatch transaction: the job exists exactly when the dispatch commits. */
 export function maintenanceSender(boss: MaintenanceJobQueue): MaintenanceSender {
-  return (tx, queue, id, data) => boss.send(queue, data, {
-    ...maintenanceJobOptions(id),
-    db: { executeSql: async (query: string, values?: unknown[]) => ({ rows: await tx.unsafe(query, values as never[] | undefined) }) },
-  });
+  return (tx, queue, id, data) => boss.send(queue, data, { ...maintenanceJobOptions(id), db: transactionDb(tx) });
 }
 
 /** Queue insertion and dispatch acknowledgement commit together. */
@@ -214,6 +216,35 @@ export async function updateMaintenanceTask(sql: Sql | Tx, work: MaintenanceWork
     where id = ${work.taskId} and attempt_id = ${work.attemptId} and state = 'running'
   `;
   return result.count === 1;
+}
+
+/**
+ * A running task whose music folder went offline waits for it (vault "tagave
+ * - Offline Library Spec", section 4): back to 'waiting' under a new attempt
+ * id, undispatched, and held (dispatch_after 'infinity') so neither the app's
+ * dispatch loop nor reconcileMaintenanceTasks touches it until the return
+ * (releaseMaintenanceTask). False means the attempt lost its claim.
+ */
+export async function parkMaintenanceTask(sql: Sql | Tx, work: MaintenanceWork, stage: string): Promise<boolean> {
+  const result = await sql`
+    update maintenance_tasks
+    set state = 'waiting', attempt_id = gen_random_uuid(), dispatched_at = null, dispatch_after = 'infinity',
+        stage = ${stage}, updated_at = now()
+    where id = ${work.taskId} and attempt_id = ${work.attemptId} and state = 'running'
+  `;
+  return result.count === 1;
+}
+
+/**
+ * The folder is back: a parked task may be dispatched again, by the app's
+ * dispatch loop or a direct dispatchMaintenanceTask after the commit; the
+ * attempt id keeps it to one job.
+ */
+export async function releaseMaintenanceTask(tx: Tx, taskId: string): Promise<void> {
+  await tx`
+    update maintenance_tasks set dispatch_after = now(), updated_at = now()
+    where id = ${taskId} and state = 'waiting' and dispatch_after = 'infinity'
+  `;
 }
 
 export async function currentMaintenanceClaim(sql: Sql, work: MaintenanceWork): Promise<MaintenanceRow | null> {

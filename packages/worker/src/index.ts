@@ -23,7 +23,7 @@ import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySwee
 import { enrichReleaseJob, type EnrichReleaseJobData } from './jobs/enrichRelease.js';
 import { enrichSweepJob, type EnrichSweepJobData } from './jobs/enrichSweep.js';
 import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetch.js';
-import { artFetchTask, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
+import { artFetchTask, artRefreshKey, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { artThumbJob, artThumbSweepJob, type ArtThumbJobData, type ArtThumbSweepJobData } from './jobs/artThumb.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { filterCountsRefreshJob, type FilterCountsRefreshJobData } from './jobs/filterCountsRefresh.js';
@@ -63,6 +63,8 @@ import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefresh.js';
 import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
 import { libraryIdsFor, pinnedLibraryId } from './lib/libraries.js';
+import { groupingSingletonKey } from './lib/appFiles.js';
+import { NO_ROOT, parkable, rootOfAlbum, rootOfFile, rootOfPlan, rootOfTrack } from './lib/parking.js';
 import { newerMessage, schemaVerdict, schemaWaitMs, waitForCompatibleSchema } from './lib/schemaGuard.js';
 import { tagaveEnv } from '@tagave/shared/env';
 
@@ -134,19 +136,29 @@ async function main() {
     logger.warn({ err }, 'could not recover maintenance tasks at start');
   }
 
+  // The park rule (vault "tagave - Offline Library Spec", section 4): each
+  // handler of a queue that reads the music folder (MUSIC_FOLDER_QUEUES, and
+  // books.group) runs its jobs through parkable(), so a job that meets an
+  // offline folder waits in parked_jobs, completed with { parked: true }, and
+  // the folder watch sends it again when the folder is back. Not the owner's
+  // file actions (files.split, files.move, files.upgrade, files.trash): they
+  // stop and wait for the owner's Continue (Decision 2).
+  const scanKey = (d: { scanRootId: string }) => `scan:${d.scanRootId}`;
   let folderWatch: FolderWatch | null = null;
   if (wants('scan.root')) {
     await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) {
         logger.info({ jobId: job.id, data: job.data }, 'scan.root start');
-        await tracked('scan.root', job.id, job.data.scanRootId, () => scanRootJob(ctx, job.data));
+        await parkable<ScanRootJobData>(ctx, 'scan.root', (d) => d.scanRootId, scanKey, ({ id, data }) =>
+          tracked('scan.root', id, data.scanRootId, () => scanRootJob(ctx, data)))(job);
       }
     });
 
     await boss.work<RootsValidateJobData>('roots.validate', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) {
         logger.info({ jobId: job.id, data: job.data }, 'roots.validate start');
-        await rootsValidateJob(ctx, job.data);
+        await parkable<RootsValidateJobData>(ctx, 'roots.validate', (d) => d.scanRootId ?? null,
+          (d) => (d.scanRootId ? `roots.validate:${d.scanRootId}` : null), ({ data }) => rootsValidateJob(ctx, data))(job);
       }
     });
 
@@ -163,7 +175,8 @@ async function main() {
   if (wants('scan.dir')) await boss.work<ScanDirJobData>('scan.dir', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) {
       logger.info({ jobId: job.id, data: job.data }, 'scan.dir start');
-      await scanDirJob(ctx, job.data);
+      // one parked per root: the return's scan of the root covers every folder
+      await parkable<ScanDirJobData>(ctx, 'scan.dir', (d) => d.scanRootId, scanKey, ({ data }) => scanDirJob(ctx, data))(job);
     }
   });
 
@@ -171,14 +184,15 @@ async function main() {
   // scan weekly; checked every 10 minutes.
   if (wants('scan.sweep')) {
     await boss.work<ScanSweepJobData>('scan.sweep', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await scanSweepJob(ctx, job.data);
+      for (const job of jobs) await parkable<ScanSweepJobData>(ctx, 'scan.sweep', NO_ROOT, () => null, ({ data }) => scanSweepJob(ctx, data))(job);
     });
     await boss.schedule('scan.sweep', '*/10 * * * *', {}, { singletonKey: 'scan.sweep' });
   }
 
   if (wants('scan.parse')) {
     await boss.work<ScanParseJobData>('scan.parse', { batchSize: 4, pollingIntervalSeconds: 1 }, async (jobs) => {
-      await Promise.all(jobs.map((job) => scanParseJob(ctx, job.data)));
+      await Promise.all(jobs.map((job) => parkable<ScanParseJobData>(ctx, 'scan.parse',
+        (d) => (d.audioFileIds[0] ? rootOfFile(ctx, d.audioFileIds[0]) : null), () => null, ({ data }) => scanParseJob(ctx, data))(job)));
     });
     // core_tags_digest for rows parsed before 0052 (move-safe scanning §3)
     await boss.work<FilesBackfillDigestJobData>('files.backfillDigest', { batchSize: 1 }, async (jobs) => {
@@ -189,7 +203,8 @@ async function main() {
 
   if (wants('cluster.dir')) {
     await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 6 }, async (jobs) => {
-      await Promise.all(jobs.map((job) => clusterDirJob(ctx, job.data)));
+      await Promise.all(jobs.map((job) => parkable<ClusterDirJobData>(ctx, 'cluster.dir', (d) => d.scanRootId,
+        (d) => groupingSingletonKey('cluster.dir', d.scanRootId, d.dirPath), ({ data }) => clusterDirJob(ctx, data))(job)));
     });
     // folders of loose files clustered before untagged files formed albums (QA Q-05)
     await boss.work<ClusterBackfillLooseJobData>('cluster.backfillLoose', { batchSize: 1 }, async (jobs) => {
@@ -201,7 +216,10 @@ async function main() {
     // the books app's grouping job (the spike, TAGAVE_DEV_APPS): it reads covers from the files, so it
     // rides with cluster.dir on the file worker; it does nothing while the books app is off
     await boss.work<BooksGroupJobData>('books.group', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await booksGroupJob(ctx, job.data);
+      for (const job of jobs) {
+        await parkable<BooksGroupJobData>(ctx, 'books.group', (d) => d.scanRootId,
+          (d) => groupingSingletonKey('books.group', d.scanRootId, d.dirPath), ({ data }) => booksGroupJob(ctx, data))(job);
+      }
     });
   }
 
@@ -422,7 +440,9 @@ async function main() {
 
   if (wants('art.fetch')) {
     await boss.work<ArtFetchJobData>('art.fetch', { batchSize: 4 }, async (jobs) => {
-      await Promise.all(jobs.map(({ data }) => artFetchTask(ctx, data)));
+      // a task's lookup parks as its task (runMaintenance); a plain one as its job
+      await Promise.all(jobs.map((job) => parkable<ArtFetchJobData>(ctx, 'art.fetch', (d) => rootOfAlbum(ctx, d.localAlbumId),
+        (d) => (d.maintenance ? null : d.refresh ? artRefreshKey(d.localAlbumId) : `art:${d.localAlbumId}`), ({ data }) => artFetchTask(ctx, data))(job)));
     });
     // Cover thumbnails are not in backups (0046): rebuild missing ones from
     // the originals on this worker's cache volume. Swept at start (after a
@@ -513,12 +533,15 @@ async function main() {
   // AcoustID lookups on the identify worker (shares the provider budget).
   if (wants('fingerprint.album')) {
     await boss.work<FingerprintAlbumJobData>('fingerprint.album', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await fingerprintAlbumJob(ctx, job.data);
+      for (const job of jobs) {
+        await parkable<FingerprintAlbumJobData>(ctx, 'fingerprint.album', (d) => rootOfAlbum(ctx, d.localAlbumId),
+          (d) => `fingerprint:${d.localAlbumId}`, ({ data }) => fingerprintAlbumJob(ctx, data))(job);
+      }
     });
   }
   if (wants('fingerprint.sweep')) {
     await boss.work<FingerprintSweepJobData>('fingerprint.sweep', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await fingerprintSweepJob(ctx, job.data);
+      for (const job of jobs) await parkable<FingerprintSweepJobData>(ctx, 'fingerprint.sweep', NO_ROOT, () => null, ({ data }) => fingerprintSweepJob(ctx, data))(job);
     });
     // a no-op unless a library opted in (settings.fingerprintingEnabled) and has an AcoustID key
     // 30 albums every 10 min ≈ 180/h: about what identify.album clears under
@@ -534,7 +557,9 @@ async function main() {
   if (wants('fingerprint.album')) {
     await boss.work<DjAnalyzeJobData>('dj.analyze', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
       for (const job of jobs) {
-        await tracked('dj.analyze', job.id, job.data?.localTrackId ?? 'sweep', () => djAnalyzeJob(ctx, job.data));
+        await parkable<DjAnalyzeJobData>(ctx, 'dj.analyze', (d) => (d?.localTrackId ? rootOfTrack(ctx, d.localTrackId) : null),
+          (d) => (d?.localTrackId ? `dj:${d.localTrackId}` : null),
+          ({ id, data }) => tracked('dj.analyze', id, data?.localTrackId ?? 'sweep', () => djAnalyzeJob(ctx, data)))(job);
       }
     });
     await boss.schedule('dj.analyze', '23 * * * *', { sweep: true }, { singletonKey: 'dj:sweep', priority: DJ_PRIORITY.sweep });
@@ -593,7 +618,8 @@ async function main() {
       for (const job of jobs) {
         const planId = (job.data as { planId: string }).planId;
         logger.info({ jobId: job.id, planId }, 'tags.preview start');
-        await tagsPreviewJob(ctx, planId, { pgbossId: job.id });
+        await parkable<{ planId: string }>(ctx, 'tags.preview', (d) => rootOfPlan(ctx, d.planId), (d) => `tag_plan:${d.planId}`,
+          ({ id, data }) => tagsPreviewJob(ctx, data.planId, { pgbossId: id }))(job);
       }
     });
   }
@@ -602,7 +628,8 @@ async function main() {
     await boss.work<TagsApplyJobData>('tags.apply', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) {
         logger.info({ jobId: job.id, planId: job.data.planId }, 'tags.apply start');
-        await tagsApplyJob(ctx, job.data);
+        await parkable<TagsApplyJobData>(ctx, 'tags.apply', (d) => rootOfPlan(ctx, d.planId),
+          (d) => (d.maintenance ? null : `tags.apply:${d.planId}`), ({ data }) => tagsApplyJob(ctx, data))(job);
       }
     });
     // Deleting (0073): moves into and out of the trash, Empty trash, and the daily
@@ -626,7 +653,9 @@ async function main() {
       for (const job of jobs) await filesUpgradeJob(ctx, job.data);
     });
     await boss.work<EmbedCoverJobData>('files.embedCover', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await embedCoverJob(ctx, job.data);
+      for (const job of jobs) {
+        await parkable<EmbedCoverJobData>(ctx, 'files.embedCover', (d) => rootOfAlbum(ctx, d.albumId), () => null, ({ data }) => embedCoverJob(ctx, data))(job);
+      }
     });
     // Move to album (0080): the release search, the plan, the move and its undo
     await boss.work<FilesMoveJobData>('files.move', { batchSize: 1 }, async (jobs) => {
@@ -643,7 +672,7 @@ async function main() {
     // MusicBrainz calls share identify's 1 req/s through provider_state.
     await boss.work<PoolScanJobData>('pool.scan', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
       const results = [];
-      for (const job of jobs) results.push(await poolScanJob(ctx, job.data ?? {}));
+      for (const job of jobs) results.push(await parkable<PoolScanJobData>(ctx, 'pool.scan', NO_ROOT, () => null, ({ data }) => poolScanJob(ctx, data ?? {}))(job));
       return results.length === 1 ? results[0] : results;
     });
     await boss.schedule('pool.scan', '*/2 * * * *', {}, { singletonKey: 'pool.scan' });
@@ -653,7 +682,8 @@ async function main() {
     await boss.work<TagsRevertJobData>('tags.revert', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) {
         logger.info({ jobId: job.id, planId: job.data.planId }, 'tags.revert start');
-        await tagsRevertJob(ctx, job.data);
+        await parkable<TagsRevertJobData>(ctx, 'tags.revert', (d) => rootOfPlan(ctx, d.planId), (d) => `tags.revert:${d.planId}`,
+          ({ data }) => tagsRevertJob(ctx, data))(job);
       }
     });
   }
