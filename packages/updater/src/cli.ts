@@ -33,8 +33,10 @@
  * install-tagave.sh update runs from the target's updater image once the
  * update is healthy. Without --apply it prints the decision, its reason and
  * the .env lines it would write, and changes nothing. With --apply it writes
- * them and starts the music parts on them, printing each log line. Exit 0
- * when it moved, had nothing to do or was refused with a reason; 1 on an
+ * them and starts the music parts on them, printing each log line; it takes
+ * the repair lock first, as repair does, and when a repair or a self-heal
+ * holds it, says so and changes nothing. Exit 0 when it moved, had nothing
+ * to do, was refused with a reason or found a repair under way; 1 on an
  * error; 2 bad arguments. It never reads what is in the music folder.
  */
 import { readFile } from 'node:fs/promises';
