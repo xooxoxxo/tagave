@@ -28,12 +28,26 @@ import { scanRootJob, type ScanRootJobData } from './scanRoot.js';
 const FAKE = fileURLToPath(new URL('../testkit/fakeHelper.mjs', import.meta.url));
 const DEAD = `${path.sep}Dead`;
 
-/** The real gate, except that a path under a `Dead` folder hangs (the fake helper's `hang`). */
+const BROKEN = `${path.sep}Broken`;
+
+/**
+ * The real gate, except that a path under a `Dead` folder hangs (the fake
+ * helper's `hang`), and, while `broken` is set, a path under `Broken`
+ * answers that code (for the listed ops, or all): EIO through the fake
+ * helper (the share answering), EHELPER as the gate does for a helper that
+ * failed, EGATECLOSED as it does once it is closed (the worker stopping).
+ */
 class DeadFolderGate extends FileGate {
   readonly dead = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 600, helpers: 2, stuckMax: 4 } });
+  broken: { code: 'EIO' | 'EHELPER' | 'EGATECLOSED'; ops?: GateOp['op'][] } | null = null;
   override run<T>(rootId: string, op: GateOp, opts?: { probe?: boolean }): Promise<T> {
     const p = (op as { path?: string; from?: string }).path ?? (op as { from?: string }).from ?? '';
     if (p.includes(DEAD)) return this.dead.run<T>(rootId, { ...op, path: 'hang' } as GateOp, opts);
+    if (this.broken && p.includes(BROKEN) && (!this.broken.ops || this.broken.ops.includes(op.op))) {
+      if (this.broken.code === 'EIO') return this.dead.run<T>(rootId, { ...op, path: 'eio' } as GateOp, opts);
+      const message = this.broken.code === 'EHELPER' ? 'The file helper stopped without an answer' : 'The file gate is closed';
+      return Promise.reject(Object.assign(new Error(message), { code: this.broken.code }));
+    }
     return super.run<T>(rootId, op, opts);
   }
   override async close(): Promise<void> {
@@ -66,14 +80,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scans and an offline music fold
     await sql`insert into users (id, email, password_hash) values (${userId}, ${`robin-${userId}@example.com`}, 'x')`;
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'Offline', ${userId}, '{}')`;
     rootPath = await mkdtemp(path.join(tmpdir(), 'offlinetest-scan-'));
-    for (const d of ['Alive', 'Lost', 'Dead']) await mkdir(path.join(rootPath, d));
+    for (const d of ['Alive', 'Lost', 'Dead', 'Broken']) await mkdir(path.join(rootPath, d));
+    await writeFile(path.join(rootPath, 'Broken', '4.flac'), 'd');
     await writeFile(path.join(rootPath, 'Alive', '1.flac'), 'a');
     await writeFile(path.join(rootPath, 'Lost', '2.flac'), 'b');
     await writeFile(path.join(rootPath, 'Dead', '3.flac'), 'c');
     await sql`insert into scan_roots (id, library_id, path, display_name, validation_status, validation_message, validated_at)
               values (${rootId}, ${libraryId}, ${rootPath}, 'Robin music', 'ok', 'as it was', '2026-11-01T10:00:00Z')`;
     // Lost/gone.flac is indexed but not on disk: a complete walk would mark it missing.
-    for (const rel of ['Alive/1.flac', 'Lost/2.flac', 'Lost/gone.flac', 'Dead/3.flac']) {
+    for (const rel of ['Alive/1.flac', 'Lost/2.flac', 'Lost/gone.flac', 'Dead/3.flac', 'Broken/4.flac', 'Broken/gone.flac']) {
       await sql`insert into files (library_id, scan_root_id, rel_path, size_bytes, mtime, handler, status, tags_raw)
                 values (${libraryId}, ${rootId}, ${rel}, 1, 1, 'audio', 'present', '{}')`;
     }
@@ -161,6 +176,87 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scans and an offline music fold
     expect(out).toEqual({ parked: true });
     expect(await albums()).toBe(before);
     expect(await parkedRows(rootId)).toHaveLength(1);
+  });
+
+  it('a folder whose helper fails (EHELPER) is never taken for gone: scan.dir fails and marks nothing', async () => {
+    gate.broken = { code: 'EHELPER', ops: ['access'] };
+    const before = await fileStatuses(rootId);
+    await expect(runParked<ScanDirJobData>('scan.dir', (d) => d.scanRootId, (d) => scanDirJob(ctx, d), { scanRootId: rootId, dirPath: 'Broken' }))
+      .rejects.toMatchObject({ code: 'EHELPER' });
+    expect(await fileStatuses(rootId)).toEqual(before);
+    expect(await parkedRows(rootId)).toHaveLength(0);
+  });
+
+  it('a folder rescan whose helper fails or whose gate closes marks nothing missing (EHELPER, EGATECLOSED)', async () => {
+    // Broken/gone.flac is indexed but not on disk: only a complete walk of Broken may mark it.
+    for (const code of ['EHELPER', 'EGATECLOSED'] as const) {
+      for (const ops of [['readdirPage'], ['stat']] as GateOp['op'][][]) {
+        gate.broken = { code, ops };
+        const before = await fileStatuses(rootId);
+        await expect(runParked<ScanDirJobData>('scan.dir', (d) => d.scanRootId, (d) => scanDirJob(ctx, d), { scanRootId: rootId, dirPath: 'Broken' }))
+          .rejects.toMatchObject({ code });
+        expect(await fileStatuses(rootId)).toEqual(before);
+        expect(before).toContainEqual({ rel_path: 'Broken/gone.flac', status: 'present' });
+        expect(await parkedRows(rootId)).toHaveLength(0);
+      }
+    }
+  });
+
+  it('roots.validate stamps no verdict on a root its helper failed on', async () => {
+    const cols = async () => (await sql`select validation_status, validation_message, validated_at, probe_writable from scan_roots where id = ${rootId}`)[0];
+    const before = await cols();
+    vi.spyOn(gate, 'run').mockRejectedValueOnce(Object.assign(new Error('The file helper stopped without an answer'), { code: 'EHELPER' }));
+    await expect(rootsValidateJob(ctx, { scanRootId: rootId })).rejects.toMatchObject({ code: 'EHELPER' });
+    expect(await cols()).toEqual(before);
+  });
+
+  it('a listing whose helper fails (EHELPER) fails the scan and marks nothing missing', async () => {
+    await rm(path.join(rootPath, 'Dead'), { recursive: true }); // no hang in this walk
+    try {
+      gate.broken = { code: 'EHELPER', ops: ['readdirPage'] };
+      const before = await fileStatuses(rootId);
+      await expect(runParked<ScanRootJobData>('scan.root', (d) => d.scanRootId, (d) => scanRootJob(ctx, d), { scanRootId: rootId, mode: 'full' }))
+        .rejects.toMatchObject({ code: 'EHELPER' });
+      expect(await fileStatuses(rootId)).toEqual(before);
+      expect(await lastScan(rootId)).toMatchObject({ status: 'failed' });
+    } finally {
+      await mkdir(path.join(rootPath, 'Dead'));
+      await writeFile(path.join(rootPath, 'Dead', '3.flac'), 'c');
+    }
+  });
+
+  it('a folder that answers EIO parks the scan and marks nothing missing', async () => {
+    await rm(path.join(rootPath, 'Dead'), { recursive: true }); // EIO alone stops this walk, no hang
+    try {
+      gate.broken = { code: 'EIO' };
+      const before = await fileStatuses(rootId);
+      const out = await runParked<ScanRootJobData>('scan.root', (d) => d.scanRootId, (d) => scanRootJob(ctx, d), { scanRootId: rootId, mode: 'full' });
+      expect(out).toEqual({ parked: true });
+      expect(await fileStatuses(rootId)).toEqual(before);
+      expect(await lastScan(rootId)).toMatchObject({ status: 'aborted', stats: { offline: true } });
+    } finally {
+      await mkdir(path.join(rootPath, 'Dead'));
+      await writeFile(path.join(rootPath, 'Dead', '3.flac'), 'c');
+    }
+  });
+
+  it('scan.parse never stores a good file as unreachable or unparsable when its helper fails', async () => {
+    const [row] = await sql`select id from files where scan_root_id = ${rootId} and rel_path = 'Broken/4.flac'`;
+    for (const ops of [['access'], ['parse']] as GateOp['op'][][]) {
+      gate.broken = { code: 'EHELPER', ops };
+      await expect(scanParseJob(ctx, { audioFileIds: [row.id] })).rejects.toMatchObject({ code: 'EHELPER' });
+      expect((await sql`select status, parse_error from files where id = ${row.id}`)[0]).toEqual({ status: 'present', parse_error: null });
+    }
+  });
+
+  it('cluster.dir never groups without its cue sheet when the read fails (EHELPER)', async () => {
+    await sql`insert into sidecar_files (library_id, scan_root_id, rel_path, kind) values (${libraryId}, ${rootId}, 'Broken/4.cue', 'cue')
+              on conflict do nothing`;
+    gate.broken = { code: 'EHELPER', ops: ['readSmall'] };
+    const albums = async () => (await sql`select count(*)::int as n from local_albums where library_id = ${libraryId}`)[0].n;
+    const before = await albums();
+    await expect(clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'Broken' })).rejects.toMatchObject({ code: 'EHELPER' });
+    expect(await albums()).toBe(before);
   });
 });
 

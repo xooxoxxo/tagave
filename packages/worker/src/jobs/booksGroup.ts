@@ -25,7 +25,7 @@ import { moduleEnabled } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { escapeLike } from '../lib/helpers.js';
 import { fileGate } from '../lib/fileGate.js';
-import { FolderOfflineError } from '../lib/folderOffline.js';
+import { FolderOfflineError, isGateFailure } from '../lib/folderOffline.js';
 import { openablePath } from './scanParse.js';
 
 export interface BooksGroupJobData {
@@ -117,7 +117,7 @@ export async function booksGroupJob(ctx: WorkerContext, data: BooksGroupJobData)
         const abs = await openablePath(data.scanRootId, root.path, row.rel_path);
         cover = abs ? await coverThumb(data.scanRootId, abs, row.handler, m) : null;
       } catch (err) {
-        if (err instanceof FolderOfflineError) throw err;
+        if (err instanceof FolderOfflineError || isGateFailure(err)) throw err;
         ctx.logger.warn({ fileId: row.id, err: (err as Error).message }, 'books.group: cover not read');
         cover = null;
       }

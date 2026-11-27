@@ -7,7 +7,7 @@ import { relDirname, tagsDigest } from '../lib/helpers.js';
 import { releaseReadyHolds, sendReleasedGrouping } from '../lib/clusterHold.js';
 import { groupingQueue, sendGrouping } from '../lib/appFiles.js';
 import { fileGate } from '../lib/fileGate.js';
-import { FolderOfflineError } from '../lib/folderOffline.js';
+import { FolderOfflineError, isAbsent, isGateFailure } from '../lib/folderOffline.js';
 
 export interface ScanParseJobData {
   /** files ids (the key keeps its old name: jobs queued before 0058 carry it) */
@@ -18,8 +18,9 @@ export interface ScanParseJobData {
  * The stored rel_path is NFC, but the bytes on disk may be NFD (or the exact
  * NFC). Try the stored spelling, then both normalization forms — the same
  * discipline the archive-cleaning tooling needed (decisions doc gotcha #1).
- * Through the file gate for the root `rootId`: an offline folder throws
- * FolderOfflineError, never "not reachable".
+ * Through the file gate for the root `rootId`. Only an absent spelling
+ * (isAbsent) tries the next; anything else (an offline folder, a failed
+ * helper, a closed gate) throws, never "not reachable".
  */
 export async function openablePath(rootId: string, rootPath: string, relPath: string): Promise<string | null> {
   const candidates = [relPath, relPath.normalize('NFD'), relPath.normalize('NFC')];
@@ -29,7 +30,7 @@ export async function openablePath(rootId: string, rootPath: string, relPath: st
       await fileGate().run(rootId, { op: 'access', path: abs });
       return abs;
     } catch (err) {
-      if (err instanceof FolderOfflineError) throw err;
+      if (!isAbsent(err)) throw err;
       /* try next spelling */
     }
   }
@@ -113,7 +114,8 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
         })
         .where(eq(files.id, row.id));
     } catch (err) {
-      if (err instanceof FolderOfflineError) throw err;
+      // the share offline, or the gate failed: not the file's error
+      if (err instanceof FolderOfflineError || isGateFailure(err)) throw err;
       // a parser message can quote the file's bytes; Postgres text cannot hold NUL
       await failed(row.id, noNul(`${(err as Error).name ?? 'Error'}: ${(err as Error).message}`)!.slice(0, 2000));
     }

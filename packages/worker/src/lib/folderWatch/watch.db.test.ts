@@ -128,6 +128,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
     expect(await reach(rootId)).toMatchObject({ reach: 'offline', reach_reason: 'timeout', reach_since: T2 });
   });
 
+  it('a probe that meets a closed gate (shutdown) records no reading for that root', async () => {
+    const closed = vi.fn(async (): Promise<ProbeOutcome> => { throw Object.assign(new Error('The file gate is closed'), { code: 'EGATECLOSED' }); });
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, probe: closed, now: clock });
+    expect((await w.tick()).has(rootId)).toBe(false);
+    expect(probesOf(closed)).toHaveLength(1);
+    expect(await reach(rootId)).toMatchObject({ reach: 'online', reach_reason: null, reach_checked_at: null });
+  });
+
   it('coming back queues one scan: quick after offline, full after not connected', async () => {
     const back = { ctx, env: ENV, readMountinfo: async () => NFS_INFO, port: async () => true, probe: vi.fn(async () => LISTING), now: clock };
     await setReach(rootId, 'offline', 'server_silent', T0);

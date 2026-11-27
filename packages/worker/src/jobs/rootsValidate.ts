@@ -5,7 +5,7 @@ import { SCAN_ROOT_EMPTY_MESSAGE } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { fileGate } from '../lib/fileGate.js';
 import type { DirPage } from '../lib/fileHelper.js';
-import { FolderOfflineError } from '../lib/folderOffline.js';
+import { FolderOfflineError, isGateFailure } from '../lib/folderOffline.js';
 
 export interface RootsValidateJobData {
   scanRootId?: string;
@@ -66,7 +66,8 @@ export async function probeRoot(rootPath: string, writableIntent: boolean, rootI
     isDirectory = (await gate.run<{ isDirectory: boolean }>(rootId, { op: 'stat', path: rootPath })).isDirectory;
     if (isDirectory) empty = (await gate.run<DirPage>(rootId, { op: 'readdirPage', path: rootPath, limit: 1 })).entries.length === 0;
   } catch (e) {
-    if (e instanceof FolderOfflineError) throw e;
+    // offline, or the gate failed: no verdict on a folder it could not see
+    if (e instanceof FolderOfflineError || isGateFailure(e)) throw e;
     err = e as NodeJS.ErrnoException;
   }
   const { status, message } = classifyProbe(err, isDirectory);
@@ -76,7 +77,7 @@ export async function probeRoot(rootPath: string, writableIntent: boolean, rootI
   try {
     await gate.run(rootId, { op: 'access', path: rootPath, mode: 2 }); // W_OK
   } catch (e) {
-    if (e instanceof FolderOfflineError) throw e;
+    if (e instanceof FolderOfflineError || isGateFailure(e)) throw e;
     probeWritable = false;
     if (writableIntent) msg = 'mounted read-only';
   }

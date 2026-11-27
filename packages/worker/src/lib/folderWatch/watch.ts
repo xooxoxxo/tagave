@@ -27,6 +27,7 @@ import { databaseNow, dispatchMaintenanceTask, maintenanceSender, parkedSender, 
 import { musicMount, sharePort, validServer } from '@tagave/shared/mounts';
 import type { WorkerContext } from '../context.js';
 import { fileGate } from '../fileGate.js';
+import { isGateClosed } from '../folderOffline.js';
 import { musicName, realRootPath } from './paths.js';
 import { inMountTable, readMountinfo } from './mountTable.js';
 import { portAnswers } from './port.js';
@@ -142,7 +143,11 @@ export class FolderWatch {
       checks.push(
         this.check(root, mountinfo)
           .then((r) => void readings.set(root.id, r))
-          .catch((err) => this.deps.ctx.logger.warn({ err: (err as Error).message, scanRootId: root.id }, 'folder watch: check failed'))
+          .catch((err) => {
+            // The gate shut down (the worker is stopping): no reading for this tick, not offline.
+            if (isGateClosed(err)) return;
+            this.deps.ctx.logger.warn({ err: (err as Error).message, scanRootId: root.id }, 'folder watch: check failed');
+          })
           .finally(() => this.inFlight.delete(root.id)),
       );
     }

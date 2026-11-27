@@ -215,7 +215,11 @@ describe('fileHelper', () => {
     const err = await g.run('r', { op: 'writeTagged', path: abs, handlerId: 'audio', values: { title: 'Changed' } }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(FolderOfflineError);
     expect((err as FolderOfflineError).reason).toBe('timeout');
-    expect(g.stuckCount('r')).toBe(1);
+    // The killed sidecar counts while it lives (ruling R16). Its stuckGone may reach the gate before or
+    // after the stuck answer (fileGate.test.ts covers both orders): either way the count ends at 0, with
+    // the helper still alive.
+    expect(g.stuckCount('r')).toBeLessThanOrEqual(1);
+    expect(await until(() => g.stuckCount('r') === 0, 3_000)).toBe(true);
     expect(Buffer.compare(await readFile(abs), FLAC_FIXTURE)).toBe(0);
     expect((await readdir(dir)).sort()).toEqual(['.fake-python', 'a.flac']);
     // The helper itself is fine and takes the next op.
