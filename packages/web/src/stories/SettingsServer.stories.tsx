@@ -170,7 +170,7 @@ const at = '2026-11-01T10:00:00.000Z';
 const root = (over: Partial<ScanRoot>): ScanRoot => ({
   id: '11111111-1111-4111-8111-111111111111', libraryId: '22222222-2222-4222-8222-222222222222', path: '/music', displayName: 'Music',
   writable: true, enabled: true, pollIntervalS: 21600, validationStatus: 'ok', validationMessage: null, probeWritable: true,
-  lastScanAt: at, lastStatus: 'done', albumsFound: 1204, tracksFound: 14873, folderLink: 'smb://music.example.com/music/', createdAt: at, updatedAt: at, ...over,
+  lastScanAt: at, lastStatus: 'done', albumsFound: 1204, tracksFound: 14873, folderLink: 'smb://192.0.2.10/music/', createdAt: at, updatedAt: at, ...over,
 });
 const ROOTS: ScanRoot[] = [
   root({}),
