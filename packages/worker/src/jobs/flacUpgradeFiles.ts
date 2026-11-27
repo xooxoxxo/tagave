@@ -118,7 +118,7 @@ export async function stageUpgrade(ctx: WorkerContext, claim: MaintenanceRun, so
   const tags = await releaseTags(ctx, source.releaseId, tracks.map((track) => track.canon));
   const files: SwapFile[] = [];
   const finals = new Set<string>();
-  const tools = new FlacTools();
+  const tools = new FlacTools().forRoot(scanRootId);
   const writer = new MutagenTagWriter();
   try {
     await claim.current();

@@ -171,7 +171,7 @@ export async function planFromFile(tools: FlacTools, abs: string, tracks: PlanTr
 export async function analyzeSplit(ctx: WorkerContext, row: SplitRow, deps: SplitDeps, claim?: MaintenanceRun): Promise<Record<string, unknown>> {
   try {
     const src = await loadSource(ctx, row);
-    const plan = await planFromFile(deps.tools, src.abs,
+    const plan = await planFromFile(deps.tools.forRoot(src.album.scanRootId), src.abs,
       src.tracks.map((t) => ({ disc: t.mediumNo, position: t.position, title: t.title, lengthMs: t.lengthMs })));
     await claim?.current();
     const updated = await ctx.sql`
@@ -300,7 +300,8 @@ async function saveCheckpoint(ctx: WorkerContext, row: SplitRow, checkpoint: Spl
 }
 
 async function splitParts(ctx: WorkerContext, src: Source, plan: SplitPlan, temps: string[], deps: SplitDeps): Promise<string[]> {
-  const info = await deps.tools.streamInfo(src.abs);
+  const tools = deps.tools.forRoot(src.album.scanRootId);
+  const info = await tools.streamInfo(src.abs);
   if (info.totalSamples !== plan.totalSamples || info.sampleRate !== plan.sampleRate) throw new SplitStop('The file changed since the plan');
   if (src.tracks.length !== plan.tracks.length) throw new SplitStop('The release changed since the plan');
   const released = await releaseTags(ctx, src.album.releaseId, src.tracks);
@@ -312,13 +313,13 @@ async function splitParts(ctx: WorkerContext, src: Source, plan: SplitPlan, temp
   }
   for (const [index, track] of plan.tracks.entries()) {
     await deps.beforeWrite?.();
-    await deps.tools.encodePart(src.abs, track.startSample, track.endSample, temps[index]!);
+    await tools.encodePart(src.abs, track.startSample, track.endSample, temps[index]!);
     await deps.tags.write(temps[index]!, tags.get(src.tracks[index]!.id)!);
   }
   const written = [];
   for (const temp of temps) {
-    const decodes = await deps.tools.decodes(temp);
-    written.push({ decodes, samples: decodes ? (await deps.tools.streamInfo(temp)).totalSamples : -1 });
+    const decodes = await tools.decodes(temp);
+    written.push({ decodes, samples: decodes ? (await tools.streamInfo(temp)).totalSamples : -1 });
   }
   const problems = verifySplit(plan, written, SPLIT_LENGTH_SLACK_MS);
   if (problems.length) throw new SplitStop(problems.join('. '));

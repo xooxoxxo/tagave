@@ -217,7 +217,7 @@ async function scanPool(ctx: WorkerContext, libraryId: string, data: PoolScanJob
     const claimed = await ctx.sql`update pool_items set state = 'identifying', updated_at = now() where id = ${r.id} and state in ('waiting', 'inbox') returning id`;
     if (claimed.length === 0) continue;
     try {
-      const outcome = await identifyDrop(ctx, libraryId, root.path, r.id, r.group, deps);
+      const outcome = await identifyDrop(ctx, libraryId, { id: pool.scanRootId, path: root.path }, r.id, r.group, deps);
       if (outcome === 'importing') imported++;
       else inbox++;
     } catch (err) {
@@ -238,7 +238,8 @@ const str = (v: unknown): string | null => (Array.isArray(v) ? (v[0] ?? null) : 
 const int = (v: unknown): number | null => { const n = Number.parseInt(String(str(v) ?? ''), 10); return Number.isFinite(n) && n > 0 ? n : null; };
 
 /** Identify one dropped album and decide: import it, or leave it for the owner. */
-async function identifyDrop(ctx: WorkerContext, libraryId: string, root: string, itemId: string, g: Group, deps: PoolDeps): Promise<'importing' | 'inbox'> {
+async function identifyDrop(ctx: WorkerContext, libraryId: string, scanRoot: { id: string; path: string }, itemId: string, g: Group, deps: PoolDeps): Promise<'importing' | 'inbox'> {
+  const root = scanRoot.path;
   // the files as their tags read
   const read: Array<PoolFile & { fields: ReturnType<typeof currentFieldsFrom> }> = [];
   for (const a of g.audio.sort((x, y) => x.relPath.localeCompare(y.relPath))) {
@@ -297,7 +298,7 @@ async function identifyDrop(ctx: WorkerContext, libraryId: string, root: string,
     const perTrack: AcoustIdRecording[][] = [];
     for (const r of read) {
       try {
-        const fp = await fpcalcFingerprint(path.join(root, r.relPath));
+        const fp = await fpcalcFingerprint(path.join(root, r.relPath), { rootId: scanRoot.id });
         const key = cacheKey('acoustid-lookup', fingerprintHash(fp.fingerprint));
         perTrack.push(await cached<AcoustIdRecording[]>(ctx.sql, 'acoustid', key, 30 * 24 * 3600, () =>
           acoustidCall(ctx, () => p.acoustid!.lookup(fp.fingerprint, Math.round(fp.durationS)))));
