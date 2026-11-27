@@ -7,7 +7,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deadFolder } from '../../testkit/fifo.js';
 import { portAnswers } from './port.js';
 import { probeOnce } from './probeOnce.js';
@@ -49,6 +49,24 @@ describe('probeOnce', () => {
     expect(Date.now() - t).toBeLessThan(2_000);
     expect(await readFile(__filename, 'utf8')).toContain('gives up'); // the parent's fs is free
     await dead.cleanup();
+  });
+
+  it('tells the caller about a child it gave up on, and when that child is gone', async () => {
+    const dead = await deadFolder();
+    made.push(dead.dir);
+    let gone: Promise<void> | null = null;
+    const out = await probeOnce(dead.dir, ['pipe'], { deadlineMs: 300, childPath: HANG_CHILD, abandoned: (g) => { gone = g; } });
+    expect(out).toEqual({ kind: 'deadline' });
+    expect(gone).not.toBeNull();
+    await gone; // SIGKILL takes on a child stuck in user space
+    await dead.cleanup();
+  });
+
+  it('a child that answered is not reported as given up on once it has exited', async () => {
+    const dir = await tempDir();
+    const abandoned = vi.fn();
+    expect(await probeOnce(dir, [], { abandoned })).toMatchObject({ kind: 'listing' });
+    for (const [g] of abandoned.mock.calls) await g; // at most a child on its way out
   });
 
   it('a hung child it gave up on keeps nothing of the parent alive', async () => {

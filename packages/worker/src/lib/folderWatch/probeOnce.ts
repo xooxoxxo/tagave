@@ -57,7 +57,18 @@ function letGo(child: ChildProcess): void {
 export function probeOnce(
   dir: string,
   known: string[],
-  opts: { deadlineMs?: number; childPath?: string; stderr?: 'inherit' | 'ignore' } = {},
+  opts: {
+    deadlineMs?: number;
+    childPath?: string;
+    stderr?: 'inherit' | 'ignore';
+    /**
+     * Called when the probe lets go of a child that has not exited yet (the
+     * deadline): `gone` resolves once that child exits. A child stuck in the
+     * kernel may never exit, so the caller must not fork another for the
+     * same root while one is still there.
+     */
+    abandoned?: (gone: Promise<void>) => void;
+  } = {},
 ): Promise<ProbeOutcome> {
   const asked = known.slice(0, MAX_KNOWN);
   return new Promise<ProbeOutcome>((resolve) => {
@@ -81,6 +92,9 @@ export function probeOnce(
       child.off('error', onEnd);
       // Late events after we let go must not throw as unhandled 'error's.
       child.on('error', () => undefined);
+      if (opts.abandoned && child.exitCode === null && child.signalCode === null) {
+        opts.abandoned(new Promise<void>((done) => child.once('exit', () => done())));
+      }
       letGo(child);
       resolve(outcome);
     };
