@@ -90,6 +90,30 @@ When the folder above holds anything else, the installer lists it once (names on
 - `--music-parent DIR` names the folder right above the music folder, for example a folder that holds only the share.
 - `--music-direct` keeps the direct layout. It writes `TAGAVE_MUSIC_LAYOUT=direct` to `.env`, which later runs keep until a run with `--music-parent` (or until you delete the line).
 
+**Installs from before the parent layout.** An install on the direct layout moves to the parent layout on its own, once, when every check above passes. Only a writable install moves (`TAGAVE_MUSIC_MODE=rw` in `.env`); a read-only install keeps the direct layout. There is no terminal to ask, so it moves only when everything else in the folder above is a mount point. The move is tried:
+
+- at a Repair: the one you press in Settings › Updates, `./install-tagave.sh repair`, and the one tagave starts on its own after a restart;
+- at every update from 0.39.0 on, in the app or with `./install-tagave.sh update`. The update to 0.39.0 itself still runs the older updater and installer, so it moves nothing: the first move comes at a Repair or at the next update.
+
+On a move, tagave writes the parent layout's settings to `.env`, keeps the old file as `.env.bak`, starts the file worker and the player on them, and writes to its log the folder it now mounts and the other mount points in it. When a check refuses, the install stays direct and the log says why in one line, for example `the music share stays on the direct layout: the music folder is not a mount point or an fstab entry`. It tries again at each Repair and update: a few seconds of checks that only read, and that one line.
+
+To never move, add `TAGAVE_MUSIC_LAYOUT=direct` to `.env` (what `--music-direct` writes). To undo a move made by Repair, copy `.env.bak` back over `.env`, add that line, and run `docker compose up -d` in the install folder. After an update, `.env.bak` is the file from before the update; restore it only as part of [rolling the update back](operations.md#roll-back).
+
+To see what the move would do first, run the updater's `music-layout` command without `--apply`, the way the installer runs it (here for an install in `/srv/tagave`; put in your version, and your project name if it is not `tagave`):
+
+```sh
+cd /srv/tagave
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /srv/tagave:/srv/tagave -w /srv/tagave \
+  -e TAGAVE_INSTALL_DIR=/srv/tagave \
+  --network tagave_default \
+  --entrypoint node ghcr.io/xooxoxxo/tagave-updater:<version> \
+  /opt/tagave/updater/dist/cli.js music-layout
+```
+
+It reads the host as the move does, prints the decision, its reason and the `.env` lines it would write, and changes nothing. With `--apply` it makes the move.
+
 **Mount options.** tagave suggests this `/etc/fstab` line, with your own server and export:
 
 ```
@@ -103,6 +127,8 @@ When the folder above holds anything else, the installer lists it once (names on
 - No `x-systemd.idle-timeout`: tagave's scans would keep mounting the share again.
 
 When the music folder's fstab line has no `nofail` (or an NFS or SMB line has no `_netdev`), the installer prints a line like this once. It never edits fstab.
+
+With the in-app updater, Settings › Status reads the same line. Without `nofail` it shows **Music share at boot**: may stop this computer starting while the NAS is off, with the suggested line behind "?". A `soft` or `softerr` mount shows **Music share mount**: Mounted soft, as a note.
 
 ### Music on another computer
 
