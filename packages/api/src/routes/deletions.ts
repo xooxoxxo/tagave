@@ -18,7 +18,7 @@ import { getDb, getSql } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { markFilterCountsDirty } from '../lib/filterCounts.js';
 import { bustFilterCountsCache } from './albums.js';
-import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
+import { dispatchMaintenance, liveMaintenanceView } from '../lib/maintenance.js';
 import { albumsChanged } from '../lib/albumCare.js';
 import {
   createDeletions, deleteModeOf, deletingView, librarySettings, restoreFiles, requestEmptyTrash, trashRootIds, unmarkFiles,
@@ -123,6 +123,6 @@ export async function createDeletionRoutes(fastify: FastifyInstance) {
     const { fileIds } = parse(emptyTrashSchema, request.body);
     const task = await requestEmptyTrash(getSql(), libraryId, fileIds);
     await dispatchMaintenance(task.id, request.log);
-    return reply.status(202).send(maintenanceView(task, await liveMaintenanceQueues()));
+    return reply.status(202).send(await liveMaintenanceView(task));
   });
 }

@@ -19,7 +19,7 @@ import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER, type DecidedKind, type 
 import { scanRoots as scanRootRows, files as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
-import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
+import { dispatchMaintenance, liveMaintenanceView } from '../lib/maintenance.js';
 import { albumsChanged } from '../lib/albumCare.js';
 import { containsPattern, textMatches } from '../lib/textMatch.js';
 import { filesOfflineFields } from '../lib/filesOffline.js';
@@ -1157,7 +1157,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
   type CoverParams = { libraryId: string; albumId: string };
   fastify.get<{ Params: CoverParams }>(coverEmbedPath, coverOwner, async ({ params: { libraryId, albumId } }) => {
     const task = await latestMaintenanceTask(getSql(), libraryId, 'embed-cover', albumId);
-    return { task: task ? maintenanceView(task, await liveMaintenanceQueues()) : null };
+    return { task: task ? await liveMaintenanceView(task) : null };
   });
 
   fastify.post<{ Params: CoverParams }>(coverEmbedPath, coverOwner, async (request, reply) => {
@@ -1179,7 +1179,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       input: { albumId, fileIds: rows.map(({ id }) => id) }, stage: 'Cover embedding queued',
     });
     await dispatchMaintenance(task.id, request.log);
-    return reply.status(202).send({ task: maintenanceView(task, await liveMaintenanceQueues()) });
+    return reply.status(202).send({ task: await liveMaintenanceView(task) });
   });
 
   // IDN-6 manual entry: paste a MusicBrainz release / release-group URL or id,

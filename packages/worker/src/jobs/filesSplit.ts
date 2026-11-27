@@ -45,7 +45,8 @@ import { FlacTools } from '../lib/flacTools.js';
 import { FolderOfflineError, isGateFailure } from '../lib/folderOffline.js';
 import { relDirname } from '../lib/helpers.js';
 import { MutagenTagWriter } from '../lib/tagWriter.js';
-import { PAUSED_OFFLINE_STAGE, runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
+import { PAUSED_OFFLINE_STAGE } from '@tagave/shared';
+import { runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
 import { fileDigest, fileStat, insideRoot, mountIdentity, sameFile } from '../lib/fileRecovery.js';
 
 export interface SplitDeps {

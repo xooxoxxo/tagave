@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { JobView } from '@tagave/shared';
-import { deriveJobViews, jobLabel, jobSummary, parseProgress, retryRequest, summarizeJobs, toIso, type JobRow } from './jobView.js';
+import { deriveJobViews, jobLabel, jobSummary, parkedJobView, parseProgress, retryRequest, summarizeJobs, toIso, type JobRow } from './jobView.js';
 
 const LIB = '01a05c38-c7d3-7d58-b32a-0f0ecc428e64';
 const ROOT = 'bd4393e4-681f-438d-83da-69253bad8806';
@@ -45,6 +45,22 @@ describe('jobLabel', () => {
     expect(jobLabel('identify.sweep')).toBe('Identify albums');
     expect(jobLabel('some.future.job')).toBe('Background task');
     expect(jobLabel('tags.preview')).toBe('Preview a tag plan');
+    expect(jobLabel('tags.apply')).toBe('Write tags');
+  });
+});
+
+describe('parkedJobView', () => {
+  it('shows work held for an offline music folder as Waiting, Music folder offline', () => {
+    const at = '2026-11-24T14:02:00.000Z';
+    const view = parkedJobView({ id: ROOT, queue: 'scan.root', taskQueue: null, rootName: 'Music', parkedAt: at });
+    expect(view).toEqual({
+      id: ROOT, type: 'scan.root', label: 'Scan Music', status: 'waiting', summary: 'Music folder offline',
+      error: null, progress: null, startedAt: null, finishedAt: null, createdAt: at, at,
+      routine: false, retryable: false, resolvedAt: null, retrying: false, needsAttention: false,
+    } satisfies JobView);
+    // a parked maintenance task is named by the task's own queue
+    expect(parkedJobView({ id: ROOT, queue: 'maintenance', taskQueue: 'tags.apply', rootName: 'Music', parkedAt: new Date(at) }).label).toBe('Write tags');
+    expect(parkedJobView({ id: ROOT, queue: 'maintenance', taskQueue: null, rootName: 'Music', parkedAt: at }).label).toBe('Background task');
   });
 });
 

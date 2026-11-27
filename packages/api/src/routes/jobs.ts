@@ -6,7 +6,7 @@ import { JOB_EVENTS_CHANNEL, LEGACY_JOB_EVENTS_CHANNEL } from '@tagave/shared/jo
 import { getDb, getSql } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
-import { HIDDEN_JOB_TYPES, deriveJobViews, retryRequest, summarizeJobs, type JobRow } from '../lib/jobView.js';
+import { HIDDEN_JOB_TYPES, deriveJobViews, parkedJobView, retryRequest, summarizeJobs, type JobRow, type ParkedRow } from '../lib/jobView.js';
 
 /** How far back the activity page looks, and at most how many rows it reads. */
 const WINDOW_DAYS = 30;
@@ -68,10 +68,31 @@ async function ownLibrary(db: Db, userId: string, libraryId: string): Promise<vo
   if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 }
 
-/** Every visible view for the library, derived with the context of later runs. */
+/** At most this many parked jobs are listed (a parked scan can hold many file reads). */
+const PARKED_ROWS = 500;
+
+/**
+ * Work held for the library's offline music folders (parked_jobs, 0097), one
+ * view per row, newest first: Waiting, "Music folder offline". A parked
+ * maintenance task is named by its own queue.
+ */
+export async function loadParkedViews(sql: ReturnType<typeof getSql>, libraryId: string): Promise<JobView[]> {
+  const rows = await sql<ParkedRow[]>`
+    select p.id::text as id, p.queue, t.queue as "taskQueue", r.display_name as "rootName", p.parked_at as "parkedAt"
+      from parked_jobs p
+      join scan_roots r on r.id = p.scan_root_id
+      left join maintenance_tasks t on p.queue = 'maintenance' and t.id::text = p.data ->> 'taskId'
+     where r.library_id = ${libraryId}
+     order by p.parked_at desc
+     limit ${PARKED_ROWS}`;
+  return rows.map(parkedJobView);
+}
+
+/** Every visible view for the library, derived with the context of later runs, and the parked work. */
 async function loadViews(db: Db, libraryId: string, jobId?: string): Promise<JobView[]> {
   const rows = await loadJobRows(db, libraryId, jobId);
-  return deriveJobViews(rows, libraryId).filter((v): v is JobView => v !== null);
+  const parked = await loadParkedViews(getSql(), libraryId);
+  return [...parked, ...deriveJobViews(rows, libraryId).filter((v): v is JobView => v !== null)];
 }
 
 const subscribers = new Map<string, Set<FastifyReply>>();

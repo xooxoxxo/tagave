@@ -3,6 +3,7 @@ import {
   type MaintenanceRow, type MaintenanceUpdate, type MaintenanceWork,
 } from '@tagave/db';
 import { JOB_EVENTS_CHANNEL } from '@tagave/shared/job';
+import { PAUSED_OFFLINE_STAGE } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { FolderOfflineError } from './folderOffline.js';
 import { folderWatch } from './folderWatch/watch.js';
@@ -16,7 +17,6 @@ import { WAITING_STAGE } from './parking.js';
  * instead (Decision 2): interrupted, with the folder in its checkpoint.
  */
 export const RESUMES_ON_ITS_OWN: readonly string[] = ['tags.apply', 'files.embedCover', 'art.fetch'];
-export const PAUSED_OFFLINE_STAGE = 'Paused while the music folder is offline';
 
 export interface MaintenanceRun {
   row: MaintenanceRow;

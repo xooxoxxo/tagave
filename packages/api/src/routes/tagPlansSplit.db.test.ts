@@ -205,4 +205,25 @@ describe.skipIf(!adminUrl)('a tag plan splits a one-file album first (integratio
     expect((await call(owner, 'POST', `/tag-plans/${plan.id}/resume`)).statusCode).toBe(202);
     expect(sent).toContainEqual({ name: 'tags.apply', data: { planId: plan.id, maintenance: { taskId: expect.any(String), attemptId: expect.any(String) } } });
   });
+
+  it('Apply while the plan\'s music folder is offline still queues, and says it waits', async () => {
+    const [file] = await sql<Array<{ id: string }>>`select id::text as id from files where rel_path like ${`A/${twoFiles}/%`} limit 1`;
+    const previewed = async () => {
+      const plan = (await create(owner, [twoFiles])).json();
+      await sql`insert into tag_plan_items (tag_plan_id, audio_file_id, before, after, diff) values (${plan.id}, ${file!.id}, '{}', '{}', '[]')`;
+      await sql`update tag_plans set status = 'previewed' where id = ${plan.id}`;
+      return plan.id as string;
+    };
+    try {
+      await sql`update scan_roots set reach = 'offline' where id = ${rootId}`;
+      const away = await call(owner, 'POST', `/tag-plans/${await previewed()}/apply`);
+      expect(away.statusCode).toBe(202);
+      expect(away.json()).toMatchObject({ waiting: true });
+    } finally {
+      await sql`update scan_roots set reach = 'online' where id = ${rootId}`;
+    }
+    const here = await call(owner, 'POST', `/tag-plans/${await previewed()}/apply`);
+    expect(here.statusCode).toBe(202);
+    expect(here.json().waiting).toBeUndefined();
+  });
 });

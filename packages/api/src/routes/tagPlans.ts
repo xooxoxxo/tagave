@@ -15,6 +15,7 @@ import {
   releaseGroupArtists,
   canonicalTracks,
   latestMaintenanceTask,
+  notOnlineRoots,
   restartMaintenanceTask,
   saveMaintenanceTask,
 } from '@tagave/db';
@@ -37,7 +38,7 @@ import {
   withSplitCuts,
   type SplitPlan,
 } from '@tagave/shared';
-import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
+import { dispatchMaintenance, liveMaintenanceView } from '../lib/maintenance.js';
 import { ensurePlanSplits, hasPendingSplits, planSplitsOf, splitGate } from '../lib/planSplits.js';
 
 /**
@@ -669,7 +670,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       if (can(request.user.role, 'system.manage')) {
         const task = await latestMaintenanceTask(getSql(), libraryId, 'split', `plan:${planId}:apply`);
-        if (task && task.state !== 'done') formatted.applyTask = maintenanceView(task, await liveMaintenanceQueues());
+        if (task && task.state !== 'done') formatted.applyTask = await liveMaintenanceView(task);
       }
 
       reply.send(formatted);
@@ -1042,6 +1043,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .from(tagPlanItems)
         .where(eq(tagPlanItems.tagPlanId, planId));
 
+      let scanRootIds: string[] = [];
       if (items.length > 0) {
         // Get all audio files to find their scan roots
         const audioFileIds = items.map((i) => i.audioFileId);
@@ -1051,7 +1053,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           .where(inArray(files.id, audioFileIds));
 
         // Get unique scan root IDs
-        const scanRootIds = Array.from(new Set(planFiles.map((f) => f.scanRootId)));
+        scanRootIds = Array.from(new Set(planFiles.map((f) => f.scanRootId)));
 
         // Check that all scan roots are writable
         const roots = await db
@@ -1064,6 +1066,9 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           throw new ApiError(403, 'Forbidden', 'Not all scan roots are writable');
         }
       }
+      // a music folder of the plan's files is offline: the apply still queues, and waits for it (the worker parks it)
+      const away = scanRootIds.length > 0 ? await notOnlineRoots(getSql()) : new Map();
+      const waiting = scanRootIds.some((id) => away.has(id)) ? { waiting: true as const } : {};
 
       if (gate.splitIds.length > 0) {
         const task = await getSql().begin(async (tx) => {
@@ -1083,7 +1088,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           });
         });
         await dispatchMaintenance(task.id, request.log);
-        return reply.status(202).send({ jobId: task.attempt_id, singletonKey: `tags.apply:${planId}`, message: 'Apply job enqueued' });
+        return reply.status(202).send({ jobId: task.attempt_id, singletonKey: `tags.apply:${planId}`, message: 'Apply job enqueued', ...waiting });
       }
 
       // Enqueue the tags.apply job with singletonKey
@@ -1097,6 +1102,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         jobId,
         singletonKey,
         message: 'Apply job enqueued',
+        ...waiting,
       });
     }
   );
