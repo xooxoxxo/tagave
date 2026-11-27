@@ -1,8 +1,11 @@
-import { access, opendir, stat } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
 import { eq, and } from 'drizzle-orm';
-import { scanRoots } from '@tagave/db';
+import { rootReach, scanRoots } from '@tagave/db';
 import { SCAN_ROOT_EMPTY_MESSAGE } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
+import { fileGate } from '../lib/fileGate.js';
+import type { DirPage } from '../lib/fileHelper.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 
 export interface RootsValidateJobData {
   scanRootId?: string;
@@ -49,23 +52,21 @@ export interface RootProbe {
  * spec LIB-1/LIB-5: one probe used by roots.validate and by scan.root before
  * it touches anything. stat → must be a directory → opendir (a dir that
  * exists but cannot be read is 'unreadable', not 'ok') → W_OK (read-only
- * mounts fail access(2) with EROFS).
+ * mounts fail access(2) with EROFS). Every call goes through the file gate
+ * for the root `rootId`; an offline folder (a gate deadline or an offline
+ * error code) throws FolderOfflineError, so the caller parks instead of
+ * stamping a verdict on a folder it could not see.
  */
-export async function probeRoot(rootPath: string, writableIntent: boolean): Promise<RootProbe> {
+export async function probeRoot(rootPath: string, writableIntent: boolean, rootId: string): Promise<RootProbe> {
+  const gate = fileGate();
   let err: NodeJS.ErrnoException | null = null;
   let isDirectory: boolean | null = null;
   let empty = false;
   try {
-    isDirectory = (await stat(rootPath)).isDirectory();
-    if (isDirectory) {
-      const d = await opendir(rootPath);
-      try {
-        empty = (await d.read()) === null;
-      } finally {
-        await d.close();
-      }
-    }
+    isDirectory = (await gate.run<{ isDirectory: boolean }>(rootId, { op: 'stat', path: rootPath })).isDirectory;
+    if (isDirectory) empty = (await gate.run<DirPage>(rootId, { op: 'readdirPage', path: rootPath, limit: 1 })).entries.length === 0;
   } catch (e) {
+    if (e instanceof FolderOfflineError) throw e;
     err = e as NodeJS.ErrnoException;
   }
   const { status, message } = classifyProbe(err, isDirectory);
@@ -73,8 +74,9 @@ export async function probeRoot(rootPath: string, writableIntent: boolean): Prom
   let probeWritable = true;
   let msg: string | null = message ?? null;
   try {
-    await access(rootPath, 2); // W_OK
-  } catch {
+    await gate.run(rootId, { op: 'access', path: rootPath, mode: 2 }); // W_OK
+  } catch (e) {
+    if (e instanceof FolderOfflineError) throw e;
     probeWritable = false;
     if (writableIntent) msg = 'mounted read-only';
   }
@@ -131,6 +133,9 @@ export async function hostPathHere(rootPath: string): Promise<string | null> {
  * spec LIB-1: Validate scan roots by probing on the worker host.
  * Roots probe stat → classification → update validation columns.
  * When writable intent is true but probe_writable is false, status stays 'ok' with read-only message.
+ * A root that is not online (offline or not connected; unknown, before the
+ * watch's first reading, is probed) is skipped, and so is one that goes
+ * offline during its probe: its validation columns stay as they are.
  */
 export async function rootsValidateJob(ctx: WorkerContext, data: RootsValidateJobData): Promise<void> {
   const where = [];
@@ -148,7 +153,20 @@ export async function rootsValidateJob(ctx: WorkerContext, data: RootsValidateJo
   const roots = await query;
 
   for (const root of roots) {
-    const { status, message: validationMessage, probeWritable } = await probeRoot(root.path, root.writable);
+    const { reach } = await rootReach(ctx.sql, root.id);
+    if (reach !== 'online' && reach !== 'unknown') {
+      ctx.logger.info({ scanRootId: root.id, reach }, 'scan root not validated: music folder offline');
+      continue;
+    }
+    let probe: RootProbe;
+    try {
+      probe = await probeRoot(root.path, root.writable, root.id);
+    } catch (err) {
+      if (!(err instanceof FolderOfflineError)) throw err;
+      ctx.logger.info({ scanRootId: root.id, reason: err.reason }, 'scan root not validated: music folder offline');
+      continue;
+    }
+    const { status, message: validationMessage, probeWritable } = probe;
 
     // Update the root's validation columns
     await ctx.db

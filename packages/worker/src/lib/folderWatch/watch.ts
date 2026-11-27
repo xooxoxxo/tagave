@@ -5,9 +5,11 @@
  *
  * Port first, path never: for a root on a network share it asks the share's
  * server on its port, and a silent server reads offline without a touch of
- * the path. Otherwise a forked child looks at the root (`probeOnce`). This
- * process reads only /proc/self/mountinfo (procfs, answered by the kernel),
- * never the root's path.
+ * the path. Otherwise the file gate's helpers look at the root (`gateProbe`):
+ * a probe passes the gate's stuck cap, and while the root's last probe
+ * helper is still stuck, it reads a deadline without forking another. This
+ * process reads only /proc/self/mountinfo (procfs, answered by the kernel,
+ * mountTable.ts), never the root's path.
  *
  * One check per root at a time: a root whose check has not ended is skipped,
  * and a tick never waits on a check an earlier tick started, so one hung
@@ -21,25 +23,28 @@
  * Coming back from offline or not connected (`onlineAgain`) sends the
  * root's parked work again and queues a scan of the root.
  */
-import { readFile } from 'node:fs/promises';
 import { databaseNow, dispatchMaintenanceTask, maintenanceSender, parkedSender, recordReach, releaseParkedRows, rootsToWatch, type RootToWatch } from '@tagave/db';
-import { mountPoints, musicMount, sharePort, validServer } from '@tagave/shared/mounts';
+import { musicMount, sharePort, validServer } from '@tagave/shared/mounts';
 import type { WorkerContext } from '../context.js';
 import { fileGate } from '../fileGate.js';
 import { musicName, realRootPath } from './paths.js';
+import { inMountTable, readMountinfo } from './mountTable.js';
 import { portAnswers } from './port.js';
-import { probeOnce } from './probeOnce.js';
+import { gateProbe } from './probe.js';
 import { classify, nextReach, type ProbeOutcome, type Reading, type ReachState } from './reach.js';
 
 const EVERY_MS = 30_000;
-const MOUNTINFO = '/proc/self/mountinfo';
+
+/** One look at a root's path: `dir` is the real path, `known` the sampled files relative to it. */
+export type RootProbe = (rootId: string, dir: string, known: string[]) => Promise<ProbeOutcome>;
 
 export interface FolderWatchDeps {
   ctx: WorkerContext;
   env?: NodeJS.ProcessEnv;
-  /** default: readFile('/proc/self/mountinfo') (procfs, never the share) */
+  /** default: /proc/self/mountinfo (procfs, never the share; mountTable.ts) */
   readMountinfo?: () => Promise<string>;
-  probe?: typeof probeOnce;
+  /** default: `gateProbe` through the process's file gate */
+  probe?: RootProbe;
   port?: typeof portAnswers;
   now?: () => Date;
   onlineAgain?: (rootId: string, after: 'offline' | 'unmounted', before?: Date) => Promise<void>;
@@ -53,11 +58,6 @@ export interface FolderWatchDeps {
 
 type Deps = Required<Omit<FolderWatchDeps, 'env'>>;
 
-/** The path without trailing slashes, as mountinfo lists it. */
-function bare(dir: string): string {
-  return dir.length > 1 ? dir.replace(/\/+$/, '') : dir;
-}
-
 export class FolderWatch {
   private readonly deps: Deps;
   private readonly everyMs: number;
@@ -66,13 +66,6 @@ export class FolderWatch {
   private readonly states = new Map<string, ReachState>();
   /** Roots seen as a mount point of their own at least once (in memory only). */
   private readonly wasMount = new Set<string>();
-  /**
-   * Roots with a probe child the watch gave up on that has not exited (a
-   * share stuck in the kernel can keep it in D state for good). No new child
-   * is forked for them: each reading is a deadline until the child is gone,
-   * so stuck children never pile up.
-   */
-  private readonly stuck = new Set<string>();
   /** Roots whose check has not ended. */
   private readonly inFlight = new Set<string>();
   /** A full tick is waiting for its roots (and the mount table). */
@@ -83,8 +76,8 @@ export class FolderWatch {
     const { ctx } = deps;
     this.deps = {
       ctx,
-      readMountinfo: deps.readMountinfo ?? (() => readFile(MOUNTINFO, 'utf8')),
-      probe: deps.probe ?? probeOnce,
+      readMountinfo: deps.readMountinfo ?? readMountinfo,
+      probe: deps.probe ?? ((rootId, dir, known) => gateProbe(fileGate(), rootId, dir, known)),
       record: deps.record ?? recordReach,
       roots: deps.roots ?? rootsToWatch,
       port: deps.port ?? portAnswers,
@@ -171,16 +164,10 @@ export class FolderWatch {
     const port = mount.fstype !== null ? sharePort(mount.fstype) : null;
     if (server !== null && port !== null && !(await this.deps.port(server, port))) return { kind: 'server_silent' };
     // No mount table: no lost mount point (not "not a mount point"), and what was seen before is kept.
-    const isMountPoint = mountinfo !== null && mountPoints(mountinfo).has(bare(real));
+    const isMountPoint = mountinfo !== null && inMountTable(mountinfo, real);
     const wasMountPoint = mountinfo !== null && this.wasMount.has(root.id);
     if (isMountPoint) this.wasMount.add(root.id);
-    if (this.stuck.has(root.id)) return { kind: 'deadline' };
-    const outcome = await this.deps.probe(real, root.known, {
-      abandoned: (gone) => {
-        this.stuck.add(root.id);
-        void gone.then(() => this.stuck.delete(root.id));
-      },
-    });
+    const outcome = await this.deps.probe(root.id, real, root.known);
     return outcome.kind === 'listing' ? { ...outcome, isMountPoint, wasMountPoint } : outcome;
   }
 

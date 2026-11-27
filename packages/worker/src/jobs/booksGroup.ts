@@ -13,7 +13,9 @@
  *
  * then drops the library's works without editions and authors without works.
  * Off (the books app turned off): nothing. Rides with cluster.dir on the
- * file worker: the covers are read from the files.
+ * file worker: the covers are read from the files, through the file gate
+ * (the handler's `cover` op in a file helper). An offline folder stops the
+ * job before it writes a missing cover over a known one: it parks.
  */
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
@@ -22,6 +24,8 @@ import { fileTypeHandler, titleFromName, type BookMetadata } from '@tagave/core/
 import { moduleEnabled } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { escapeLike } from '../lib/helpers.js';
+import { fileGate } from '../lib/fileGate.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 import { openablePath } from './scanParse.js';
 
 export interface BooksGroupJobData {
@@ -54,9 +58,11 @@ interface FileRow {
   reconcile_hold_at: Date | null;
 }
 
-async function coverThumb(abs: string, handler: string, metadata: unknown): Promise<{ thumb: Buffer; sha256: Buffer } | null> {
+async function coverThumb(rootId: string, abs: string, handler: string, metadata: unknown): Promise<{ thumb: Buffer; sha256: Buffer } | null> {
   const h = fileTypeHandler(handler);
-  const cover = h?.cover ? await h.cover(abs, metadata) : null;
+  const cover = h?.cover
+    ? await fileGate().run<{ bytes: Uint8Array; mediaType: string } | null>(rootId, { op: 'cover', handlerId: h.id, path: abs, metadata })
+    : null;
   if (!cover) return null;
   const thumb = await sharp(cover.bytes, { failOn: 'none' })
     .resize(BOOK_COVER_SIZE, BOOK_COVER_SIZE, { fit: 'inside', withoutEnlargement: true })
@@ -108,9 +114,10 @@ export async function booksGroupJob(ctx: WorkerContext, data: BooksGroupJobData)
     let cover: { thumb: Buffer; sha256: Buffer } | null | undefined;
     if (!sameParse) {
       try {
-        const abs = await openablePath(root.path, row.rel_path);
-        cover = abs ? await coverThumb(abs, row.handler, m) : null;
+        const abs = await openablePath(data.scanRootId, root.path, row.rel_path);
+        cover = abs ? await coverThumb(data.scanRootId, abs, row.handler, m) : null;
       } catch (err) {
+        if (err instanceof FolderOfflineError) throw err;
         ctx.logger.warn({ fileId: row.id, err: (err as Error).message }, 'books.group: cover not read');
         cover = null;
       }

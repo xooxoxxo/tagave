@@ -2,8 +2,10 @@ import { eq } from 'drizzle-orm';
 import { MUSIC_APP } from '@tagave/core/facets';
 import { libraryApp, scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
-import { walkRoot, type WalkMode } from '../lib/walk.js';
-import { finishNotes } from '../lib/scanFinish.js';
+import { walkRoot, WalkOfflineError, type WalkMode } from '../lib/walk.js';
+import { finishNotes, OFFLINE_SKIP } from '../lib/scanFinish.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
+import { requireOnline } from '../lib/parking.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { hostPathHere, probeRoot } from './rootsValidate.js';
@@ -24,13 +26,29 @@ export interface ScanRootJobData {
 const PARSE_BATCH = 50;
 /** seconds between a scan that changed files and the gap check it queues */
 const GAPS_AFTER_SCAN_S = 15 * 60;
-/** directories walked at once — NFS round trips dominate, not CPU */
-const WALK_CONCURRENCY = 8;
+
+/** Hands files to scan.parse, a batch per job. */
+export async function sendParse(ctx: WorkerContext, ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += PARSE_BATCH) {
+    await ctx.boss.send('scan.parse', { audioFileIds: ids.slice(i, i + PARSE_BATCH) });
+  }
+}
+
+/**
+ * A walk the folder's going offline cut short wrote some rows as new or
+ * changed before it stopped: they go to scan.parse (which waits for the
+ * folder), or the next walk would take them as parsed.
+ */
+export async function sendCutShortParse(ctx: WorkerContext, err: FolderOfflineError): Promise<void> {
+  if (err instanceof WalkOfflineError) await sendParse(ctx, err.changedIds);
+}
 
 /**
  * spec LIB-3/LIB-5/LIB-7. Walks the root, indexes new/changed audio files,
  * records sidecars, marks vanished files missing — but only after a complete
- * walk, and never when the root looks unmounted.
+ * walk, and never when the root looks unmounted or is offline. A root that
+ * is not online, or goes offline during the scan, aborts the scan with
+ * `offline: true` and rethrows the FolderOfflineError for the job to park.
  */
 export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Promise<void> {
   // confirmMissing always walks in full: a quick walk counts the rows of an unchanged
@@ -73,39 +91,50 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   const scanId = scanRow.id;
   const startedMs = Date.now();
 
-  // unmounted: the LIB-5 guard stopped it (db › musicFolder.ts reads it for the notice and the updater's self-heal)
-  const fail = async (status: string, message: string, unmounted = false) => {
+  // unmounted: the LIB-5 guard stopped it (db › musicFolder.ts reads it for the notice and the updater's self-heal);
+  // offline: the music folder is offline (the job parks; nothing was marked)
+  const fail = async (status: string, message: string, flags: { unmounted?: boolean; offline?: boolean } = {}) => {
     await ctx.db
       .update(scans)
-      .set({ status, finishedAt: new Date(), stats: { mode, error: message, ...(unmounted ? { unmounted: true } : {}) } })
+      .set({ status, finishedAt: new Date(), stats: { mode, error: message, ...(flags.unmounted ? { unmounted: true } : {}), ...(flags.offline ? { offline: true } : {}) } })
       .where(eq(scans.id, scanId));
     await ctx.db
       .update(scanRoots)
       .set({ lastScanAt: new Date(), lastStatus: status })
       .where(eq(scanRoots.id, root.id));
     await reportProgress(ctx, jobRunId, {
-      libraryId: root.libraryId, type: 'scan.root', state: 'failed', error: message,
+      libraryId: root.libraryId, type: 'scan.root', state: flags.offline ? 'cancelled' : 'failed', error: message,
     });
   };
-
-  // LIB-1/LIB-5: probe the root on this host, stamp the validation columns,
-  // and abort before anything is marked missing when it is not readable.
-  const { status, message: validationMessage, probeWritable } = await probeRoot(root.path, root.writable);
-  await ctx.db
-    .update(scanRoots)
-    .set({ validationStatus: status, validationMessage, validatedAt: new Date(), probeWritable, hostPath: await hostPathHere(root.path) })
-    .where(eq(scanRoots.id, root.id));
-  if (status !== 'ok') {
-    await fail('aborted', `root ${status}: ${validationMessage ?? status}`);
-    return;
-  }
+  const offline = async (err: FolderOfflineError) => {
+    await fail('aborted', OFFLINE_SKIP, { offline: true });
+    await sendCutShortParse(ctx, err);
+  };
 
   let walk;
+  try {
+    // Not online (offline or not connected): parked at once, the path never touched.
+    await requireOnline(ctx, root.id);
+    // LIB-1/LIB-5: probe the root on this host, stamp the validation columns,
+    // and abort before anything is marked missing when it is not readable.
+    const { status, message: validationMessage, probeWritable } = await probeRoot(root.path, root.writable, root.id);
+    await ctx.db
+      .update(scanRoots)
+      .set({ validationStatus: status, validationMessage, validatedAt: new Date(), probeWritable, hostPath: await hostPathHere(root.path) })
+      .where(eq(scanRoots.id, root.id));
+    if (status !== 'ok') {
+      await fail('aborted', `root ${status}: ${validationMessage ?? status}`);
+      return;
+    }
+  } catch (err) {
+    if (err instanceof FolderOfflineError) await offline(err);
+    throw err;
+  }
+
   try {
     walk = await walkRoot(ctx, root, {
       mode,
       handlers,
-      concurrency: WALK_CONCURRENCY,
       confirmMissing: data.confirmMissing === true,
       onProgress: async (filesSeen, dir) => {
         await ctx.db.update(scans).set({ cursor: { lastDir: dir, filesSeen } }).where(eq(scans.id, scanId));
@@ -116,21 +145,20 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
       },
     });
   } catch (err) {
-    await fail('failed', `walk failed: ${(err as Error).message}`);
+    if (err instanceof FolderOfflineError) await offline(err);
+    else await fail('failed', `walk failed: ${(err as Error).message}`);
     throw err;
   }
 
   // LIB-5: previously non-empty root that now yields nothing = unmounted share.
   if (walk.looksUnmounted) {
-    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing' + finishNotes(walk), true);
+    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing' + finishNotes(walk), { unmounted: true });
     return;
   }
 
   // Hand changed files to the parser (which sends their directories to their
   // app's grouping job); directories that only lost files are sent directly.
-  for (let i = 0; i < walk.changedIds.length; i += PARSE_BATCH) {
-    await ctx.boss.send('scan.parse', { audioFileIds: walk.changedIds.slice(i, i + PARSE_BATCH) });
-  }
+  await sendParse(ctx, walk.changedIds);
   await enqueueGrouping(ctx, root, walk.missingGroups);
   // finishWalk already queued the old and new folders of every Tier 1 merge.
   // Files came or went: check the gaps again once parsing and clustering have

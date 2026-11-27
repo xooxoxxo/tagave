@@ -31,6 +31,8 @@ import { IoProgress } from './procIo.js';
 const PROGRESS_MS = 5_000;
 const READ_SMALL_MAX = 32 * 1024 * 1024;
 const PAGE_LIMIT = 500;
+/** lstats in flight at once for a page's untyped entries. */
+const LSTAT_AT_ONCE = 16;
 const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged']);
 
 type EntryType = 'file' | 'dir' | 'link' | 'other';
@@ -97,15 +99,15 @@ async function readdirPage(path: string, cursor: string | null, limit: number): 
     await dir.close().catch(() => undefined);
   }
   trim();
-  const entries: DirPage['entries'] = [];
-  for (const e of kept) {
-    // Some shares do not say what an entry is: ask.
-    let type = e.type;
-    if (e.unknown) {
-      const s = await lstat(join(path, e.name)).catch(() => null);
-      type = !s ? 'other' : s.isFile() ? 'file' : s.isDirectory() ? 'dir' : s.isSymbolicLink() ? 'link' : 'other';
-    }
-    entries.push({ name: e.name, type });
+  // Some shares do not say what an entry is: ask, for those only, a few at a
+  // time, so a large untyped page still answers well inside the gate's wait deadline.
+  const entries: DirPage['entries'] = kept.map((e) => ({ name: e.name, type: e.type }));
+  const untyped = kept.flatMap((e, i) => (e.unknown ? [i] : []));
+  for (let i = 0; i < untyped.length; i += LSTAT_AT_ONCE) {
+    await Promise.all(untyped.slice(i, i + LSTAT_AT_ONCE).map(async (at) => {
+      const s = await lstat(join(path, entries[at]!.name)).catch(() => null);
+      entries[at]!.type = !s ? 'other' : s.isFile() ? 'file' : s.isDirectory() ? 'dir' : s.isSymbolicLink() ? 'link' : 'other';
+    }));
   }
   return { entries, cursor: more && entries.length > 0 ? entries[entries.length - 1]!.name : null };
 }
@@ -273,6 +275,7 @@ async function handle(req: HelperRequest): Promise<void> {
     const code = (err as NodeJS.ErrnoException).code;
     const message = err instanceof Error ? err.message : String(err);
     const answer: HelperMessage = typeof code === 'string' && code !== '' ? { id, ok: false, code, message } : { id, ok: false, message };
+    if (err instanceof Error && err.name !== 'Error') Object.assign(answer, { name: err.name });
     if ((err as { stuck?: unknown }).stuck === true) Object.assign(answer, { stuck: true });
     send(answer);
   } finally {

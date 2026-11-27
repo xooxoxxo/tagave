@@ -16,6 +16,12 @@
  * the helper stuck. A helper answer marked `stuck` (its tag writer's sidecar
  * hung) counts stuck and throws FolderOfflineError, keeping the helper. A
  * root with `stuckMax` stuck helpers gets no more work until `clear(root)`.
+ *
+ * Probes (`run(root, op, { probe: true })`, the folder watch's look at a
+ * root) pass that cap, or a root at the cap could never read online again,
+ * and go ahead of queued work. While the root's last probe helper that hit
+ * a deadline has not exited (stuck in the kernel), a probe reads the
+ * deadline at once and forks nothing, so stuck probe helpers never pile up.
  */
 import { fork, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -59,7 +65,7 @@ export type HelperMessage =
   | { id: number; progress: unknown }
   | { id: number; ok: true; value: unknown }
   /** `stuck`: the helper gave up on a child of its own (the tag writer's sidecar) at a deadline. */
-  | { id: number; ok: false; code?: string; message?: string; stuck?: boolean };
+  | { id: number; ok: false; code?: string; message?: string; stuck?: boolean; /** the error's class name, kept for callers that store it (a parse error) */ name?: string };
 
 /** Ops that read or write a whole file: they use the idle deadline, reset by progress. */
 const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged']);
@@ -105,10 +111,16 @@ function exited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
+export interface RunOptions {
+  /** The folder watch's probe: passes the stuck cap, and goes ahead of queued work. */
+  probe?: boolean;
+}
+
 interface Job {
   id: number;
   rootId: string;
   op: GateOp;
+  probe: boolean;
   resolve: (value: unknown) => void;
   reject: (err: unknown) => void;
 }
@@ -128,6 +140,8 @@ export class FileGate {
   private readonly stuck = new Map<string, number>();
   /** Helpers let go of that may still be running: close() gives them a moment to exit. */
   private readonly abandoned = new Set<ChildProcess>();
+  /** Per root, the probe helper let go of at a deadline that has not exited yet. */
+  private readonly heldProbe = new Map<string, ChildProcess>();
   private nextId = 1;
   private closed = false;
 
@@ -138,12 +152,15 @@ export class FileGate {
   }
 
   /** Runs one operation for a file under this root. Throws FolderOfflineError on a deadline or an offline errno; other fs errors come back as Error with their code. */
-  run<T>(rootId: string, op: GateOp): Promise<T> {
+  run<T>(rootId: string, op: GateOp, opts: RunOptions = {}): Promise<T> {
     if (this.closed) return Promise.reject(new Error('The file gate is closed'));
-    const refused = this.refusal(rootId);
+    const probe = opts.probe === true;
+    const refused = this.refusal(rootId, probe);
     if (refused) return Promise.reject(refused);
     return new Promise<T>((resolve, reject) => {
-      this.queue.push({ id: this.nextId++, rootId, op, resolve: resolve as (value: unknown) => void, reject });
+      const job: Job = { id: this.nextId++, rootId, op, probe, resolve: resolve as (value: unknown) => void, reject };
+      if (probe) this.queue.unshift(job);
+      else this.queue.push(job);
       this.pump();
     });
   }
@@ -163,7 +180,7 @@ export class FileGate {
 
   /** True when work for this root is refused now (its stuck cap): spawnGuarded asks before it spawns. */
   refuses(rootId: string): boolean {
-    return this.refusal(rootId) !== null;
+    return this.refusal(rootId, false) !== null;
   }
 
   /** A child process for this root got stuck outside the gate (spawnGuarded): it counts like a stuck helper. */
@@ -202,9 +219,12 @@ export class FileGate {
 
   /**
    * Why work for this root may not be sent now, or null. The one place the
-   * refusal is decided, both when a call comes in and when it leaves the queue.
+   * refusal is decided, both when a call comes in and when it leaves the
+   * queue. A probe passes the stuck cap, but not a probe helper of the root
+   * still stuck from its last deadline.
    */
-  private refusal(rootId: string): FolderOfflineError | null {
+  private refusal(rootId: string, probe: boolean): FolderOfflineError | null {
+    if (probe) return this.heldProbe.has(rootId) ? new FolderOfflineError(rootId, 'timeout') : null;
     return this.stuckCount(rootId) >= this.limits.stuckMax ? new FolderOfflineError(rootId, 'timeout') : null;
   }
 
@@ -221,7 +241,7 @@ export class FileGate {
       if (!free && this.helpers.size < this.limits.helpers) free = this.spawn();
       if (!free) return;
       const job = this.queue.shift()!;
-      const refused = this.refusal(job.rootId);
+      const refused = this.refusal(job.rootId, job.probe);
       if (refused) {
         job.reject(refused);
         continue;
@@ -288,11 +308,12 @@ export class FileGate {
       if (code && OFFLINE_CODES.has(code)) {
         const reason = classify({ kind: 'error', code }).reason ?? 'io_error';
         // The share answered, so the helper is not stuck; the watch should still look.
-        this.settle(h, () => job.reject(new FolderOfflineError(job.rootId, reason)));
+        this.settle(h, () => job.reject(new FolderOfflineError(job.rootId, reason, code)));
         return this.suspect(job.rootId);
       }
       const message = typeof m.message === 'string' && m.message !== '' ? m.message : `${job.op.op} failed`;
       const err = code ? Object.assign(new Error(message), { code }) : new Error(message);
+      if (typeof m.name === 'string' && m.name !== '' && m.name !== 'Error') err.name = m.name;
       return this.settle(h, () => job.reject(err));
     }
     this.fail(h, helperFailed('The file helper sent a message it should not have'));
@@ -331,6 +352,14 @@ export class FileGate {
   private deadline(h: Helper, job: Job): void {
     if (h.job !== job || !this.helpers.has(h)) return;
     this.drop(h);
+    if (job.probe && !exited(h.child)) {
+      // The next probe of this root reads a deadline at once until this helper is gone.
+      const child = h.child;
+      this.heldProbe.set(job.rootId, child);
+      child.once('exit', () => {
+        if (this.heldProbe.get(job.rootId) === child) this.heldProbe.delete(job.rootId);
+      });
+    }
     this.stuck.set(job.rootId, this.stuckCount(job.rootId) + 1);
     // A fresh helper in its place, ready for the next call.
     if (!this.closed && this.helpers.size < this.limits.helpers) this.spawn();
@@ -375,4 +404,9 @@ let processGate: FileGate | null = null;
 export function fileGate(): FileGate {
   processGate ??= new FileGate();
   return processGate;
+}
+
+/** Tests: puts a gate of their own in place of the process's one (null: the next call makes a fresh one). */
+export function setFileGate(gate: FileGate | null): void {
+  processGate = gate;
 }

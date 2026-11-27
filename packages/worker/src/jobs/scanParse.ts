@@ -1,12 +1,13 @@
 import path from 'node:path';
-import { access } from 'node:fs/promises';
 import { eq, inArray } from 'drizzle-orm';
 import { files, scanRoots } from '@tagave/db';
-import { fileTypeHandler, noNul } from '@tagave/core/files';
+import { fileTypeHandler, noNul, type ParsedFile } from '@tagave/core/files';
 import type { WorkerContext } from '../lib/context.js';
 import { relDirname, tagsDigest } from '../lib/helpers.js';
 import { releaseReadyHolds, sendReleasedGrouping } from '../lib/clusterHold.js';
 import { groupingQueue, sendGrouping } from '../lib/appFiles.js';
+import { fileGate } from '../lib/fileGate.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 
 export interface ScanParseJobData {
   /** files ids (the key keeps its old name: jobs queued before 0058 carry it) */
@@ -17,15 +18,18 @@ export interface ScanParseJobData {
  * The stored rel_path is NFC, but the bytes on disk may be NFD (or the exact
  * NFC). Try the stored spelling, then both normalization forms — the same
  * discipline the archive-cleaning tooling needed (decisions doc gotcha #1).
+ * Through the file gate for the root `rootId`: an offline folder throws
+ * FolderOfflineError, never "not reachable".
  */
-export async function openablePath(rootPath: string, relPath: string): Promise<string | null> {
+export async function openablePath(rootId: string, rootPath: string, relPath: string): Promise<string | null> {
   const candidates = [relPath, relPath.normalize('NFD'), relPath.normalize('NFC')];
   for (const cand of candidates) {
     const abs = path.join(rootPath, cand);
     try {
-      await access(abs);
+      await fileGate().run(rootId, { op: 'access', path: abs });
       return abs;
-    } catch {
+    } catch (err) {
+      if (err instanceof FolderOfflineError) throw err;
       /* try next spelling */
     }
   }
@@ -33,7 +37,10 @@ export async function openablePath(rootPath: string, relPath: string): Promise<s
 }
 
 /** spec LIB-2: each file read by its own file-type handler (audio: properties
- * + full tag snapshot); errors are per-file, never batch-fatal. */
+ * + full tag snapshot); errors are per-file, never batch-fatal. The read is
+ * the gate's `parse` op, in a file helper. An offline folder is not a file's
+ * error: it stops the batch (the files parsed so far keep their rows) and
+ * the job parks. */
 export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): Promise<void> {
   if (!data.audioFileIds || data.audioFileIds.length === 0) return;
 
@@ -76,7 +83,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
     const rootPath = rootPathById.get(row.scanRootId);
     if (!rootPath) continue;
 
-    const abs = await openablePath(rootPath, row.relPath);
+    const abs = await openablePath(row.scanRootId, rootPath, row.relPath);
     if (!abs) {
       await failed(row.id, 'file not reachable under any normalization form');
       // An unreachable file errored too (it counts as parsed), so its folder's hold may be ready.
@@ -92,7 +99,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
       continue;
     }
     try {
-      const { columns, metadata } = await handler.parse(abs);
+      const { columns, metadata } = await fileGate().run<ParsedFile>(row.scanRootId, { op: 'parse', handlerId: handler.id, path: abs });
       await ctx.db
         .update(files)
         .set({
@@ -106,6 +113,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
         })
         .where(eq(files.id, row.id));
     } catch (err) {
+      if (err instanceof FolderOfflineError) throw err;
       // a parser message can quote the file's bytes; Postgres text cannot hold NUL
       await failed(row.id, noNul(`${(err as Error).name ?? 'Error'}: ${(err as Error).message}`)!.slice(0, 2000));
     }
