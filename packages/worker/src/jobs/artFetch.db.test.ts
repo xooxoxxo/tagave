@@ -93,6 +93,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
     expect(send).toHaveBeenCalledWith('gaps.recompute', { libraryId, albumIds: [albumId] }, {});
   });
 
+  it('the cover is kept in the cache folder as it is now, not as it was when the worker started', async () => {
+    const saved = process.env.CACHE_DIR;
+    const later = path.join(tmp.dir, 'cache-later');
+    process.env.CACHE_DIR = later;
+    try {
+      const albumId = await albumWithFlag('L/Later/2020 - Moved Cache', { sidecar: true });
+      expect(await artFetchJob(ctx, { localAlbumId: albumId })).toBe('found');
+      const [art] = await db.select().from(images).where(eq(images.localAlbumId, albumId));
+      expect(art.localPath).toBe(path.join(later, 'covers', libraryId, `${albumId}.jpg`));
+      await access(art.localPath);
+    } finally {
+      process.env.CACHE_DIR = saved;
+    }
+  });
+
   it('art already there (the flag went stale before it landed): the flag resolves', async () => {
     const albumId = await albumWithFlag('B/Band/2001 - Stale');
     await db.insert(images).values({

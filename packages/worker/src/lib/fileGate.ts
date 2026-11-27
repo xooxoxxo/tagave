@@ -349,8 +349,9 @@ export class FileGate {
    * still stuck from its last deadline.
    */
   private refusal(rootId: string, probe: boolean): FolderOfflineError | null {
-    if (probe) return this.heldProbe.has(rootId) ? new FolderOfflineError(rootId, 'timeout') : null;
-    return this.stuckCount(rootId) >= this.limits.stuckMax ? new FolderOfflineError(rootId, 'timeout') : null;
+    const refused = () => new FolderOfflineError(rootId, 'timeout', undefined, { refused: true });
+    if (probe) return this.heldProbe.has(rootId) ? refused() : null;
+    return this.stuckCount(rootId) >= this.limits.stuckMax ? refused() : null;
   }
 
   /** Sends queued work to free helpers, forking helpers up to the limit. */

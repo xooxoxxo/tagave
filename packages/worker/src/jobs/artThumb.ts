@@ -20,8 +20,8 @@ import path from 'node:path';
 import { opendir, readFile, stat } from 'node:fs/promises';
 import { and, eq, sql as dsql } from 'drizzle-orm';
 import { images } from '@tagave/db';
-import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
+import { workerCacheRoot } from '../lib/localFiles.js';
 import { storeThumb, toThumb } from '../lib/coverThumbs.js';
 import { REFETCH_BUDGET_PER_DAY, releaseRefetch, reserveRefetches } from '../lib/coverRebuildLog.js';
 import { artRefreshKey } from './artFetch.js';
@@ -56,9 +56,9 @@ export function allowedMissing(frontCovers: number): number {
   return Math.min(SWEEP_MAX_MISSING, Math.max(1, Math.floor(frontCovers * SWEEP_MAX_MISSING_SHARE)));
 }
 
-/** This worker's cache folder, read on every call (as art.fetch resolves it). */
+/** This worker's cache folder, read on every call: the one formula art.fetch writes with (localFiles). */
 export function cacheRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return path.resolve(env['CACHE_DIR'] || defaultCacheDir(env['HOME'] || '/tmp'));
+  return workerCacheRoot(env);
 }
 
 export interface CoverRow {

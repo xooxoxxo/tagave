@@ -5,11 +5,10 @@ import {
   files, images, imageSources, localAlbums, localTracks, releases, scanRoots, sidecarFiles, type MaintenanceWork,
 } from '@tagave/db';
 import { storeThumb, toThumb } from '../lib/coverThumbs.js';
-import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { fileGate } from '../lib/fileGate.js';
 import { FolderOfflineError, isGateFailure } from '../lib/folderOffline.js';
-import { writeCacheFile } from '../lib/localFiles.js';
+import { workerCacheRoot, writeCacheFile } from '../lib/localFiles.js';
 import { runMaintenance } from '../lib/maintenance.js';
 import { relDirname } from '../lib/helpers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
@@ -41,9 +40,6 @@ export interface ArtSweepJobData {
   libraryId?: string;
   limit?: number;
 }
-
-// absolute, so the local_path stored with each image is too
-const CACHE_ROOT = path.resolve(process.env.CACHE_DIR || defaultCacheDir(process.env.HOME || '/tmp'));
 
 /** Cover Art Archive: no rate limit documented; keep modest concurrency via
  * job settings and be a good citizen with a real UA. */
@@ -365,8 +361,9 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, che
     return 'failed';
   }
 
-  // the cache folder, never a music folder
-  const localPath = path.join(CACHE_ROOT, 'covers', album.libraryId, `${album.id}.jpg`);
+  // the cache folder, never a music folder; read now, as writeCacheFile reads it
+  // (absolute, so the local_path stored with each image is too)
+  const localPath = path.join(workerCacheRoot(), 'covers', album.libraryId, `${album.id}.jpg`);
   await checkClaim?.();
   await writeCacheFile(localPath, source);
 
