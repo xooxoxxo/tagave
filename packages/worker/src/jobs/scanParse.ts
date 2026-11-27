@@ -12,6 +12,58 @@ import { FolderOfflineError, isAbsent, isGateFailure } from '../lib/folderOfflin
 export interface ScanParseJobData {
   /** files ids (the key keeps its old name: jobs queued before 0058 carry it) */
   audioFileIds: string[];
+  /** The file whose offline answer last parked this batch (ruling R34); kept in the parked row's data. */
+  hung?: HungFile;
+}
+
+/**
+ * Ruling R34: one file that hangs (a FIFO indexed as a track) or answers EIO
+ * on a live share parks its batch, the watch reads the root online and sends
+ * it again, and it hangs again, for good. `parks` counts the parks on this
+ * file while the root read online throughout; `at` is the database's time of
+ * the last one. A reading of offline or not connected since then (the root's
+ * reach_since moved) is a real outage: the count starts again.
+ */
+export interface HungFile { fileId: string; parks: number; at: string }
+
+/**
+ * Re-parks on one file (parks after the first), its root online throughout,
+ * before that file gets its error and the batch goes on: the run after the
+ * third re-park.
+ */
+export const HUNG_REPARKS_MAX = 3;
+export const HUNG_FILE_ERROR = 'The file did not answer while its music folder was online';
+
+/**
+ * The root's reading: `online` now (unknown counts online), `stayed` online
+ * with no change of reading since `at` (the last park), and the database's time.
+ */
+async function rootReading(ctx: Pick<WorkerContext, 'sql'>, rootId: string, at: string | null): Promise<{ online: boolean; stayed: boolean; now: string }> {
+  const [row] = await ctx.sql<{ online: boolean; stayed: boolean; now: string }[]>`
+    select reach not in ('offline', 'unmounted') as online,
+           (reach not in ('offline', 'unmounted') and ${at}::timestamptz is not null
+            and (reach_since is null or reach_since <= ${at}::timestamptz)) as stayed,
+           now()::text as now
+      from scan_roots where id = ${rootId}`;
+  return { online: row?.online === true, stayed: row?.stayed === true, now: row?.now ?? new Date().toISOString() };
+}
+
+/**
+ * An offline answer for this file's own call. True when the file gets its
+ * error instead (it parked the batch once and then HUNG_REPARKS_MAX times
+ * more, its root online throughout): the batch goes on. Else the park is counted in `data.hung`
+ * (the parked row keeps it) and the caller rethrows. A root read offline or
+ * not connected never counts.
+ */
+async function hungFile(ctx: WorkerContext, data: ScanParseJobData, fileId: string, rootId: string): Promise<boolean> {
+  const prev = data.hung?.fileId === fileId ? data.hung : null;
+  const { online, stayed, now } = await rootReading(ctx, rootId, prev?.at ?? null);
+  if (prev && stayed && prev.parks > HUNG_REPARKS_MAX) {
+    delete data.hung;
+    return true;
+  }
+  data.hung = { fileId, parks: !online ? 0 : prev && stayed ? prev.parks + 1 : 1, at: now };
+  return false;
 }
 
 /**
@@ -84,7 +136,24 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
     const rootPath = rootPathById.get(row.scanRootId);
     if (!rootPath) continue;
 
-    const abs = await openablePath(row.scanRootId, rootPath, row.relPath);
+    // An offline answer for this file while its root reads online (R34): after
+    // HUNG_REPARKS_MAX re-parks the file gets its error and the rest of the batch goes on.
+    const hungHere = async (err: unknown): Promise<boolean> => {
+      if (!(err instanceof FolderOfflineError) || err.scanRootId !== row.scanRootId) return false;
+      if (!(await hungFile(ctx, data, row.id, row.scanRootId))) return false;
+      ctx.logger.warn({ fileId: row.id, scanRootId: row.scanRootId }, 'scan.parse: one file did not answer on a live music folder; marked with an error');
+      await failed(row.id, HUNG_FILE_ERROR);
+      touch(row);
+      return true;
+    };
+
+    let abs: string | null;
+    try {
+      abs = await openablePath(row.scanRootId, rootPath, row.relPath);
+    } catch (err) {
+      if (await hungHere(err)) continue;
+      throw err;
+    }
     if (!abs) {
       await failed(row.id, 'file not reachable under any normalization form');
       // An unreachable file errored too (it counts as parsed), so its folder's hold may be ready.
@@ -114,7 +183,8 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
         })
         .where(eq(files.id, row.id));
     } catch (err) {
-      // the share offline, or the gate failed: not the file's error
+      // the share offline, or the gate failed: not the file's error (unless R34: one file on a live share)
+      if (await hungHere(err)) continue;
       if (err instanceof FolderOfflineError || isGateFailure(err)) throw err;
       // a parser message can quote the file's bytes; Postgres text cannot hold NUL
       await failed(row.id, noNul(`${(err as Error).name ?? 'Error'}: ${(err as Error).message}`)!.slice(0, 2000));
