@@ -71,7 +71,7 @@ import { fileGate } from '../lib/fileGate.js';
 import { FolderOfflineError } from '../lib/folderOffline.js';
 import { folderWatch } from '../lib/folderWatch/watch.js';
 import { gateDirEmpty, gateStat, type GateStat } from '../lib/gatedPaths.js';
-import { PAUSED_OFFLINE_STAGE } from '../lib/maintenance.js';
+import { PAUSED_OFFLINE_STAGE } from '@tagave/shared';
 import { PARKED_OUTPUT } from '../lib/parking.js';
 import { relDirname } from '../lib/helpers.js';
 import { currentFieldsFrom } from '../lib/canonicalTags.js';

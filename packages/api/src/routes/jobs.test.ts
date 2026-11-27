@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { jobRuns, libraries, scanRoots, users, makeDb } from '@tagave/db';
 import type { JobView } from '@tagave/shared';
-import { loadJobRows } from './jobs.js';
+import { loadJobRows, loadParkedViews } from './jobs.js';
 import { deriveJobViews, summarizeJobs } from '../lib/jobView.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('loadJobRows (db)', () => {
@@ -81,5 +81,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('loadJobRows (db)', () => {
     expect(byId.get(ids.syncFailed)).toMatchObject({ status: 'failed', error: 'Discogs token rejected', retryable: true, resolvedAt: null });
     expect(byId.get(ids.enrich)).toMatchObject({ routine: true, summary: 'Nothing new to look up.' });
     expect(summarizeJobs(views, 1)).toMatchObject({ running: 0, waiting: 0, needsAttention: 1, routineHidden: 1 });
+  });
+
+  it('shows each job parked for an offline music folder as Waiting, and only the library\'s own', async () => {
+    const otherRoot = randomUUID();
+    await conn.db.insert(scanRoots).values({ id: otherRoot, libraryId: otherLibraryId, path: '/mnt/other', displayName: 'Other', validationStatus: 'ok' });
+    const sql = conn.client;
+    const [scan] = await sql<{ id: string }[]>`insert into parked_jobs (scan_root_id, queue, data, singleton_key, reason)
+      values (${rootId}, 'scan.root', ${JSON.stringify({ scanRootId: rootId })}::text::jsonb, ${`scan:${rootId}`}, 'timeout') returning id::text as id`;
+    const [tags] = await sql<{ id: string }[]>`insert into parked_jobs (scan_root_id, queue, data, singleton_key, reason)
+      values (${rootId}, 'tags.apply', ${JSON.stringify({ planId: randomUUID() })}::text::jsonb, null, 'server_silent') returning id::text as id`;
+    await sql`insert into parked_jobs (scan_root_id, queue, data, singleton_key, reason)
+      values (${otherRoot}, 'scan.root', ${JSON.stringify({ scanRootId: otherRoot })}::text::jsonb, ${`scan:${otherRoot}`}, 'timeout')`;
+    const parked = await loadParkedViews(sql, libraryId);
+    expect(parked.map((v) => v.id).sort()).toEqual([scan!.id, tags!.id].sort());
+    expect(parked.find((v) => v.id === scan!.id)).toMatchObject({ label: 'Scan Music', status: 'waiting', summary: 'Music folder offline' });
+    expect(parked.find((v) => v.id === tags!.id)).toMatchObject({ label: 'Write tags', status: 'waiting', summary: 'Music folder offline' });
+    await sql`delete from parked_jobs where scan_root_id in (${rootId}, ${otherRoot})`;
   });
 });

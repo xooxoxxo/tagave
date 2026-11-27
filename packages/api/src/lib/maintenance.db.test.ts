@@ -1,5 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+
+// the routes' dispatch sends on the test's own pg-boss, never one of DATABASE_URL
+const bossHolder = vi.hoisted(() => ({ boss: undefined as unknown }));
+vi.mock('../boss.js', () => ({ getBoss: async () => bossHolder.boss }));
 import postgres from 'postgres';
 import { PgBoss } from 'pg-boss';
 import Fastify from 'fastify';
@@ -7,6 +11,7 @@ import {
   dispatchMaintenanceTask, getMaintenanceTask, reconcileMaintenanceTasks, restartMaintenanceTask,
   saveMaintenanceTask, undispatchedMaintenanceTasks, updateMaintenanceTask, withMaintenanceClaim,
 } from '@tagave/db';
+import { PAUSED_OFFLINE_STAGE, maintenanceTaskSchema } from '@tagave/shared';
 import { createScratchDb, migrateAll } from '../testkit/authApp.js';
 import { maintenanceSender } from './maintenance.js';
 import { initDb } from '../db.js';
@@ -39,6 +44,8 @@ describe.skipIf(!adminUrl)('maintenance task delivery', () => {
   }, 60_000);
 
   afterAll(async () => {
+    // the API's one database handle (initDb keeps it for the process), shared by the route tests
+    if (db) await (await initDb(db.url)).client.end();
     await boss?.stop();
     await sql?.end();
     if (db) await admin.unsafe(`drop database if exists ${db.name} with (force)`);
@@ -94,7 +101,7 @@ describe.skipIf(!adminUrl)('maintenance task delivery', () => {
   });
 
   it('returns the same task and recovery action after a reload', async () => {
-    const handle = await initDb(db.url);
+    await initDb(db.url);
     const app = Fastify();
     await app.register(createMaintenanceRoutes);
     try {
@@ -116,7 +123,50 @@ describe.skipIf(!adminUrl)('maintenance task delivery', () => {
       expect(await artFetchState(cover.scope_key, libraryId)).toMatchObject({ state: 'done', task: { stage: 'No cover art found' } });
     } finally {
       await app.close();
-      await handle.client.end();
+    }
+  });
+
+  it('refuses Continue on a split paused for its offline music folder until the folder is back', async () => {
+    bossHolder.boss = boss;
+    await initDb(db.url);
+    const app = Fastify();
+    const { errorHandler } = await import('../middleware/errorHandler.js');
+    await errorHandler(app);
+    app.addHook('preHandler', async (req) => { req.user = { id: randomUUID(), role: 'owner' } as never; });
+    await app.register(createMaintenanceRoutes);
+    try {
+      const [root] = await sql<{ id: string }[]>`
+        insert into scan_roots (library_id, path, display_name, reach) values (${libraryId}, '/mnt/music', 'Music', 'offline') returning id::text as id`;
+      await sql`insert into worker_heartbeats (worker_id, info) values ('splitter', ${sql.json({ queues: ['files.split'] })})`;
+      await boss.createQueue('files.split');
+      const task = await saveMaintenanceTask(sql, { libraryId, kind: 'split', scope: randomUUID(), queue: 'files.split', input: { splitId: randomUUID() }, stage: 'Waiting' });
+      await sql`update maintenance_tasks set state = 'interrupted', stage = ${PAUSED_OFFLINE_STAGE},
+                checkpoint = ${sql.json({ file: 2, offlineRootId: root!.id })} where id = ${task.id}`;
+      const base = `/libraries/${libraryId}/maintenance-tasks`;
+
+      const paused = (await app.inject({ url: `${base}/${task.id}` })).json();
+      expect(paused).toMatchObject({ state: 'interrupted', stage: PAUSED_OFFLINE_STAGE, waitsForFolder: true, actions: ['continue'] });
+      expect(maintenanceTaskSchema.safeParse(paused).success).toBe(true);
+      expect((await app.inject({ url: base })).json().tasks).toContainEqual(expect.objectContaining({ id: task.id, waitsForFolder: true }));
+      const refused = await app.inject({ method: 'POST', url: `${base}/${task.id}/continue` });
+      expect(refused.statusCode).toBe(409);
+      expect((await getMaintenanceTask(sql, libraryId, task.id))!.state).toBe('interrupted');
+
+      // not connected waits too; a folder that reads online again lets Continue go
+      await sql`update scan_roots set reach = 'unmounted' where id = ${root!.id}`;
+      expect((await app.inject({ method: 'POST', url: `${base}/${task.id}/continue` })).statusCode).toBe(409);
+      await sql`update scan_roots set reach = 'online' where id = ${root!.id}`;
+      expect((await app.inject({ url: `${base}/${task.id}` })).json()).toMatchObject({ waitsForFolder: false });
+      const ok = await app.inject({ method: 'POST', url: `${base}/${task.id}/continue` });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toMatchObject({ state: 'waiting' });
+
+      // a folder removed since is not waited for
+      await sql`update maintenance_tasks set state = 'interrupted', checkpoint = ${sql.json({ offlineRootId: randomUUID() })} where id = ${task.id}`;
+      expect((await app.inject({ url: `${base}/${task.id}` })).json()).toMatchObject({ waitsForFolder: false, actions: ['continue'] });
+    } finally {
+      bossHolder.boss = undefined;
+      await app.close();
     }
   });
 });

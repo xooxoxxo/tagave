@@ -14,7 +14,7 @@ import {
 } from '@tagave/shared';
 import { latestMaintenanceTask, saveMaintenanceTask } from '@tagave/db';
 import { ApiError } from '../middleware/errorHandler.js';
-import { liveMaintenanceQueues, maintenanceView } from './maintenance.js';
+import { liveMaintenanceView } from './maintenance.js';
 import { getBoss } from '../boss.js';
 
 type Sql = postgres.Sql;
@@ -209,7 +209,7 @@ export async function deletingView(sql: Sql, libraryId: string, settings: Record
     command: deleteCommand(marked.map((r) => ({ root: r.root, relPath: r.relPath }))),
     trashDays: TRASH_DAYS,
     ...(task ? { emptyTask: {
-      task: maintenanceView(task, await liveMaintenanceQueues()),
+      task: await liveMaintenanceView(task),
       fileIds: active ? task.input.fileIds as string[] : [],
     } } : {}),
   };

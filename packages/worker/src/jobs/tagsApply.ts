@@ -38,7 +38,8 @@ import type { SplitDeps } from './filesSplit.js';
 import { FlacTools } from '../lib/flacTools.js';
 import type { TagPolicies } from '@tagave/shared';
 import type { MaintenanceWork } from '@tagave/db';
-import { PAUSED_OFFLINE_STAGE, runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
+import { PAUSED_OFFLINE_STAGE } from '@tagave/shared';
+import { runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
 
 export interface TagsApplyJobData {
   planId: string;
