@@ -7,6 +7,7 @@ const LIVE_ALBUM = sql.raw(albumLiveSql('la.id'));
 const LIVE_TRACK = sql.raw(trackLiveSql('lt.audio_file_id'));
 import { getDb } from '../db.js';
 import { containsPattern, escapeLike, foldedColumn, foldedValue, textMatches } from '../lib/textMatch.js';
+import { filesOfflineFields } from '../lib/filesOffline.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /**
@@ -187,10 +188,12 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
       order by rank asc, score desc nulls last, album_count desc, lower(l.name) asc
       limit ${limit}`) as unknown as Record<string, unknown>[];
 
+    const offlineOf = await filesOfflineFields(albums.map((a) => String(a['id'])));
     reply.send({
       albums: albums.map((a) => ({
         id: a['id'], title: a['title'], artist: a['artist'],
         year: a['year'], state: a['state'], trackCount: a['track_count'],
+        ...offlineOf(String(a['id'])),
       })),
       // id is null for a tag-only artist: the client opens the albums
       // filtered by that name instead of an artist page.
