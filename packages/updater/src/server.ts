@@ -23,7 +23,8 @@
  *                     waits for the music share is restarted at check.
  *
  * GET /v1/status also says what each part is doing (`parts`, read with short
- * limits and kept 10 s) and the last repair (`repair`).
+ * limits and kept 10 s), the last repair (`repair`) and what the music
+ * share's fstab line means at boot (`musicBoot`, kept 10 minutes).
  *
  * One run at a time: an update, a module run and a running repair refuse
  * each other (409), and all wait while the updater replaces itself or the
@@ -38,7 +39,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
-import type { PartState, RepairRun, UpdateRun, UpdaterStatus } from '@tagave/shared/updater';
+import type { MusicBoot, PartState, RepairRun, UpdateRun, UpdaterStatus } from '@tagave/shared/updater';
 import type { ModuleRun, UpdaterModules } from '@tagave/shared/modules';
 import { ModuleOperation, moduleStatuses, newModuleRun, type ModuleConfig } from './modules.js';
 import { dockerArch } from './preflight-space.js';
@@ -53,6 +54,7 @@ import { RELEASE_FLOOR_FILE, Update, newRun, type UpdateConfig } from './update.
 import type { MusicProber } from './music-probe.js';
 import type { RemountResult } from './music-heal.js';
 import { readParts } from './parts.js';
+import { musicBootOf, musicBootWanted, readFstab } from './music-layout.js';
 import { DEFAULT_REPAIR_CONFIG, REPAIR_STATE_FILE, Repair, newRepairRun, type RepairConfig, type RepairDeps } from './repair.js';
 import { RepairLock, type LockHolder, type Release } from './repair-lock.js';
 
@@ -77,6 +79,8 @@ const SERVICES_RETRY_MS = 3_000;
 const STATUS_DEADLINE_MS = 6_000;
 /** A service list that comes with less of the status budget left counts as late for that call (no parts that would all read stuck). */
 const LATE_LIST_MS = 500;
+/** How long a reading of the host's fstab (musicBoot) is served before it is read again. */
+const BOOT_CACHE_MS = 10 * 60_000;
 /** A repair.json marked running by another process (the installer's one-off) counts for this long. */
 const ELSEWHERE_MS = 60 * 60_000;
 /** How often the service reads repair.json for a waiting repair another process left (followRepairFile). */
@@ -214,6 +218,10 @@ export class UpdaterService {
   private servicesRead: Promise<string[] | null> | null = null;
   /** The one read queued after the read in flight (a run ended while it read). */
   private servicesNext: Promise<string[] | null> | null = null;
+  /** The host's fstab as last read for musicBoot (null: not read), and when (this.now()). */
+  private bootFstab: { at: number; fstab: string | null } | null = null;
+  /** The fstab read in flight: one at a time. */
+  private bootRead: Promise<string | null> | null = null;
 
   constructor(private readonly opts: UpdaterOptions) {
     this.verifier = new SignatureVerifier(opts.appSecret);
@@ -1030,6 +1038,8 @@ export class UpdaterService {
   async status(): Promise<UpdaterStatus> {
     const end = Date.now() + (this.opts.statusDeadlineMs ?? STATUS_DEADLINE_MS);
     const env = (await readText(join(this.opts.installDir, '.env'))) ?? '';
+    // Read alongside the rest, within the same budget.
+    const musicBoot = this.musicBoot(env, end);
     let services = this.servicesList;
     if (!services) {
       const list = await beforeEnd(end, this.readServices(), () => null);
@@ -1052,7 +1062,42 @@ export class UpdaterService {
       selfReplace: await beforeEnd(end, marker, () => this.selfReplace.shown()),
       parts: await parts,
       repair: this.repairRun,
+      musicBoot: await musicBoot,
     };
+  }
+
+  /**
+   * The status's musicBoot: the codes for MUSIC_DIR's fstab line, the layout
+   * from .env. fstab is read through one helper (readFstab: only `cat
+   * /etc/fstab`) and kept 10 minutes; a status call waits for a read no
+   * longer than its budget and meanwhile shows the last reading (none before
+   * the first). No music folder: null, and nothing runs. Never throws.
+   */
+  private async musicBoot(env: string, end: number): Promise<MusicBoot | null> {
+    if (!musicBootWanted(env)) return null;
+    const cached = this.bootFstab;
+    if (cached && this.now().getTime() - cached.at < BOOT_CACHE_MS) return musicBootOf(cached.fstab, env);
+    if (!this.bootRead) {
+      const read = this.readBootFstab()
+        .then((fstab) => {
+          this.bootFstab = { at: this.now().getTime(), fstab };
+          return fstab;
+        })
+        .finally(() => { if (this.bootRead === read) this.bootRead = null; });
+      this.bootRead = read;
+    }
+    const fstab = await beforeEnd(end, this.bootRead, () => cached?.fstab ?? null);
+    return musicBootOf(fstab, env);
+  }
+
+  /** fstab through the helper from the updater's own image; null without an image or when it fails. */
+  private async readBootFstab(): Promise<string | null> {
+    try {
+      const image = this.opts.layoutImage ? await this.opts.layoutImage() : null;
+      return image ? await readFstab(this.opts.docker, image) : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Starts a run in the background. */

@@ -425,6 +425,8 @@ export {
   type UpdaterStatus,
   type UpdaterSelfReplace,
   type UpdaterView,
+  type MusicBoot,
+  type MusicBootCode,
   type StepUpMethod,
   type StepUpStatus,
 } from './updater.js';

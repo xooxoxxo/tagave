@@ -27,6 +27,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { join, posix } from 'node:path';
+import type { MusicBoot, MusicBootCode } from '@tagave/shared/updater';
 import { envGet, envSet, readText, writeFileAtomic } from './envFile.js';
 import { musicDirOf } from './music-heal.js';
 import { decodeMountPath } from './music-probe.js';
@@ -515,4 +516,60 @@ export async function moveLayout(deps: MoveDeps): Promise<{ moved: boolean; why:
     await start(services);
   }
   return { moved: true, why: null };
+}
+
+// ---------------------------------------------------------------------------
+// Boot: what the fstab line for MUSIC_DIR means while the NAS is off
+// (Settings › Status, spec section 11). The kernel and the mount table are
+// not read: owner decision D1 dropped the only code that needed them.
+
+/** An install whose music share boot matters: a music folder in .env (not an app computer). */
+export function musicBootWanted(env: string): boolean {
+  return roleOf(env) !== 'app' && musicDirOf(env) !== null;
+}
+
+/**
+ * The boot codes for MUSIC_DIR's line in `fstab`: the last line whose mount
+ * point is MUSIC_DIR counts, as mount reads it (escapes such as \040
+ * decoded, trailing slashes trimmed, comment lines skipped; no options field
+ * reads as `defaults`). No line: no codes. Without `nofail`: `nofail_missing`,
+ * except on a `noauto` line, which is not mounted at boot (the installer's
+ * advise_mount_options gives no advice for one either). `soft` or `softerr`:
+ * `soft_mount`. `x-systemd.automount`: `automount_on`.
+ */
+export function bootCodes(fstab: string, env: string): MusicBootCode[] {
+  if (!musicBootWanted(env)) return [];
+  const dir = musicDirOf(env)!;
+  let options: string[] | null = null;
+  for (const line of fstab.split('\n')) {
+    if (/^[ \t]*#/.test(line)) continue;
+    const fields = line.trim().split(/[ \t]+/);
+    if (fields.length < 3) continue;
+    if (trimSlashes(decodeMountPath(fields[1]!)) === dir) options = (fields[3] ?? 'defaults').split(',');
+  }
+  if (!options) return [];
+  const codes: MusicBootCode[] = [];
+  if (!options.includes('nofail') && !options.includes('noauto')) codes.push('nofail_missing');
+  if (options.includes('soft') || options.includes('softerr')) codes.push('soft_mount');
+  if (options.includes('x-systemd.automount')) codes.push('automount_on');
+  return codes;
+}
+
+/** The status's musicBoot: null without a music folder or when fstab was not read. */
+export function musicBootOf(fstab: string | null, env: string): MusicBoot | null {
+  if (fstab === null || !musicBootWanted(env)) return null;
+  return { layout: hasParentLayout(env) ? 'parent' : 'direct', codes: bootCodes(fstab, env) };
+}
+
+/**
+ * The host's /etc/fstab through one short-lived helper from the updater's
+ * own image (`cat /etc/fstab` only, a unique name, 15 s), '' when the host
+ * has none, null when it could not be read. Never names MUSIC_DIR. Never
+ * throws.
+ */
+export async function readFstab(docker: Runner, image: string, deps: { name?: () => string } = {}): Promise<string | null> {
+  const name = deps.name ?? (() => `${LAYOUT_HELPER_PREFIX}-${randomBytes(4).toString('hex')}`);
+  const res = await safe(docker)(layoutHelperArgs(image, name(), hostFactCommand.fstab), { timeoutMs: FACT_MS });
+  if (res.code === 0) return res.stdout;
+  return res.stderr.includes('/etc/fstab') && res.stderr.includes('No such file or directory') ? '' : null;
 }
