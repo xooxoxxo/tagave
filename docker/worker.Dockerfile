@@ -60,4 +60,8 @@ ENV TAGAVE_GIT_SHA=$GIT_SHA \
     LINER_VERSION=$TAGAVE_BUILD_VERSION \
     NODE_ENV=production
 
+# Links /mnt/music to the music share in the parent layout, then runs CMD
+# (docker/worker-entrypoint.sh says why).
+COPY --chmod=0755 docker/worker-entrypoint.sh /usr/local/bin/tagave-worker-entrypoint
+ENTRYPOINT ["/usr/local/bin/tagave-worker-entrypoint"]
 CMD ["node", "packages/worker/dist/index.js"]
