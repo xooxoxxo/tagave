@@ -68,7 +68,7 @@ if [ "$(id -u)" != "0" ]; then
   echo "offline-share-test: run it as root: sudo -E $0" >&2
   exit 2
 fi
-for tool in docker iptables exportfs mount umount mountpoint flac metaflac python3 curl openssl ip timeout; do
+for tool in docker iptables exportfs mount umount mountpoint flac metaflac md5sum python3 curl openssl ip timeout; do
   command -v "$tool" >/dev/null 2>&1 || { echo "offline-share-test: $tool is missing" >&2; exit 2; }
 done
 docker compose version >/dev/null 2>&1 || { echo "offline-share-test: docker compose is missing" >&2; exit 2; }
@@ -222,7 +222,9 @@ restore_nfs() {
 }
 
 mount_share() {
-  mount -t nfs -o vers=4.2,hard,timeo=50 "$NFS_HOST:$EXPORT" "$MUSIC"
+  # noac is for this test only: without the attribute cache every walk asks
+  # the server, so a scan during the outage cannot finish from the cache.
+  mount -t nfs -o vers=4.2,hard,timeo=50,noac "$NFS_HOST:$EXPORT" "$MUSIC"
   MADE_MOUNT=1
 }
 
@@ -239,12 +241,13 @@ start_scan() {
   case "$(api_status)" in 2??) return 0 ;; *) return 1 ;; esac
 }
 
-# audio_md5s: the FLAC STREAMINFO MD5 of every fixture, read on the export
-# side (local disk, never through the mount)
+# audio_md5s: the MD5 of every fixture's decoded audio (not the STREAMINFO
+# field, which a tag write could leave as it was over changed audio), read on
+# the export side (local disk, never through the mount)
 audio_md5s() {
   local f
   for f in "$EXPORT/$ALBUM_DIR"/*.flac; do
-    printf '%s %s\n' "$(basename "$f")" "$(metaflac --show-md5sum "$f")"
+    printf '%s %s\n' "$(basename "$f")" "$(flac -d -c -s "$f" | md5sum | cut -d' ' -f1)"
   done
 }
 
@@ -277,7 +280,7 @@ cleanup() {
     if restore_nfs; then REMOVED+=("iptables rule INPUT tcp dport 2049 DROP"); else LEFT+=("iptables rule INPUT tcp dport 2049 DROP ($RULES_ADDED)"); fi
   fi
   if [ "$MADE_STACK" = "1" ]; then
-    if timeout 300 "${COMPOSE[@]}" down -v --remove-orphans --timeout 20; then
+    if timeout 120 "${COMPOSE[@]}" down -v --remove-orphans --timeout 20; then
       REMOVED+=("compose project $PROJECT (containers, network ${PROJECT}_default, ${PROJECT}_updater, volumes ${PROJECT}_pgdata, ${PROJECT}_cache, ${PROJECT}_backups, ${PROJECT}_player-data)")
     else
       LEFT+=("compose project $PROJECT")
@@ -422,7 +425,7 @@ chmod 600 "$INSTALL/.env"
 
 MADE_STACK=1
 CREATED+=("compose project $PROJECT")
-timeout 600 "${COMPOSE[@]}" up -d
+timeout 300 "${COMPOSE[@]}" up -d
 check "the app answers /health" wait_until 300 app_healthy
 
 api POST /auth/setup "{\"email\":\"$OWNER_EMAIL\",\"password\":\"$OWNER_PASSWORD\",\"displayName\":\"Robin\",\"contactString\":\"$OWNER_EMAIL\"}" >/dev/null
@@ -452,7 +455,7 @@ check "the Tag Plan has an item per fixture" test "$(plan_items)" = "$TRACKS"
 # ================================================================ 2. NAS off at create
 step "2. NAS off at create"
 
-timeout 300 "${COMPOSE[@]}" down --timeout 20
+timeout 120 "${COMPOSE[@]}" down --timeout 20
 drop_nfs
 t0=$SECONDS
 timeout 150 "${COMPOSE[@]}" up -d >"$TMP_ROOT/up.log" 2>&1 &
@@ -512,7 +515,7 @@ check "its items stay pending" test "$(psql_q "select count(*) from tag_plan_ite
 check "the audio files are unchanged during the outage" test "$(audio_md5s)" = "$MD5_BEFORE"
 
 restore_nfs
-check "the Tag Plan applies once the rule is removed" wait_until 300 plan_is applied
+check "the Tag Plan applies once the rule is removed" wait_until 180 plan_is applied
 check "every item is applied" test "$(psql_q "select count(*) from tag_plan_items where tag_plan_id = '$PLAN_ID' and status = 'applied'")" = "$TRACKS"
 check "every item's audio hash matches (before = after, recorded)" test "$(psql_q "select count(*) from tag_plan_items where tag_plan_id = '$PLAN_ID' and audio_hash_before is not null and audio_hash_before = audio_hash_after")" = "$TRACKS"
 check "the FLAC audio MD5s are unchanged after the write" test "$(audio_md5s)" = "$MD5_BEFORE"
@@ -523,11 +526,11 @@ check "the folder is online again" wait_until 240 folder_is none
 # ================================================================ 4. mounted later
 step "4. mounted later"
 
-timeout 300 "${COMPOSE[@]}" down --timeout 20
+timeout 120 "${COMPOSE[@]}" down --timeout 20
 umount "$MUSIC"
 MADE_MOUNT=0
 check "the share is unmounted" test "$(mountpoint -q "$MUSIC" && echo yes || echo no)" = "no"
-timeout 300 "${COMPOSE[@]}" up -d
+timeout 180 "${COMPOSE[@]}" up -d
 check "worker-files and player run with the share unmounted" wait_until 120 both_running
 worker_before=$(container_of worker-files)
 started_before=$(docker inspect -f '{{.State.StartedAt}} {{.RestartCount}}' "$worker_before")
