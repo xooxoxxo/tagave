@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -101,6 +102,21 @@ describe('spawnGuarded', () => {
     fileGate().clear('root-capped');
     expect((await spawnGuarded('sh', ['-c', 'true'], { rootId: 'root-capped' })).code).toBe(0);
   });
+
+  // Linux only: the child's own reads come from /proc/<pid>/io.
+  it.skipIf(!existsSync('/proc/self/io'))('a silent tool reading a slowly fed FIFO is not cut off at the idle deadline', async () => {
+    const fifo = path.join(dir, 'slow.fifo');
+    execFileSync('mkfifo', [fifo]);
+    // 128 KiB every 300 ms for about 3 s: well past idleMs 1000 with no output at all.
+    const feeder = spawn('sh', ['-c', `i=0; while [ $i -lt 10 ]; do head -c 131072 /dev/zero; sleep 0.3; i=$((i+1)); done > "${fifo}"`]);
+    const started = Date.now();
+    // dd, not sh -c: the reads must be the guarded child's own.
+    const r = await spawnGuarded('dd', [`if=${fifo}`, 'of=/dev/null', 'status=none'], { rootId: 'root-fifo', idleMs: 1000 });
+    expect(r.code).toBe(0);
+    expect(Date.now() - started).toBeGreaterThan(2000);
+    expect(fileGate().stuckCount('root-fifo')).toBe(0);
+    feeder.kill();
+  }, 15_000);
 
   it('guardedRunner runs a binary for a root', async () => {
     const r = await guardedRunner('root-runner')('sh', ['-c', 'printf ok']);

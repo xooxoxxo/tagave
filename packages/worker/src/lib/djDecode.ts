@@ -13,10 +13,12 @@ import { FolderOfflineError } from './folderOffline.js';
 import { spawnGuarded, type GuardedOptions, type GuardedResult } from './spawnGuarded.js';
 
 const NICE = 15;
-/** A decode writes PCM as it goes: this long without a byte is a hung share (spawnGuarded's idle deadline). */
-const DECODE_IDLE_MS = 120_000;
-/** The hash writes nothing until it is done, so its idle deadline bounds the whole read. */
-const HASH_IDLE_MS = 10 * 60_000;
+/**
+ * spawnGuarded's idle deadline for both: this long with no output and (on
+ * Linux) no reads by ffmpeg is a hung share. The hash writes nothing until
+ * it is done; its reads keep it alive.
+ */
+const IDLE_MS = 120_000;
 
 /** Which scan root the file is under (a hung share counts against it), and the environment for FFMPEG. */
 export interface DjRunOptions {
@@ -64,7 +66,7 @@ export interface DjWindow {
 export async function djAudioHash(path: string, window: DjWindow, opts: DjRunOptions): Promise<string> {
   const ffmpeg = ffmpegBin(opts.env);
   const r = await runFfmpeg(ffmpeg, ['-nostdin', '-v', 'error', '-i', path, '-map', '0:a:0', '-c', 'copy', '-f', 'hash', '-hash', 'sha256', '-'],
-    { rootId: opts.rootId, idleMs: HASH_IDLE_MS, maxStdout: 64 * 1024 });
+    { rootId: opts.rootId, idleMs: IDLE_MS, maxStdout: 64 * 1024 });
   const m = /SHA256=([0-9a-f]{64})/i.exec(r.stdout.toString());
   if (r.code !== 0 || !m) throw new Error(`ffmpeg could not read the audio: ${ending(r)}`);
   const out = m[1]!.toLowerCase();
@@ -88,7 +90,7 @@ export async function djDecodeAndAnalyze(path: string, window: DjWindow, opts: D
   // A throw from the analyser kills ffmpeg and rejects with it (spawnGuarded's onStdout).
   const r = await runFfmpeg(ffmpeg, args, {
     rootId: opts.rootId,
-    idleMs: DECODE_IDLE_MS,
+    idleMs: IDLE_MS,
     onStdout: (chunk) => {
       const buf: Buffer = carry ? Buffer.concat([carry, chunk]) : chunk;
       const usable = buf.length - (buf.length % 4);

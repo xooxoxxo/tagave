@@ -42,7 +42,8 @@ import { fileDigest, fileStat, insideRoot, mountIdentity } from '../lib/fileReco
 export interface SplitDeps {
   tools: FlacTools;
   /** the tag writer (mutagen); tests pass a stand-in */
-  tags: { write(path: string, tags: TagSet): Promise<unknown> };
+  /** `rootId`: set to the split's scan root before its writes (a stuck sidecar counts against it). */
+  tags: { rootId?: string | undefined; write(path: string, tags: TagSet): Promise<unknown> };
   now?: () => Date;
   /** Called at durable boundaries, including on resume. */
   beforeWrite?: () => Promise<unknown>;
@@ -301,6 +302,7 @@ async function saveCheckpoint(ctx: WorkerContext, row: SplitRow, checkpoint: Spl
 
 async function splitParts(ctx: WorkerContext, src: Source, plan: SplitPlan, temps: string[], deps: SplitDeps): Promise<string[]> {
   const tools = deps.tools.forRoot(src.album.scanRootId);
+  deps.tags.rootId = src.album.scanRootId;
   const info = await tools.streamInfo(src.abs);
   if (info.totalSamples !== plan.totalSamples || info.sampleRate !== plan.sampleRate) throw new SplitStop('The file changed since the plan');
   if (src.tracks.length !== plan.tracks.length) throw new SplitStop('The release changed since the plan');

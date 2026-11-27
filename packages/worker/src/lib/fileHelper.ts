@@ -12,12 +12,12 @@
  * write whose tag-writer sidecar hung is answered with `stuck: true`.
  *
  * Progress: while a long op runs, every 5 s the helper reads its bytes read
- * (`rchar` in /proc/self/io, less its own reads of that file) and sends
- * `{ progress: bytes }` once at least 64 KiB more were read. A timer alone is not progress: this event loop keeps running while a
+ * (`rchar` in /proc/self/io, less its own reads of that file, procIo.ts) and
+ * sends `{ progress: bytes }` once at least 64 KiB more were read. During a
+ * tag write, its sidecar's reads and writes (/proc/<pid>/io) count too. A timer alone is not progress: this event loop keeps running while a
  * read hangs in the threadpool. Without /proc/self/io (macOS) no progress is
  * sent and the gate's idle deadline is a plain deadline.
  */
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { lstat, mkdir, open, opendir, realpath, rename, rmdir, stat, statfs, unlink, access } from 'node:fs/promises';
 import { parseFile } from 'music-metadata';
@@ -26,10 +26,9 @@ import type { GateOp, HelperMessage, HelperRequest } from './fileGate.js';
 import { safeWriteSteps, type WriteStepHooks } from './safeFileWriter.js';
 import { MutagenTagWriter } from './tagWriter.js';
 import { OFFLINE_CODES } from './folderOffline.js';
+import { IoProgress } from './procIo.js';
 
 const PROGRESS_MS = 5_000;
-/** Bytes read since the last progress message before the next one is sent. */
-const PROGRESS_MIN_BYTES = 64 * 1024;
 const READ_SMALL_MAX = 32 * 1024 * 1024;
 const PAGE_LIMIT = 500;
 const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged']);
@@ -69,23 +68,6 @@ function testEnv(name: string): string | undefined {
 function progressMs(): number {
   const n = Number(testEnv('TAGAVE_HELPER_TEST_PROGRESS_MS'));
   return Number.isInteger(n) && n > 0 ? n : PROGRESS_MS;
-}
-
-/**
- * A sample of the bytes this process has read (`rchar`), or null where
- * /proc/self/io is missing. Reading /proc/self/io is a read too: the count
- * shown leaves out the text being read, so `after` adds it back, and the
- * next sample's growth past `after` is other reads only. Local procfs, never
- * the share.
- */
-function bytesRead(): { shown: number; after: number } | null {
-  try {
-    const text = readFileSync('/proc/self/io');
-    const m = /^rchar:\s*(\d+)/m.exec(text.toString('utf8'));
-    return m ? { shown: Number(m[1]), after: Number(m[1]) + text.length } : null;
-  } catch {
-    return null;
-  }
 }
 
 /** The folder's entries after `cursor`, in name order, at most `limit`. */
@@ -273,21 +255,16 @@ async function handle(req: HelperRequest): Promise<void> {
   const rootId = typeof req.rootId === 'string' ? req.rootId : undefined;
   let timer: NodeJS.Timeout | null = null;
   current = id;
-  let last = LONG_OPS.has((op as { op?: GateOp['op'] } | null)?.op as GateOp['op']) ? bytesRead()?.after ?? null : null;
-  if (last !== null) {
-    let read = 0;
+  const long = LONG_OPS.has((op as { op?: GateOp['op'] } | null)?.op as GateOp['op']);
+  const own = long ? new IoProgress('self') : null;
+  if (own?.available) {
+    // A tag write's sidecar does the share I/O of the write: its reads and writes count too.
+    let sidecar: IoProgress | null = null;
     timer = setInterval(() => {
-      const now = bytesRead();
-      if (now === null || last === null) return;
-      // Growth past our own last procfs read; the read of this sample is left out.
-      read += Math.max(0, now.shown - last);
-      last = now.after;
-      // The event loop reads a few bytes of its own on wakeups (8-byte eventfd reads):
-      // only a real amount of file data counts as progress.
-      if (read >= PROGRESS_MIN_BYTES) {
-        read = 0;
-        send({ id, progress: now.shown });
-      }
+      const pid = tagWriter?.pid;
+      if (pid !== undefined && sidecar?.pid !== pid) sidecar = new IoProgress(pid, ['rchar', 'wchar']);
+      const grew = own.grew();
+      if (grew || sidecar?.grew()) send({ id, progress: own.total });
     }, progressMs());
   }
   try {
