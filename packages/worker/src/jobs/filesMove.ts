@@ -81,7 +81,7 @@ const MOVE_POLICY: TagPolicies = { preset: 'canonical_ids_and_fill', id3Version:
 
 export interface MoveDeps {
   /** writes tags safely (the audio hash unchanged); tests pass a SafeFileWriter over a stand-in */
-  writer: { rootId?: string | undefined; write(filePath: string, tags: TagSet, opts?: { id3Version?: '2.3' | '2.4'; multiValueSeparator?: string }): Promise<WriteResult> };
+  writer: { sidecarRootId?: string | undefined; write(filePath: string, tags: TagSet, opts?: { id3Version?: '2.3' | '2.4'; multiValueSeparator?: string }): Promise<WriteResult> };
   /** MusicBrainz release search; defaults to identify's (cached, paced) */
   search?: (q: ReleaseQuery) => Promise<ReleaseCandidate[]>;
   /** fetches and stores a MusicBrainz release; defaults to identify's */
@@ -465,7 +465,7 @@ async function trashEmptyUpTo(root: string, dir: string, top: string, day: strin
 async function writeTags(ctx: WorkerContext, deps: MoveDeps, rootId: string, fileId: string | null, abs: string, diff: TagDiffEntry[]): Promise<void> {
   const fields = fieldsToWriteFrom(diff);
   if (Object.keys(fields).length === 0) return;
-  deps.writer.rootId = rootId;
+  deps.writer.sidecarRootId = rootId;
   const result = await deps.writer.write(abs, fields as TagSet, { id3Version: '2.4', multiValueSeparator: '; ' });
   if (result.error) throw new MoveStop(result.code === 'hash_mismatch' ? `${path.basename(abs)}: the audio would change` : `${path.basename(abs)}: ${result.error}`);
   if (!fileId) return;

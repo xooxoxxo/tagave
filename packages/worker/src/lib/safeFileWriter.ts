@@ -8,12 +8,15 @@
 
 import { promises as fs, open as fsOpen, fsync, close } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { statfs } from 'node:fs';
+import { parseFile } from 'music-metadata';
 import type { TagSet } from '@tagave/shared';
 import { hashAudioStream } from '@tagave/core';
 import type { TagWriter, WriteOptions } from '@tagave/core';
 import { audioHandler, type FileTypeHandler } from '@tagave/core/files';
+import { fileGate, type FileGate } from './fileGate.js';
+import type { DirPage } from './fileHelper.js';
 
 /**
  * Result from a write operation
@@ -73,20 +76,62 @@ export async function safeWriteSteps(
   });
 }
 
+/** The tag writer call the cover embed needs (MutagenTagWriter). */
+export interface CoverWriter {
+  embedCover(filePath: string, jpeg: Buffer): Promise<void>;
+}
+
+/**
+ * The same safe steps with `image` embedded as the front cover: the re-read
+ * checks the picture is there, the audio hash checks nothing else changed.
+ */
+export async function safeEmbedSteps(filePath: string, image: Buffer, writer: CoverWriter, hooks: WriteStepHooks = {}): Promise<WriteResult> {
+  const ext = path.extname(filePath).toLowerCase().slice(1);
+  return runWriteSteps(filePath, {
+    ...hooks,
+    write: (temp) => writer.embedCover(temp, image),
+    verify: async (temp) => {
+      const pictures = (await parseFile(temp)).common.picture;
+      return pictures?.some((picture) => Buffer.from(picture.data).equals(image)) ? {} : { error: 'Could not verify the embedded cover' };
+    },
+    contentHash: (file) => hashAudioStream(file, ext),
+  });
+}
+
+/**
+ * The start of every temp copy's name for this file (ruling R9). A write cut
+ * off by the gate leaves its temp copy beside the file (the helper was
+ * killed); the retry finds it by this prefix and removes it, never another
+ * file's copy.
+ */
+export function tempPrefixFor(filePath: string): string {
+  return `.tagave-tmp-${createHash('sha256').update(path.basename(filePath)).digest('hex').slice(0, 16)}-`;
+}
+
 /**
  * SafeFileWriter ensures tag writes never corrupt audio files
  * Uses atomic rename and hash verification per spec §12.6 TAG-4
+ *
+ * With a `rootId` the steps run in the file gate's helper (op writeTagged or
+ * embedCover): the worker itself makes no file call on the music share, and a
+ * dead share throws FolderOfflineError for that root. Without one (files.move
+ * until it goes through the gate) they run here with `tagWriter`.
  */
 export class SafeFileWriter {
-  constructor(private tagWriter: TagWriter) {}
+  constructor(
+    private readonly tagWriter: TagWriter | null,
+    /** The scan root of every file this writer writes. */
+    readonly rootId?: string,
+    private readonly gate: () => FileGate = fileGate,
+  ) {}
 
   /**
-   * The scan root of the files written next, handed to a tag writer that
-   * takes one (MutagenTagWriter: a sidecar that stops answering then counts
-   * stuck for that root).
+   * Without a `rootId` (the steps run here): the scan root of the files
+   * written next, handed to a tag writer that takes one (MutagenTagWriter: a
+   * sidecar that stops answering then counts stuck for that root).
    */
-  set rootId(rootId: string | undefined) {
-    if ('rootId' in this.tagWriter) (this.tagWriter as { rootId?: string | undefined }).rootId = rootId;
+  set sidecarRootId(rootId: string | undefined) {
+    if (this.tagWriter && 'rootId' in this.tagWriter) (this.tagWriter as { rootId?: string | undefined }).rootId = rootId;
   }
 
   /**
@@ -104,25 +149,47 @@ export class SafeFileWriter {
     tagSet: TagSet,
     opts?: WriteOptions
   ): Promise<WriteResult> {
+    if (this.rootId !== undefined) {
+      return this.gate().run<WriteResult>(this.rootId, {
+        op: 'writeTagged', path: filePath, handlerId: audioHandler.id, values: tagSet, ...(opts ? { options: opts } : {}),
+      });
+    }
+    if (!this.tagWriter) throw new Error('SafeFileWriter has neither a music folder nor a tag writer');
     return safeWriteSteps(filePath, audioHandler, tagSet, this.tagWriter, opts);
   }
 
-  async writeVerified(
-    filePath: string,
-    write: (temp: string) => Promise<void>,
-    verify: (temp: string) => Promise<WriteResult>,
-    beforePublish?: () => Promise<void>,
-  ): Promise<WriteResult> {
-    const ext = path.extname(filePath).toLowerCase().slice(1);
-    const contentHash = (file: string) => hashAudioStream(file, ext);
-    return runWriteSteps(filePath, beforePublish ? { write, verify, beforePublish, contentHash } : { write, verify, contentHash });
+  /** Embeds `image` as the front cover, safely, through the file gate. */
+  async embedCover(filePath: string, image: Buffer): Promise<WriteResult> {
+    if (this.rootId === undefined) throw new Error('SafeFileWriter needs its music folder to embed a cover');
+    return this.gate().run<WriteResult>(this.rootId, { op: 'embedCover', path: filePath, image });
   }
+
+  /**
+   * Removes the temp copies a cut-off write of this file left beside it
+   * (ruling R9), through the file gate. Returns how many went.
+   */
+  async removeStaleTemps(filePath: string): Promise<number> {
+    if (this.rootId === undefined) throw new Error('SafeFileWriter needs its music folder to tidy temp copies');
+    const gate = this.gate();
+    const dir = path.dirname(filePath);
+    const prefix = tempPrefixFor(filePath);
+    const stale: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: DirPage = await gate.run<DirPage>(this.rootId, { op: 'readdirPage', path: dir, cursor });
+      for (const e of page.entries) if (e.type === 'file' && e.name.startsWith(prefix)) stale.push(path.join(dir, e.name));
+      cursor = page.cursor;
+    } while (cursor !== null);
+    for (const file of stale) await gate.run(this.rootId, { op: 'unlink', path: file });
+    return stale.length;
+  }
+
 }
 
 async function runWriteSteps(filePath: string, steps: Steps): Promise<WriteResult> {
   const dir = path.dirname(filePath);
   const filename = path.basename(filePath);
-  const tempFilename = `.tagave-tmp-${randomUUID()}${path.extname(filename)}`;
+  const tempFilename = `${tempPrefixFor(filePath)}${randomUUID()}${path.extname(filename)}`;
   const tempFilePath = path.join(dir, tempFilename);
 
   try {

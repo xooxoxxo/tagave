@@ -13,6 +13,8 @@ import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import { files, images, libraries, localAlbums, localTracks, makeDb, scanRoots, sidecarFiles, users } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { FileGate, setFileGate } from '../lib/fileGate.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 
 const tmp = vi.hoisted(() => ({ dir: '' }));
 const sources: string[] = [];
@@ -219,6 +221,73 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
     await client`update images set origin = 'owner' where local_album_id = ${otherAlbum}`;
     await artFetchJob(ctx, { localAlbumId: otherAlbum, refresh: true, reselect: true });
     expect(await client`select 1 from images where local_album_id = ${otherAlbum} and origin = 'owner'`).toHaveLength(1);
+  });
+
+  /** A gate whose every call meets an offline music folder (the share answers EIO). */
+  class OfflineGate extends FileGate {
+    calls = 0;
+    override run<T>(rootId: string): Promise<T> {
+      this.calls += 1;
+      return Promise.reject(new FolderOfflineError(rootId, 'io_error', 'EIO'));
+    }
+  }
+
+  /** A matched album: its release has an MBID, so the Cover Art Archive is an online source. */
+  async function matched(albumId: string) {
+    const rgId = randomUUID();
+    const releaseId = randomUUID();
+    await client`insert into release_groups (id, mbid, title) values (${rgId}, ${randomUUID()}, 'Offline art')`;
+    await client`insert into releases (id, release_group_id, mbid, title) values (${releaseId}, ${rgId}, ${randomUUID()}, 'Offline art')`;
+    await client`update local_albums set release_id = ${releaseId}, state = 'matched' where id = ${albumId}`;
+    await client`update files set has_embedded_art = true where id in (select audio_file_id from local_tracks where local_album_id = ${albumId})`;
+    return { rgId, releaseId };
+  }
+
+  it('art.fetch goes on with online covers and never records no local cover', async () => {
+    const albumId = await albumWithFlag('O/Offline/2010 - Online', { sidecar: true });
+    const { rgId, releaseId } = await matched(albumId);
+    const jpeg = await sharp({ create: { width: 500, height: 500, channels: 3, background: '#2e8b57' } }).jpeg().toBuffer();
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(jpeg), { status: 200 }));
+    const gate = new OfflineGate();
+    setFileGate(gate);
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(await artFetchJob(ctx, { localAlbumId: albumId })).toBe('found');
+    } finally {
+      vi.unstubAllGlobals();
+      setFileGate(null);
+    }
+    // the embedded and folder sources were asked through the gate, and skipped
+    expect(gate.calls).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const rows = await db.select().from(images).where(eq(images.localAlbumId, albumId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'front', origin: 'provider', audioFileId: null, sidecarFileId: null });
+    expect(rows[0].licenseNote).toMatch(/Cover Art Archive/);
+    if (rows[0].imageSourceId) sources.push(rows[0].imageSourceId);
+    await client`update local_albums set release_id = null where id = ${albumId}`;
+    await client`delete from releases where id = ${releaseId}`;
+    await client`delete from release_groups where id = ${rgId}`;
+  });
+
+  it('art.fetch with only local sources waits for the folder: it rethrows, stores nothing and leaves the flag open', async () => {
+    send.mockClear();
+    const albumId = await albumWithFlag('O/Offline/2011 - Local only', { sidecar: true });
+    await client`update files set has_embedded_art = true where id in (select audio_file_id from local_tracks where local_album_id = ${albumId})`;
+    const fetchMock = vi.fn(async () => new Response('', { status: 404 }));
+    const gate = new OfflineGate();
+    setFileGate(gate);
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(artFetchJob(ctx, { localAlbumId: albumId })).rejects.toBeInstanceOf(FolderOfflineError);
+    } finally {
+      vi.unstubAllGlobals();
+      setFileGate(null);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await db.select().from(images).where(eq(images.localAlbumId, albumId))).toHaveLength(0);
+    expect((await flagState(albumId))?.state).toBe('open');
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('no art anywhere: the flag stays open', async () => {
