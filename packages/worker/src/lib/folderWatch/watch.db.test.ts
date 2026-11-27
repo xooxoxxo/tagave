@@ -8,8 +8,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { files, libraries, makeDb, rootsToWatch, scanRoots, users } from '@tagave/db';
+import { files, libraries, makeDb, recordReach, rootsToWatch, scanRoots, users } from '@tagave/db';
 import type { WorkerContext } from '../context.js';
+import type { probeOnce } from './probeOnce.js';
 import type { ProbeOutcome } from './reach.js';
 import { FolderWatch } from './watch.js';
 
@@ -159,7 +160,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
     const probe = vi.fn(async (): Promise<ProbeOutcome> => LISTING);
     const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, port, probe, now: clock });
     expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
-    expect(probesOf(probe)).toEqual([[REAL_A, ['Jazz/1.flac']]]);
+    expect(probesOf(probe)).toEqual([[REAL_A, ['Jazz/1.flac'], expect.objectContaining({ abandoned: expect.any(Function) })]]);
     expect(port).not.toHaveBeenCalled();
     expect(await reach(rootId)).toMatchObject({ reach: 'online', reach_reason: null, reach_since: T1 });
   });
@@ -181,5 +182,46 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
     const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => { throw new Error('ENOENT'); }, probe, now: clock });
     expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
     expect(probesOf(probe)).toHaveLength(1);
+  });
+  it('a failed write loses no change: the next tick writes it, and queues the scan then', async () => {
+    await setReach(rootId, 'offline', 'server_silent', T0);
+    let fail = 1;
+    const record = vi.fn(async (...args: Parameters<typeof recordReach>) => {
+      if (args[1] === rootId && fail-- > 0) throw new Error('database unavailable');
+      return recordReach(...args);
+    });
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => NFS_INFO, port: async () => true, probe: vi.fn(async () => LISTING), now: clock, record });
+    expect((await w.tick()).has(rootId)).toBe(false); // the check failed
+    expect(await reach(rootId)).toMatchObject({ reach: 'offline', reach_since: T0 });
+    expect(sendsFor(rootId)).toHaveLength(0);
+    now = T2;
+    await w.tick();
+    expect(await reach(rootId)).toMatchObject({ reach: 'online', reach_reason: null, reach_since: T2 });
+    expect(sendsFor(rootId)).toEqual([['scan.root', { scanRootId: rootId, mode: 'quick' }, { singletonKey: `scan:${rootId}` }]]);
+  });
+
+  it('forks no new probe while a child it gave up on is still there, and reads a deadline', async () => {
+    let exit = () => {};
+    const probe = vi.fn(async (...[dir, , opts]: Parameters<typeof probeOnce>): Promise<ProbeOutcome> => {
+      if (dir !== REAL_A) return LISTING;
+      if (probesOf(probe).length === 1) {
+        opts?.abandoned?.(new Promise<void>((done) => { exit = done; })); // stuck in the kernel until we say
+        return { kind: 'deadline' };
+      }
+      return LISTING;
+    });
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, probe, now: clock });
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'timeout' });
+    now = T2;
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'timeout' });
+    now = T3;
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'timeout' });
+    expect(probesOf(probe)).toHaveLength(1);
+    expect(await reach(rootId)).toMatchObject({ reach: 'offline', reach_reason: 'timeout', reach_since: T2 });
+    exit();
+    await flush();
+    now = T4;
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
+    expect(probesOf(probe)).toHaveLength(2);
   });
 });

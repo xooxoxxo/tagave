@@ -37,6 +37,8 @@ export interface FolderWatchDeps {
   port?: typeof portAnswers;
   now?: () => Date;
   onlineAgain?: (rootId: string, after: 'offline' | 'unmounted') => Promise<void>;
+  /** default: db `recordReach` */
+  record?: typeof recordReach;
 }
 
 type Deps = Required<Omit<FolderWatchDeps, 'env'>>;
@@ -54,6 +56,13 @@ export class FolderWatch {
   private readonly states = new Map<string, ReachState>();
   /** Roots seen as a mount point of their own at least once (in memory only). */
   private readonly wasMount = new Set<string>();
+  /**
+   * Roots with a probe child the watch gave up on that has not exited (a
+   * share stuck in the kernel can keep it in D state for good). No new child
+   * is forked for them: each reading is a deadline until the child is gone,
+   * so stuck children never pile up.
+   */
+  private readonly stuck = new Set<string>();
   /** Roots whose check has not ended. */
   private readonly inFlight = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
@@ -64,6 +73,7 @@ export class FolderWatch {
       ctx,
       readMountinfo: deps.readMountinfo ?? (() => readFile(MOUNTINFO, 'utf8')),
       probe: deps.probe ?? probeOnce,
+      record: deps.record ?? recordReach,
       port: deps.port ?? portAnswers,
       now: deps.now ?? (() => new Date()),
       onlineAgain:
@@ -102,6 +112,7 @@ export class FolderWatch {
     const seen = new Set(roots.map((r) => r.id));
     if (only === undefined) {
       for (const id of this.states.keys()) if (!seen.has(id)) this.states.delete(id);
+      for (const id of this.wasMount) if (!seen.has(id)) this.wasMount.delete(id);
     }
     const mountinfo = await this.mountinfo();
     const readings = new Map<string, Reading>();
@@ -139,7 +150,13 @@ export class FolderWatch {
     const isMountPoint = mountPoints(mountinfo).has(bare(real));
     const wasMountPoint = this.wasMount.has(root.id);
     if (isMountPoint) this.wasMount.add(root.id);
-    const outcome = await this.deps.probe(real, root.known);
+    if (this.stuck.has(root.id)) return { kind: 'deadline' };
+    const outcome = await this.deps.probe(real, root.known, {
+      abandoned: (gone) => {
+        this.stuck.add(root.id);
+        void gone.then(() => this.stuck.delete(root.id));
+      },
+    });
     return outcome.kind === 'listing' ? { ...outcome, isMountPoint, wasMountPoint } : outcome;
   }
 
@@ -148,10 +165,11 @@ export class FolderWatch {
     const reading = classify(await this.look(root, real, mountinfo));
     const prev = this.states.get(root.id) ?? { reach: root.reach, since: root.reachSince, pendingOffline: null };
     const { state, changed } = nextReach(prev, reading, this.deps.now());
-    this.states.set(root.id, state);
     // The reason shown is the reading's while it agrees with the status; a first bad reading while online shows none yet.
     const reason = state.reach === reading.reach ? reading.reason : null;
-    await recordReach(this.deps.ctx.sql, root.id, { reach: state.reach, reason, since: state.since, changed });
+    // Written first: a failed write leaves memory as it was, so the next tick makes the same change again.
+    await this.deps.record(this.deps.ctx.sql, root.id, { reach: state.reach, reason, since: state.since, changed });
+    this.states.set(root.id, state);
     if (changed) {
       this.log(root, state.reach, reason);
       if (state.reach === 'online' && (prev.reach === 'offline' || prev.reach === 'unmounted')) {
