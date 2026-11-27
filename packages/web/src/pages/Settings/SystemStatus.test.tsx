@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { MusicBoot, UpdaterStatus, UpdaterView } from '@tagave/shared';
-import { SystemStatusView, musicBootOf } from './SystemStatus';
+import { SystemStatusView, musicBootFrom } from './SystemStatus';
 
 const FSTAB_LINE = '192.0.2.10:/export/music  /mnt/music  nfs4  hard,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0 0';
 
@@ -22,7 +22,7 @@ describe('the music share at boot row', () => {
   it('nofail missing: the row, its value as a problem, the fstab line behind "?"', () => {
     const html = view({ layout: 'direct', codes: ['nofail_missing'] });
     expect(text(html)).toContain('Music share at boot');
-    expect(html).toMatch(/<span class="[^"]*problem[^"]*">may stop this computer starting while the NAS is off<\/span>/);
+    expect(html).toMatch(/<span class="[^"]*problem[^"]*" role="alert">may stop this computer starting while the NAS is off<\/span>/);
     expect(html).toContain('aria-label="Help: Music share at boot"');
     const help = text(hidden(html));
     expect(help).toContain("Add nofail to the music share's line in /etc/fstab, for example:");
@@ -36,7 +36,7 @@ describe('the music share at boot row', () => {
     expect(text(html)).toContain('Music share mount');
     expect(text(html)).toContain('Mounted soft');
     expect(text(html)).not.toContain('Music share at boot');
-    expect(html).not.toMatch(/problem/);
+    expect(html).not.toMatch(/problem|role="alert"/);
     expect(text(hidden(html))).toMatch(/soft mount.*cut a tag write short.*tagave suggests hard/);
   });
 
@@ -61,7 +61,7 @@ describe('the music share at boot row', () => {
   });
 });
 
-describe('musicBootOf', () => {
+describe('musicBootFrom', () => {
   const status = (musicBoot?: MusicBoot | null): UpdaterStatus => ({
     version: '0.39.0', configuredVersion: '0.39.0', role: 'all', services: [], run: null,
     ...(musicBoot === undefined ? {} : { musicBoot }),
@@ -69,15 +69,15 @@ describe('musicBootOf', () => {
   const v = (over: Partial<UpdaterView>): UpdaterView => ({ installed: true, reachable: true, error: null, updater: status({ layout: 'direct', codes: ['nofail_missing'] }), ...over });
 
   it("the updater's reading when it answers", () => {
-    expect(musicBootOf(v({}))).toEqual({ layout: 'direct', codes: ['nofail_missing'] });
+    expect(musicBootFrom(v({}))).toEqual({ layout: 'direct', codes: ['nofail_missing'] });
   });
 
   it('null without the updater, when it does not answer, or from an older one', () => {
-    expect(musicBootOf(undefined)).toBeNull();
-    expect(musicBootOf(v({ installed: false, reachable: false, updater: null }))).toBeNull();
+    expect(musicBootFrom(undefined)).toBeNull();
+    expect(musicBootFrom(v({ installed: false, reachable: false, updater: null }))).toBeNull();
     // the last answer kept while the updater restarts itself
-    expect(musicBootOf(v({ reachable: false }))).toBeNull();
-    expect(musicBootOf(v({ updater: status() }))).toBeNull();
-    expect(musicBootOf(v({ updater: status(null) }))).toBeNull();
+    expect(musicBootFrom(v({ reachable: false }))).toBeNull();
+    expect(musicBootFrom(v({ updater: status() }))).toBeNull();
+    expect(musicBootFrom(v({ updater: status(null) }))).toBeNull();
   });
 });

@@ -31,7 +31,7 @@ export function checksValue(checks: Array<{ status: string }>): string {
 const SUGGESTED_FSTAB_LINE = '192.0.2.10:/export/music  /mnt/music  nfs4  hard,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0 0';
 
 /** The updater's musicBoot while it answers; null without an updater, while it does not answer, or from one too old to say. */
-export function musicBootOf(view: UpdaterView | undefined): MusicBoot | null {
+export function musicBootFrom(view: UpdaterView | undefined): MusicBoot | null {
   if (!view?.installed || !view.reachable) return null;
   return view.updater?.musicBoot ?? null;
 }
@@ -69,7 +69,7 @@ export function SystemStatusView({ data, loading = false, failed = false, checki
             <p className={styles.helpText}>Add nofail to the music share&apos;s line in /etc/fstab, for example:</p>
             <code className={styles.fstab}>{SUGGESTED_FSTAB_LINE}</code>
           </>}
-          value={<span className={styles.problem}>may stop this computer starting while the NAS is off</span>}
+          value={<span className={styles.problem} role="alert">may stop this computer starting while the NAS is off</span>}
         />
       )}
       {codes.includes('soft_mount') && (
@@ -88,5 +88,5 @@ export function SystemStatus() {
   const { data, isLoading, isError, isFetching, refetch } = useSystemChecks({ refetchInterval: 60_000 });
   // The same query as Settings › Updates (one poll, shared); the section is the owner's only.
   const updater = useUpdater();
-  return <SystemStatusView data={data} loading={isLoading} failed={isError} checking={isFetching} onRecheck={() => void refetch()} musicBoot={musicBootOf(updater.data)} />;
+  return <SystemStatusView data={data} loading={isLoading} failed={isError} checking={isFetching} onRecheck={() => void refetch()} musicBoot={musicBootFrom(updater.data)} />;
 }
