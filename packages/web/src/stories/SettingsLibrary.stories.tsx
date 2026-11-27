@@ -11,7 +11,7 @@ const noop = () => undefined;
 const root = (over: Partial<ScanRoot> = {}): ScanRoot => ({
   id: '11111111-1111-4111-8111-111111111111', libraryId: '22222222-2222-4222-8222-222222222222', path: '/mnt/music', displayName: 'Music',
   writable: true, enabled: true, pollIntervalS: 21600, validationStatus: 'ok', validationMessage: null, probeWritable: true,
-  lastScanAt: at, lastStatus: 'done', albumsFound: 1204, tracksFound: 14873, folderLink: 'smb://music.example.com/music/', createdAt: at, updatedAt: at,
+  lastScanAt: at, lastStatus: 'done', albumsFound: 1204, tracksFound: 14873, folderLink: 'smb://192.0.2.10/music/', createdAt: at, updatedAt: at,
   reach: 'online', reachSince: '2026-11-20T08:00:00', waiting: { scans: 0, tagWrites: 0, other: 0 }, ...over,
 });
 
