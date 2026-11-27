@@ -386,7 +386,8 @@ export async function selfImage(docker: Runner, self: string): Promise<string | 
  * This install's containers (the compose project label) of the music
  * services that bind MUSIC_DIR, or `bindSource` (TAGAVE_MUSIC_BIND_SOURCE,
  * the folder above it in the parent layout) when given: what a restart picks
- * the mount up in. Null when Docker did not answer.
+ * the mount up in. Null when Docker did not answer. No caller passes
+ * `bindSource` today: the parent layout returns before any restart.
  */
 export async function musicContainers(docker: Runner, project: string, dir: string, bindSource?: string | null): Promise<string[] | null> {
   const parent = bindSource?.replace(/\/+$/, '');

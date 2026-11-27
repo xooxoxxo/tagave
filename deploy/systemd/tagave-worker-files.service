@@ -26,9 +26,12 @@ After=network-online.target remote-fs.target
 Wants=network-online.target
 # The worker does not wait for the music share (NFS/SMB): it starts with the
 # share down and reports the folder offline until the share comes back. If you
-# want the share mounted first, add Wants= on its mount unit, named by the
-# systemd-escape of the mount path (systemd-escape -p --suffix=mount /mnt/music):
+# want the share mounted first, add both lines below on its mount unit, named
+# by the systemd-escape of the mount path (systemd-escape -p --suffix=mount
+# /mnt/music). Wants= asks for the mount and After= waits for it; the worker
+# still starts when the mount fails.
 #   Wants=mnt-music.mount
+#   After=mnt-music.mount
 
 [Service]
 Type=simple
