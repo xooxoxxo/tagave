@@ -206,11 +206,23 @@ The same three lines check `release-manifest.json` with `release-manifest.json.s
 
 **Modules.** Only modules in the signed official catalogue can be installed; there are no third-party or community modules. A module's compose file comes from the signed manifest, its images are pinned like the rest, and the updater refuses a catalogue entry that would mount the Docker socket, run privileged or touch tagave's own settings.
 
+## The music bind
+
+Only the file worker and the player mount your music. How depends on the [layout](install.md#music-on-a-network-share).
+
+**Direct layout** (the default, and every read-only install): the music folder itself. It is read-only unless you installed with `--music-writable`, and always read-only for the player. Neither part sees anything next to the music.
+
+**Parent layout** (writable installs only): the folder right above the share, with `rslave` propagation. Both parts see the other folders and shares in it, and the file worker can write to them as the host can. The installer lists them once (names only) before it picks this layout. To show nothing else, mount the share in a folder of its own and name that folder with `--music-parent`. The player's bind is read-only, but a share mounted after the player started comes in writable; Navidrome does not write music.
+
+**Why read-only installs keep the direct bind.** A share the host mounts after the parts started (the NAS coming back, the case the parent layout is for) arrives in the parent mount as a new mount with the host's flags, so it is writable inside the container even though the bind is read-only. Docker's recursive read-only needs `rprivate` propagation and only covers mounts present at start. So tagave uses the parent layout only where the music is writable anyway.
+
+`bind.recursive` is left out of `compose.yml`: Compose 2.20 to 2.29 reject it (2.30.0 is the oldest that accepts it), and tagave supports Compose 2.20 and newer.
+
 ## The player
 
 The player is an optional service (compose profile `player`): an unmodified [Navidrome](https://www.navidrome.org) that plays your albums in tagave and serves phone apps. It is off by default; `install-tagave.sh --with-player` or `enable-player` turns it on. See [Play your music](install.md#play-your-music-optional-player).
 
-**What it can read.** Your music folder, mounted read-only (always, even with `--music-writable`), and its own `player-data` volume. Nothing else: not the tagave database, not `.env`, not the Docker socket.
+**What it can read.** Your music folder, mounted read-only, even with `--music-writable` (in the parent layout also the folders next to it; see [The music bind](#the-music-bind)), and its own `player-data` volume. Nothing else: not the tagave database, not `.env`, not the Docker socket.
 
 **Credentials.** The installer generates Navidrome's admin password and its encryption key (`TAGAVE_PLAYER_PASSWORD`, `TAGAVE_PLAYER_ENCRYPTION_KEY`, 32 random bytes each) and writes them only to `.env`, mode 600. The compose file passes the password to Navidrome and to the app, and to no other service; the workers never get it. Navidrome refuses to start without both values, because a Navidrome with no admin lets whoever reaches its port first create one. The browser never gets the password: it plays through tagave. tagave signs each request to Navidrome with Subsonic token auth, `md5(password + salt)` with a new random salt per request, so the password itself does not cross the network. For a server of your own (Settings › Modules › Player), tagave keeps the password sealed with `APP_SECRET` in the database, like the other provider secrets.
 

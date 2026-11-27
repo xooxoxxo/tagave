@@ -68,7 +68,41 @@ This is the same repair as the **Repair** button in Settings › Updates, run fr
 - **6**: Docker isn't answering when the installer checks, before the repair starts. The installer reports this and never restarts Docker: restart Docker or the computer, then run the installer again. When Docker stops answering as the repair starts, it ends with 5.
 - **1**: the repair failed, or the installer could not start it (for example the install runs a version before 0.34.0, or the download of the updater failed). The log or the error says why.
 
-The music check no longer hangs on a share that does not answer. When the music folder sits on an NFS or SMB share whose server is silent for 5 seconds, the installer says `Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable.`, writes the configuration and starts nothing. Run it again once the share answers. This is for a fresh install, a re-run with every part running, or a no at the prompt. On a re-run with a part down, the repair runs first, and a silent share ends it with exit 4.
+The music check no longer hangs on a share that does not answer. When the music folder sits on an NFS or SMB share whose server is silent for 5 seconds, the installer says `Your music share at 192.0.2.10 doesn't answer. Turn the NAS on or check its cable.`, writes the configuration and starts nothing. Run it again once the share answers. In the [parent layout](#music-on-a-network-share) it says `Your music share isn't connected now. tagave starts anyway and picks it up when it's back.` and starts tagave. This is for a fresh install, a re-run with every part running, or a no at the prompt. On a re-run with a part down, the repair runs first, and a silent share ends it with exit 4.
+
+### Music on a network share
+
+The file worker and the player mount your music in one of two layouts:
+
+- **Direct** (the default, and every read-only install): the music folder itself, at `/mnt/music`. A share that is off when they start keeps those two parts from starting until it is back. The rest of tagave starts.
+- **Parent**: the folder right above the share, mounted with `rslave` propagation, so the share is a mount inside it. The file worker and the player start while the NAS is off and see the share once this computer mounts it again. Scan roots stay `/mnt/music`.
+
+The installer picks the parent layout only when all of these hold:
+
+- the install is writable (`--music-writable`). [Security: The music bind](security.md#the-music-bind) says why read-only installs stay direct;
+- the computer runs Linux, with rootful Docker (not rootless, not the snap);
+- the music folder is a mount point or an `/etc/fstab` entry;
+- the folder above it is under `/mnt`, `/media` or `/srv`, or is the folder you name with `--music-parent`. Either way it is the folder right above the music folder, and never `/`, `/home`, your home folder, the install folder or Docker's data;
+- that folder's mount is `shared` (`findmnt -no PROPAGATION --target /mnt`), as systemd sets it.
+
+When the folder above holds anything else, the installer lists it once (names only) and asks `Let tagave see all of /mnt? (y/N)`. Without a terminal it goes on only when all of it is mount points. Otherwise it keeps the direct layout and says why in one line, for example `Music folder mounted directly: a read-only music folder stays read-only only when it is mounted directly.`
+
+- `--music-parent DIR` names the folder right above the music folder, for example a folder that holds only the share.
+- `--music-direct` keeps the direct layout. It writes `TAGAVE_MUSIC_LAYOUT=direct` to `.env`, which later runs keep until a run with `--music-parent` (or until you delete the line).
+
+**Mount options.** tagave suggests this `/etc/fstab` line, with your own server and export:
+
+```
+192.0.2.10:/export/music  /mnt/music  nfs4  hard,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0 0
+```
+
+- `hard`: keep it. A `soft` mount gives up after a few minutes and returns an error, and `nfs(5)` warns that this can corrupt data: a tag write tagave thinks finished may never have reached the NAS. tagave reaches the share through helpers it can give up on, so `hard` costs it nothing. `softerr` returns a timeout instead of the error but has the same write risk: fine for a read-only install, not for one that writes tags.
+- `_netdev`: the share is mounted once the network is up.
+- `nofail`: boot neither fails nor waits for the share.
+- `x-systemd.automount`: the share mounts on first access, so the computer boots at once with the NAS off. In the parent layout a first access from inside tagave mounts it too. In the direct layout starting a part mounts it, and with the NAS off that waits up to `x-systemd.mount-timeout` (30 seconds) and then fails.
+- No `x-systemd.idle-timeout`: tagave's scans would keep mounting the share again.
+
+When the music folder's fstab line has no `nofail` (or an NFS or SMB line has no `_netdev`), the installer prints a line like this once. It never edits fstab.
 
 ### Music on another computer
 
@@ -91,7 +125,7 @@ When the music lives on a different computer than the one that should run the ap
 
    It checks that the database answers before starting the worker. Delete the copied `files-worker.env` afterwards; it holds secrets.
 
-A network share (NFS, SMB) has to be mounted on the worker's computer first; give the folder it is mounted on.
+A network share (NFS, SMB) has to be mounted on the worker's computer first; give the folder it is mounted on. See [Music on a network share](#music-on-a-network-share).
 
 ### The database link
 
@@ -108,7 +142,7 @@ In a split install the file worker talks to Postgres over the network. That conn
 
 ## One-click platforms
 
-If you already run a Docker platform, install tagave from its app catalogue instead of the installer. The templates live in [`deploy/templates/`](../deploy/templates/). Each one runs Postgres, the web app and both workers on one host, mounts your music read-only at `/mnt/music`, and needs three values:
+If you already run a Docker platform, install tagave from its app catalogue instead of the installer. The templates live in [`deploy/templates/`](../deploy/templates/). Each one runs Postgres, the web app and both workers on one host, mounts your music read-only at `/mnt/music` (always the [direct layout](#music-on-a-network-share)), and needs three values:
 
 | Variable | What to put there |
 |---|---|
@@ -245,7 +279,7 @@ tagave can play your albums. The player module is [Navidrome](https://www.navidr
 - writes `TAGAVE_PLAYER_URL=http://player:4533`, `TAGAVE_PLAYER_USER=admin` and `TAGAVE_PLAYER_PORT`;
 - starts Navidrome and restarts the app, which picks up the player.
 
-Navidrome reads your music folder read-only, always, even when you installed with `--music-writable`. It keeps its own database in a Docker volume of its own (`player-data`). That database is SQLite, so the volume must stay on a local disk, never on NFS.
+Navidrome's music mount is read-only, even when you installed with `--music-writable`. In the parent layout a share mounted after it started can come in writable; Navidrome does not write music (see [Security: The music bind](security.md#the-music-bind)). It keeps its own database in a Docker volume of its own (`player-data`). That database is SQLite, so the volume must stay on a local disk, never on NFS.
 
 **The port.** Navidrome is published on port 4533 of this computer (`--player-port N` picks another), so phone apps on your network can reach it. Keep it inside your home network, or reach it from outside through a VPN or your HTTPS reverse proxy. Never forward it from your router. See [Security: the player](security.md#the-player).
 
@@ -483,6 +517,8 @@ node packages/worker/dist/index.js
 The `TAGAVE_QUEUES` env var limits which job queues a process claims from (default: all). Between them the workers must cover every queue; a queue no worker lists never runs. `APP_SECRET` must match the app's so the worker can decrypt stored provider credentials.
 
 See `scripts/deploy.sh` for one way to keep a worker host in step with the app (rsync, build, migrate, pidfile restart).
+
+`deploy/systemd/tagave-worker-files.service` runs the file worker under systemd. It no longer has `RequiresMountsFor=/mnt/music`: the worker starts with the share down and reports the folder offline. To have the share mounted first, add `Wants=` and `After=` on its mount unit (`systemd-escape -p --suffix=mount /mnt/music` names it, for example `mnt-music.mount`).
 
 ### Critical: workers must be running
 

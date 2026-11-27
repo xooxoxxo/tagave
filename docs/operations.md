@@ -131,9 +131,24 @@ docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli
 
 Add `--expect-workers 0` while no worker runs yet. Or on a worker host: `pnpm doctor`.
 
+## A music share that goes offline
+
+When the NAS behind your music folder is off or unplugged, tagave keeps running. The app, browsing, search, edits, plans and everything else that does not need the files work as before; covers come from the cache. Albums on that folder say **Files offline**, and the owner sees **Music folder offline since** and the time. Nothing is marked missing while the share is away.
+
+What waits for the share:
+
+- Scans and tag writes wait, then start again on their own within about 30 seconds of the share answering. A tag write checks each file's audio again before it writes.
+- Splits and moves stop safely and say **Paused while the music folder is offline**. Press **Continue** once the folder is back; they never go on by themselves.
+- The player skips tracks whose files are offline, with one note (`Skipped 2 songs: their files are offline`).
+
+Whether the file worker and the player start with the NAS off depends on the [layout](install.md#music-on-a-network-share):
+
+- **Parent layout** (writable installs on Linux): both start with the NAS off and see the share once the host mounts it again. The healer below mounts a share that did not mount and restarts nothing.
+- **Direct layout** (the default, and every read-only install): a share that is off when tagave starts keeps `worker-files` and the player from starting until it is back, as before. The other parts start. The healer mounts the share and restarts the music parts, and [Repair](#repair) waits for the share.
+
 ## A music folder that did not mount
 
-When a scan finds no files in a music folder that had files, it marks nothing missing, and the owner sees **Music folder unreachable** above every page until a scan finishes. With the in-app updater, tagave also mounts the folder again by itself. If the latest scan stopped this way, the updater runs a short helper container from its own image with `--privileged --pid=host`. Only when `MUSIC_DIR` (from `.env`) is a mount in the host's `/etc/fstab` and the host runs systemd, the helper starts that mount unit (`systemctl start`). It then checks that the folder is mounted and not empty, restarts only the containers that bind it (`worker-files`, `app`, `player`), and scans again. The banner says **Reconnecting music folder** in the meantime. It tries at most once every 10 minutes, waits longer after each failure in a row, and writes each attempt to the audit log. It never unmounts anything, never edits fstab and never touches another path or container. Set `TAGAVE_MUSIC_SELF_HEAL=0` in `.env` to turn it off.
+When a scan finds no files in a music folder that had files, it marks nothing missing, and the owner sees **Music folder unreachable** above every page until a scan finishes. With the in-app updater, tagave also mounts the folder again by itself. If the latest scan stopped this way, the updater runs a short helper container from its own image with `--privileged --pid=host`. Only when `MUSIC_DIR` (from `.env`) is a mount in the host's `/etc/fstab` and the host runs systemd, the helper starts that mount unit (`systemctl start`). It then checks that the folder is mounted and not empty, restarts only the containers that bind it (`worker-files`, `app`, `player`), and scans again. In the parent layout it restarts nothing: the mount reaches the running parts on its own. The banner says **Reconnecting music folder** in the meantime. It tries at most once every 10 minutes, waits longer after each failure in a row, and writes each attempt to the audit log. It never unmounts anything, never edits fstab and never touches another path or container. Set `TAGAVE_MUSIC_SELF_HEAL=0` in `.env` to turn it off.
 
 ## Repair
 
