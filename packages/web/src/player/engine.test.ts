@@ -197,8 +197,67 @@ describe('the next track, with the page hidden', () => {
   });
 });
 
+describe('songs whose files are offline', () => {
+  const ok = fetchMock.getMockImplementation()!;
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': status === 200 ? 'application/json' : 'application/problem+json' } });
+  /** the streams of `offline` answer 409 files_offline; the album's queue is `view`; the rest as usual */
+  const serve = (offline: string[], view?: unknown) => fetchMock.mockImplementation(async (url, init) => {
+    const u = String(url);
+    if (offline.some((id) => u.includes(`/stream/${id}?`))) return json({ type: 'files_offline', title: 'Files offline', status: 409 }, 409);
+    if (view && u.includes('/player/albums/') && u.endsWith('/queue')) return json(view);
+    return ok(url, init);
+  });
+  afterEach(() => { fetchMock.mockImplementation(ok); });
+
+  /** the active element gives up on its stream, and the probe answers */
+  const fail = async (a: FakeAudio) => { a.dispatchEvent(new Event('error')); for (let i = 0; i < 4; i++) await flush(); };
+
+  it('skips each one, then says so once, with the count, when a song plays', async () => {
+    const engine = await boot();
+    serve(['a', 'b']);
+    engine.usePlayerStore.setState({ queue: { context: null, tracks: ['a', 'b', 'c'].map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false }, index: -1, queueId: 'q1' });
+    engine.playAt(0);
+    const [a] = engine.mediaElements() as unknown as [FakeAudio];
+    await fail(a);
+    await fail(a);
+    const s = engine.usePlayerStore.getState();
+    expect(s.index).toBe(2);
+    expect(s.queue!.tracks.slice(0, 2).map((t) => [t.available, t.reason])).toEqual([[false, 'offline'], [false, 'offline']]);
+    // the run of skips has not ended yet: no word
+    expect(s.offlineSkips).toBeNull();
+    a.dispatchEvent(new Event('playing'));
+    expect(engine.usePlayerStore.getState().offlineSkips).toMatchObject({ count: 2 });
+    const first = engine.usePlayerStore.getState().offlineSkips!.id;
+    // more sound is not a second word
+    a.dispatchEvent(new Event('playing'));
+    expect(engine.usePlayerStore.getState().offlineSkips!.id).toBe(first);
+  });
+
+  it('adds the songs the album\'s queue left out to the same count, once', async () => {
+    const engine = await boot();
+    const t = (id: string, n: number) => ({ ...track(id), trackNo: n });
+    serve(['a'], { albumId: 'al', album: 'Album', albumArtist: 'Artist', coverUrl: null, tracks: [t('a', 1), t('b', 2)], scanRequested: false, skippedOffline: 2 });
+    const play = engine.playAlbum({ albumId: 'al', title: 'Album', artist: 'Artist', coverUrl: null });
+    await play;
+    const [a] = engine.mediaElements() as unknown as [FakeAudio];
+    await fail(a);
+    a.dispatchEvent(new Event('playing'));
+    expect(engine.usePlayerStore.getState().offlineSkips).toMatchObject({ count: 3 });
+  });
+
+  it('nothing left to play: the word comes with the error', async () => {
+    const engine = await boot();
+    serve(['a']);
+    engine.usePlayerStore.setState({ queue: { context: null, tracks: [{ ...track('a'), origin: 'context' as const, uid: 'u0' }], scanRequested: false }, index: -1, queueId: 'q1' });
+    engine.playAt(0);
+    const [a] = engine.mediaElements() as unknown as [FakeAudio];
+    await fail(a);
+    expect(engine.usePlayerStore.getState()).toMatchObject({ status: 'error', message: 'Can\'t play: the files are offline.', offlineSkips: { count: 1 } });
+  });
+});
+
 describe('another device plays (play in one place)', () => {
-  const queue = (ids: string[]) => ({ context: null, tracks: ids.map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false });
+  const queue =(ids: string[]) => ({ context: null, tracks: ids.map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false });
 
   it('sends the keys to the device that plays and shows its state, its own audio silent', async () => {
     const engine = await boot();

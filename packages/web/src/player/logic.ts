@@ -74,7 +74,13 @@ const REASON_TEXT: Record<string, string> = {
   not_scanned: 'These tracks are not on the player yet.',
   no_file: 'The files for these tracks are missing or could not be read.',
   cue: 'Tracks inside a CUE image cannot be played yet.',
+  offline: 'Can\'t play: the files are offline.',
 };
+
+/** The player bar's one toast after a run of songs skipped because their music folder is offline. */
+export function offlineSkipText(n: number): string {
+  return n === 1 ? 'Skipped 1 song: its files are offline' : `Skipped ${n} songs: their files are offline`;
+}
 
 /** "34 %": a percent as the player bar writes it (a thin no-break space before the sign). */
 export const percentText = (n: number) => `${Math.round(n)}\u202f%`;
@@ -90,7 +96,7 @@ export function scanWaitLine(scan: PlayerScanStatus | null | undefined): string 
 }
 
 /** The plain sentence shown when nothing in the queue can be played. */
-export function nothingPlayableMessage(view: Pick<PlayerQueueView, 'scanRequested' | 'tracks'> & { scan?: PlayerScanStatus | null }, from = 0): string {
+export function nothingPlayableMessage(view: Pick<PlayerQueueView, 'scanRequested' | 'tracks'> & { scan?: PlayerScanStatus | null; skippedOffline?: number }, from = 0): string {
   const notScanned = view.tracks.length > 0 && view.tracks.every((t) => t.available || t.reason === 'not_scanned' || t.reason === 'cue')
     && view.tracks.some((t) => t.reason === 'not_scanned');
   if (view.scan?.scanning && (notScanned || view.scanRequested)) {
@@ -100,7 +106,7 @@ export function nothingPlayableMessage(view: Pick<PlayerQueueView, 'scanRequeste
   if (view.scanRequested) return 'Not on the player yet: tagave asked it to look for these files. Try again in a minute.';
   const reason = view.tracks.slice(Math.max(0, from)).find((t) => !t.available && t.reason)?.reason
     ?? view.tracks.find((t) => !t.available && t.reason)?.reason;
-  if (view.tracks.length === 0) return 'This album has no tracks to play.';
+  if (view.tracks.length === 0) return (view.skippedOffline ?? 0) > 0 ? REASON_TEXT['offline']! : 'This album has no tracks to play.';
   return (reason && REASON_TEXT[reason]) || 'None of these tracks can be played right now.';
 }
 
@@ -286,23 +292,26 @@ export function clock(sec: number | null | undefined): string {
 /**
  * What to do when the element gives up on a stream. `probe` is the status a
  * one-byte request to the same URL got (null: it did not reach tagave).
+ * `problemType` is the problem's `type` when the probe got one.
+ *  - offline_skip  409 files_offline: the file's music folder is offline; mark it, count it and go on
  *  - skip      409: the file is not on the player yet; mark it and go on
  *  - fallback  the original reached the browser but would not decode; try a transcode once
  *  - busy      429: too many streams at once for this user
  *  - network   tagave did not answer
  *  - failed    anything else
  */
-export type StreamFailure = 'skip' | 'fallback' | 'busy' | 'network' | 'failed';
+export type StreamFailure = 'offline_skip' | 'skip' | 'fallback' | 'busy' | 'network' | 'failed';
 
-export function classifyFailure({ probe, format, triedFallback }: { probe: number | null; format: StreamFormat; triedFallback: boolean }): StreamFailure {
+export function classifyFailure({ probe, problemType, format, triedFallback }: { probe: number | null; problemType?: string | undefined; format: StreamFormat; triedFallback: boolean }): StreamFailure {
   if (probe == null) return 'network';
+  if (probe === 409 && problemType === 'files_offline') return 'offline_skip';
   if (probe === 409 || probe === 404) return 'skip';
   if (probe === 429) return 'busy';
   if (probe >= 200 && probe < 300 && format === 'original' && !triedFallback) return 'fallback';
   return 'failed';
 }
 
-export const FAILURE_TEXT: Record<Exclude<StreamFailure, 'skip' | 'fallback'>, string> = {
+export const FAILURE_TEXT: Record<Exclude<StreamFailure, 'offline_skip' | 'skip' | 'fallback'>, string> = {
   busy: 'Too many tracks are playing on your account right now. Stop one, then try again.',
   network: 'tagave did not answer. Check the connection, then try again.',
   failed: 'This track could not be played.',
@@ -315,7 +324,7 @@ const STREAM_FAILURE_BY_STATUS: Partial<Record<number, string>> = {
   504: 'The player server took too long to open this track.',
 };
 
-export function streamFailureText(kind: Exclude<StreamFailure, 'skip' | 'fallback'>, status: number | null, problem?: { title?: string; instance?: string }): string {
+export function streamFailureText(kind: Exclude<StreamFailure, 'offline_skip' | 'skip' | 'fallback'>, status: number | null, problem?: { title?: string; instance?: string }): string {
   if (kind !== 'failed') return FAILURE_TEXT[kind];
   const message = problem?.title === 'Player track unavailable'
     ? 'The player can’t find this track for your account. Check your player account’s access to this music library.'

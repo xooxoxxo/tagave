@@ -94,7 +94,7 @@ import { invalidateAfterMove, useUndoMove } from '../hooks/useAlbumMove';
 import type { AlbumMoveView } from '@tagave/shared';
 
 const AddToPlaylistSheet = lazy(() => import('../components/player/TrackDrawer').then((m) => ({ default: m.AddToPlaylistSheet })));
-import { scanWaitLine } from '../player/logic';
+import { AlbumOfflineLine, albumPlayWait, offlineLine, rescanHint } from './albumOffline';
 import styles from './AlbumDetailPage.module.css';
 
 const SECTION_LABEL: Record<AlbumTab, string> = { tracks: 'Tracks', editions: 'Editions', about: 'About', activity: 'Activity' };
@@ -902,7 +902,7 @@ export function AlbumDetailPage() {
     tool({ key: 'art', label: album.coverUrl ? 'Refetch cover art' : 'Fetch cover art', disabled: fetchArt.isPending, onSelect: () => fetchArt.mutate() }),
     tool({ key: 'values', label: 'Set album values…', hint: 'Artist, title, year, genre for every track', onSelect: () => setEditingTags(true) }),
     ...(album.match ? [tool({ key: 'any', label: album.match.releaseGroupOnly ? 'Pin one edition again' : 'Accept any edition', hint: 'Keep the release group without one edition', onSelect: () => (album.match?.releaseGroupOnly ? clearAnyEdition.mutate(albumId) : matchAnyEdition.mutate(albumId)) })] : []),
-    tool({ key: 'rescan', label: 'Rescan folder', separated: true, disabled: !folder.canRescan || folder.busy, onSelect: () => void folder.rescan() }),
+    tool({ key: 'rescan', label: 'Rescan folder', hint: rescanHint(album.filesOffline), separated: true, disabled: !folder.canRescan || folder.busy, onSelect: () => void folder.rescan() }),
     ...(folder.canSplit ? [
       tool({ key: 'split-lossy', label: 'Split off lossy copies', hint: 'Lossless stays here', disabled: folder.busy, onSelect: () => void folder.split('lossless') }),
       tool({ key: 'split-lossless', label: 'Split off lossless copies', hint: 'Lossy stays here', disabled: folder.busy, onSelect: () => void folder.split('lossy') }),
@@ -972,18 +972,13 @@ export function AlbumDetailPage() {
   const excerpt = aboutExcerpt(reviews.data?.external ?? []);
   // Play: on as soon as the player can stream something here; disabled, with
   // a quiet line, while it cannot (not answering, its scan has not reached
-  // the album, the files are missing). An album the player simply has not
-  // seen keeps Play: pressing it asks the player to look for the files.
-  const avail = playability.availability;
-  const playNote: string | null = !playerInstalled ? null
-    : !canPlay ? 'The player is not answering right now'
-      : avail && avail.playable === 0
-        ? scanWaitLine(playability.scan)
-          ?? (avail.reason === 'no_file' ? 'The files are missing or could not be read'
-            : avail.reason === 'cue' ? 'Tracks inside a CUE image cannot be played yet'
-              : avail.reason === 'not_scanned' ? 'Not on the player yet' : null)
-        : null;
-  const playDisabled = !canPlay || (!!avail && avail.playable === 0 && (!!playability.scan?.scanning || avail.reason === 'no_file' || avail.reason === 'cue'));
+  // the album, the files are missing or offline). An album the player simply
+  // has not seen keeps Play: pressing it asks the player to look for the files.
+  const { note: playNote, disabled: playDisabled } = albumPlayWait({
+    playerInstalled, canPlay, availability: playability.availability, scan: playability.scan, filesOffline: album.filesOffline,
+  });
+  // "Files offline since 14:02" under the facts, for everyone (not the player's)
+  const offline = offlineLine(album);
   const playState: AlbumPlayState | null = !playerInstalled || !mayPlay ? null : {
     mode: playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? 'pause'
       : playingHere && playStatus === 'paused' ? 'resume' : 'play',
@@ -1285,6 +1280,7 @@ export function AlbumDetailPage() {
                 {albumWidgets.ownership === 'below' && ownChip}
               </p>
             )}
+            {offline && <AlbumOfflineLine line={offline} className={styles.offlineLine} />}
             {/* the album's text, two lines; More opens the album info */}
             {excerpt && (
               <div className={styles.excerpt} data-album-excerpt="">
