@@ -89,6 +89,8 @@ interface Row {
   env?: Parameters<typeof envOf>[0];
   facts?: Partial<HostFacts> | null;
   want: { keys: Record<string, string> } | LayoutRefusal;
+  /** findmnt gave no answer: the refusal carries noAnswer */
+  noAnswer?: true;
 }
 
 /**
@@ -101,8 +103,8 @@ const ROWS: Record<string, Row> = {
   'a writable NFS /mnt/music takes the parent': { mirrors: 'lay main', want: { keys: allKeys('/mnt', 'music') } },
   'a read-only install keeps direct before the parent is listed': { mirrors: 'lay ro', env: { mode: 'ro' }, facts: { parentEntries: ['music', 'photos'] }, want: 'read_only' },
   'private propagation': { mirrors: 'lay main with L_PROP=private', facts: { propagation: 'private' }, want: 'private_propagation' },
-  'findmnt without an answer': { mirrors: 'lay nofindmnt', facts: { propagation: ' ' }, want: 'private_propagation' },
-  'findmnt not read': { mirrors: 'lay nofindmnt (no answer at all)', facts: { propagation: null }, want: 'private_propagation' },
+  'findmnt without an answer': { mirrors: 'lay nofindmnt', facts: { propagation: ' ' }, want: 'private_propagation', noAnswer: true },
+  'findmnt not read': { mirrors: 'lay nofindmnt (no answer at all)', facts: { propagation: null }, want: 'private_propagation', noAnswer: true },
   'shared in a list of propagations': { mirrors: 'none: findmnt can print shared,slave', facts: { propagation: 'shared,slave\n' }, want: { keys: allKeys('/mnt', 'music') } },
   'not Linux': { mirrors: 'lay mac', facts: { os: 'other' }, want: 'not_linux' },
   '/music: the folder above is /': { mirrors: 'lay root', env: { music: '/music' }, want: 'unsafe_parent' },
@@ -138,8 +140,8 @@ const ROWS: Record<string, Row> = {
   'no facts at all': { mirrors: 'none: a failed helper', facts: null, want: 'no_facts' },
   'an app computer has no music to move': { mirrors: 'none: pick_music_layout returns for role app', env: { role: 'app', music: null }, want: 'no_music_dir' },
   'no MUSIC_DIR': { mirrors: 'none', env: { music: null }, want: 'no_music_dir' },
-  'a space in the music folder (mountinfo \\040)': { mirrors: 'lay space', env: { music: '/mnt/my music' }, facts: { parentEntries: ['my music'] }, want: { keys: allKeys('/mnt', 'my music') } },
-  'a space in the music folder (fstab \\040)': { mirrors: 'lay space', env: { music: '/srv/fs space/music' }, facts: { fstab: '192.0.2.20:/export/tunes  /srv/fs\\040space/music  nfs4  hard  0 0\n' }, want: { keys: allKeys('/srv/fs space', 'music') } },
+  'a space in the music folder (mountinfo \\040)': { mirrors: "a space in the path (\\040), after lay space's fstab line", env: { music: '/mnt/my music' }, facts: { parentEntries: ['my music'] }, want: { keys: allKeys('/mnt', 'my music') } },
+  'a space in the music folder (fstab \\040)': { mirrors: "a space in the path (\\040), after lay space's fstab line", env: { music: '/srv/fs space/music' }, facts: { fstab: '192.0.2.20:/export/tunes  /srv/fs\\040space/music  nfs4  hard  0 0\n' }, want: { keys: allKeys('/srv/fs space', 'music') } },
   'a trailing slash on MUSIC_DIR is trimmed': { mirrors: 'none: pick_music_layout trims it', env: { music: '/mnt/music/' }, want: { keys: allKeys('/mnt', 'music') } },
 };
 
@@ -148,7 +150,7 @@ describe('decideLayout', () => {
     it(`${title} (${row.mirrors})`, () => {
       const facts = row.facts === null ? null : { ...BASE_FACTS, ...row.facts };
       const got = decideLayout(envOf(row.env), facts);
-      if (typeof row.want === 'string') expect(got).toEqual({ layout: 'direct', why: row.want });
+      if (typeof row.want === 'string') expect(got).toEqual({ layout: 'direct', why: row.want, ...(row.noAnswer ? { noAnswer: true } : {}) });
       else expect(got).toEqual({ layout: 'parent', keys: row.want.keys });
     });
   }
@@ -163,6 +165,25 @@ describe('decideLayout', () => {
       expect(text).not.toContain(String.fromCharCode(0x2014));
       expect(text).not.toMatch(/\.$/);
     }
+  });
+
+  it("findmnt without an answer has the installer's wording, not 'not shared'", () => {
+    expect(layoutReason('private_propagation', true)).toBe("tagave can't tell whether mounts under the folder above it reach the parts (findmnt gave no answer)");
+    expect(layoutReason('private_propagation')).toContain('not shared');
+  });
+
+  it('a parent with a backslash stays direct: compose reads a backslash quote as an escaped quote', () => {
+    const env = envOf({ music: '/mnt/a\\b/music' });
+    expect(cheapRefusal(env)).toBe('unsafe_parent');
+    expect(decideLayout(env, { ...BASE_FACTS, mountinfo: mi(72, '/mnt/a\\134b/music') })).toEqual({ layout: 'direct', why: 'unsafe_parent' });
+    expect(() => withLayoutKeys('', { TAGAVE_MUSIC_BIND_SOURCE: '/mnt/a b\\' })).toThrow(/unexpected characters/);
+  });
+
+  it('facts without the helpers give the Docker reason ahead of the mount table', () => {
+    const notRead = { ...BASE_FACTS, mountinfo: null, propagation: null, parentEntries: null };
+    expect(decideLayout(envOf(), { ...notRead, rootless: true })).toEqual({ layout: 'direct', why: 'rootless' });
+    expect(decideLayout(envOf(), notRead)).toEqual({ layout: 'direct', why: 'no_facts' });
+    expect(decideLayout(envOf({ mode: 'ro' }), { ...notRead, snap: true })).toEqual({ layout: 'direct', why: 'read_only' });
   });
 
   it('never needs the music folder itself: the reasons name no path of the owner', () => {
@@ -389,9 +410,24 @@ describe('readHostFacts', () => {
     expect(calls).toEqual([]);
   });
 
-  it('a rootless, snap or Docker Desktop host still decides from the facts', async () => {
-    const { docker } = fakeDocker({ info: { stdout: 'linux\nDocker Desktop\n/var/lib/docker\nname=seccomp \n' } });
-    const facts = await readHostFacts(docker, IMAGE, '/opt/tagave', envOf());
-    expect(decideLayout(envOf(), facts)).toEqual({ layout: 'direct', why: 'docker_desktop' });
+  describe('rootless / snap / Desktop / not linux / unknown root / root overlapping the parent: one docker info call, no helper run, and the right why', () => {
+    const cases: Array<[string, string, LayoutRefusal]> = [
+      ['rootless', 'linux\nUbuntu\n/home/robin/.local/share/docker\nname=seccomp,profile=builtin name=rootless \n', 'rootless'],
+      ['snap', 'linux\nUbuntu Core 22\n/var/snap/docker/common/var-lib-docker\nname=apparmor \n', 'snap'],
+      ['Docker Desktop', 'linux\nDocker Desktop\n/var/lib/docker\nname=seccomp \n', 'docker_desktop'],
+      ['not linux', 'windows\nWindows Server\nC:\\ProgramData\\docker\n\n', 'not_linux'],
+      ['unknown data root', 'linux\nUbuntu\n\nname=seccomp \n', 'no_facts'],
+      ['data root inside the parent', 'linux\nUbuntu\n/mnt/docker\nname=seccomp \n', 'unsafe_parent'],
+      ['parent inside the data root', 'linux\nUbuntu\n/mnt\nname=seccomp \n', 'unsafe_parent'],
+    ];
+    for (const [title, stdout, why] of cases) {
+      it(title, async () => {
+        const { docker, calls } = fakeDocker({ info: { stdout } });
+        const facts = await readHostFacts(docker, IMAGE, '/opt/tagave', envOf());
+        expect(calls.map((c) => c.args[0])).toEqual(['info']);
+        expect(facts).toMatchObject({ mountinfo: null, propagation: null, parentEntries: null });
+        expect(decideLayout(envOf(), facts)).toEqual({ layout: 'direct', why });
+      });
+    }
   });
 });

@@ -34,8 +34,12 @@ import type { CommandResult, Runner } from './runner.js';
 
 export interface HostFacts {
   os: 'linux' | 'other';
-  /** the host's /proc/self/mountinfo */
-  mountinfo: string;
+  /**
+   * the host's /proc/self/mountinfo; null when not read, because docker info
+   * already ruled the move out (then fstab is '' and propagation and
+   * parentEntries are null too)
+   */
+  mountinfo: string | null;
   /** the host's /etc/fstab ('' when there is none) */
   fstab: string;
   /** findmnt -no PROPAGATION --target <parent> */
@@ -66,10 +70,16 @@ export type LayoutRefusal =
   | 'owner_direct'
   | 'no_facts';
 
-export type LayoutDecision = { layout: 'parent'; keys: Record<string, string> } | { layout: 'direct'; why: LayoutRefusal };
+/** `noAnswer`: only with `private_propagation`, when findmnt gave no answer at all. */
+export type LayoutDecision = { layout: 'parent'; keys: Record<string, string> } | { layout: 'direct'; why: LayoutRefusal; noAnswer?: true };
 
-/** Why the music share stays on the direct layout, in plain words (the installer's keep_direct lines, without the paths). */
-export function layoutReason(why: LayoutRefusal): string {
+/**
+ * Why the music share stays on the direct layout, in plain words (the
+ * installer's keep_direct lines, without the paths). `noAnswer` is the
+ * decision's: findmnt said nothing, so whether mounts are shared is not known.
+ */
+export function layoutReason(why: LayoutRefusal, noAnswer?: boolean): string {
+  if (why === 'private_propagation' && noAnswer) return "tagave can't tell whether mounts under the folder above it reach the parts (findmnt gave no answer)";
   switch (why) {
     case 'no_music_dir': return 'this computer has no music folder in its settings';
     case 'owner_direct': return 'you asked for it with --music-direct (TAGAVE_MUSIC_LAYOUT=direct in .env)';
@@ -114,8 +124,11 @@ export function fstabTargets(fstab: string): Set<string> {
 
 /** The worker links /mnt/music to /mnt/.host/NAME and takes only such names. */
 const NAME_RE = /^[A-Za-z0-9._ -]+$/;
-/** What a .env line can hold in single quotes, as write_env writes it. */
-const QUOTABLE = /^[^'\0-\x1f\x7f]*$/;
+/**
+ * What a .env line can hold in single quotes, as write_env writes it. No
+ * backslash either: compose's dotenv reader takes \' as an escaped quote.
+ */
+const QUOTABLE = /^[^'\\\0-\x1f\x7f]*$/;
 const BARE = /^[A-Za-z0-9._:/@,-]*$/;
 
 /** The folder holds `path` or is it: `path` equals it or lies under it. */
@@ -171,11 +184,28 @@ function nameCheck(name: string): LayoutRefusal | null {
 
 /** The parent's own checks: not too wide, a plain path, under /mnt, /media or /srv, not holding the install folder. */
 function parentCheck(parent: string, installDir?: string): LayoutRefusal | null {
+  // The installer's check against the home folder ($HOME) is left out on
+  // purpose: the updater cannot know the owner's HOME (ruling R3), and a
+  // home folder already fails the /mnt, /media, /srv rule below.
   if (parent === '/' || parent === '/home') return 'unsafe_parent';
   if (/\/\.\.?(\/|$)/.test(`${parent}/`) || posix.normalize(parent) !== parent) return 'unsafe_parent';
   if (!QUOTABLE.test(parent)) return 'unsafe_parent';
   if (installDir !== undefined && within(installDir, parent)) return 'unsafe_parent';
   if (!['/mnt', '/media', '/srv'].some((top) => within(parent, top))) return 'unsafe_parent';
+  return null;
+}
+
+/**
+ * What `docker info` says against the move, in the installer's order: no
+ * data folder named (`no_facts`), the data folder inside or above the
+ * parent, rootless, Docker Desktop, the snap.
+ */
+function dockerCheck(facts: Pick<HostFacts, 'dockerRoot' | 'rootless' | 'dockerDesktop' | 'snap'>, parent: string): LayoutRefusal | null {
+  if (facts.dockerRoot === null) return 'no_facts';
+  if (within(facts.dockerRoot, parent) || within(parent, facts.dockerRoot)) return 'unsafe_parent';
+  if (facts.rootless === true) return 'rootless';
+  if (facts.dockerDesktop) return 'docker_desktop';
+  if (facts.snap) return 'snap';
   return null;
 }
 
@@ -206,19 +236,22 @@ export function decideLayout(env: string, facts: HostFacts | null): LayoutDecisi
   const { dir, parent, name, role } = music;
 
   if (facts.os !== 'linux') return direct('not_linux');
+  // The helpers were not run (docker info already ruled the move out): the
+  // Docker-level reason comes ahead of the checks that need the mount table.
+  if (facts.mountinfo === null) {
+    return direct(modeCheck(env) ?? nameCheck(name) ?? parentCheck(parent, facts.installDir) ?? dockerCheck(facts, parent) ?? 'no_facts');
+  }
   const points = mountPoints(facts.mountinfo);
   if (!points.has(dir) && !fstabTargets(facts.fstab).has(dir)) return direct('not_a_mount');
   const early = modeCheck(env) ?? nameCheck(name) ?? parentCheck(parent, facts.installDir);
   if (early) return direct(early);
 
-  const propagation = (facts.propagation ?? '').replace(/\s/g, '').split(',');
-  if (!propagation.includes('shared')) return direct('private_propagation');
+  const propagation = (facts.propagation ?? '').replace(/\s/g, '');
+  if (propagation === '') return { layout: 'direct', why: 'private_propagation', noAnswer: true };
+  if (!propagation.split(',').includes('shared')) return direct('private_propagation');
 
-  if (facts.dockerRoot === null) return direct('no_facts');
-  if (within(facts.dockerRoot, parent) || within(parent, facts.dockerRoot)) return direct('unsafe_parent');
-  if (facts.rootless === true) return direct('rootless');
-  if (facts.dockerDesktop) return direct('docker_desktop');
-  if (facts.snap) return direct('snap');
+  const docker = dockerCheck(facts, parent);
+  if (docker) return direct(docker);
 
   if (facts.parentEntries === null) return direct('no_facts');
   if (facts.parentEntries.some((e) => e !== '' && e !== name && !points.has(`${parent}/${e}`))) return direct('siblings');
@@ -335,6 +368,11 @@ export async function readHostFacts(docker: Runner, image: string, installDir: s
 
     const info = await run(DOCKER_INFO_ARGS, { timeoutMs: FACT_MS });
     if (info.code !== 0) return null;
+    const daemon = parseDockerInfo(info.stdout);
+    // docker info alone rules the move out: no privileged helper runs.
+    if (daemon.os !== 'linux' || dockerCheck(daemon, parent) !== null) {
+      return { ...daemon, mountinfo: null, fstab: '', propagation: null, parentEntries: null, installDir };
+    }
     const mountinfo = await helper(hostFactCommand.mountinfo);
     if (mountinfo.code !== 0) return null;
     const fstab = await helper(hostFactCommand.fstab);
@@ -346,7 +384,7 @@ export async function readHostFacts(docker: Runner, image: string, installDir: s
     if (list.code !== 0) return null;
 
     return {
-      ...parseDockerInfo(info.stdout),
+      ...daemon,
       mountinfo: mountinfo.stdout,
       fstab: noFstab ? '' : fstab.stdout,
       propagation: propagation.stdout.trim(),
