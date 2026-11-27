@@ -289,6 +289,14 @@
   white-space: nowrap;
 }
 
+/* "Files offline" at the start of the stats line: a small Badge no taller
+   than the line (top-aligned, so the fixed card height holds); the rest of
+   the line is cut with an ellipsis on a narrow card, never the tag */
+.offlineTag {
+  vertical-align: top;
+  margin-right: 6px;
+}
+
 .kindTag {
   color: var(--text-tertiary);
 }

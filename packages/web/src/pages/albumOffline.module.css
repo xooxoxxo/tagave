@@ -1,0 +1,33 @@
+/* "Files offline since 14:02" ?: one quiet line under the album's facts;
+   the help opens on a line of its own under it (HelpToggle's hint) */
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 2px;
+  min-width: 0;
+  font: 400 14px / 1.45 var(--font-body);
+  color: var(--ink-2);
+}
+
+/* the state in words; its colour only as a 6px dot (Badge's warning dot) */
+.text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.text::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+@media (max-width: 720px) {
+  .line { font-size: 13px; }
+}

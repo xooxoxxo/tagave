@@ -9,7 +9,7 @@ import type { PlayerQueueTrack } from '@tagave/shared';
 import {
   insertQueued, clearQueued, startContext,
   scanWaitLine,
-  chooseFormat, classifyFailure, clock, firstPlayableFrom, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, parseQuality,
+  chooseFormat, classifyFailure, clock, firstPlayableFrom, heardDelta, nextPlayable, nothingPlayableMessage, offlineSkipText, orderQueue, parseQuality,
   handoffDelayMs, moveUpcoming, previousAction, previousPlayable, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, spaceTogglesPlayback, startIndex, streamUrl,
   transcodeFormat, type CanPlay, type KeyTarget, queueOrder, shuffleTracks, streamFailureText,
 } from './logic';
@@ -174,6 +174,20 @@ describe('seeking', () => {
 describe('a stream that fails', () => {
   it('skips a track that is not on the player yet (409)', () => {
     expect(classifyFailure({ probe: 409, format: 'original', triedFallback: false })).toBe('skip');
+  });
+  it('skips a track whose files are offline (409 files_offline) as an offline skip, counted apart', () => {
+    expect(classifyFailure({ probe: 409, problemType: 'files_offline', format: 'original', triedFallback: false })).toBe('offline_skip');
+    expect(classifyFailure({ probe: 409, problemType: 'other', format: 'original', triedFallback: false })).toBe('skip');
+    expect(classifyFailure({ probe: 404, problemType: 'files_offline', format: 'original', triedFallback: false })).toBe('skip');
+  });
+  it('says how many songs were skipped because their files are offline', () => {
+    expect(offlineSkipText(2)).toBe('Skipped 2 songs: their files are offline');
+    expect(offlineSkipText(1)).toBe('Skipped 1 song: its files are offline');
+  });
+  it('says the files are offline when nothing plays for that reason', () => {
+    expect(nothingPlayableMessage({ scanRequested: false, tracks: [], skippedOffline: 3 })).toBe('Can\'t play: the files are offline.');
+    expect(nothingPlayableMessage({ scanRequested: false, tracks: [track('a', 1, 1, false, { reason: 'offline' })] })).toBe('Can\'t play: the files are offline.');
+    expect(nothingPlayableMessage({ scanRequested: false, tracks: [] })).toBe('This album has no tracks to play.');
   });
   it('retries an original that reached the browser but would not decode, once, as a transcode', () => {
     expect(classifyFailure({ probe: 206, format: 'original', triedFallback: false })).toBe('fallback');

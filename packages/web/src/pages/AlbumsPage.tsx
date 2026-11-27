@@ -29,6 +29,7 @@ import { useAlbumDrawer } from './AlbumMenu';
 import { useMaintenance } from '../maintenance';
 import { plural } from '../utils/qualityFlags';
 import { useEntry, useScrollPlace } from '../utils/listPlace';
+import { AlbumGridCard, formatLabel } from './AlbumGridCard';
 import styles from './AlbumsPage.module.css';
 
 // a phone's filters: a sheet, loaded the first time it opens
@@ -60,23 +61,10 @@ const BULK_ID_CHUNK = 1000;
 const STATE_LABEL: Record<string, string> = {
   matched: 'Matched', needs_review: 'Needs review', unidentified: 'Unidentified', pending: 'Pending', as_is: 'Kept as-is', ignored: 'Ignored',
 };
-/** How a match was decided, in words (Maintenance only); the title says more. */
-const KIND_TAG: Record<string, { text: string; title: string }> = {
-  chip_rule: { text: 'by rule', title: 'Matched by one of your matching rules' },
-  first_candidate: { text: 'first pick', title: 'Matched to the closest candidate without a clear winner' },
-  by_me: { text: 'by you', title: 'You chose this match' },
-  manual_mbid: { text: 'by link', title: 'Matched from a release link you pasted' },
-  model: { text: 'model', title: 'Matched by a decision model' },
-};
 const BULK_LABEL: Record<BulkAlbumAction, string> = {
   identify: 'Re-identify', fetch_art: 'Fetch art', as_is: 'Keep as-is', ignore: 'Ignore', unignore: 'Un-ignore', prefer: 'Mark preferred',
 };
 
-function formatLabel(a: AlbumSummary): string {
-  if (a.isLossless) return 'Lossless';
-  if (a.isMixed) return 'Mixed';
-  return (a.formats[0] ?? '').toUpperCase();
-}
 
 export function AlbumsPage() {
   // quality badges and match kinds on covers are curation detail: Maintenance only
@@ -561,51 +549,24 @@ export function AlbumsPage() {
                         const index = row.index * cols + i;
                         const selectedCard = isSelected(album.id);
                         return (
-                          <div
+                          <AlbumGridCard
                             key={album.id}
-                            className={selectedCard ? styles.albumCardSelected : styles.albumCard}
-                            style={narrow ? { width: cardWidth, padding: cardPad, gap: 10 } : { width: cardWidth }}
-                            onClick={(e) => onCardActivate(e, album, index)}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`${album.title}, ${album.artistCredit}`}
-                            onKeyDown={(e) => onItemKey(e, album, index)}
-                            {...(canCare ? press.bind(() => toggleOne(album.id)) : {})}
-                          >
-                            <div className={styles.albumCover} style={{ height: cardWidth - 2 * cardPad }}>
-                              {canCare && <label className={selectedCard ? styles.cardCheckOn : styles.cardCheck} onClick={onCheckClick}>
-                                <input
-                                  type="checkbox"
-                                  className={styles.cardCheckbox}
-                                  checked={selectedCard}
-                                  onChange={() => onCheckChange(album, index)}
-                                  aria-label={`Select ${album.title}`}
-                                />
-                              </label>}
-                              {canCare && (maintenance ? album.needsAttention : album.state === 'needs_review') && <span className={styles.attentionDot} title={maintenance ? 'Needs attention' : 'Needs your review'} />}
-                              {album.hasReview && <span className={styles.reviewedDot} title="Reviewed" />}
-                              {album.ownRating != null && (
-                                <span className={styles.ratingBadge} title={`Your rating: ${album.ownRating}`}>★ {album.ownRating}</span>
-                              )}
-                              {maintenance && album.canonicalTrackCount != null && album.trackCount < album.canonicalTrackCount && (
-                                <span className={styles.trackBadge}>{album.trackCount}/{album.canonicalTrackCount}</span>
-                              )}
-                              <CoverArt src={album.coverUrl} title={album.title} fill />
-                            </div>
-                            <div className={del || likesOn ? styles.albumInfoMore : styles.albumInfo}>
-                              {albumMore(album)}
-                              <h3 className={styles.albumTitle} dir="auto">{album.title}</h3>
-                              <p className={styles.albumArtist} dir="auto">{album.artistCredit}</p>
-                              <p className={styles.albumStats}>
-                                <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}>{formatLabel(album)}</span>
-                                {' · '}{album.trackCount} {album.trackCount === 1 ? 'track' : 'tracks'}
-                                {album.year ? ` · ${album.year}` : ''}
-                                {maintenance && album.matchKind && album.matchKind !== 'auto_strong' && (
-                                  KIND_TAG[album.matchKind] && <span className={styles.kindTag} title={KIND_TAG[album.matchKind]!.title}> · {KIND_TAG[album.matchKind]!.text}</span>
-                                )}
-                              </p>
-                            </div>
-                          </div>
+                            album={album}
+                            width={cardWidth}
+                            pad={cardPad}
+                            narrow={narrow}
+                            selected={selectedCard}
+                            maintenance={maintenance}
+                            attention={canCare && !!(maintenance ? album.needsAttention : album.state === 'needs_review')}
+                            check={canCare ? { onClick: onCheckClick, onChange: () => onCheckChange(album, index) } : null}
+                            more={albumMore(album)}
+                            moreRoom={!!(del || likesOn)}
+                            rootProps={{
+                              onClick: (e) => onCardActivate(e, album, index),
+                              onKeyDown: (e) => onItemKey(e, album, index),
+                              ...(canCare ? press.bind(() => toggleOne(album.id)) : {}),
+                            }}
+                          />
                         );
                       })}
                     </div>

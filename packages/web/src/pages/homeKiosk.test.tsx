@@ -102,7 +102,9 @@ describe('titles in another script (or mis-decoded tags) keep their own directio
     const home = readFileSync(new URL('./DashboardPage.tsx', import.meta.url), 'utf8');
     expect(home).toMatch(/<h3 dir="auto"[^>]*>\{album\.title\}<\/h3><p dir="auto">\{album\.artistCredit\}<\/p>/);
     const albums = readFileSync(new URL('./AlbumsPage.tsx', import.meta.url), 'utf8');
-    expect(albums).toMatch(/className=\{styles\.albumTitle\} dir="auto">\{album\.title\}/);
+    // the grid's tile is its own component (AlbumGridCard); the list rows stay in the page
+    const tile = readFileSync(new URL('./AlbumGridCard.tsx', import.meta.url), 'utf8');
+    expect(tile).toMatch(/className=\{styles\.albumTitle\} dir="auto">\{album\.title\}/);
     expect(albums).toMatch(/className=\{styles\.listTitle\} dir="auto">\{album\.title\}/);
   });
 });

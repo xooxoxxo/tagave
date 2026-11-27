@@ -128,6 +128,10 @@ export interface AlbumDetail {
   splitFrom: string | null;
   /** built by "Treat as one album"; can be split back */
   merged?: boolean;
+  /** present files on a music folder that is not online; absent while every folder is online */
+  filesOffline?: 'all' | 'some' | null;
+  /** since when that music folder is not online (ISO 8601) */
+  offlineSince?: string | null;
   /** other albums with this title that fit together with this one */
   mergeCandidates?: MergeCandidateView[];
   artists?: Array<{ id: string; name: string; position: number }>;

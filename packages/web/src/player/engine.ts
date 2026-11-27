@@ -93,9 +93,15 @@ export interface PlayerState {
   remoteDeviceId: string | null;
   /** the DJ module mixes the last track into this one now (the bar's Mix chip): the fade's length */
   mix: { lengthMs: number; at: number } | null;
+  /**
+   * The last run of songs skipped because their music folder is offline
+   * (and those the album's queue left out for it), set once when the run
+   * ends: the bar shows one toast per `id`.
+   */
+  offlineSkips: { id: number; count: number } | null;
 }
 
-const initial: PlayerState = { queue: null, queueId: null, index: -1, status: 'idle', message: null, retry: null, loadingAlbumId: null, position: 0, duration: null, volume: 1, needsTap: false, remoteDeviceId: null, mix: null };
+const initial: PlayerState = { queue: null, queueId: null, index: -1, status: 'idle', message: null, retry: null, loadingAlbumId: null, position: 0, duration: null, volume: 1, needsTap: false, remoteDeviceId: null, mix: null, offlineSkips: null };
 
 export const usePlayerStore = create<PlayerState>()(() => ({ ...initial }));
 const get = () => usePlayerStore.getState();
@@ -473,6 +479,8 @@ function onPlaying(a: HTMLAudioElement) {
 function markPlaying() {
   if (!cur) return;
   set({ status: 'playing', message: null, retry: null, needsTap: false });
+  // a song sounds: a run of offline skips before it has ended
+  endOfflineRun();
   if (!cur.started) {
     cur.started = true;
     sendEvent('now_playing');
@@ -999,7 +1007,7 @@ onContextTrouble(() => {
 });
 
 /** A one-byte request to the stream URL: its status tells a 409 or 429 from a decode failure. */
-async function probe(url: string): Promise<{ status: number | null; problem?: { title?: string; instance?: string } }> {
+async function probe(url: string): Promise<{ status: number | null; problem?: { type?: string; title?: string; instance?: string } }> {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timeout = setTimeout(() => ctrl?.abort(), 6000);
   try {
@@ -1029,8 +1037,18 @@ async function onError(a: HTMLAudioElement) {
   const failing = cur;
   const { status, problem } = await probe(a.currentSrc || a.src);
   if (gen !== generation || cur !== failing) return;
-  const kind = classifyFailure({ probe: status, format: failing.format, triedFallback: failing.triedFallback });
+  const kind = classifyFailure({ probe: status, problemType: problem?.type, format: failing.format, triedFallback: failing.triedFallback });
   const s = get();
+  if (kind === 'offline_skip') {
+    // its music folder is offline: go on, and say once, when the run ends, how many were skipped
+    markUnavailable(failing.index, 'offline');
+    offlinePending++;
+    const tracks = get().queue?.tracks ?? [];
+    const next = nextPlayable(tracks, failing.index);
+    if (next >= 0) { loadTrack(next); return; }
+    showError(nothingPlayableMessage({ scanRequested: false, tracks }, failing.index), 'queue');
+    return;
+  }
   if (kind === 'skip') {
     markUnavailable(failing.index);
     const tracks = get().queue?.tracks ?? [];
@@ -1046,17 +1064,29 @@ async function onError(a: HTMLAudioElement) {
   showError(streamFailureText(kind, status, problem), 'stream');
 }
 
-function markUnavailable(index: number) {
+function markUnavailable(index: number, reason: 'not_scanned' | 'offline' = 'not_scanned') {
   const q = get().queue;
   if (!q) return;
-  const tracks = q.tracks.map((t, i) => (i === index ? { ...t, available: false, reason: t.reason ?? 'not_scanned' as const } : t));
+  const tracks = q.tracks.map((t, i) => (i === index ? { ...t, available: false, reason: t.reason ?? reason } : t));
   set({ queue: { ...q, tracks } });
+}
+
+/** Songs skipped (or left out of an album's queue) because their music folder is offline, since the bar last said so. */
+let offlinePending = 0;
+let offlineRunSeq = 0;
+
+/** A run of offline skips ends (a song plays, or nothing can): the bar says how many, once. */
+function endOfflineRun() {
+  if (offlinePending <= 0) return;
+  set({ offlineSkips: { id: ++offlineRunSeq, count: offlinePending } });
+  offlinePending = 0;
 }
 
 function showError(message: string, retry: PlayerState['retry']) {
   try { el()?.pause(); } catch { /* already stopped */ }
   set({ status: 'error', message, retry, loadingAlbumId: null });
   setPlaybackState('paused');
+  endOfflineRun();
 }
 
 // ---- play events ----
@@ -1214,6 +1244,8 @@ export async function playAlbum(album: AlbumRef, startTrackId: string | null = n
     return;
   }
   if (gen !== generation) return;
+  // a new album: its run of offline songs starts with the ones its queue left out
+  offlinePending = view.skippedOffline ?? 0;
   const fresh = queueOrder(albumEntries(view, 'context', album.coverUrl), { shuffle });
   const start = startIndex(fresh, startTrackId);
   begin(fresh, start, { kind: 'album', id: album.albumId, name: view.album }, { scanRequested: view.scanRequested, scan: view.scan ?? null },
@@ -1248,6 +1280,7 @@ export async function playTracks(ids: readonly string[], context: QueueContext, 
     return;
   }
   if (gen !== generation) return;
+  offlinePending = 0;
   const listed = tracks.map((t) => entry(t, 'context'));
   const fresh = shuffle ? shuffleTracks(listed) : listed;
   const start = startIndex(fresh, opts.startTrackId ?? null);

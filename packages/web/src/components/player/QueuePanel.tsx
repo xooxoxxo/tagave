@@ -43,7 +43,7 @@ export interface QueuePanelProps {
   menus?: boolean | undefined;
 }
 
-const REASON: Record<string, string> = { not_scanned: 'Not on the player yet', no_file: 'File missing', cue: 'Inside a CUE image' };
+const REASON: Record<string, string> = { not_scanned: 'Not on the player yet', no_file: 'File missing', cue: 'Inside a CUE image', offline: 'Files offline' };
 
 /** A row's ⋮: every song's menu. */
 function songMenu(t: { localTrackId: string; title: string; artist: string; album: string; coverUrl: string | null; albumId: string | null; albumArtist?: string; artists?: QueueEntry['artists'] }): ReactNode {
