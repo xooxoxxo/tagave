@@ -10,7 +10,7 @@
 import type { PgBoss } from 'pg-boss';
 import type postgres from 'postgres';
 import { albumsOffline, notOnlineRoots, trackLiveSql, type NotOnlineRoot } from '@tagave/db';
-import type { PlayerAlbumAvailability, PlayerCapability, PlayerQueueTrack, PlayerQueueView, PlayerScanStatus, UnplayableReason } from '@tagave/shared';
+import { PLAYER_SCAN_HELD, type PlayerAlbumAvailability, type PlayerCapability, type PlayerQueueTrack, type PlayerQueueView, type PlayerScanStatus, type UnplayableReason } from '@tagave/shared';
 import {
   getAlbum,
   getMusicFolders,
@@ -203,8 +203,8 @@ async function anyRootNotOnline(sql: Sql): Promise<boolean> {
   return row?.held === true;
 }
 
-/** Last scan's reason while a player scan waits for a music folder (Settings › Playback). */
-export const PLAYER_SCAN_HELD = 'Waiting for a music folder to come back';
+/** Last scan's reason while a player scan waits for a music folder (Settings › Playback); shared so the web reads the same words. */
+export { PLAYER_SCAN_HELD };
 
 /**
  * A music folder that held the player scans was turned off or removed: it

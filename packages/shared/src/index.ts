@@ -46,6 +46,7 @@ export * from './oidc.js';
 export {
   scanRootSchema,
   type ScanRoot,
+  type StartScanResponse,
   SCAN_ROOT_EMPTY_MESSAGE,
   createScanRootSchema,
   type CreateScanRootRequest,
@@ -459,6 +460,7 @@ export {
   type PlayerCapability,
   type CapabilitiesView,
   type PlayerSettingsView,
+  PLAYER_SCAN_HELD,
   savePlayerServerSchema,
   type SavePlayerServer,
   unplayableReasonSchema,

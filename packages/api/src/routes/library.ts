@@ -19,7 +19,7 @@ import { tagSettingsOf } from '../lib/tagSettings.js';
 import { cachedScanRootCounts, invalidateScanRootCounts } from '../lib/scanRootCounts.js';
 import { folderLinksOf, settingsObject } from '../lib/folderLinks.js';
 import { sendWaitingPlayerScans } from '../lib/player.js';
-import { normalizeFolderLinkBase } from '@tagave/shared';
+import { normalizeFolderLinkBase, type StartScanResponse } from '@tagave/shared';
 
 /**
  * A music folder that held the player scans (enabled, offline or not
@@ -931,13 +931,17 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       await boss.createQueue('scan.root');
       await boss.send('scan.root', { scanRootId, mode }, { singletonKey: `scan:${scanRootId}` });
 
-      reply.status(202).send({
+      // offline or not connected: the worker parks the scan until the folder is back
+      const waiting = root[0]!.reach === 'offline' || root[0]!.reach === 'unmounted';
+      const body: StartScanResponse = {
         id: jobId,
         type: 'scan.root',
         mode,
         state: 'created',
         createdAt: job.createdAt.toISOString(),
-      });
+        ...(waiting ? { waiting: true as const } : {}),
+      };
+      reply.status(202).send(body);
     }
   );
 }
