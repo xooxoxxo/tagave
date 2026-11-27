@@ -1171,11 +1171,20 @@ export class Update {
     }
     env = envSet(env, 'TAGAVE_VERSION', this.run.target);
     if (this.deps.release) env = await this.pinRelease(env);
-    env = await this.musicLayout(env, image);
+    const withoutLayout = env;
+    const layout = await this.musicLayout(env, image);
+    env = layout.env;
     await writeFileAtomic(this.envPath, env);
     this.log('info', `TAGAVE_VERSION=${this.run.target} in .env (was ${this.run.from}; old file kept as .env.bak)`);
     this.progress('checking the new configuration');
-    const check = await this.compose(['config', '--quiet'], { timeoutMs: 60_000 });
+    let check = await this.compose(['config', '--quiet'], { timeoutMs: 60_000 });
+    if (check.code !== 0 && layout.moved) {
+      // The layout keys may be what compose refuses: the update goes on without
+      // them. No backup on this write, so .env.bak stays the file from before the update.
+      await writeFileAtomic(this.envPath, withoutLayout, false);
+      this.log('warn', `docker compose rejects the parent layout's settings (${tail(check.stderr, 1)}); the music share stays on the direct layout`);
+      check = await this.compose(['config', '--quiet'], { timeoutMs: 60_000 });
+    }
     if (check.code !== 0) this.fail(`docker compose rejects the new configuration: ${tail(check.stderr, 3)}`);
     if (this.deps.release) await this.checkPinned();
     this.playerImageAfter = await this.playerImage();
@@ -1193,16 +1202,17 @@ export class Update {
    * back. Nothing restarts here; the restart step starts every part on the
    * new .env. The helpers run from the target's updater image, which config
    * just ran (`cat` of its compose files), so it is here. A failed check
-   * keeps .env as it is and never fails the update.
+   * keeps .env as it is and never fails the update; `moved` says the keys
+   * were added, so config can drop them again when compose refuses them.
    */
-  private async musicLayout(env: string, image: string): Promise<string> {
+  private async musicLayout(env: string, image: string): Promise<{ env: string; moved: boolean }> {
     try {
       const plan = await planLayout({ env, docker: this.deps.docker, image, installDir: this.deps.installDir });
       if (plan.message) this.log('info', plan.message);
-      return plan.env;
+      return { env: plan.env, moved: plan.moved };
     } catch (err) {
       this.log('warn', `the music share layout was not checked (${(err as Error)?.message ?? String(err)}); it stays as it is`);
-      return env;
+      return { env, moved: false };
     }
   }
 

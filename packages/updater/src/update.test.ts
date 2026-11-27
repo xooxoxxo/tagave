@@ -1833,11 +1833,17 @@ describe('the music share layout in the config step', () => {
   const PARENT_KEYS = ['TAGAVE_MUSIC_BIND_SOURCE', 'TAGAVE_MUSIC_BIND_TARGET', 'TAGAVE_PLAYER_BIND_TARGET', 'TAGAVE_MUSIC_PROPAGATION', 'TAGAVE_MUSIC_NAME', 'TAGAVE_PLAYER_MUSIC_FOLDER'];
 
   /** The fake install plus a host where /mnt/music is an NFS mount in a shared /mnt that holds nothing else. */
-  function host(over: { mountinfoFails?: boolean } = {}): { docker: Runner; helpers: string[][] } {
+  function host(over: { mountinfoFails?: boolean; config?: 'refuses_keys' | 'refuses_all' } = {}): { docker: Runner; helpers: string[][]; checks: string[] } {
     const helpers: string[][] = [];
+    const checks: string[] = [];
     const docker: Runner = async (args, opts) => {
       assertAllowed(args);
       const ok = (stdout: string): CommandResult => ({ code: 0, stdout, stderr: '' });
+      if (args.join(' ') === 'compose config --quiet') checks.push(await envText());
+      if (over.config && args.join(' ') === 'compose config --quiet') {
+        const refuses = over.config === 'refuses_all' || (await envText()).includes('TAGAVE_MUSIC_BIND_SOURCE');
+        if (refuses) return { code: 1, stdout: '', stderr: 'invalid interpolation format' };
+      }
       if (args[0] === 'info' && args.join(' ').includes('{{.OSType}}')) {
         helpers.push(args);
         return ok('linux\nUbuntu 24.04.1 LTS\n/var/lib/docker\nname=seccomp,profile=builtin \n');
@@ -1854,7 +1860,7 @@ describe('the music share layout in the config step', () => {
       }
       return fake.runner(args, opts);
     };
-    return { docker, helpers };
+    return { docker, helpers, checks };
   }
   const envText = () => readFile(join(dir, '.env'), 'utf8');
 
@@ -1891,6 +1897,33 @@ describe('the music share layout in the config step', () => {
     const env = await envText();
     for (const k of PARENT_KEYS) expect(envGet(env, k), k).toBeNull();
     expect(run.log.some((l) => l.message.startsWith('the music share stays on the direct layout: '))).toBe(true);
+  });
+
+  it('compose refusing the layout keys: .env without them, one line, the check again, and the update goes on', async () => {
+    await writeFile(join(dir, '.env'), MUSIC_ENV, { mode: 0o600 });
+    const h = host({ config: 'refuses_keys' });
+    const run = await update('0.8.0', {}, { docker: h.docker });
+    expect(run.status).toBe('succeeded');
+    // checked with the keys, then again without them
+    expect(h.checks.slice(0, 2).map((t) => t.includes('TAGAVE_MUSIC_BIND_SOURCE'))).toEqual([true, false]);
+    const env = await envText();
+    expect(envGet(env, 'TAGAVE_VERSION')).toBe('0.8.0');
+    for (const k of PARENT_KEYS) expect(envGet(env, k), k).toBeNull();
+    // still the file from before the update
+    expect(await readFile(join(dir, '.env.bak'), 'utf8')).toBe(MUSIC_ENV);
+    const said = run.log.filter((l) => l.message.startsWith("docker compose rejects the parent layout's settings"));
+    expect(said).toHaveLength(1);
+    expect(said[0]!.level).toBe('warn');
+    expect(said[0]!.message).toContain('the music share stays on the direct layout');
+    expect(said[0]!.message.includes(String.fromCharCode(0x2014))).toBe(false);
+  });
+
+  it('compose refusing the configuration without the keys too: the update fails as before', async () => {
+    await writeFile(join(dir, '.env'), MUSIC_ENV, { mode: 0o600 });
+    const run = await update('0.8.0', {}, { docker: host({ config: 'refuses_all' }).docker });
+    expect(run.status).not.toBe('succeeded');
+    expect(run.reason).toMatch(/docker compose rejects the new configuration/);
+    expect(run.log.filter((l) => l.message.startsWith("docker compose rejects the parent layout's settings"))).toHaveLength(1);
   });
 
   it('it runs once: a second update changes nothing', async () => {
