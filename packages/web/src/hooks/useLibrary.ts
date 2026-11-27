@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AlbumSummary } from '@tagave/shared';
 import { api } from '../services/api';
 import { LibraryState, LocalAlbum, ScanRootWithStatus, PaginatedResponse } from '../types/index';
-import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings, CreateScanRootRequest } from '@tagave/shared';
+import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings, CreateScanRootRequest, type StartScanResponse } from '@tagave/shared';
 import { dropPoolKey } from './useNaming';
 
 const LIBRARY_QUERY_KEY = ['library'];
@@ -152,7 +152,8 @@ export function useDeleteScanRoot(libraryId: string | undefined) {
 export function useStartScan(libraryId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (rootId: string) => api.post(`/libraries/${libraryId}/scan-roots/${rootId}/scan`),
+    // 202; `waiting: true` when the folder is offline and the scan waits for it
+    mutationFn: (rootId: string) => api.post<StartScanResponse>(`/libraries/${libraryId}/scan-roots/${rootId}/scan`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
       queryClient.invalidateQueries({ queryKey: [...ALBUMS_QUERY_KEY, libraryId] });
