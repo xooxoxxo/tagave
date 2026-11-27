@@ -35,6 +35,8 @@ const T3 = new Date('2026-11-24T14:01:00Z');
 const T4 = new Date('2026-11-24T14:01:30Z');
 
 const LISTING: ProbeOutcome = { kind: 'listing', empty: false, knownFound: 1, knownAsked: 1, isMountPoint: false, wasMountPoint: false };
+/** The root lists, but none of the files the library knows are there. */
+const NONE_KNOWN = (empty: boolean): ProbeOutcome => ({ kind: 'listing', empty, knownFound: 0, knownAsked: 1, isMountPoint: false, wasMountPoint: false });
 const flush = () => new Promise((resolve) => setTimeout(resolve, 200));
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
@@ -167,9 +169,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
 
   it('a mount point seen once and then gone reads as not connected', async () => {
     let info = LOCAL_INFO;
-    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => info, probe: vi.fn(async () => LISTING), now: clock });
+    let seen: ProbeOutcome = LISTING;
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => info, probe: vi.fn(async () => seen), now: clock });
     await w.tick();
-    info = BASE_INFO; // the folder's own mount is gone; the files still list (the empty mount point underneath is not checked here)
+    info = BASE_INFO; // the folder's own mount is gone: the folder underneath has none of the known files
+    seen = NONE_KNOWN(false);
     now = T2;
     expect((await w.tick()).get(rootId)).toEqual({ reach: 'unmounted', reason: 'not_mounted' });
     now = T3;
@@ -182,6 +186,49 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
     const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => { throw new Error('ENOENT'); }, probe, now: clock });
     expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
     expect(probesOf(probe)).toHaveLength(1);
+  });
+
+  it('a mount table it cannot read is no lost mount point: the rule waits for the next table', async () => {
+    let info: string | null = LOCAL_INFO;
+    let seen: ProbeOutcome = LISTING;
+    const readMountinfo = async () => { if (info === null) throw new Error('EACCES'); return info; };
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo, probe: vi.fn(async () => seen), now: clock });
+    await w.tick(); // a mount point of its own
+    info = null;
+    seen = NONE_KNOWN(false);
+    now = T2;
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
+    now = T3;
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
+    expect(await reach(rootId)).toMatchObject({ reach: 'online', reach_reason: null, reach_since: T0 });
+    // the table is back and the mount is not: the mount point seen before still counts
+    info = BASE_INFO;
+    now = T4;
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'unmounted', reason: 'not_mounted' });
+  });
+
+  it('a missing root reads offline, never not connected (no remount for a renamed folder)', async () => {
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, probe: vi.fn(async (): Promise<ProbeOutcome> => ({ kind: 'error', code: 'ENOENT' })), now: clock });
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'io_error' });
+    now = T2;
+    await w.tick();
+    expect(await reach(rootId)).toMatchObject({ reach: 'offline', reach_reason: 'io_error', reach_since: T2 });
+  });
+
+  it('a root that lists but has none of its sampled files stays online', async () => {
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, probe: vi.fn(async () => NONE_KNOWN(false)), now: clock });
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
+    now = T2;
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
+    expect(await reach(rootId)).toMatchObject({ reach: 'online', reach_reason: null, reach_since: T0 });
+  });
+
+  it('an empty root with none of its known files is not connected', async () => {
+    const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => BASE_INFO, probe: vi.fn(async () => NONE_KNOWN(true)), now: clock });
+    await w.tick();
+    now = T2;
+    expect((await w.tick()).get(rootId)).toEqual({ reach: 'unmounted', reason: 'empty' });
+    expect(await reach(rootId)).toMatchObject({ reach: 'unmounted', reach_reason: 'empty', reach_since: T2 });
   });
   it('a failed write loses no change: the next tick writes it, and queues the scan then', async () => {
     await setReach(rootId, 'offline', 'server_silent', T0);
