@@ -14,8 +14,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { MOVE_LOW_CONFIDENCE, PAUSED_OFFLINE_STAGE, type AlbumMoveView, type MoveCandidate, type MovePlanFile, type MoveTarget } from '@tagave/shared';
 import { Sheet } from './ui/Sheet';
-import { Button, Collapse, HelpToggle, Input, SearchField } from './ui';
-import { PAUSED_OFFLINE_HELP } from '../utils/offlinePaused';
+import { Button, Collapse, Input, SearchField } from './ui';
 import { useCreateMove, useMove, useMoveAlbums, useMoveTarget, useRunMove } from '../hooks/useAlbumMove';
 import { FIELD_LABELS } from '../utils/tagFieldLabels';
 import styles from './MoveSheet.module.css';
@@ -185,6 +184,11 @@ function NewAlbum({ artist, title, onArtist, onTitle, searching, candidates, err
   );
 }
 
+/** The sheet's status line; a failed one in the danger tone. */
+export function MoveStatus({ status, failed }: { status: string; failed: boolean }) {
+  return <p className={failed ? styles.statusFailed : styles.status} role="status">{status}</p>;
+}
+
 function Preview({ view, running, runError, onBack, onMove }: {
   view: AlbumMoveView | null; running: boolean; runError: string | null; onBack: () => void; onMove: () => void;
 }) {
@@ -198,7 +202,7 @@ function Preview({ view, running, runError, onBack, onMove }: {
     : state === 'moving' ? 'Moving'
       : state === 'failed' ? view.error ?? 'Stopped'
         : view.blocked ?? (clash ? 'Name taken' : moving.length === 0 ? 'No song pairs with this album' : null);
-  // a move cut off by the offline music folder reads as paused, with its help behind "?"
+  // a move cut off by the offline music folder reads as paused, in the quiet tone and with no "?" (a move offers only Undo)
   const paused = state === 'failed' && view?.error === PAUSED_OFFLINE_STAGE;
   const failed = (state === 'failed' && !paused) || !!view?.blocked || clash || (state === 'ready' && moving.length === 0);
 
@@ -211,9 +215,7 @@ function Preview({ view, running, runError, onBack, onMove }: {
           <div><dt>Songs</dt><dd>{moving.length} of {files.length}</dd></div>
         </dl>
       )}
-      {status && (paused
-        ? <div className={`${styles.status} ${styles.statusLine}`} role="status"><span>{status}</span><HelpToggle label={status}>{PAUSED_OFFLINE_HELP}</HelpToggle></div>
-        : <p className={failed ? styles.statusFailed : styles.status} role="status">{status}</p>)}
+      {status && <MoveStatus status={status} failed={failed} />}
       {plan && (
         <ol className={styles.files} aria-label="Songs">
           {files.map((f) => <FileRow key={f.fileId} f={f} open={openRow === f.fileId} onToggle={() => setOpenRow((o) => (o === f.fileId ? null : f.fileId))} />)}
