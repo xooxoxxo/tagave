@@ -201,8 +201,8 @@ jobs:
     needs: gates
     # Pinned like gates: ubuntu-latest moved to 26.04.
     runs-on: ubuntu-24.04
-    # The script's own waits add up to well under this, so its trap prints the
-    # logs before a cancel.
+    # The script stops after a failed setup, so a broken run ends early and its
+    # trap prints the logs before a cancel.
     timeout-minutes: 60
     env:
       OFFLINETEST_IMAGE_TAG: offlinetest-${{ github.run_id }}
