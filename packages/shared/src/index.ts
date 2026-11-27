@@ -64,7 +64,7 @@ export {
 } from './library.js';
 
 // Music folder reach: what the folder watch last saw on each root (0097)
-export { REACH_VALUES, type Reach, REACH_REASONS, type ReachReason } from './musicFolder.js';
+export { REACH_VALUES, type Reach, REACH_REASONS, type ReachReason, type WaitingCounts, type MusicFolderView, type MusicFolderNoticeKind, type MusicFolderResponse } from './musicFolder.js';
 
 // Album data
 export {

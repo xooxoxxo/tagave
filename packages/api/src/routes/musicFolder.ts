@@ -2,16 +2,20 @@
  * Is the music folder there (db › musicFolder.ts, one answer for both):
  *
  *   GET  /api/v1/system/music-folder                 owner: the notice above every page
- *                                                    ({ kind: none | healing | unreachable, paths })
+ *                                                    (MusicFolderResponse: { kind: none | healing | offline,
+ *                                                    folders, paths }; paths for one release, the old web build reads it)
  *
  * And for the updater's self-heal (no session, signed by it instead):
  *
- *   GET  /api/v1/internal/updater/music              { unmounted }: a root's latest scan was stopped by the LIB-5 guard
+ *   GET  /api/v1/internal/updater/music              { unmounted, reach }: a root reads unmounted (or, with no reading
+ *                                                    yet, its latest scan was stopped by the LIB-5 guard); reach per
+ *                                                    enabled root, which older updaters ignore
  *   POST /api/v1/internal/updater/music-heal         { phase: 'start' } | { phase: 'done', ok, reason }: an audit entry
  *                                                    per step; a heal that mounted it queues a scan of each aborted root
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { MUSIC_HEAL_REASONS, musicFolderNotice, musicFolderState, musicLooksUnmounted, recordMusicHeal, type MusicHealReason } from '@tagave/db';
+import { MUSIC_HEAL_REASONS, musicFolderNotice, musicFolderState, musicLooksUnmounted, recordMusicHeal, rootReaches, type MusicHealReason } from '@tagave/db';
+import type { MusicFolderResponse } from '@tagave/shared';
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER } from '@tagave/updater/token';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
@@ -19,9 +23,10 @@ import { getBoss } from '../boss.js';
 import { updaterUrl } from './updater.js';
 
 export async function createMusicFolderRoutes(fastify: FastifyInstance) {
-  fastify.get('/system/music-folder', async () => {
+  fastify.get('/system/music-folder', async (): Promise<MusicFolderResponse> => {
     const { sql } = getAuthHandle();
-    return musicFolderNotice(await musicFolderState(sql));
+    const notice = musicFolderNotice(await musicFolderState(sql));
+    return notice.kind === 'offline' ? notice : { kind: notice.kind, folders: [] };
   });
 }
 
@@ -56,7 +61,8 @@ export async function createMusicFolderInternalRoutes(fastify: FastifyInstance) 
   fastify.get('/internal/updater/music', { logLevel: 'warn' }, async (request) => {
     verify(request, 'GET', '');
     const { sql } = getAuthHandle();
-    return { unmounted: musicLooksUnmounted(await musicFolderState(sql)) };
+    const [state, reach] = await Promise.all([musicFolderState(sql), rootReaches(sql)]);
+    return { unmounted: musicLooksUnmounted(state), reach };
   });
 
   fastify.post('/internal/updater/music-heal', async (request) => {

@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, asc, sql, inArray } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
-import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums, albumLiveSql, trackLiveSql } from '@tagave/db';
-import { getDb } from '../db.js';
+import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums, albumLiveSql, trackLiveSql, waitingCounts } from '@tagave/db';
+import { getDb, getSql } from '../db.js';
 import { getBoss } from '../boss.js';
 import { sealSecret, computeHint, normalizeGenreMap, normalizeFollowRules, effectiveGenres } from '@tagave/core';
 import {
@@ -553,6 +553,8 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       cachedScanRootCounts(db, libraryId),
     ]);
     const links = folderLinksOf(lib[0]?.settings);
+    // what waits for each folder to come back (parked_jobs, 0097)
+    const waiting = await waitingCounts(getSql(), roots.map((sr) => sr.id));
 
     reply.status(200).send({
       data: roots.map((sr) =>
@@ -573,6 +575,9 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
           probeWritable: sr.probeWritable,
           lastScanAt: sr.lastScanAt?.toISOString(),
           lastStatus: sr.lastStatus,
+          reach: sr.reach,
+          reachSince: sr.reachSince?.toISOString() ?? null,
+          waiting: waiting.get(sr.id),
           createdAt: sr.createdAt.toISOString(),
           updatedAt: sr.createdAt.toISOString(),
         })
