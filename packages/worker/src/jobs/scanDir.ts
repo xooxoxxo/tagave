@@ -10,11 +10,13 @@ import { APPS } from '@tagave/core/facets';
 import { libraryApp, scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot, type WalkResult } from '../lib/walk.js';
-import { finishNotes, type FinishResult } from '../lib/scanFinish.js';
+import { finishNotes, OFFLINE_SKIP, type FinishResult } from '../lib/scanFinish.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
+import { requireOnline } from '../lib/parking.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
-import { enqueueGrouping } from './scanRoot.js';
+import { enqueueGrouping, sendCutShortParse, sendParse } from './scanRoot.js';
 
 export interface ScanDirJobData {
   scanRootId: string;
@@ -23,8 +25,6 @@ export interface ScanDirJobData {
   /** who asked — for the job_runs message */
   reason?: string;
 }
-
-const PARSE_BATCH = 50;
 
 type ScanDirWalk = Pick<WalkResult & FinishResult,
   'subtreeGone' | 'filesSeen' | 'added' | 'changed' | 'missing' | 'merged' | 'moves' | 'possibleMoves'
@@ -66,30 +66,32 @@ export async function scanDirJob(ctx: WorkerContext, data: ScanDirJobData): Prom
     message: `rescanning ${dirPath || root.displayName}`,
   });
 
-  // LIB-5: an unmounted share must not turn the folder's files into "missing".
-  const probe = await probeRoot(root.path, root.writable);
-  if (probe.status !== 'ok') {
-    await reportProgress(ctx, jobRunId, {
-      libraryId: root.libraryId, type: 'scan.dir', state: 'failed',
-      error: `root ${probe.status}: ${probe.message ?? probe.status}`,
-    });
-    return;
-  }
-
   const started = Date.now();
   let walk;
   try {
+    // Not online (offline or not connected): parked at once, the path never touched.
+    await requireOnline(ctx, root.id);
+    // LIB-5: an unmounted share must not turn the folder's files into "missing".
+    const probe = await probeRoot(root.path, root.writable, root.id);
+    if (probe.status !== 'ok') {
+      await reportProgress(ctx, jobRunId, {
+        libraryId: root.libraryId, type: 'scan.dir', state: 'failed',
+        error: `root ${probe.status}: ${probe.message ?? probe.status}`,
+      });
+      return;
+    }
     walk = await walkRoot(ctx, root, { mode: 'full', subtree: dirPath, concurrency: 4, reparseErrors: true, reclusterSoon: true });
   } catch (err) {
+    // An offline folder: nothing was marked; the job parks for the folder's return.
+    const offline = err instanceof FolderOfflineError;
     await reportProgress(ctx, jobRunId, {
-      libraryId: root.libraryId, type: 'scan.dir', state: 'failed', error: (err as Error).message,
+      libraryId: root.libraryId, type: 'scan.dir', state: offline ? 'cancelled' : 'failed', error: offline ? OFFLINE_SKIP : (err as Error).message,
     });
+    if (offline) await sendCutShortParse(ctx, err);
     throw err;
   }
 
-  for (let i = 0; i < walk.changedIds.length; i += PARSE_BATCH) {
-    await ctx.boss.send('scan.parse', { audioFileIds: walk.changedIds.slice(i, i + PARSE_BATCH) });
-  }
+  await sendParse(ctx, walk.changedIds);
   // The owner asked for this folder: group it again right away (its library's
   // app's job: cluster.dir for music) even when nothing changed on disk, plus
   // any directory that lost files.

@@ -71,7 +71,7 @@ describe('probeRoot', () => {
   it('flags an empty folder, which is how a mount Docker does not share looks', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tagave-probe-'));
     try {
-      const probe = await probeRoot(dir, true);
+      const probe = await probeRoot(dir, true, 'r1');
       expect(probe.status).toBe('ok');
       expect(probe.message).toBe(SCAN_ROOT_EMPTY_MESSAGE);
     } finally {
@@ -83,7 +83,7 @@ describe('probeRoot', () => {
     const dir = await mkdtemp(join(tmpdir(), 'tagave-probe-'));
     try {
       await writeFile(join(dir, 'a.flac'), '');
-      const probe = await probeRoot(dir, true);
+      const probe = await probeRoot(dir, true, 'r1');
       expect(probe.status).toBe('ok');
       expect(probe.message).toBeNull();
       expect(probe.probeWritable).toBe(true);

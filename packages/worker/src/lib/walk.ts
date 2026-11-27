@@ -17,11 +17,18 @@
  *
  * Nothing is marked missing unless the walk completed; a root that yields no
  * files while the index has some is reported as unmounted, not emptied.
+ *
+ * Every file call goes through the file gate (`root.id`), so a dead share
+ * holds a helper, never this process. A call that meets an offline folder
+ * (a gate deadline or an offline error code) stops the whole walk: the rows
+ * it saw unchanged get their last_seen_at, nothing else is written, and the
+ * FolderOfflineError is rethrown (WalkOfflineError) for the job to park. The
+ * walk also never indexes the copy a cut-off tag write left beside its file
+ * (`.tagave-tmp-*`, safeFileWriter.ts).
  * Database writes are batched: one statement per few hundred files instead
  * of one per file.
  */
 import { insideAny, poolDirsOfRoot } from './naming.js';
-import { access, opendir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, like, lt, or, sql as dsql } from 'drizzle-orm';
 import { files, scanDirs, sidecarFiles } from '@tagave/db';
@@ -30,6 +37,9 @@ import type { WorkerContext } from './context.js';
 import { sidecarKind, storagePath, extOf, relDirname, escapeLike, skipDir } from './helpers.js';
 import { finishWalk, type FinishOptions, type FinishResult } from './scanFinish.js';
 import { walkedHandlers } from './appFiles.js';
+import { fileGate, gateLimits } from './fileGate.js';
+import type { DirPage } from './fileHelper.js';
+import { FolderOfflineError } from './folderOffline.js';
 
 export type WalkMode = 'full' | 'quick';
 
@@ -43,7 +53,7 @@ export interface WalkOptions {
   mode: WalkMode;
   /** NFC rel dir; undefined or '' walks the whole root */
   subtree?: string;
-  /** directories in flight at once (default 8) */
+  /** directories in flight at once (default: 4 per file helper, so the gate's queue stays full) */
   concurrency?: number;
   /** re-parse files whose last parse failed even though size/mtime match */
   reparseErrors?: boolean;
@@ -72,6 +82,12 @@ export interface WalkResult {
   looksUnmounted: boolean;
   /** subtree mode: the directory itself is gone */
   subtreeGone: boolean;
+  /**
+   * The folder went offline during the walk: nothing may be marked missing.
+   * walkTree throws (WalkOfflineError) instead of returning such a walk;
+   * finishWalk still checks it, so no caller can mark from one.
+   */
+  offline: boolean;
 }
 
 export interface UnseenRow { id: string; relPath: string; sizeBytes: number | null }
@@ -84,26 +100,54 @@ export interface WalkTreeResult extends WalkResult {
   subtree: string;            // the normalized subtree, '' for a whole root
 }
 
+/**
+ * Entries per listing call. The helper reads the whole folder for each page
+ * (name order, so a cursor survives deletes) and asks the type only of
+ * entries the share did not type; a page of 1 000 keeps a call on a large
+ * folder on a slow share well inside the gate's 15 s wait deadline.
+ */
+export const WALK_PAGE = 1_000;
+/** The name a tag write gives its temp copy (safeFileWriter.ts): a cut-off write can leave one. */
+const TAG_WRITE_TEMP = '.tagave-tmp-';
+
+/**
+ * A walk stopped by an offline folder. `changedIds`: rows a batch already
+ * wrote as new or changed before the walk stopped; the caller hands them to
+ * scan.parse (which waits for the folder), or the next walk would take them
+ * as parsed.
+ */
+export class WalkOfflineError extends FolderOfflineError {
+  readonly changedIds: string[];
+  constructor(err: FolderOfflineError, changedIds: string[]) {
+    super(err.scanRootId, err.reason, err.code);
+    this.changedIds = changedIds;
+  }
+}
+
 const INSERT_BATCH = 500;
 const UPDATE_BATCH = 2000;
 const PROGRESS_EVERY = 5000;
 
 export { skipDir };
 
-/** Stored paths are NFC; the bytes on disk may be NFD. Find the spelling that opens. */
-async function openableDir(rootPath: string, relDir: string): Promise<string | null> {
+/** Stored paths are NFC; the bytes on disk may be NFD. Find the spelling that opens. An offline folder throws. */
+async function openableDir(rootId: string, rootPath: string, relDir: string): Promise<string | null> {
   if (!relDir) return rootPath;
   for (const cand of [relDir, relDir.normalize('NFD'), relDir.normalize('NFC')]) {
     const abs = path.join(rootPath, cand);
     try {
-      await access(abs);
+      await fileGate().run(rootId, { op: 'access', path: abs });
       return abs;
-    } catch {
+    } catch (err) {
+      if (err instanceof FolderOfflineError) throw err;
       /* try next spelling */
     }
   }
   return null;
 }
+
+/** What the gate's stat answers (bigint: true). */
+interface GateStat { size: bigint; mtimeMs: bigint; ino: bigint; dev: bigint }
 
 class Semaphore {
   private queue: Array<() => void> = [];
@@ -132,7 +176,8 @@ class Semaphore {
 export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOptions): Promise<WalkTreeResult> {
   const subtree = storagePath(opts.subtree ?? '').replace(/^\/+|\/+$/g, '');
   const prefix = subtree ? subtree + '/' : '';
-  const concurrency = Math.max(1, opts.concurrency ?? 8);
+  const concurrency = Math.max(1, opts.concurrency ?? gateLimits().helpers * 4);
+  const gate = fileGate();
   // The database's clock, never the worker's: every last_seen_at below is now().
   // The shared client returns timestamptz as text; ms truncation only rounds down.
   const [clock] = (await ctx.sql`select now() as now`) as unknown as Array<{ now: string | Date }>;
@@ -202,7 +247,13 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   const result: WalkResult = {
     filesSeen: 0, added: 0, changed: 0, missing: 0, errored: 0, sidecars: 0,
     dirsSeen: 0, dirsSkipped: 0, formats: {}, changedIds: [], dirsWithMissing: [],
-    looksUnmounted: false, subtreeGone: false,
+    looksUnmounted: false, subtreeGone: false, offline: false,
+  };
+  // The first offline answer: every directory worker stops at its next file call.
+  let offline = null as FolderOfflineError | null;
+  const run = <T>(op: Parameters<typeof gate.run>[1]): Promise<T> => {
+    if (offline) return Promise.reject(offline);
+    return gate.run<T>(root.id, op);
   };
   const seen = new Set<string>();
   const seenSidecars: Array<{ relPath: string; kind: string; sizeBytes: number | null; mtime: number | null }> = [];
@@ -288,29 +339,34 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     const relDir = storagePath(path.relative(root.path, dirAbs));
     let dirMtime: number | null = null;
     try {
-      dirMtime = Math.floor(Number((await stat(dirAbs, { bigint: true })).mtimeMs) / 1000);
-    } catch {
+      dirMtime = Math.floor(Number((await run<GateStat>({ op: 'stat', path: dirAbs, bigint: true })).mtimeMs) / 1000);
+    } catch (err) {
+      if (err instanceof FolderOfflineError) throw err;
       /* mtime unknown: the directory is walked in full */
     }
-    let entries;
+    const subdirs: string[] = [];
+    const files: string[] = [];
     try {
-      entries = await opendir(dirAbs);
+      let cursor: string | null = null;
+      do {
+        const page: DirPage = await run<DirPage>({ op: 'readdirPage', path: dirAbs, cursor, limit: WALK_PAGE });
+        for (const ent of page.entries) {
+          if (ent.type === 'dir') {
+            if (!skipDir(ent.name) && !insideAny(storagePath(relDir ? `${relDir}/${ent.name}` : ent.name), poolDirs)) subdirs.push(path.join(dirAbs, ent.name));
+          } else if (ent.type === 'file' && !ent.name.startsWith(TAG_WRITE_TEMP)) {
+            files.push(ent.name);
+          }
+        }
+        cursor = page.cursor;
+      } while (cursor !== null);
     } catch (err) {
+      if (err instanceof FolderOfflineError) throw err;
       ctx.logger.warn({ dir: dirAbs, err: (err as Error).message }, 'unreadable directory, skipping');
       result.errored += 1;
       failedPaths.push(relDir);
       return [];
     }
     result.dirsSeen += 1;
-    const subdirs: string[] = [];
-    const files: string[] = [];
-    for await (const ent of entries) {
-      if (ent.isDirectory()) {
-        if (!skipDir(ent.name) && !insideAny(storagePath(relDir ? `${relDir}/${ent.name}` : ent.name), poolDirs)) subdirs.push(path.join(dirAbs, ent.name));
-      } else if (ent.isFile()) {
-        files.push(ent.name);
-      }
-    }
 
     const known = knownDirs.get(relDir);
     if (opts.mode === 'quick' && dirMtime !== null && known !== undefined && known === dirMtime) {
@@ -336,8 +392,9 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
           let st;
           try {
             // bigint: 64-bit inode numbers (SMB/CIFS, btrfs, XFS) lose precision as a JS number
-            st = await stat(absPath, { bigint: true });
+            st = await run<GateStat>({ op: 'stat', path: absPath, bigint: true });
           } catch (err) {
+            if (err instanceof FolderOfflineError) throw err;
             ctx.logger.warn({ file: absPath, err: (err as Error).message }, 'stat failed');
             result.errored += 1;
             failedPaths.push(relPath);
@@ -366,10 +423,11 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
           const kind = sidecarKind(name);
           if (kind) {
             try {
-              const st = await stat(absPath, { bigint: true });
+              const st = await run<GateStat>({ op: 'stat', path: absPath, bigint: true });
               seenSidecars.push({ relPath, kind, sizeBytes: Number(st.size), mtime: Math.floor(Number(st.mtimeMs) / 1000) });
               result.sidecars += 1;
-            } catch {
+            } catch (err) {
+              if (err instanceof FolderOfflineError) throw err;
               // Not worth aborting anything, but an unread sidecar has not left:
               // finishWalk keeps its row (and its cover) when it is on failedPaths.
               failedPaths.push(relPath);
@@ -388,18 +446,31 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     return subdirs;
   };
 
+  // An offline answer is kept, not thrown: every worker ends before the walk stops, so no flush runs after it.
   const walkDir = async (dirAbs: string): Promise<void> => {
+    if (offline) return;
     await sem.acquire();
     let subdirs: string[];
     try {
+      if (offline) return;
       subdirs = await processDir(dirAbs);
+    } catch (err) {
+      if (!(err instanceof FolderOfflineError)) throw err;
+      offline ??= err;
+      return;
     } finally {
       sem.release();
     }
     await Promise.all(subdirs.map(walkDir));
   };
 
-  const startAbs = await openableDir(root.path, subtree);
+  let startAbs: string | null;
+  try {
+    startAbs = await openableDir(root.id, root.path, subtree);
+  } catch (err) {
+    if (!(err instanceof FolderOfflineError)) throw err;
+    throw new WalkOfflineError(err, []);
+  }
   if (startAbs === null) {
     // The folder itself is gone. Everything indexed under it is missing —
     // but only when the root is still there (the caller probed it).
@@ -408,6 +479,16 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     // a folder of the drop pool is not walked even when asked for (Lidarr's
     // import into the pool sends a scan of it): the pool imports it
     await walkDir(startAbs);
+  }
+  if (offline) {
+    // Offline: the rows seen unchanged so far get their last_seen_at, nothing else (no new
+    // or changed rows, sidecars or folder mtimes, and finishWalk never runs).
+    pendingInserts.length = 0;
+    pendingChanged.length = 0;
+    await flushUnchanged();
+    await chain;
+    result.offline = true;
+    throw new WalkOfflineError(offline, result.changedIds);
   }
   await flushInserts();
   await flushChanged();

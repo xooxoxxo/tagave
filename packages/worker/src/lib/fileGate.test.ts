@@ -147,6 +147,49 @@ describe('FileGate', () => {
   });
 });
 
+describe('FileGate probes (the folder watch)', () => {
+  it('a probe passes the stuck cap, so a root at the cap can still read online', async () => {
+    const g = gate({ stuckMax: 1 });
+    await expect(g.run('r1', { op: 'stat', path: 'hang' })).rejects.toBeInstanceOf(FolderOfflineError);
+    expect(g.refuses('r1')).toBe(true);
+    await expect(g.run('r1', { op: 'stat', path: 'ok' })).rejects.toMatchObject({ reason: 'timeout' });
+    expect(await g.run('r1', { op: 'stat', path: 'ok' }, { probe: true })).toBe('ok');
+  });
+
+  it('an offline answer to a probe carries its code', async () => {
+    await expect(gate().run('r1', { op: 'stat', path: 'eio' }, { probe: true })).rejects.toMatchObject({ reason: 'io_error', code: 'EIO' });
+  });
+
+  it('reads a deadline at once, forking nothing, while the root\'s last probe helper has not exited', async () => {
+    let again: Promise<unknown> | null = null;
+    // onSuspect runs inside the deadline, before the killed helper can have exited
+    const g = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 1_500, helpers: 2, stuckMax: 4 }, onSuspect: (id) => {
+      if (again === null) again = g.run(id, { op: 'stat', path: 'ok' }, { probe: true });
+    } });
+    made.push(g);
+    await expect(g.run('r1', { op: 'stat', path: 'hang' }, { probe: true })).rejects.toMatchObject({ reason: 'timeout' });
+    const t = Date.now();
+    await expect(again).rejects.toMatchObject({ scanRootId: 'r1', reason: 'timeout' });
+    expect(Date.now() - t).toBeLessThan(100);
+    expect(g.stuckCount('r1')).toBe(1); // the held helper is not counted twice
+    // another root's probe is not held back
+    expect(await g.run('r2', { op: 'stat', path: 'ok' }, { probe: true })).toBe('ok');
+    // once that helper is gone, the next probe forks again
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await g.run('r1', { op: 'stat', path: 'ok' }, { probe: true })).toBe('ok');
+  });
+
+  it('a probe goes ahead of queued work', async () => {
+    const g = gate({ helpers: 1, waitMs: 5_000 });
+    const order: string[] = [];
+    const first = g.run('r1', { op: 'stat', path: 'slow:1' }).then((v) => order.push(String(v)));
+    const queued = g.run('r1', { op: 'stat', path: 'work' }).then((v) => order.push(String(v)));
+    const probe = g.run('r1', { op: 'stat', path: 'probe' }, { probe: true }).then((v) => order.push(String(v)));
+    await Promise.all([first, queued, probe]);
+    expect(order).toEqual(['slow:1', 'probe', 'work']);
+  }, 10_000);
+});
+
 describe('isOfflineError', () => {
   it('knows a FolderOfflineError and the offline codes', () => {
     expect(isOfflineError(new FolderOfflineError('r1', 'timeout'))).toBe(true);

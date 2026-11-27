@@ -2,6 +2,9 @@
  * A parser result that carries NUL bytes in free text (codec, container, tag
  * keys) is stored as a present file, NULs stripped, not as a parse error.
  * music-metadata is stubbed: no real file yields these values on demand.
+ * The parse normally runs in a file helper, where the stub cannot reach, so
+ * this suite's gate runs the handler's parse in this process; every other
+ * call goes to the real helper.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -10,7 +13,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { makeDb } from '@tagave/db';
+import { fileTypeHandler } from '@tagave/core/files';
 import type { WorkerContext } from '../lib/context.js';
+import { FileGate, setFileGate, type GateOp, type RunOptions } from '../lib/fileGate.js';
 
 vi.mock('music-metadata', () => ({
   parseFile: async () => ({
@@ -21,11 +26,20 @@ vi.mock('music-metadata', () => ({
 }));
 const { scanParseJob } = await import('./scanParse.js');
 
+class InProcessParse extends FileGate {
+  override run<T>(rootId: string, op: GateOp, opts?: RunOptions): Promise<T> {
+    if (op.op === 'parse') return fileTypeHandler(op.handlerId)!.parse(op.path) as Promise<T>;
+    return super.run<T>(rootId, op, opts);
+  }
+}
+
 describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse strips NUL from what it stores (db)', () => {
-  let ctx: WorkerContext; let sql: any; let rootPath: string;
+  let ctx: WorkerContext; let sql: any; let rootPath: string; let gate: FileGate;
   const userId = randomUUID(); const libraryId = randomUUID(); const rootId = randomUUID(); const fileId = randomUUID();
 
   beforeAll(async () => {
+    gate = new InProcessParse();
+    setFileGate(gate);
     const made = await makeDb(process.env.TEST_DATABASE_URL!);
     sql = made.client;
     ctx = { db: made.db, sql: made.client, boss: { send: async () => randomUUID() } as any, logger: pino({ level: 'silent' }) };
@@ -38,6 +52,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse strips NUL from what
   });
 
   afterAll(async () => {
+    setFileGate(null);
+    await gate.close();
     await sql`delete from scan_roots where id = ${rootId}`;
     await sql`delete from libraries where id = ${libraryId}`;
     await sql`delete from users where id = ${userId}`;

@@ -1,5 +1,4 @@
 import type postgres from 'postgres';
-import { readFile, access } from 'node:fs/promises';
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
 import { albumsChanged } from '../lib/albumCare.js';
@@ -8,6 +7,8 @@ import { albumKeyLock, files, clusterOverrides, localTracks, scanRoots, sidecarF
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
+import { fileGate } from '../lib/fileGate.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 import { MUSIC_HANDLERS } from '../lib/musicFiles.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
 import { upsertTracks, type TrackRowInput } from '../lib/trackUpsert.js';
@@ -120,6 +121,26 @@ function tagsOf(tagsRaw: unknown): FileTags {
     title: str('title'),
     year: typeof yearV === 'number' && yearV > 1000 ? yearV : extractYear(str('date')),
   };
+}
+
+/**
+ * A cue sheet's bytes, through the file gate, trying the stored spelling,
+ * then NFD and NFC (like openVariant in artFetch.ts); null when no spelling
+ * opens. An offline folder throws FolderOfflineError: the sheet decides the
+ * album's tracks, so cluster.dir must not group the folder without it (the
+ * job parks whole, before it writes anything).
+ */
+export async function readCueSheet(scanRootId: string, rootPath: string, relPath: string): Promise<Buffer | null> {
+  for (const cand of [relPath, relPath.normalize('NFD'), relPath.normalize('NFC')]) {
+    try {
+      const bytes = await fileGate().run<Uint8Array>(scanRootId, { op: 'readSmall', path: rootPath + '/' + cand });
+      return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    } catch (err) {
+      if (err instanceof FolderOfflineError) throw err;
+      /* try next */
+    }
+  }
+  return null;
 }
 
 /**
@@ -277,15 +298,7 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       const cueDir = relDirname(sc.relPath);
       if (!scopeDirs.includes(cueDir)) continue;
 
-      // Try to read with NFC/NFD variants (like openVariant in artFetch.ts)
-      let bytes: Buffer | null = null;
-      for (const cand of [sc.relPath, sc.relPath.normalize('NFD'), sc.relPath.normalize('NFC')]) {
-        try {
-          await access(rootPath + '/' + cand);
-          bytes = await readFile(rootPath + '/' + cand);
-          break;
-        } catch { /* try next */ }
-      }
+      const bytes = await readCueSheet(data.scanRootId, rootPath, sc.relPath);
 
       if (!bytes) {
         ctx.logger.warn({ cue: sc.relPath }, 'cue file not accessible');

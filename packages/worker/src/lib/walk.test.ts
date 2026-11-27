@@ -224,6 +224,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
     expect(dirs.some((d: any) => d.relPath.includes('@eaDir') || d.relPath.startsWith('#recycle'))).toBe(false);
   });
 
+  it('never indexes the copy a cut-off tag write left beside its original', async () => {
+    await writeFile(path.join(rootPath, 'A', '.tagave-tmp-0b9e5a4c-1f2d-4a8e-9c3b-5d6e7f809a1b.mp3'), 'half a copy');
+    await bump(path.join(rootPath, 'A'));
+    const before = (await rows()).length;
+    const r = await walkRoot(ctx, root, { mode: 'full' });
+    expect(r.added).toBe(0);
+    expect((await rows()).length).toBe(before);
+    expect((await rows()).some((f) => f.relPath.includes('.tagave-tmp-'))).toBe(false);
+    await rm(path.join(rootPath, 'A', '.tagave-tmp-0b9e5a4c-1f2d-4a8e-9c3b-5d6e7f809a1b.mp3'));
+    await bump(path.join(rootPath, 'A'));
+    await walkRoot(ctx, root, { mode: 'full' }); // the folder's mtime as the tests after this one expect it
+  });
+
   it('directory mtime is what quick mode trusts', async () => {
     const st = await stat(path.join(rootPath, 'A'));
     const [row] = await db.select().from(scanDirs).where(and(eq(scanDirs.scanRootId, rootId), eq(scanDirs.relPath, 'A')));

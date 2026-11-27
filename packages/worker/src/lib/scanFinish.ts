@@ -273,6 +273,9 @@ function missingFolders(marked: Array<{ relPath: string; handler: string }>): Pi
 /** The only reason Tier 1 is skipped: a root that looks unmounted marks and matches nothing. */
 export const UNMOUNTED_SKIP = 'the root looks unmounted, so moved files are not matched in this scan';
 
+/** A walk the music folder's going offline cut short marks and matches nothing (vault "tagave - Offline Library Spec"). */
+export const OFFLINE_SKIP = 'the music folder went offline during the scan, so nothing was marked missing';
+
 export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult, opts: FinishOptions = {}): Promise<FinishResult> {
   const empty: FinishResult = {
     missing: 0, dirsWithMissing: [], missingGroups: [], failedDirs: [], heldMissing: null, reconcileSkipped: null,
@@ -281,6 +284,8 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
   const failedDirs = walk.failedPaths;
   // An unmounted-looking root marks nothing, but still names what it could not read.
   if (walk.looksUnmounted) return { ...empty, failedDirs, reconcileSkipped: UNMOUNTED_SKIP };
+  // An offline folder's walk saw only part of it: nothing it did not see is gone.
+  if (walk.offline) return { ...empty, failedDirs, reconcileSkipped: OFFLINE_SKIP };
   return withLibraryLock(ctx, root.libraryId, async () => {
     // Deleted files (0073) are no moves and no losses: a trashed one sits in
     // the trash folder the walk skips, a marked one the owner deleted as

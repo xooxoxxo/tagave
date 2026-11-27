@@ -10,9 +10,13 @@ import pino from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { files, libraries, makeDb, recordReach, rootsToWatch, scanRoots, users } from '@tagave/db';
 import type { WorkerContext } from '../context.js';
-import type { probeOnce } from './probeOnce.js';
+import { fileURLToPath } from 'node:url';
+import { FileGate } from '../fileGate.js';
+import { gateProbe } from './probe.js';
 import type { ProbeOutcome } from './reach.js';
 import { FolderWatch } from './watch.js';
+
+const FAKE = fileURLToPath(new URL('../../testkit/fakeHelper.mjs', import.meta.url));
 
 const TAG = `offlinetest-${randomBytes(3).toString('hex')}`;
 const ENV = { TAGAVE_MUSIC_NAME: 'music' };
@@ -55,7 +59,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
     (await db.select({ reach: scanRoots.reach, reach_reason: scanRoots.reachReason, reach_since: scanRoots.reachSince, reach_checked_at: scanRoots.reachCheckedAt })
       .from(scanRoots).where(eq(scanRoots.id, id)))[0] as { reach: string; reach_reason: string | null; reach_since: Date | null; reach_checked_at: Date | null };
   /** This suite's calls of a probe spy, by the real path probed. */
-  const probesOf = (spy: { mock: { calls: unknown[][] } }, real = REAL_A) => spy.mock.calls.filter((c) => c[0] === real);
+  const probesOf = (spy: { mock: { calls: unknown[][] } }, real = REAL_A) => spy.mock.calls.filter((c) => c[1] === real);
   const sendsFor = (id: string) => send.mock.calls.filter((c) => (c[1] as { scanRootId?: string })?.scanRootId === id);
   const setReach = (id: string, r: string, reason: string | null, since: Date | null) =>
     client`update scan_roots set reach = ${r}, reach_reason = ${reason}, reach_since = ${since?.toISOString() ?? null}::timestamptz, reach_checked_at = null where id = ${id}`;
@@ -146,7 +150,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
 
   it('a hung probe does not hold up another root or the next tick', async () => {
     await db.insert(scanRoots).values({ id: rootB, libraryId, path: PATH_B, displayName: 'Robin B', writable: false });
-    const probe = vi.fn((dir: string) => (dir === REAL_A ? new Promise<ProbeOutcome>(() => {}) : Promise.resolve(LISTING)));
+    const probe = vi.fn((_id: string, dir: string) => (dir === REAL_A ? new Promise<ProbeOutcome>(() => {}) : Promise.resolve(LISTING)));
     const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, probe, now: clock }, { everyMs: 50 });
     w.start();
     await flush(); await flush();
@@ -162,7 +166,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
     const probe = vi.fn(async (): Promise<ProbeOutcome> => LISTING);
     const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, port, probe, now: clock });
     expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
-    expect(probesOf(probe)).toEqual([[REAL_A, ['Jazz/1.flac'], expect.objectContaining({ abandoned: expect.any(Function) })]]);
+    expect(probesOf(probe)).toEqual([[rootId, REAL_A, ['Jazz/1.flac']]]);
     expect(port).not.toHaveBeenCalled();
     expect(await reach(rootId)).toMatchObject({ reach: 'online', reach_reason: null, reach_since: T1 });
   });
@@ -272,28 +276,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
     expect(sendsFor(rootId)).toEqual([['scan.root', { scanRootId: rootId, mode: 'quick' }, { singletonKey: `scan:${rootId}` }]]);
   });
 
-  it('forks no new probe while a child it gave up on is still there, and reads a deadline', async () => {
-    let exit = () => {};
-    const probe = vi.fn(async (...[dir, , opts]: Parameters<typeof probeOnce>): Promise<ProbeOutcome> => {
-      if (dir !== REAL_A) return LISTING;
-      if (probesOf(probe).length === 1) {
-        opts?.abandoned?.(new Promise<void>((done) => { exit = done; })); // stuck in the kernel until we say
-        return { kind: 'deadline' };
-      }
-      return LISTING;
-    });
+  it('probes through the gate past its stuck cap: a deadline reads offline, the next answer online', async () => {
+    // The gate's own rule (fileGate.test.ts): while the root's last probe helper is stuck, a probe reads a deadline and forks nothing.
+    const gate = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 1_500, helpers: 2, stuckMax: 1 } });
+    let dead = true;
+    const probe = vi.fn((id: string, dir: string, known: string[]) => gateProbe(gate, id, dir === REAL_A && dead ? 'hang' : 'ok', known.map(() => 'ok')));
     const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, probe, now: clock });
-    expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'timeout' });
-    now = T2;
-    expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'timeout' });
-    now = T3;
-    expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'timeout' });
-    expect(probesOf(probe)).toHaveLength(1);
-    expect(await reach(rootId)).toMatchObject({ reach: 'offline', reach_reason: 'timeout', reach_since: T2 });
-    exit();
-    await flush();
-    now = T4;
-    expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
-    expect(probesOf(probe)).toHaveLength(2);
+    try {
+      expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'timeout' });
+      expect(gate.refuses(rootId)).toBe(true); // at the cap: the gate takes no other work for the root
+      dead = false;
+      await flush(); // the killed helper exits
+      now = T2;
+      expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
+    } finally {
+      await gate.close();
+    }
   });
 });

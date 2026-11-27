@@ -4,7 +4,8 @@
 //   slow:N   sends N progress messages 1 s apart, then answers with the path
 //   eio      answers { ok: false, code: 'EIO' }
 //   enoent   answers { ok: false, code: 'ENOENT' }
-//   anything else answers { ok: true, value: path }
+//   anything else answers { ok: true, value: path }, or for readdirPage a
+//   one-entry page { entries: [{ name: path, type: 'file' }], cursor: null }
 process.on('message', (msg) => {
   const { id, op } = msg;
   const script = String(op.path ?? op.from ?? '');
@@ -22,6 +23,7 @@ process.on('message', (msg) => {
     };
     return void setTimeout(tick, 1_000);
   }
+  if (op.op === 'readdirPage') return process.send({ id, ok: true, value: { entries: [{ name: script, type: 'file' }], cursor: null } });
   process.send({ id, ok: true, value: script });
 });
 // The gate let go of us: leave.

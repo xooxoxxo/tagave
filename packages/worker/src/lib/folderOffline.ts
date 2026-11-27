@@ -10,11 +10,14 @@ export class FolderOfflineError extends Error {
   override readonly name = 'FolderOfflineError';
   readonly scanRootId: string;
   readonly reason: ReachReason;
+  /** The share's error code (EIO, ESTALE, ...) when the share answered with one; none on a deadline. */
+  readonly code?: string;
 
-  constructor(scanRootId: string, reason: ReachReason) {
+  constructor(scanRootId: string, reason: ReachReason, code?: string) {
     super(`The music folder is offline (${reason})`);
     this.scanRootId = scanRootId;
     this.reason = reason;
+    if (code !== undefined) this.code = code;
   }
 }
 
