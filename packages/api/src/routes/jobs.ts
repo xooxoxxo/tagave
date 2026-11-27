@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, desc, gte, notInArray, sql } from 'drizzle-orm';
 import { PARKED_MAINTENANCE_QUEUE, libraries, jobRuns, scanRoots } from '@tagave/db';
-import type { JobView, JobsListResponse, JobsSummary } from '@tagave/shared';
+import { SCAN_OFFLINE_SKIP, type JobView, type JobsListResponse, type JobsSummary } from '@tagave/shared';
 import { JOB_EVENTS_CHANNEL, LEGACY_JOB_EVENTS_CHANNEL } from '@tagave/shared/job';
 import { getDb, getSql } from '../db.js';
 import { getBoss } from '../boss.js';
@@ -88,9 +88,18 @@ export async function loadParkedViews(sql: ReturnType<typeof getSql>, libraryId:
   return rows.map(parkedJobView);
 }
 
+/**
+ * A scan the worker opened and cancelled because its music folder is offline
+ * (SCAN_OFFLINE_SKIP): the job parks, and its parked row (Waiting, "Music
+ * folder offline") is the one entry for that Scan press. Left out before the
+ * views are derived, so it never counts as a later attempt either.
+ */
+const cutOffByOffline = (r: JobRow) =>
+  (r.type === 'scan.root' || r.type === 'scan.dir') && r.state === 'cancelled' && r.error === SCAN_OFFLINE_SKIP;
+
 /** Every visible view for the library, derived with the context of later runs, and the parked work. */
 async function loadViews(db: Db, libraryId: string, jobId?: string): Promise<JobView[]> {
-  const rows = await loadJobRows(db, libraryId, jobId);
+  const rows = (await loadJobRows(db, libraryId, jobId)).filter((r) => !cutOffByOffline(r));
   const parked = await loadParkedViews(getSql(), libraryId);
   return [...parked, ...deriveJobViews(rows, libraryId).filter((v): v is JobView => v !== null)];
 }

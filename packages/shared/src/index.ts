@@ -49,6 +49,7 @@ export {
   type StartScanResponse,
   type AlbumRescanResponse,
   SCAN_ROOT_EMPTY_MESSAGE,
+  SCAN_OFFLINE_SKIP,
   createScanRootSchema,
   type CreateScanRootRequest,
   patchScanRootSchema,
