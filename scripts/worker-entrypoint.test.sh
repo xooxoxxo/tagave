@@ -11,7 +11,7 @@ SH="$(command -v dash || echo sh)"
 fail=0
 if ! shellcheck "$SUT"; then echo "FAIL - shellcheck"; fail=1; else echo "ok   - shellcheck"; fi
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/offlinetest.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/offlinetest.XXXXXX")" || exit 1
 trap 'rm -r "$TMP"' EXIT
 
 # Makes a fake root with /mnt/.host and a mount table; prints its path.
@@ -105,5 +105,13 @@ check "a file is left alone"                        test ! -L "$r/mnt/music" -a 
 r="$(root)"; rm "$r/proc/self/mountinfo"; mkdir "$r/mnt/music"; run "$r" music
 check "no mount table: runs the command"            ran "$r"
 check "no mount table: /mnt/music is left alone"    test ! -L "$r/mnt/music" -a -d "$r/mnt/music"
+
+# An awk that fails (exit 2, as on a read error) is not "not a mount point":
+# a shim earlier on PATH stands in for it.
+r="$(root)"; mkdir "$r/mnt/music" "$r/bin"; printf '#!/bin/sh\nexit 2\n' >"$r/bin/awk"; chmod +x "$r/bin/awk"
+PATH="$r/bin:$PATH" run "$r" music
+check "a failed table read: runs the command"       ran "$r"
+check "a failed table read: /mnt/music is left alone" test ! -L "$r/mnt/music" -a -d "$r/mnt/music"
+check "a failed table read: one line says so"       grep -qx "tagave: the mount table cannot be read, so /mnt/music is left as it is" "$r/err"
 
 exit "$fail"
