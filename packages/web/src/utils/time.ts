@@ -23,16 +23,28 @@ export function formatRelativeTime(isoString: string): string {
 
 /**
  * A short date and time: "19 Oct, 22:21", the year only when it is not
- * this one ("3 Mar 2025, 09:10"). `time: false` gives the date alone.
+ * this one ("3 Mar 2025, 09:10"). `time: false` gives the date alone; `now`
+ * is "this year" (tests and stories pin it).
  */
-export function shortDate(iso: string | null | undefined, opts: { time?: boolean } = {}): string {
+export function shortDate(iso: string | null | undefined, opts: { time?: boolean; now?: Date } = {}): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const sameYear = d.getFullYear() === (opts.now ?? new Date()).getFullYear();
   const date = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
   if (opts.time === false) return date;
   return `${date}, ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+/**
+ * Since when, as the music folder notice says it: "14:02" on the same local
+ * day as `now`, the short date and time otherwise ("23 Nov, 09:10").
+ */
+export function sinceLabel(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return shortDate(iso, { now });
 }
 
 /**
