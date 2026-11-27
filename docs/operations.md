@@ -150,6 +150,8 @@ Whether the file worker and the player start with the NAS off depends on the [la
 
 When a scan finds no files in a music folder that had files, it marks nothing missing, and the owner sees **Music folder unreachable** above every page until a scan finishes. With the in-app updater, tagave also mounts the folder again by itself. If the latest scan stopped this way, the updater runs a short helper container from its own image with `--privileged --pid=host`. Only when `MUSIC_DIR` (from `.env`) is a mount in the host's `/etc/fstab` and the host runs systemd, the helper starts that mount unit (`systemctl start`). It then checks that the folder is mounted and not empty, restarts only the containers that bind it (`worker-files`, `app`, `player`), and scans again. In the parent layout it restarts nothing: the mount reaches the running parts on its own. The banner says **Reconnecting music folder** in the meantime. It tries at most once every 10 minutes, waits longer after each failure in a row, and writes each attempt to the audit log. It never unmounts anything, never edits fstab and never touches another path or container. Set `TAGAVE_MUSIC_SELF_HEAL=0` in `.env` to turn it off.
 
+The updater runs other short helpers of the same kind that only read: for the [move to the parent layout](install.md#music-on-a-network-share) they read the host's mount table, `/etc/fstab`, whether the mount of the folder above the music folder is shared (`findmnt`), and the names in that folder, never the music folder itself; for Settings › Status they read `/etc/fstab`. `TAGAVE_MUSIC_SELF_HEAL=0` stops none of these reads.
+
 ## Repair
 
 tagave runs as five parts: the web app, the database, the identify worker, the file worker and the player. With the in-app updater, Settings › Updates shows **Repair** when a part is not running, when the last update could not finish, or while a repair waits for the music share. The "?" next to **Running now** says what Repair does.
@@ -158,16 +160,17 @@ Repair checks each part, the disk, the web app and the music share, then fixes w
 
 1. It stops parts that are stuck.
 2. It reconnects a music share that is not connected, as in [A music folder that did not mount](#a-music-folder-that-did-not-mount).
-3. It starts the parts that do not run. A part that crashed or ran out of memory gets one fresh start. A web app that does not answer gets one restart, once every other part runs.
-4. It checks that every part runs and the web app answers.
+3. On the direct layout it first tries the one-time [move to the parent layout](install.md#music-on-a-network-share), and on a move starts the file worker and the player on it.
+4. It starts the parts that do not run. A part that crashed or ran out of memory gets one fresh start. A web app that does not answer gets one restart, once every other part runs.
+5. It checks that every part runs and the web app answers.
 
 The result is one sentence, such as "Repaired. All 5 parts running." Below it are the steps and a folded run log; what Repair did sits behind "?".
 
 When only you can fix the cause, Repair stops and says what to do. Free up disk space, stop the program on tagave's port or close other programs, then press Repair again. A part that will not stop or will not start needs a computer restart; when Docker does not answer, also run the installer again. A database that recovers after an unclean stop needs only time.
 
-Repair never deletes files, music or data, never restores a backup, never unmounts a share or changes how it is mounted, and never touches programs outside this tagave. It changes no version or setting, so the owner's session is enough.
+Repair never deletes files, music or data, never restores a backup, never unmounts a share or changes how the host mounts it, and never touches programs outside this tagave. Apart from the one-time move to the parent layout (step 3), it changes no version or setting, so the owner's session is enough.
 
-**When the music share does not answer** (the NAS is off or unplugged), Repair starts the other parts and lets the parts that read the share wait. The page names the share (for example 192.0.2.10) and asks you to turn the NAS on or check its cable. tagave checks the share every 1 to 5 minutes and finishes on its own when it answers, also after the updater restarts.
+**When the music share does not answer** (the NAS is off or unplugged), in the parent layout Repair ends repaired: "All 5 parts running. The music folder is offline: its work waits and starts again when it's back." In the direct layout Repair starts the other parts and lets the parts that read the share wait. The page names the share (for example 192.0.2.10) and asks you to turn the NAS on or check its cable. tagave checks the share every 1 to 5 minutes and finishes on its own when it answers, also after the updater restarts.
 
 **Without a press**, tagave repairs only for the music share (the healer above, a waiting repair) and in one more case: an update that ended with parts that could not start, held for the music share or a rollback that stopped at stuck parts. A held update hands its parts to a repair right away. After a restart, the updater starts one when a part still does not run and no repair is waiting. An update that left files or the database half restored never starts one.
 
