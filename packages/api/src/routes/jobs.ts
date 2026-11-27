@@ -29,9 +29,21 @@ const rowColumns = {
 };
 
 /**
+ * A scan the worker opened and cancelled because its music folder is offline
+ * (SCAN_OFFLINE_SKIP). A queued scan parks, and its parked row (Waiting,
+ * "Music folder offline") is the one entry for that Scan press. A scan.dir run
+ * in-process after a move parks nothing: the folder's return scans the whole
+ * root. Either way the run is not work of its own, so every reader leaves it
+ * out, and it never counts as a later attempt at an older run either.
+ */
+const cutOffByOffline = (r: JobRow) =>
+  (r.type === 'scan.root' || r.type === 'scan.dir') && r.state === 'cancelled' && r.error === SCAN_OFFLINE_SKIP;
+
+/**
  * The library's recent job_runs rows, newest first, without worker
- * heartbeats. Routine rows stay in: they tell older failures that a later
- * run went fine. `jobId` is added when it falls outside the window.
+ * heartbeats or scans cut off by an offline music folder. Routine rows stay
+ * in: they tell older failures that a later run went fine. `jobId` is added
+ * when it falls outside the window.
  */
 export async function loadJobRows(db: Db, libraryId: string, jobId?: string): Promise<JobRow[]> {
   const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
@@ -55,7 +67,7 @@ export async function loadJobRows(db: Db, libraryId: string, jobId?: string): Pr
     // older than everything in the window, so it goes last (the rows are newest first)
     rows.push(...extra);
   }
-  return rows;
+  return rows.filter((r) => !cutOffByOffline(r));
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -88,18 +100,9 @@ export async function loadParkedViews(sql: ReturnType<typeof getSql>, libraryId:
   return rows.map(parkedJobView);
 }
 
-/**
- * A scan the worker opened and cancelled because its music folder is offline
- * (SCAN_OFFLINE_SKIP): the job parks, and its parked row (Waiting, "Music
- * folder offline") is the one entry for that Scan press. Left out before the
- * views are derived, so it never counts as a later attempt either.
- */
-const cutOffByOffline = (r: JobRow) =>
-  (r.type === 'scan.root' || r.type === 'scan.dir') && r.state === 'cancelled' && r.error === SCAN_OFFLINE_SKIP;
-
 /** Every visible view for the library, derived with the context of later runs, and the parked work. */
 async function loadViews(db: Db, libraryId: string, jobId?: string): Promise<JobView[]> {
-  const rows = (await loadJobRows(db, libraryId, jobId)).filter((r) => !cutOffByOffline(r));
+  const rows = await loadJobRows(db, libraryId, jobId);
   const parked = await loadParkedViews(getSql(), libraryId);
   return [...parked, ...deriveJobViews(rows, libraryId).filter((v): v is JobView => v !== null)];
 }
