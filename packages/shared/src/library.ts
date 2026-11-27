@@ -37,6 +37,17 @@ export const scanRootSchema = z.object({
 
 export type ScanRoot = z.infer<typeof scanRootSchema>;
 
+/** 202 from POST /libraries/:id/scan-roots/:rootId/scan: the scan job, queued. */
+export interface StartScanResponse {
+  id: string;
+  type: 'scan.root';
+  mode: 'full' | 'quick';
+  state: 'created';
+  createdAt: string;
+  /** the folder is offline or not connected: the scan runs once it is back */
+  waiting?: true;
+}
+
 /**
  * validationMessage the worker stores on an 'ok' root that has nothing in it.
  * Docker on macOS mounts a folder it does not share with its VM as an empty
