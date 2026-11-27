@@ -495,12 +495,17 @@ check "the folder is online again once the rule is removed" wait_until 240 folde
 # ================================================================ 3. NAS off while running
 step "3. NAS off while running"
 
+# The return in step 2 queues a quick scan; a scan asked for while it is still
+# queued or running would be folded into it, so wait for it to finish first.
+scan_idle() { [ "$(psql_q "select count(*) from scans where scan_root_id = '$ROOT_ID' and status = 'running'")" = "0" ]; }
+wait_until 60 scan_idle || note "a scan is still running before the drop"
 t_scan=$(psql_q "select now()")
 # The share goes away first: three small fixtures scan in a few milliseconds,
 # so a scan started before the drop finishes before the rule is in place. The
 # folder still reads online here, so the scan reaches the dead share.
 drop_nfs
 check "a scan starts" start_scan
+note "scan request answered $(api_status): $(head -c 300 "$TMP_ROOT/body" 2>/dev/null)"
 sleep 2
 note "latest scan after the drop: $(latest_scan_status)"
 heartbeat_age() { psql_q "select coalesce(min(extract(epoch from now() - seen_at))::int, 9999) from worker_heartbeats where info -> 'queues' ? 'scan.root'"; }
@@ -516,7 +521,17 @@ scan_parked() {
   [ "$(psql_q "select count(*) from scans where scan_root_id = '$ROOT_ID' and started_at >= '$t_scan' and status = 'aborted' and stats ->> 'offline' = 'true'")" -gt 0 ] ||
     [ "$(psql_q "select count(*) from parked_jobs where scan_root_id = '$ROOT_ID' and queue in ('scan.root', 'scan.dir')")" -gt 0 ]
 }
-check "the scan parks (aborted as offline, or parked)" wait_until 120 scan_parked
+if wait_until 120 scan_parked; then
+  ok "the scan parks (aborted as offline, or parked)"
+else
+  fail "the scan parks (aborted as offline, or parked)"
+  note "scans since the drop:"
+  psql_q "select started_at, status, stats from scans where scan_root_id = '$ROOT_ID' and started_at >= '$t_scan' order by started_at" | sed 's/^/       /'
+  note "parked jobs:"
+  psql_q "select queue, reason, parked_at from parked_jobs" | sed 's/^/       /'
+  note "worker-files log since the drop (scan, park, offline):"
+  compose logs --no-color --since "$t_scan" worker-files 2>&1 | grep -E 'scan|park|offline|gate' | tail -n 40 | sed 's/^/       /'
+fi
 check "the API says offline" wait_until 120 folder_is offline
 check "no file is marked missing" test "$(not_present_files)" = "0"
 check "every fixture is still present" test "$(present_files)" = "$TRACKS"
