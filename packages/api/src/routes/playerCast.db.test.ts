@@ -175,7 +175,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cast links', () => {
     // another person, a later expiry, a flipped signature
     expect((await at([v, k, id, pack(ownerId), exp, sig].join('.'))).statusCode).toBe(403);
     expect((await at([v, k, id, user, (parseInt(exp!, 36) + 3600).toString(36), sig].join('.'))).statusCode).toBe(403);
-    expect((await at([v, k, id, user, exp, `${sig!.slice(0, -2)}AA`].join('.'))).statusCode).toBe(403);
+    // One character in the middle, swapped for another: each carries 6 bits of
+    // the signature (the last one only 2), so the bytes always change.
+    const mid = Math.floor(sig!.length / 2);
+    const flipped = `${sig!.slice(0, mid)}${sig![mid] === 'A' ? 'B' : 'A'}${sig!.slice(mid + 1)}`;
+    expect((await at([v, k, id, user, exp, flipped].join('.'))).statusCode).toBe(403);
     expect((await at('garbage')).statusCode).toBe(403);
     // a cover token does not open audio
     const { coverUrl } = (await mint({ localTrackId: tracks.one }, listenerId, 'listener')).json();
