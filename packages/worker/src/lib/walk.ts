@@ -29,7 +29,7 @@
  * reads as an unreadable folder, let alone a gone one. Only ENOENT and its
  * kin (isAbsent) mean a spelling is not there. The
  * walk also never indexes the copy a cut-off tag write left beside its file
- * (`.tagave-tmp-*`, safeFileWriter.ts).
+ * (`.tagave-tmp-*`, writeSteps.ts).
  * Database writes are batched: one statement per few hundred files instead
  * of one per file.
  */
@@ -112,7 +112,7 @@ export interface WalkTreeResult extends WalkResult {
  * folder on a slow share well inside the gate's 15 s wait deadline.
  */
 export const WALK_PAGE = 1_000;
-/** The name a tag write gives its temp copy (safeFileWriter.ts): a cut-off write can leave one. */
+/** The name a tag write gives its temp copy (writeSteps.ts): a cut-off write can leave one. */
 const TAG_WRITE_TEMP = '.tagave-tmp-';
 
 /**

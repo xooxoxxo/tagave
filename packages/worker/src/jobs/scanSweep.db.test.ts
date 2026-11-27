@@ -60,6 +60,28 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scanSweepJob (db)', () => {
     expect(mine[0]!.opts).toEqual({ singletonKey: `scan:${rootId}` });
   });
 
+  it('scan.sweep with an offline root queues nothing for it', async () => {
+    const offlineId = randomUUID();
+    const unmountedId = randomUUID();
+    await db.insert(scanRoots).values([
+      { id: offlineId, libraryId, path: '/mnt/music/offline', displayName: 'offline', validationStatus: 'ok', pollIntervalS: 3600, reach: 'offline' },
+      { id: unmountedId, libraryId, path: '/mnt/music/unmounted', displayName: 'unmounted', validationStatus: 'ok', pollIntervalS: 3600, reach: 'unmounted' },
+    ]);
+    try {
+      sent.length = 0;
+      const logged: string[] = [];
+      const logger = pino({ level: 'debug' }, { write: (line: string) => void logged.push(line) });
+      await scanSweepJob({ ...ctx, logger }, { scope: { libraryId } });
+      const theirs = sent.filter((s) => ([offlineId, unmountedId] as string[]).includes((s.data as { scanRootId?: string }).scanRootId ?? ''));
+      expect(theirs).toEqual([]);
+      // quiet: no line per skipped root, every tick
+      expect(logged.filter((l) => l.includes(offlineId) || l.includes(unmountedId))).toEqual([]);
+    } finally {
+      await db.delete(scanRoots).where(eq(scanRoots.id, offlineId));
+      await db.delete(scanRoots).where(eq(scanRoots.id, unmountedId));
+    }
+  });
+
   it('leaves a fresh running scan alone', async () => {
     sent.length = 0;
     await db.insert(scans).values({ scanRootId: rootId, status: 'running', startedAt: new Date(), stats: { mode: 'full' } });

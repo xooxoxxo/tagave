@@ -1,10 +1,13 @@
 /**
  * SafeFileWriter tests
- * Tests atomic rename, hash verification, and error handling
+ * Tests atomic rename, hash verification, and error handling: the safe
+ * write steps (writeSteps.ts) as the file helper runs them.
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import { SafeFileWriter } from './safeFileWriter.js';
+import { audioHandler } from '@tagave/core/files';
+import type { WriteOptions } from '@tagave/core';
+import { safeWriteSteps, type WriteResult } from './writeSteps.js';
 import { MutagenTagWriter, resolvePythonInterpreter } from './tagWriter.js';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -176,7 +179,7 @@ function generateAdditionalFormats(wavPath: string, dir: string): string[] {
 }
 
 describe.skipIf(!isMutagenAvailable())('SafeFileWriter', () => {
-  let safeFileWriter: SafeFileWriter;
+  let safeFileWriter: { write(filePath: string, tags: TagSet, opts?: WriteOptions): Promise<WriteResult> };
   let tagWriter: MutagenTagWriter;
   let testDir: string;
   let testFiles: string[] = [];
@@ -193,7 +196,7 @@ describe.skipIf(!isMutagenAvailable())('SafeFileWriter', () => {
 
     // Initialize tag writer and safe writer
     tagWriter = new MutagenTagWriter();
-    safeFileWriter = new SafeFileWriter(tagWriter);
+    safeFileWriter = { write: (filePath, tags, opts) => safeWriteSteps(filePath, audioHandler, tags, tagWriter, opts) };
 
     // Wait for subprocess to be ready
     await new Promise((resolve) => setTimeout(resolve, 200));

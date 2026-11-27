@@ -404,7 +404,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
   const writers = new Map<string, SafeFileWriter>();
   const writerFor = (rootId: string) => {
     let w = writers.get(rootId);
-    if (!w) writers.set(rootId, (w = new SafeFileWriter(null, rootId)));
+    if (!w) writers.set(rootId, (w = new SafeFileWriter(rootId)));
     return w;
   };
 
@@ -787,7 +787,7 @@ export function fileStateAfterWrite(
  * folder, the same key scan.parse uses, so a re-cluster already queued for a
  * folder covers it.
  */
-export async function reclusterWrittenDirs(ctx: Pick<WorkerContext, 'db' | 'boss' | 'logger'>, planId: string): Promise<number> {
+export async function reclusterWrittenDirs(ctx: Pick<WorkerContext, 'db' | 'sql' | 'boss' | 'logger'>, planId: string): Promise<number> {
   const rows = await ctx.db
     .selectDistinct({ libraryId: files.libraryId, scanRootId: files.scanRootId, relPath: files.relPath, fileId: files.id, scanRootPath: scanRoots.path })
     .from(tagPlanItems)

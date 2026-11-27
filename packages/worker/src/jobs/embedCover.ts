@@ -85,7 +85,7 @@ export async function embedCoverJob(ctx: WorkerContext, data: EmbedCoverJobData)
     const writers = new Map<string, SafeFileWriter>();
     const writerFor = (rootId: string) => {
       let w = writers.get(rootId);
-      if (!w) writers.set(rootId, (w = new SafeFileWriter(null, rootId)));
+      if (!w) writers.set(rootId, (w = new SafeFileWriter(rootId)));
       return w;
     };
     const sources: Array<typeof rows[number] & { file: string; hasCover: boolean; mount: string }> = [];

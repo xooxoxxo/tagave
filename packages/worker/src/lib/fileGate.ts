@@ -35,7 +35,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { WriteOptions } from '@tagave/core';
 import type { TagSet } from '@tagave/shared';
-import type { PreparedWrite } from './safeFileWriter.js';
+import type { PreparedWrite } from './writeSteps.js';
 import { classify } from './folderWatch/reach.js';
 import { FolderOfflineError, OFFLINE_CODES } from './folderOffline.js';
 

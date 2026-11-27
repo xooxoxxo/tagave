@@ -6,6 +6,7 @@ import { walkRoot, WalkOfflineError, type WalkMode } from '../lib/walk.js';
 import { finishNotes, OFFLINE_SKIP } from '../lib/scanFinish.js';
 import { FolderOfflineError } from '../lib/folderOffline.js';
 import { requireOnline } from '../lib/parking.js';
+import { afterReturn } from '../lib/playerScan.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { hostPathHere, probeRoot } from './rootsValidate.js';
@@ -199,6 +200,10 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
       + `, ${walk.dirsSkipped}/${walk.dirsSeen} dirs skipped, ${elapsedS}s` + finishNotes(walk),
   });
   ctx.logger.info({ scanRootId: root.id, ...stats }, 'scan complete');
+  // a whole scan: the player's scans held while a music folder was not online go now (the return scan's)
+  await afterReturn(ctx, root.id).catch((err) =>
+    ctx.logger.warn({ scanRootId: root.id, err: (err as Error).message }, 'scan: could not ask the player to scan'),
+  );
 }
 
 /** One debounced send of each folder's grouping job (its app's queue), same key the parser uses. */

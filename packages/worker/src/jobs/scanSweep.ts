@@ -3,9 +3,9 @@
  * root and enqueue a scan when its poll interval has elapsed since the last
  * completed one — a quick scan (directory mtimes) normally, a full scan when
  * the last full one is older than a week or there has never been one. A root
- * with a scan still running is left alone.
+ * with a scan still running is left alone, and so is one that is not online.
  */
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, notInArray } from 'drizzle-orm';
 import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { releaseExpiredHolds, releaseParsedHolds, type HoldScope } from '../lib/clusterHold.js';
@@ -53,7 +53,10 @@ export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): 
   } catch (err) {
     ctx.logger.warn({ err: errorMessage(err) }, 'scan sweep: retrying parsed cluster holds failed');
   }
-  const roots = await ctx.db.select().from(scanRoots).where(eq(scanRoots.enabled, true));
+  // A root that is not online (offline or not connected) is skipped quietly:
+  // the watch owns its status and queues its scan when it is back.
+  const roots = await ctx.db.select().from(scanRoots)
+    .where(and(eq(scanRoots.enabled, true), notInArray(scanRoots.reach, ['offline', 'unmounted'])));
   const now = new Date();
   let enqueued = 0;
 
@@ -91,6 +94,3 @@ export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): 
   ctx.logger.info({ roots: roots.length, enqueued }, 'scan sweep');
 
 }
-
-// keep `and` referenced for future filters without an unused-import error
-void and;

@@ -275,6 +275,39 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('deletions on the file worker (d
     }
   });
 
+  it('the daily sweep skips a music folder that is not online, quietly, and takes its rows up once it is back', async () => {
+    const otherId = randomUUID();
+    const otherPath = await mkdtemp(path.join(tmpdir(), 'tagave-deletions-offline-'));
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status, writable, probe_writable, reach, reach_reason)
+              values (${otherId}, ${libraryId}, ${otherPath}, 'share', 'ok', true, true, 'offline', 'server_silent')`;
+    try {
+      await mkdir(path.join(otherPath, 'Share/Album'), { recursive: true });
+      await writeFile(path.join(otherPath, 'Share/Album/01 A.flac'), 'audio');
+      const [f] = await sql`insert into files (library_id, scan_root_id, rel_path, size_bytes, mtime, status, handler)
+                            values (${libraryId}, ${otherId}, 'Share/Album/01 A.flac', 5, 1, 'present', 'audio') returning id::text as id`;
+      await sql`insert into file_deletions (file_id, library_id, scan_root_id, kind, state, rel_path, created_by)
+                values (${f.id}, ${libraryId}, ${otherId}, 'trash', 'moving', 'Share/Album/01 A.flac', ${userId})`;
+      const logged: string[] = [];
+      const quiet = { ...ctx, logger: pino({ level: 'debug' }, { write: (line: string) => void logged.push(line) }) };
+      for (const reach of ['offline', 'unmounted']) {
+        await sql`update scan_roots set reach = ${reach} where id = ${otherId}`;
+        const out = await filesTrashJob(quiet, { libraryId, action: 'sweep' }) as { moved: { paused?: number } };
+        expect(out.moved.paused).toBeUndefined();
+        expect(await row(f.id)).toMatchObject({ state: 'moving', error: null });
+      }
+      expect(logged.filter((l) => l.includes(otherId))).toEqual([]);
+      // back online: the next sweep moves it into the trash
+      await sql`update scan_roots set reach = 'online', reach_reason = null where id = ${otherId}`;
+      await filesTrashJob(quiet, { libraryId, action: 'sweep' });
+      expect(await row(f.id)).toMatchObject({ state: 'trashed' });
+    } finally {
+      await sql`delete from file_deletions where scan_root_id = ${otherId}`;
+      await sql`delete from files where scan_root_id = ${otherId}`;
+      await sql`delete from scan_roots where id = ${otherId}`;
+      await rm(otherPath, { recursive: true, force: true });
+    }
+  });
+
   it('an offline music folder leaves every row waiting: nothing marked, dropped or failed', async () => {
     const a = await album('Artist/Outage', ['01 Wait.flac', '02 Wait.flac']);
     await deleteFiles('trash', [a.files['01 Wait.flac']!]);
