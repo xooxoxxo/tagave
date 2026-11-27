@@ -7,7 +7,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { HELPER_NAME, MusicHealer, gapAfter, healDecision, helperArgs, hostCommand, musicContainers, musicDirOf, selfHealOn, type HealReport } from './music-heal.js';
+import { HELPER_NAME, MusicHealer, gapAfter, healDecision, helperArgs, hostCommand, musicBindSourceOf, musicContainers, musicDirOf, selfHealOn, type HealReport } from './music-heal.js';
 import type { MusicProber, MusicReading, ServerAnswer } from './music-probe.js';
 import { assertAllowed } from './argv-guard.testkit.js';
 import type { CommandResult, Runner } from './runner.js';
@@ -636,7 +636,12 @@ describe('the parent layout (TAGAVE_MUSIC_BIND_SOURCE in .env)', () => {
       'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_LAYOUT=direct\n',
       'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_BIND_SOURCE=./music\n',
       'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_BIND_SOURCE=\n',
+      // absolute but not normal: none of these is the parent layout
+      'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_BIND_SOURCE=/\n',
+      'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_BIND_SOURCE=//mnt\n',
+      'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_BIND_SOURCE=/mnt/../mnt\n',
     ]) {
+      expect(musicBindSourceOf(env)).toBeNull();
       const installDir = await installWith(env);
       const { docker, calls } = fakeDocker(hostAnswers());
       const { app } = fakeApp(true);
