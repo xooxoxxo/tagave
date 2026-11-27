@@ -149,7 +149,15 @@ type Outcome = 'trashed' | 'marked' | 'gone';
  * An offline folder or a failed gate throws: that is no answer about the file.
  */
 export async function trashOne(rootId: string, root: string, relPath: string, day: string): Promise<{ outcome: Outcome; trashRelPath?: string; trashMount?: string; error?: string }> {
-  const src = await onDisk(rootId, root, relPath);
+  let src: string | null;
+  try {
+    src = await onDisk(rootId, root, relPath);
+  } catch (err) {
+    // offline or the gate: no answer, the row waits; anything else (EACCES) is no proof it is gone
+    if (unanswered(err)) throw err;
+    const code = (err as NodeJS.ErrnoException).code;
+    return { outcome: 'marked', error: code === 'EACCES' || code === 'EPERM' ? 'The music folder is not readable' : (err as Error).message };
+  }
   if (!src) return { outcome: 'gone' };
   try {
     const trashMount = await mountIdentity(rootId, root);
@@ -234,6 +242,16 @@ class OfflineRoots {
     }
     return ok;
   }
+  /**
+   * Before a "gone" reading is taken: the root asked again, not from the
+   * run's answer (a share unmounted mid-run reads every later file as gone).
+   * Not connected, or an offline answer: the root pauses for the rest of the run.
+   */
+  async stillConnected(ctx: Pick<WorkerContext, 'sql' | 'logger'>, rootId: string, root: string): Promise<boolean> {
+    if (this.roots.has(rootId)) return false;
+    this.checked.delete(rootId);
+    return this.connected(ctx, rootId, root);
+  }
 }
 
 /**
@@ -316,8 +334,15 @@ export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, 
       ctx.logger.warn({ fileId: r.fileId, error: out.error }, 'files.trash: kept in place and marked');
       await ctx.sql`update file_deletions set kind = 'mark', state = 'marked', error = ${out.error ?? null}
                      where file_id = ${r.fileId} and state = 'moving'`;
-    } else {
+    } else if (await offline.stillConnected(ctx, r.rootId, r.root)) {
       gone.push(r.fileId);
+    } else {
+      // the share went away mid-run: the row waits, nothing is dropped
+      if (opts.throwOffline) {
+        await dropDeletedFiles(ctx, gone);
+        throw offline.first ?? new FolderOfflineError(r.rootId, 'not_mounted');
+      }
+      paused++;
     }
   }
   const { dropped } = await dropDeletedFiles(ctx, gone);
@@ -353,19 +378,23 @@ export async function restoreWaiting(ctx: WorkerContext, libraryId: string | nul
     let src: string | null = null;
     const dest = path.join(r.root, r.relPath);
     try {
-      src = r.trashRelPath ? await onDisk(r.rootId, r.root, r.trashRelPath) : null;
-      if (!src && sameMount) { gone.push(r.fileId); continue; }
-      if (!src) {
+      const found = r.trashRelPath ? await onDisk(r.rootId, r.root, r.trashRelPath) : null;
+      if (!found && sameMount) {
+        // the root asked again first: a share gone mid-run reads every copy as gone
+        if (await offline.stillConnected(ctx, r.rootId, r.root)) gone.push(r.fileId);
+        else paused++;
+        continue;
+      }
+      if (!found) {
         // not here, and this is not the mount it went into: the owner looks, nothing is dropped
         refused++;
         await ctx.sql`update file_deletions set state = 'trashed', error = 'The Trash copy was not found on this mount.' where file_id = ${r.fileId}`;
         continue;
       }
-      if (!sameMount) {
-        // the copy is here on a remounted share: the Trash checks (its folder and marker, one device with the root, a regular file inside it)
-        const { dir } = await checkedTrash(r.rootId, r.root);
-        await checkedTrashFile(r.rootId, dir, r.trashRelPath);
-      }
+      // the copy renamed is the one checked: a regular file inside the Trash, on its device. On a
+      // remounted share the Trash itself is checked first (its folder and marker, one device with the root).
+      const dir = sameMount ? path.join(r.root, TRASH_DIR) : (await checkedTrash(r.rootId, r.root)).dir;
+      src = await checkedTrashFile(r.rootId, dir, r.trashRelPath);
       if (await exists(r.rootId, dest)) {
         refused++;
         await ctx.sql`update file_deletions set state = 'trashed', error = 'Another file is in its place' where file_id = ${r.fileId}`;

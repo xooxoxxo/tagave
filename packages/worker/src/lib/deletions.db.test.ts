@@ -16,7 +16,7 @@ import type { WorkerContext } from './context.js';
 import { walkTree } from './walk.js';
 import { finishWalk } from './scanFinish.js';
 import { emptyTrash, filesTrashJob, moveWaiting, restoreWaiting, trashDay } from './deletions.js';
-import { setFileGate } from './fileGate.js';
+import { setFileGate, type GateOp, type RunOptions } from './fileGate.js';
 import { FolderOfflineError } from './folderOffline.js';
 import { OutageGate } from '../testkit/outageGate.js';
 
@@ -206,6 +206,92 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('deletions on the file worker (d
     }
     expect(await row(a.files['01 Stay.flac']!)).toMatchObject({ kind: 'mark', state: 'marked', error: 'The music folder is read-only' });
     expect(await there(path.join(rootPath, 'Artist/Read Only/01 Stay.flac'))).toBe(true);
+  });
+
+  it('a file it cannot look at (EACCES) is marked with the reason, never dropped, and the run goes on', async () => {
+    const a = await album('Artist/Locked', ['01 Locked.flac']);
+    const b = await album('Artist/Open', ['01 Open.flac']);
+    await deleteFiles('trash', [a.files['01 Locked.flac']!, b.files['01 Open.flac']!]);
+    await chmod(path.join(rootPath, 'Artist/Locked'), 0o000);
+    let out: Awaited<ReturnType<typeof moveWaiting>>;
+    try {
+      out = await moveWaiting(ctx, libraryId);
+    } finally {
+      await chmod(path.join(rootPath, 'Artist/Locked'), 0o755);
+    }
+    expect(out).toMatchObject({ trashed: 1, marked: 1, dropped: 0 });
+    expect(await row(a.files['01 Locked.flac']!)).toMatchObject({ kind: 'mark', state: 'marked', error: 'The music folder is not readable' });
+    expect((await sql`select count(*)::int as n from files where id = ${a.files['01 Locked.flac']!}`)[0].n).toBe(1);
+    expect(await there(path.join(rootPath, 'Artist/Locked/01 Locked.flac'))).toBe(true);
+    expect(await row(b.files['01 Open.flac']!)).toMatchObject({ state: 'trashed' });
+  });
+
+  it('a share unmounted mid-run: the root is asked again before a gone reading, nothing is dropped', async () => {
+    const otherId = randomUUID();
+    const otherPath = await mkdtemp(path.join(tmpdir(), 'tagave-deletions-midrun-'));
+    const stash = await mkdtemp(path.join(tmpdir(), 'tagave-deletions-stash-'));
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status, writable, probe_writable)
+              values (${otherId}, ${libraryId}, ${otherPath}, 'share', 'ok', true, true)`;
+    /** The real gate; after the first look into the root (the run's check), the share goes: its folder left empty. */
+    class UnmountGate extends OutageGate {
+      unmount: (() => Promise<void>) | null = null;
+      override async run<T>(rootId: string, op: GateOp, opts?: RunOptions): Promise<T> {
+        const out = await super.run<T>(rootId, op, opts);
+        if (op.op === 'readdirPage' && rootId === otherId && this.unmount) {
+          const go = this.unmount;
+          this.unmount = null;
+          await go();
+        }
+        return out;
+      }
+    }
+    const gate = new UnmountGate();
+    setFileGate(gate);
+    try {
+      const mk = async (rel: string, state: 'moving' | 'restoring', trashMount: string | null = null) => {
+        const [f] = await sql`insert into files (library_id, scan_root_id, rel_path, size_bytes, mtime, status, handler)
+                              values (${libraryId}, ${otherId}, ${rel}, 10, 1, 'present', 'audio') returning id::text as id`;
+        await sql`insert into file_deletions (file_id, library_id, scan_root_id, kind, state, rel_path, trash_rel_path, trash_mount, created_by)
+                  values (${f.id}, ${libraryId}, ${otherId}, 'trash', ${state}, ${rel},
+                          ${state === 'restoring' ? `.tagave-trash/2026-11-02/${rel}` : null}, ${trashMount}, ${userId})`;
+        return f.id as string;
+      };
+      await mkdir(path.join(otherPath, 'Share/Album'), { recursive: true });
+      await writeFile(path.join(otherPath, 'Share/Album/01 A.flac'), 'audio A');
+      await writeFile(path.join(otherPath, 'Share/Album/02 B.flac'), 'audio B');
+      const moving = [await mk('Share/Album/01 A.flac', 'moving'), await mk('Share/Album/02 B.flac', 'moving')];
+      gate.unmount = async () => { await rename(path.join(otherPath, 'Share'), path.join(stash, 'Share')); };
+      expect(await moveWaiting(ctx, libraryId)).toMatchObject({ trashed: 0, dropped: 0, paused: 2 });
+      for (const id of moving) expect(await row(id)).toMatchObject({ state: 'moving', error: null });
+      expect((await sql`select count(*)::int as n from files where id = any(${moving}::uuid[])`)[0].n).toBe(2);
+      await sql`delete from file_deletions where file_id = any(${moving}::uuid[])`;
+
+      // Restore: the copies in the Trash, on the mount they went into, and the share goes mid-run
+      const { mountIdentity } = await import('./fileRecovery.js');
+      const mount = await mountIdentity(otherId, otherPath);
+      const copy = path.join(otherPath, '.tagave-trash/2026-11-02/Share/Album/03 C.flac');
+      await mkdir(path.dirname(copy), { recursive: true });
+      await writeFile(path.join(otherPath, '.tagave-trash', '.ndignore'), '');
+      await writeFile(copy, 'audio C');
+      const restoring = await mk('Share/Album/03 C.flac', 'restoring', mount);
+      gate.unmount = async () => { await rename(path.join(otherPath, '.tagave-trash'), path.join(stash, '.tagave-trash')); };
+      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ restored: 0, dropped: 0, paused: 1 });
+      expect(await row(restoring)).toMatchObject({ state: 'restoring', error: null });
+      expect((await sql`select count(*)::int as n from files where id = ${restoring}`)[0].n).toBe(1);
+
+      // the share is back: Restore runs
+      await rename(path.join(stash, '.tagave-trash'), path.join(otherPath, '.tagave-trash'));
+      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ restored: 1, dropped: 0 });
+      expect(await readFile(path.join(otherPath, 'Share/Album/03 C.flac'), 'utf8')).toBe('audio C');
+    } finally {
+      setFileGate(null);
+      await gate.close();
+      await sql`delete from file_deletions where scan_root_id = ${otherId}`;
+      await sql`delete from files where scan_root_id = ${otherId}`;
+      await sql`delete from scan_roots where id = ${otherId}`;
+      await rm(otherPath, { recursive: true, force: true });
+      await rm(stash, { recursive: true, force: true });
+    }
   });
 
   it('a marked file the owner deleted is dropped at the next scan, without the hold, and its album goes', async () => {

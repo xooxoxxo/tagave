@@ -8,7 +8,7 @@
 import path from 'node:path';
 import { fileGate } from './fileGate.js';
 import type { DirPage } from './fileHelper.js';
-import { isAbsent, isGateFailure, isOfflineError } from './folderOffline.js';
+import { isAbsent } from './folderOffline.js';
 
 /** What the helper answers for a stat or lstat. */
 export interface GateStat {
@@ -41,14 +41,18 @@ export async function gateStat(rootId: string, abs: string): Promise<GateStat | 
   }
 }
 
-/** True when something is at the path. Any answer but offline or a gate failure that is not a stat reads as no (as `exists`). */
+/**
+ * True when something is at the path, false only when it is absent (ENOENT
+ * and its kin). Anything else (offline, a gate failure, EACCES) throws: it
+ * says nothing about the path.
+ */
 export async function gateExists(rootId: string, abs: string): Promise<boolean> {
   try {
     await fileGate().run(rootId, { op: 'lstat', path: abs });
     return true;
   } catch (err) {
-    if (isOfflineError(err) || isGateFailure(err)) throw err;
-    return false;
+    if (isAbsent(err)) return false;
+    throw err;
   }
 }
 

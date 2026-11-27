@@ -270,6 +270,46 @@ describe.skipIf(!adminUrl || !toolsAvailable())('tags.apply and an offline music
     expect(await Promise.all(files.map((f) => tagger.read(f)))).toEqual(tags);
   }, 120_000);
 
+  it('a re-sent job whose plan is paused just after its check: the claim misses, nothing written', async () => {
+    const { planId, files } = await planOfThree('Paused before claim');
+    await sql`update tag_plans set status = 'waiting' where id = ${planId}`;
+    // the owner's Pause lands right after the re-sent job read the plan waiting
+    let hit = false;
+    const racing = new Proxy(sql, {
+      apply(target, self, args) {
+        const q = Reflect.apply(target, self, args) as Promise<unknown>;
+        const text = Array.isArray(args[0]) ? (args[0] as string[]).join('?') : '';
+        if (!hit && text.includes('select status from tag_plans where id')) {
+          hit = true;
+          return q.then(async (rows) => {
+            await sql`update tag_plans set status = 'paused' where id = ${planId}`;
+            return rows;
+          });
+        }
+        return q;
+      },
+    });
+    const before = writes();
+    const tags = await Promise.all(files.map((f) => tagger.read(f)));
+    await tagsApplyJob({ ...ctx, sql: racing }, { planId, waited: true });
+    expect(hit).toBe(true);
+    expect(await plan(planId)).toMatchObject({ status: 'paused' });
+    expect(writes()).toBe(before);
+    expect(await itemStatuses(planId)).toEqual({ pending: 3 });
+    expect(await Promise.all(files.map((f) => tagger.read(f)))).toEqual(tags);
+  }, 120_000);
+
+  it('an Apply job for a plan cancelled before it ran: the claim misses, nothing written', async () => {
+    const { planId, files } = await planOfThree('Cancelled before claim');
+    await sql`update tag_plans set status = 'cancelled' where id = ${planId}`;
+    const before = writes();
+    await tagsApplyJob(ctx, { planId });
+    expect(await plan(planId)).toMatchObject({ status: 'cancelled' });
+    expect(writes()).toBe(before);
+    expect(await itemStatuses(planId)).toEqual({ pending: 3 });
+    for (const f of files) expect(await tagger.read(f)).toMatchObject({ album: 'Old album' });
+  }, 120_000);
+
   it('a split in the plan meets an offline folder: the plan pauses for the owner and does not resume on its own', async () => {
     const { planId } = await planOfThree('Split offline');
     const [file] = await sql<{ id: string }[]>`select audio_file_id::text as id from tag_plan_items where tag_plan_id = ${planId} limit 1`;

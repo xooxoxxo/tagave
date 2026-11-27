@@ -221,8 +221,9 @@ async function prepareWrite(filePath: string, steps: Steps): Promise<PrepareResu
     }
 
     // 6. The new file's bytes on disk before it takes the original's name (power loss).
+    // Read and write ('r+'): an SMB or Windows server can refuse a flush on a read-only handle.
     try {
-      const fh = await fs.open(tempFilePath, 'r');
+      const fh = await fs.open(tempFilePath, 'r+');
       try {
         await fh.sync();
       } finally {

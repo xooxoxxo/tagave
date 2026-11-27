@@ -207,6 +207,15 @@ async function parkPlan(ctx: WorkerContext, planId: string, message: string | nu
   }
 }
 
+/**
+ * The statuses this run may claim the plan from: a re-sent parked job only a
+ * plan still waiting (or applying); a fresh Apply or Resume also a previewed
+ * or paused one (ruling R28).
+ */
+function claimableStatuses(data: TagsApplyJobData): string[] {
+  return data.waited ? ['waiting', 'applying'] : ['previewed', 'paused', 'waiting', 'applying'];
+}
+
 /** The plan's music folder went offline: its applying items back to pending, an applying plan 'waiting'. */
 async function waitPlan(ctx: WorkerContext, planId: string) {
   await parkPlan(ctx, planId, null, ['applying']);
@@ -340,7 +349,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
     await db
       .update(tagPlans)
       .set({ status: splits.failed > 0 ? 'partially_failed' : 'applied', appliedAt: new Date() })
-      .where(eq(tagPlans.id, planId));
+      .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, claimableStatuses(data))));
     return;
   }
 
@@ -379,15 +388,22 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
   // albums the files sat in before anything was written, so the results can
   // say "3 albums became 1" only when this plan did that (a resumed run keeps
   // the first count: its folders may have been re-clustered since).
+  // Only from the statuses this run may claim: a Pause or Cancel made since
+  // the job started stays as the owner left it, and nothing is written.
   const albumsBefore = await countAlbumsOf(ctx, fileIds);
-  await db
+  const claimed = await db
     .update(tagPlans)
     .set({
       status: 'applying', // a waiting plan too: its music folder is back
       stats: sql`case when coalesce(${tagPlans.stats}, '{}'::jsonb)->'albumsBefore' is not null then ${tagPlans.stats}
                  else coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('albumsBefore', ${albumsBefore}::int) end`,
     })
-    .where(eq(tagPlans.id, planId));
+    .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, claimableStatuses(data))))
+    .returning({ id: tagPlans.id });
+  if (claimed.length === 0) {
+    logger.info({ planId }, 'tags.apply: the plan was paused or closed before the run began; nothing written');
+    return;
+  }
 
   // Mark every item we are about to write as 'applying'. Items already in
   // 'applying' belong to a run that died mid-batch; nothing confirmed them
@@ -669,17 +685,19 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
       } catch (error) {
         logger.warn({ planId, error: String(error) }, 'tags.apply: could not queue the moves');
       }
-      await db
+      // only from 'applying': a plan the owner paused or cancelled meanwhile stays so
+      const finished = await db
         .update(tagPlans)
         .set({
           status,
           appliedAt: new Date(),
           ...(movesQueued > 0 ? { stats: sql`coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('movesQueued', ${movesQueued}::int)` } : {}),
         })
-        .where(eq(tagPlans.id, planId));
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.status, 'applying')))
+        .returning({ id: tagPlans.id });
       // A fully applied revert plan marks the plan it undid as reverted.
       const revertOf = (plan.policy as { preset?: string; revertOf?: string } | null);
-      if (status === 'applied' && revertOf?.preset === 'revert' && revertOf.revertOf) {
+      if (finished.length > 0 && status === 'applied' && revertOf?.preset === 'revert' && revertOf.revertOf) {
         await db
           .update(tagPlans)
           .set({ status: 'reverted' })

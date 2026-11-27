@@ -194,13 +194,24 @@ async function recordLastScan(sql: Sql, libraryId: string, state: 'requested' | 
 /** Most targets one startScan names before a full (quick) scan is simpler. */
 const MAX_SCAN_TARGETS = 200;
 
-export type ScanOutcome = 'none' | 'busy' | 'started';
+export type ScanOutcome = 'none' | 'busy' | 'held' | 'started';
+
+/** Some enabled music folder is offline or not connected ('unknown' counts online). */
+async function anyRootNotOnline(sql: Sql): Promise<boolean> {
+  const [row] = await sql<{ held: boolean }[]>`
+    select exists (select 1 from scan_roots where enabled and reach in ('offline', 'unmounted')) as held`;
+  return row?.held === true;
+}
 
 /**
  * The player.scan job: drains the library's scan requests into one
  * startScan. While the server is already scanning it leaves them for the
  * next run (the caller re-sends the job). Folder targets only for the
  * bundled server, whose library root is tagave's music root.
+ *
+ * While any music folder is not online nothing is scanned (the player would
+ * read every file on the dead share as gone): the requests wait, and the
+ * worker sends player.scan again once the folder's return scan ends.
  */
 export async function runPlayerScan(sql: Sql, libraryId: string, opts: { fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv } = {}): Promise<ScanOutcome> {
   const rows = await sql<{ settings: unknown }[]>`select settings from libraries where id = ${libraryId}`;
@@ -210,6 +221,7 @@ export async function runPlayerScan(sql: Sql, libraryId: string, opts: { fetchIm
     await sql`delete from player_scan_requests where library_id = ${libraryId}`;
     return 'none';
   }
+  if (await anyRootNotOnline(sql)) return 'held';
   const f = opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {};
   const status = await getScanStatus(backend.server, f);
   if (status.scanning) return 'busy';

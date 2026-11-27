@@ -239,7 +239,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     await chmod(abs(l, 'Artist/Album 1'), 0o000);
     try {
       await l.scan(0);
-      const expected = 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing'
+      const expected = 'root yielded zero files but previously had files: treating as unmounted, nothing marked missing'
         + '; could not read Artist/Album 1; nothing under them was marked missing'
         + '; ' + UNMOUNTED_SKIP;
       expect(UNMOUNTED_SKIP).toBe('the root looks unmounted, so moved files are not matched in this scan');
