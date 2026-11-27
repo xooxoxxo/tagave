@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { applyToast, diffRowKind, diffValueText, planStatusView, planUsesId3 } from './planStatus';
+import { applyToast, diffRowKind, diffValueText, pausedNoticeTone, planRunButtons, planStatusView, planUsesId3 } from './planStatus';
+
+describe('the plan header\'s run buttons', () => {
+  it('a waiting plan has Pause and Cancel, like one applying', () => {
+    expect(planRunButtons('applying', false)).toBe('pause');
+    expect(planRunButtons('waiting', false)).toBe('pause');
+    expect(planRunButtons('paused', false)).toBe('resume');
+  });
+  it('none while an apply task line carries its own actions, and none for other statuses', () => {
+    for (const status of ['applying', 'waiting', 'paused']) expect(planRunButtons(status, true), status).toBeNull();
+    for (const status of ['draft', 'previewed', 'applied', 'cancelled']) expect(planRunButtons(status, false), status).toBeNull();
+  });
+});
+
+describe('the paused plan\'s "stopped early" line', () => {
+  const OFFLINE = 'Paused while the music folder is offline';
+  it('is left out when the apply task line already says the pause, its help and Continue', () => {
+    expect(pausedNoticeTone(OFFLINE, true)).toBeNull();
+  });
+  it('is one quiet line when no task line shows', () => {
+    expect(pausedNoticeTone(OFFLINE, false)).toBe('info');
+  });
+  it('another stop stays a danger line', () => {
+    expect(pausedNoticeTone('Disk full', true)).toBe('danger');
+    expect(pausedNoticeTone('Disk full', false)).toBe('danger');
+  });
+});
 
 describe('planStatusView', () => {
   it('calls a plan where every file failed "failed"', () => {
