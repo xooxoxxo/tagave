@@ -18,7 +18,24 @@ import { ApiError } from '../middleware/errorHandler.js';
 import { tagSettingsOf } from '../lib/tagSettings.js';
 import { cachedScanRootCounts, invalidateScanRootCounts } from '../lib/scanRootCounts.js';
 import { folderLinksOf, settingsObject } from '../lib/folderLinks.js';
+import { sendWaitingPlayerScans } from '../lib/player.js';
 import { normalizeFolderLinkBase } from '@tagave/shared';
+
+/**
+ * A music folder that held the player scans (enabled, offline or not
+ * connected) was turned off or removed: it never has a return scan, so the
+ * waiting scans go from here once no enabled folder is still not online.
+ * Never fails the change itself.
+ */
+async function afterHoldingRootGone(request: FastifyRequest, root: { enabled: boolean; reach: string }): Promise<void> {
+  if (!root.enabled || (root.reach !== 'offline' && root.reach !== 'unmounted')) return;
+  try {
+    const sent = await sendWaitingPlayerScans(getSql(), await getBoss());
+    if (sent > 0) request.log.info({ libraries: sent }, 'player scan sent: the music folder that held it is gone');
+  } catch (err) {
+    request.log.warn({ err: (err as Error).message }, 'could not send the waiting player scans');
+  }
+}
 
 /** Library settings only an owner (system.manage) may change. */
 const SYSTEM_SETTING_KEYS = ['contactString', 'discogsToken', 'acoustidKey', 'onboardingCompletedAt', 'setupChecklistDismissedAt'] as const;
@@ -716,6 +733,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       if (Object.keys(updates).length > 0) {
         await db.update(scanRoots).set(updates).where(eq(scanRoots.id, scanRootId));
       }
+      if (body.enabled === false && root[0]) await afterHoldingRootGone(request, root[0]);
 
       const updated = await db
         .select()
@@ -790,6 +808,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       }
 
       await db.delete(scanRoots).where(eq(scanRoots.id, scanRootId));
+      if (root[0]) await afterHoldingRootGone(request, root[0]);
 
       reply.status(204).send();
     }
