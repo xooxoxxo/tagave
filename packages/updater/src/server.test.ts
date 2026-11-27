@@ -277,13 +277,50 @@ describe('updater HTTP API', () => {
       expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
       expect(helperRuns()).toHaveLength(1);
       clock += 60_000;
+      // stale: the last reading at once, read again meanwhile
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
+      expect(helperRuns()).toHaveLength(2);
+      await s['bootRead'];
       expect((await s.status()).musicBoot?.codes).toEqual([]);
       expect(helperRuns()).toHaveLength(2);
+    });
+
+    it('a stale reading is returned at once, never waited for', async () => {
+      fake.fstab = HARD;
+      const s = boot({ statusDeadlineMs: 5_000 });
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
+      let open!: () => void;
+      fake.fstabGate = new Promise((r) => { open = r; });
+      fake.fstab = '192.0.2.10:/export/music /mnt/music nfs4 hard,nofail 0 0\n';
+      clock += 11 * 60_000;
+      const t = Date.now();
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
+      expect(Date.now() - t).toBeLessThan(1_000);
+      open();
+      await s['bootRead'];
+      expect((await s.status()).musicBoot?.codes).toEqual([]);
     });
 
     it('null when the helper fails', async () => {
       fake.fstab = null;
       expect((await boot().status()).musicBoot).toBeNull();
+    });
+
+    it('a failed read is kept 1 minute, not 10', async () => {
+      fake.fstab = null;
+      const s = boot();
+      expect((await s.status()).musicBoot).toBeNull();
+      expect(helperRuns()).toHaveLength(1);
+      fake.fstab = HARD;
+      clock += 59_000;
+      expect((await s.status()).musicBoot).toBeNull();
+      expect(helperRuns()).toHaveLength(1);
+      clock += 1_000;
+      // stale failure: still null at once, read again meanwhile
+      expect((await s.status()).musicBoot).toBeNull();
+      expect(helperRuns()).toHaveLength(2);
+      await s['bootRead'];
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
     });
 
     it('null without an image for the helper', async () => {

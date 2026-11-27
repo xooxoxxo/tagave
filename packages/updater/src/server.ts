@@ -81,6 +81,8 @@ const STATUS_DEADLINE_MS = 6_000;
 const LATE_LIST_MS = 500;
 /** How long a reading of the host's fstab (musicBoot) is served before it is read again. */
 const BOOT_CACHE_MS = 10 * 60_000;
+/** A failed read (null) is tried again sooner: the helper may have failed once. */
+const BOOT_FAILED_CACHE_MS = 60_000;
 /** A repair.json marked running by another process (the installer's one-off) counts for this long. */
 const ELSEWHERE_MS = 60 * 60_000;
 /** How often the service reads repair.json for a waiting repair another process left (followRepairFile). */
@@ -1069,14 +1071,17 @@ export class UpdaterService {
   /**
    * The status's musicBoot: the codes for MUSIC_DIR's fstab line, the layout
    * from .env. fstab is read through one helper (readFstab: only `cat
-   * /etc/fstab`) and kept 10 minutes; a status call waits for a read no
-   * longer than its budget and meanwhile shows the last reading (none before
-   * the first). No music folder: null, and nothing runs. Never throws.
+   * /etc/fstab`) and kept 10 minutes, a failed read (null) only 1 minute.
+   * A stale reading is shown at once while it is read again in the
+   * background; only the very first read is waited for, no longer than the
+   * call's budget (null until it ends). No music folder: null, and nothing
+   * runs. Never throws.
    */
   private async musicBoot(env: string, end: number): Promise<MusicBoot | null> {
     if (!musicBootWanted(env)) return null;
     const cached = this.bootFstab;
-    if (cached && this.now().getTime() - cached.at < BOOT_CACHE_MS) return musicBootOf(cached.fstab, env);
+    const keep = cached?.fstab === null ? BOOT_FAILED_CACHE_MS : BOOT_CACHE_MS;
+    if (cached && this.now().getTime() - cached.at < keep) return musicBootOf(cached.fstab, env);
     if (!this.bootRead) {
       const read = this.readBootFstab()
         .then((fstab) => {
@@ -1086,7 +1091,8 @@ export class UpdaterService {
         .finally(() => { if (this.bootRead === read) this.bootRead = null; });
       this.bootRead = read;
     }
-    const fstab = await beforeEnd(end, this.bootRead, () => cached?.fstab ?? null);
+    if (cached) return musicBootOf(cached.fstab, env);
+    const fstab = await beforeEnd(end, this.bootRead, () => null);
     return musicBootOf(fstab, env);
   }
 
