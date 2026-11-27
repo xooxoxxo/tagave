@@ -2,7 +2,34 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.36.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.36.0)
+## [v0.37.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.37.0)
+
+**Minor release (0.36 → 0.37).** tagave now says when an album's files are offline, and Play no longer hangs on files it can't reach. Settings › Library shows each music folder's status and what waits for it.
+
+### Before you update
+
+- Nothing to do before this update.
+
+### New
+
+- **Albums say when their files are offline.** The list, the grid, search, the artist page and the album page show "Files offline" or "Some files offline" with the time the folder went away. On the album page, Play and Shuffle are off with "Can't play: the files are offline". ([88f15ac](https://github.com/xooxoxxo/tagave/commit/88f15ac), [9165358](https://github.com/xooxoxxo/tagave/commit/9165358), [eb9623b](https://github.com/xooxoxxo/tagave/commit/eb9623b))
+- **Play skips offline files.** The queue leaves them out, and the player bar shows one toast for a run of skips: "Skipped 2 songs: their files are offline". Nothing waits on a file it can't reach. ([fafbb00](https://github.com/xooxoxxo/tagave/commit/fafbb00), [9165358](https://github.com/xooxoxxo/tagave/commit/9165358))
+- **Settings › Library shows each folder's status:** Online, Offline since 14:02, Not connected since 14:02 or Checking. A Waiting row counts the tag writes, scans and other work that waits for the folder. Scan stays on and says the scan is queued. ([8d6d217](https://github.com/xooxoxxo/tagave/commit/8d6d217), [bb64eb6](https://github.com/xooxoxxo/tagave/commit/bb64eb6), [2361678](https://github.com/xooxoxxo/tagave/commit/2361678))
+- **Waiting work says so.** Tag plans read "Waiting for the music folder", refresh on their own and can still be paused or cancelled. The Jobs page lists parked work as Waiting. Splits and tasks cut off by an outage read "Paused while the music folder is offline", and Continue stays off until the folder is back. The Playback page says when a player scan waits for a music folder. ([99f75ba](https://github.com/xooxoxxo/tagave/commit/99f75ba), [addf1bd](https://github.com/xooxoxxo/tagave/commit/addf1bd), [777b51a](https://github.com/xooxoxxo/tagave/commit/777b51a), [010af6f](https://github.com/xooxoxxo/tagave/commit/010af6f))
+
+### Fixed
+
+- **Rescan folder while offline** says the scan waits for the folder, and one Scan press is one Jobs entry. ([01b96f0](https://github.com/xooxoxxo/tagave/commit/01b96f0), [c2ffaa3](https://github.com/xooxoxxo/tagave/commit/c2ffaa3))
+- **Retry** ignores a scan the offline folder cut off. ([7d7ab22](https://github.com/xooxoxxo/tagave/commit/7d7ab22))
+
+### For self-hosters
+
+- **Streams and cast links of offline files** answer 409 `files_offline` before Navidrome is asked. Album responses carry `filesOffline` and `offlineSince`. ([fafbb00](https://github.com/xooxoxxo/tagave/commit/fafbb00), [88f15ac](https://github.com/xooxoxxo/tagave/commit/88f15ac))
+- No migration and no new settings.
+
+**All changes:** [v0.36.0...v0.37.0](https://github.com/xooxoxxo/tagave/compare/v0.36.0...v0.37.0)
+
+## [v0.36.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.36.0) (2026-11-27)
 
 **Minor release (0.35 → 0.36).** A dead music share no longer freezes tagave's file work. Work that needs an offline music folder waits and comes back on its own, and nothing is marked missing while a folder is away.
 
