@@ -4,7 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PlayerBarView, offlineSkipToast, type PlayerBarViewProps } from './PlayerBar';
+import { PlayerBarView, offlineSkipToast, takeOfflineSkipToast, type PlayerBarViewProps } from './PlayerBar';
+import { usePlayerStore } from '../player/engine';
 import { AlbumTracks } from '../pages/AlbumTracks';
 import type { DetailTrack } from '../pages/albumDetailTypes';
 
@@ -59,6 +60,19 @@ describe('the toast for songs skipped because their files are offline', () => {
     expect(offlineSkipToast(null, true)).toBeNull();
     expect(offlineSkipToast({ id: 1, count: 0 }, true)).toBeNull();
     expect(offlineSkipToast({ id: 1, count: 2 }, false)).toBeNull();
+  });
+
+  it('the bar takes the run once: a remount, or the player coming back, never toasts it again', () => {
+    usePlayerStore.setState({ offlineSkips: { id: 3, count: 2 } });
+    expect(takeOfflineSkipToast(true)).toBe('Skipped 2 songs: their files are offline');
+    expect(usePlayerStore.getState().offlineSkips).toBeNull();
+    expect(takeOfflineSkipToast(true)).toBeNull();
+  });
+
+  it('with the player module off the run is dropped, not kept for later', () => {
+    usePlayerStore.setState({ offlineSkips: { id: 4, count: 1 } });
+    expect(takeOfflineSkipToast(false)).toBeNull();
+    expect(takeOfflineSkipToast(true)).toBeNull();
   });
 });
 

@@ -211,6 +211,12 @@ describe('songs whose files are offline', () => {
 
   /** the active element gives up on its stream, and the probe answers */
   const fail = async (a: FakeAudio) => { a.dispatchEvent(new Event('error')); for (let i = 0; i < 4; i++) await flush(); };
+  /** the element now loading song `id` starts to sound */
+  const sounds = (engine: Awaited<ReturnType<typeof boot>>, id: string) => {
+    const el = (engine.mediaElements() as unknown as FakeAudio[]).find((x) => x.src.includes(`/stream/${id}?`));
+    expect(el, `an element loads ${id}`).toBeDefined();
+    el!.dispatchEvent(new Event('playing'));
+  };
 
   it('skips each one, then says so once, with the count, when a song plays', async () => {
     const engine = await boot();
@@ -245,19 +251,63 @@ describe('songs whose files are offline', () => {
     expect(engine.usePlayerStore.getState().offlineSkips).toMatchObject({ count: 3 });
   });
 
-  it('nothing left to play: the word comes with the error', async () => {
+  it('nothing left to play: the bar says why, and there is no skip toast', async () => {
     const engine = await boot();
-    serve(['a']);
-    engine.usePlayerStore.setState({ queue: { context: null, tracks: [{ ...track('a'), origin: 'context' as const, uid: 'u0' }], scanRequested: false }, index: -1, queueId: 'q1' });
+    serve(['a', 'b']);
+    engine.usePlayerStore.setState({ queue: { context: null, tracks: ['a', 'b'].map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false }, index: -1, queueId: 'q1' });
     engine.playAt(0);
     const [a] = engine.mediaElements() as unknown as [FakeAudio];
     await fail(a);
-    expect(engine.usePlayerStore.getState()).toMatchObject({ status: 'error', message: 'Can\'t play: the files are offline.', offlineSkips: { count: 1 } });
+    await fail(a);
+    expect(engine.usePlayerStore.getState()).toMatchObject({ status: 'error', message: 'Can\'t play: the files are offline.', offlineSkips: null });
+    // and the count is gone: a later song that plays says nothing of it
+    engine.usePlayerStore.setState({ queue: { context: null, tracks: [{ ...track('c'), origin: 'context' as const, uid: 'u9' }], scanRequested: false }, index: -1 });
+    engine.playAt(0);
+    sounds(engine, 'c');
+    expect(engine.usePlayerStore.getState().offlineSkips).toBeNull();
+  });
+
+  for (const [name, leave] of [
+    ['stop', (e: Awaited<ReturnType<typeof boot>>) => e.stop()],
+    ['clearing the queue', (e: Awaited<ReturnType<typeof boot>>) => e.clearQueue()],
+  ] as const) {
+    it(`a skip run cut short by ${name} never toasts later`, async () => {
+      const engine = await boot();
+      serve(['a']);
+      engine.usePlayerStore.setState({ queue: { context: null, tracks: ['a', 'b'].map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false }, index: -1, queueId: 'q1' });
+      engine.playAt(0);
+      const [a] = engine.mediaElements() as unknown as [FakeAudio];
+      await fail(a);
+      leave(engine);
+      engine.usePlayerStore.setState({ queue: { context: null, tracks: [{ ...track('c'), origin: 'context' as const, uid: 'u9' }], scanRequested: false }, index: -1, queueId: 'q2' });
+      engine.playAt(0);
+      sounds(engine, 'c');
+      expect(engine.usePlayerStore.getState().offlineSkips).toBeNull();
+    });
+  }
+
+  it('an album whose queue fails to load drops the count from before', async () => {
+    const engine = await boot();
+    serve(['a']);
+    engine.usePlayerStore.setState({ queue: { context: null, tracks: ['a', 'b'].map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false }, index: -1, queueId: 'q1' });
+    engine.playAt(0);
+    const [a] = engine.mediaElements() as unknown as [FakeAudio];
+    await fail(a);
+    fetchMock.mockImplementation(async (url, init) => (String(url).includes('/player/albums/') ? json({ title: 'Boom', status: 500 }, 500) : ok(url, init)));
+    await engine.playAlbum({ albumId: 'al', title: 'Album', artist: 'Artist', coverUrl: null });
+    expect(engine.usePlayerStore.getState()).toMatchObject({ status: 'error', offlineSkips: null });
+  });
+
+  it('the bar clears the run once it has toasted it', async () => {
+    const engine = await boot();
+    engine.usePlayerStore.setState({ offlineSkips: { id: 7, count: 2 } });
+    engine.clearOfflineSkips();
+    expect(engine.usePlayerStore.getState().offlineSkips).toBeNull();
   });
 });
 
 describe('another device plays (play in one place)', () => {
-  const queue =(ids: string[]) => ({ context: null, tracks: ids.map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false });
+  const queue = (ids: string[]) => ({ context: null, tracks: ids.map((id, i) => ({ ...track(id), origin: 'context' as const, uid: `u${i}` })), scanRequested: false });
 
   it('sends the keys to the device that plays and shows its state, its own audio silent', async () => {
     const engine = await boot();
