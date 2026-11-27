@@ -122,6 +122,16 @@ export function musicLooksUnmounted(state: MusicFolderState): boolean {
   return state.unreachable.some((r) => r.reach === 'unmounted' || (r.reach === 'unknown' && r.unmounted));
 }
 
+/**
+ * The roots a heal concerns: those the watch reads unmounted, and legacy roots
+ * (no reading yet) whose latest scan aborted. An offline root (the share is
+ * silent) is not one: mounting does not bring it back, and a scan of it would
+ * block on the dead share.
+ */
+export function healTargets(state: MusicFolderState): UnreachableRoot[] {
+  return state.unreachable.filter((r) => r.reach === 'unmounted' || r.reach === 'unknown');
+}
+
 /** A folder in the notice; `since` as ISO 8601 (the API's MusicFolderView in @tagave/shared). */
 export interface MusicFolderNoticeFolder {
   id: string;
@@ -148,7 +158,11 @@ export function musicFolderNotice(state: MusicFolderState, now = new Date()): Mu
   if (state.unreachable.length === 0) return { kind: 'none' };
   const h = state.heal;
   if (h?.phase === 'start' && now.getTime() - h.at.getTime() < HEAL_START_STALE_MS) return { kind: 'healing' };
-  if (h?.phase === 'done' && h.ok && state.unreachable.every((r) => !r.lastScanAt || r.lastScanAt < h.at)) return { kind: 'healing' };
+  if (h?.phase === 'done' && h.ok) {
+    // healing until the rescan it asked for: only the roots it concerned (an offline one never rescans)
+    const targets = healTargets(state);
+    if (targets.length > 0 && targets.every((r) => !r.lastScanAt || r.lastScanAt < h.at)) return { kind: 'healing' };
+  }
   return {
     kind: 'offline',
     paths: state.unreachable.map((r) => r.path),

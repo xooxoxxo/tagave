@@ -142,6 +142,22 @@ describe.skipIf(!url)('music folder state (integration)', () => {
     expect(await notice()).toEqual({ kind: 'none', folders: [] });
   });
 
+  it('a heal that worked rescans only the root it concerned; an offline root stays in the notice', async () => {
+    await scan(rootA, 'aborted', true, 120);
+    await handle.sql`update scan_roots set reach = 'unmounted', reach_since = '2026-11-24T14:02:00Z', reach_reason = 'not_mounted' where id = ${rootA}`;
+    await handle.sql`update scan_roots set reach = 'offline', reach_since = '2026-11-24T14:02:00Z', reach_reason = 'server_silent' where id = ${rootB}`;
+    expect((await signedPost('/api/v1/internal/updater/music-heal', { phase: 'done', ok: true, reason: 'mounted' })).statusCode).toBe(200);
+    expect(sent).toEqual([{ name: 'scan.root', data: { scanRootId: rootA, mode: 'full' } }]);
+    expect(await notice()).toEqual({ kind: 'healing', folders: [] });
+    const folderB = { id: rootB, name: 'More', path: '/mnt/more', reach: 'offline', since: '2026-11-24T14:02:00.000Z', reason: 'server_silent', waiting: none };
+    // A's rescan completes: no longer healing, and B (still offline) is named
+    await scan(rootA, 'completed', false);
+    expect(await notice()).toMatchObject({ kind: 'offline', folders: expect.arrayContaining([folderB]) });
+    // the watch reads A online: only B is left
+    await handle.sql`update scan_roots set reach = 'online', reach_since = now(), reach_reason = null where id = ${rootA}`;
+    expect(await notice()).toEqual({ kind: 'offline', paths: ['/mnt/more'], folders: [folderB] });
+  });
+
   it('a failed heal, or a rescan that aborts again: unreachable', async () => {
     await scan(rootA, 'aborted', true, 120);
     await signedPost('/api/v1/internal/updater/music-heal', { phase: 'done', ok: false, reason: 'not_in_fstab' });

@@ -14,7 +14,7 @@
  *                                                    per step; a heal that mounted it queues a scan of each aborted root
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { MUSIC_HEAL_REASONS, musicFolderNotice, musicFolderState, musicLooksUnmounted, recordMusicHeal, rootReaches, type MusicHealReason } from '@tagave/db';
+import { MUSIC_HEAL_REASONS, musicFolderNotice, healTargets, musicFolderState, musicLooksUnmounted, recordMusicHeal, rootReaches, type MusicHealReason } from '@tagave/db';
 import type { MusicFolderResponse } from '@tagave/shared';
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER } from '@tagave/updater/token';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -74,11 +74,12 @@ export async function createMusicFolderInternalRoutes(fastify: FastifyInstance) 
     await recordMusicHeal(sql, entry);
     request.log.info({ event: entry.phase === 'start' ? 'music.heal.start' : 'music.heal', ...(entry.phase === 'done' ? { ok: entry.ok, reason: entry.reason } : {}) }, 'music folder self-heal');
     if (entry.phase === 'done' && entry.ok) {
-      // mounted again: scan what was aborted now, so the notice clears without waiting for the next poll
-      const { unreachable } = await musicFolderState(sql);
+      // mounted again: scan the roots it concerned now, so the notice clears without waiting for the next poll
+      // (never an offline root: its share is silent, and the scan would block on it)
+      const targets = healTargets(await musicFolderState(sql));
       const boss = await getBoss();
       await boss.createQueue('scan.root');
-      for (const r of unreachable) await boss.send('scan.root', { scanRootId: r.id, mode: 'full' }, { singletonKey: `scan:${r.id}` });
+      for (const r of targets) await boss.send('scan.root', { scanRootId: r.id, mode: 'full' }, { singletonKey: `scan:${r.id}` });
     }
     return { ok: true };
   });
