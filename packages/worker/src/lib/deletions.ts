@@ -171,7 +171,15 @@ export async function trashOne(rootId: string, root: string, relPath: string, da
     const code = (err as NodeJS.ErrnoException).code;
     // gone only when the file itself is: an ENOENT of another path (a realpath on the way) is no proof
     if (code === 'ENOENT') {
-      if (!(await gateLstat(rootId, src))) return { outcome: 'gone' };
+      let there: boolean;
+      try {
+        there = !!(await gateLstat(rootId, src));
+      } catch (again) {
+        // offline or the gate: no answer, the row waits; anything else (ENOTDIR, ELOOP) is no proof it is gone
+        if (unanswered(again)) throw again;
+        there = true;
+      }
+      if (!there) return { outcome: 'gone' };
       return { outcome: 'marked', error: (err as Error).message };
     }
     return { outcome: 'marked', error: code === 'EXDEV' ? 'On another disk than its music folder' : code === 'EACCES' || code === 'EPERM' || code === 'EROFS' ? 'The music folder is read-only' : (err as Error).message };
@@ -331,27 +339,33 @@ export async function restoreWaiting(ctx: WorkerContext, libraryId: string | nul
   const back: string[] = [];
   for (const r of rows) {
     if (!(await offline.connected(ctx, r.rootId, r.root))) { paused++; continue; }
-    // the trash it went into is this mount's: another mount (or a share not connected) would read the copy as gone
+    // Ruling R29: the mount the trash copy was made on. A remount (a new device number after a reboot)
+    // reads different; that only withholds the "gone" reading, it never blocks a copy that is there.
+    let sameMount = true;
     if (r.trashMount) {
-      let mount: string | null;
       try {
-        mount = await mountIdentity(r.rootId, r.root);
+        sameMount = (await mountIdentity(r.rootId, r.root)) === r.trashMount;
       } catch (err) {
-        if (!unanswered(err)) ctx.logger.warn({ fileId: r.fileId, err: (err as Error).message }, 'files.trash: Restore waits, the music folder is unavailable');
-        else offline.take(ctx, r.rootId, err, 'Restore');
-        mount = null;
-      }
-      if (mount !== r.trashMount) {
-        if (mount !== null) ctx.logger.warn({ fileId: r.fileId }, 'files.trash: Restore waits, the trash is on another mount');
-        paused++;
-        continue;
+        if (offline.take(ctx, r.rootId, err, 'Restore')) { paused++; continue; }
+        sameMount = false;
       }
     }
     let src: string | null = null;
     const dest = path.join(r.root, r.relPath);
     try {
       src = r.trashRelPath ? await onDisk(r.rootId, r.root, r.trashRelPath) : null;
-      if (!src) { gone.push(r.fileId); continue; }
+      if (!src && sameMount) { gone.push(r.fileId); continue; }
+      if (!src) {
+        // not here, and this is not the mount it went into: the owner looks, nothing is dropped
+        refused++;
+        await ctx.sql`update file_deletions set state = 'trashed', error = 'The Trash copy was not found on this mount.' where file_id = ${r.fileId}`;
+        continue;
+      }
+      if (!sameMount) {
+        // the copy is here on a remounted share: the Trash checks (its folder and marker, one device with the root, a regular file inside it)
+        const { dir } = await checkedTrash(r.rootId, r.root);
+        await checkedTrashFile(r.rootId, dir, r.trashRelPath);
+      }
       if (await exists(r.rootId, dest)) {
         refused++;
         await ctx.sql`update file_deletions set state = 'trashed', error = 'Another file is in its place' where file_id = ${r.fileId}`;

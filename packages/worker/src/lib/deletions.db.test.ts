@@ -259,11 +259,26 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('deletions on the file worker (d
       expect(await moveWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
       expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
       await kept();
-      // connected again, but the trash copy was made on another mount: Restore waits, nothing dropped
+      // connected again after a remount (Ruling R29): the trash copies were made on another mount identity
       await sql`update scan_roots set reach = 'online', reach_reason = null where id = ${otherId}`;
-      await sql`update file_deletions set trash_mount = ${JSON.stringify(['/srv/tagave/other', 1, 2])} where file_id = ${restoring}`;
-      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
-      expect(await row(restoring)).toMatchObject({ state: 'restoring', error: null });
+      const elsewhere = JSON.stringify(['/srv/tagave/other', 1, 2]);
+      await sql`update file_deletions set trash_mount = ${elsewhere} where file_id = ${restoring}`;
+      // its copy is here, in this root's Trash: restored
+      const copy = path.join(otherPath, '.tagave-trash/2026-11-02/Share/Album/02 B.flac');
+      await mkdir(path.dirname(copy), { recursive: true });
+      await writeFile(path.join(otherPath, '.tagave-trash', '.ndignore'), '');
+      await writeFile(copy, 'audio B');
+      // its copy is not here, on another mount: back to trashed with the reason, never dropped
+      const missingHere = await mk('Share/Album/03 C.flac', 'restoring', elsewhere);
+      // its copy is not here, on the mount it went into: gone, as before
+      const { mountIdentity } = await import('./fileRecovery.js');
+      const reallyGone = await mk('Share/Album/04 D.flac', 'restoring', await mountIdentity(otherId, otherPath));
+      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ restored: 1, refused: 1, dropped: 1 });
+      expect(await row(restoring)).toBeUndefined();
+      expect(await readFile(path.join(otherPath, 'Share/Album/02 B.flac'), 'utf8')).toBe('audio B');
+      expect(await row(missingHere)).toMatchObject({ state: 'trashed', error: 'The Trash copy was not found on this mount.' });
+      expect((await sql`select count(*)::int as n from files where id = any(${[restoring, missingHere]}::uuid[])`)[0].n).toBe(2);
+      expect((await sql`select count(*)::int as n from files where id = ${reallyGone}`)[0].n).toBe(0);
       // with the root connected and its own mount, a file that is really gone is dropped (as before)
       expect(await moveWaiting(ctx, libraryId)).toMatchObject({ dropped: 1 });
       expect(await row(moving)).toBeUndefined();
