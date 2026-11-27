@@ -4,12 +4,14 @@
  *
  *   check   Docker answers (10 s), each part's state, free space, the app's
  *           health, and the music share when a part that binds it is down
- *           or the app says the music folder is unmounted.
+ *           or the app says the music folder is unmounted (in the parent
+ *           layout, always: a silent share with every part up is healthy).
  *   stop    parts stuck in Created, removing or dead, restarting, or
  *           unhealthy. Never a part stuck on a silent share, never the app
  *           while it backs up or migrates, never Postgres while it recovers.
  *   music   a share that is not connected is connected again (the healer's
- *           remount); a silent share leaves its parts waiting.
+ *           remount); a silent share leaves its parts waiting, or in the
+ *           parent layout with every part up ends repaired, folder offline.
  *   start   parts that do not run, one at a time; a part that crashed or ran
  *           out of memory gets its one `--force-recreate`.
  *   verify  every part runs and the app answers, polled up to
@@ -29,7 +31,7 @@ import { statfs as realStatfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PartState, RepairCause, RepairRun, RepairStatus, RepairStepId, UpdateLogLine } from '@tagave/shared/updater';
 import { envGet, readText } from './envFile.js';
-import { musicDirOf, type RemountResult } from './music-heal.js';
+import { musicBindSourceOf, musicDirOf, type RemountResult } from './music-heal.js';
 import { MUSIC_BOUND, type MusicProber, type MusicReading } from './music-probe.js';
 import { Parts, readParts, type PartsResult } from './parts.js';
 import { formatBytes, type StatfsLike } from './preflight-space.js';
@@ -127,6 +129,8 @@ export interface HeadlineExtra {
   acted?: boolean;
   /** stuck_stop: the part would not start rather than not stop. */
   starting?: boolean;
+  /** repaired: the parent layout's share does not answer, but every part runs. */
+  musicOffline?: boolean;
 }
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -141,6 +145,7 @@ export function repairHeadline(run: Pick<RepairRun, 'status' | 'outcome'>, extra
   if (run.status === 'running') return 'Checking every part.';
   if (run.status === 'failed') return extra.reason ?? FAILED;
   if (run.status === 'repaired') {
+    if (extra.musicOffline) return `${all} The music folder is offline: its work waits and starts again when it's back.`;
     if (o?.cause === 'music_unmounted') return `Music share was not connected. Connected it again. ${all}`;
     if (o?.cause === 'music_unreachable') return `Music share is back. ${all}`;
     return extra.acted ? `Repaired. ${all}` : `${all} Nothing to repair.`;
@@ -260,6 +265,10 @@ export class Repair {
   private readonly parts: Parts;
   private services: string[] | null = null;
   private musicDir: string | null = null;
+  /** The parent layout (TAGAVE_MUSIC_BIND_SOURCE set): a silent share no longer blocks a part. */
+  private parentLayout = false;
+  /** The parent layout's share does not answer while every part runs: healthy, its work waits. */
+  private musicOffline = false;
   private project = 'tagave';
   private cause: RepairCause | null = null;
   private service: string | null = null;
@@ -435,7 +444,8 @@ export class Repair {
 
     const musicDown = down.filter((s) => MUSIC_BOUND.includes(s));
     const unmounted = this.deps.musicUnmounted ? await this.deps.musicUnmounted().catch(() => null) : null;
-    if (this.deps.music && (musicDown.length > 0 || unmounted === true)) {
+    // The parent layout reads the share even with every part up, so the ending can say the folder is offline.
+    if (this.deps.music && (musicDown.length > 0 || unmounted === true || this.parentLayout)) {
       this.progress('checking the music share');
       this.reading = await this.deps.music.read({ parts: musicDown.map((service) => ({ service, stuck: true })), appUnmounted: unmounted }).catch(() => null);
       this.run.checkedAt = this.now().toISOString();
@@ -446,6 +456,10 @@ export class Repair {
         this.log('warn', `the music share${this.server ? ` at ${this.server}` : ''} does not answer`);
       } else if (this.reading?.verdict === 'music_unmounted') {
         this.log('warn', 'the music folder is not connected');
+      } else if (this.parentLayout && musicDown.length === 0 && this.reading?.mount.kind === 'network' && this.reading.answer === 'silent') {
+        // Not a problem and nothing to wait for: the parts run, and the folder's work waits until it is back.
+        this.musicOffline = true;
+        this.log('info', `the music share${this.reading.server ? ` at ${this.reading.server}` : ''} does not answer, and every part runs`);
       }
     }
     this.end('check', 'done');
@@ -496,6 +510,14 @@ export class Repair {
         this.cause = 'music_unreachable';
         this.server = r.server;
         for (const p of this.lastParts) if (MUSIC_BOUND.includes(p.service) && p.state !== 'running') this.waiting.add(p.service);
+        if (this.waiting.size === 0 && this.parentLayout) {
+          // The parent layout: every part runs without the share, and its work starts again when it is back.
+          this.musicOffline = true;
+          this.cause = null;
+          this.service = null;
+          this.server = null;
+          return this.end('music', 'done');
+        }
         // No part waits for it, so nothing finishes on its own: the owner turns the share on and presses Repair.
         if (this.waiting.size === 0) throw new Ended('needs_you', 'music_unreachable');
         return this.end('music', 'done');
@@ -694,7 +716,7 @@ export class Repair {
     const runningNow = this.lastParts.filter((p) => p.state === 'running').length;
     this.run.status = status;
     this.run.outcome = { cause: this.cause, service: this.service, server: this.server, partsRunning: runningNow, partsTotal: total };
-    const words: HeadlineExtra = { ...extra, acted: this.actions.length > 0 };
+    const words: HeadlineExtra = { ...extra, acted: this.actions.length > 0, ...(this.musicOffline ? { musicOffline: true } : {}) };
     this.run.headline = redact(repairHeadline(this.run, words));
     if (status === 'needs_you') this.run.reason = this.run.headline;
     if (this.run.reason !== null) this.run.reason = redact(this.run.reason);
@@ -732,6 +754,7 @@ export class Repair {
   private async loadInstall(): Promise<void> {
     const env = (await readText(join(this.deps.installDir, '.env'))) ?? '';
     this.musicDir = musicDirOf(env);
+    this.parentLayout = musicBindSourceOf(env) !== null;
     this.project = envGet(env, 'COMPOSE_PROJECT_NAME') || 'tagave';
     const svc = await this.docker(['compose', 'config', '--services'], LIMITS.configMs);
     if (svc.code !== 0) throw new Ended('failed', null, { reason: 'tagave cannot read its own setup. The run log says why.' });

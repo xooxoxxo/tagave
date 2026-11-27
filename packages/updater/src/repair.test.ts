@@ -628,6 +628,76 @@ describe('repair', () => {
     expect(run.headline).toBe("Your music share doesn't answer. Turn the NAS on or check its cable, then press Repair.");
   });
 
+  describe('an offline music folder', () => {
+    const OFFLINE = "All 5 parts running. The music folder is offline: its work waits and starts again when it's back.";
+    const parentLayout = () => writeFile(join(dir, '.env'), 'COMPOSE_PROJECT_NAME=tagave\nMUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_BIND_SOURCE=/mnt\n', { mode: 0o600 });
+
+    it('the parent layout: a silent share with every part running ends repaired with the offline headline, without waiting', async () => {
+      await parentLayout();
+      fake.share = 'silent';
+      fake.appUnmounted = null;
+      const run = await repair().execute();
+      expect(fake.reads).toBe(1);
+      expect(run.status).toBe('repaired');
+      expect(run.headline).toBe(OFFLINE);
+      expect(run.finishedAt).not.toBeNull();
+      expect(run.outcome).toEqual({ cause: null, service: null, server: null, partsRunning: 5, partsTotal: 5 });
+      expect(run.details).toEqual(['5 of 5 parts running.']);
+      expect(stepStatus(run)).toEqual({ check: 'done', stop: 'skipped', music: 'skipped', start: 'skipped', verify: 'done' });
+      expect(fake.sleeps).toEqual([]);
+      expect(fake.changes()).toEqual([]);
+      expect(fake.remounts).toEqual([]);
+      expect(fake.reports).toEqual([{ status: 'repaired', cause: null }]);
+    });
+
+    it('the parent layout: a share that is not mounted and whose server is silent is tried once, then ends repaired offline', async () => {
+      await parentLayout();
+      fake.mount = { kind: 'absent', fstype: 'ext4', server: null, export: null, hard: false, mountPoint: '/' };
+      fake.appUnmounted = true;
+      fake.remountResult = 'server_silent';
+      const run = await repair().execute();
+      expect(fake.remounts).toEqual([['/mnt/music', 'tagave']]);
+      expect(run.status).toBe('repaired');
+      expect(run.headline).toBe(OFFLINE);
+      expect(run.outcome?.cause).toBeNull();
+      expect(stepStatus(run)).toMatchObject({ music: 'done', verify: 'done' });
+      expect(fake.sleeps).toEqual([]);
+      expect(fake.reports).toEqual([{ status: 'repaired', cause: null }]);
+    });
+
+    it('the parent layout: a share that is not connected but answers is still mounted by the healer', async () => {
+      await parentLayout();
+      fake.mount = { kind: 'absent', fstype: 'ext4', server: null, export: null, hard: false, mountPoint: '/' };
+      fake.appUnmounted = true;
+      const run = await repair().execute();
+      expect(fake.remounts).toEqual([['/mnt/music', 'tagave']]);
+      expect(run.headline).toBe('Music share was not connected. Connected it again. All 5 parts running.');
+    });
+
+    it('the parent layout: a share that answers says nothing about the folder', async () => {
+      await parentLayout();
+      const run = await repair().execute();
+      expect(run.headline).toBe('All 5 parts running. Nothing to repair.');
+    });
+
+    it('the direct layout: a silent share still leaves the music parts waiting', async () => {
+      fake.box('worker-files').status = 'removing';
+      fake.share = 'silent';
+      const run = await repair().execute();
+      expect(run.status).toBe('waiting');
+      expect(run.outcome?.cause).toBe('music_unreachable');
+      expect(run.details).toContain('The file worker waits for the share.');
+      expect(fake.changes()).toEqual([]);
+    });
+
+    it('the direct layout: a silent share with every part running is not read and says nothing to repair', async () => {
+      fake.share = 'silent';
+      const run = await repair().execute();
+      expect(fake.reads).toBe(0);
+      expect(run.headline).toBe('All 5 parts running. Nothing to repair.');
+    });
+  });
+
   it('a cancel while the share is probed never resumes the run (Repair pressed again)', async () => {
     fake.box('worker-files').status = 'removing';
     fake.share = 'silent';
@@ -783,5 +853,10 @@ describe('repairHeadline', () => {
     expect(repairHeadline({ status: 'waiting', outcome: o('music_unreachable', 'worker-files', null) })).toBe("Your music share doesn't answer. Turn the NAS on or check its cable. tagave finishes on its own when it's back.");
     expect(repairHeadline({ status: 'needs_you', outcome: o('disk_full') })).toBe('The disk is full. Free up space, then press Repair.');
     expect(repairHeadline({ status: 'needs_you', outcome: o('port_conflict', 'app') }, { port: 4533 })).toBe('Another program uses port 4533. Stop that program, then press Repair.');
+  });
+  it('an offline music folder with every part running', () => {
+    const all = { cause: null, service: null, server: null, partsRunning: 5, partsTotal: 5 };
+    expect(repairHeadline({ status: 'repaired', outcome: all }, { musicOffline: true })).toBe("All 5 parts running. The music folder is offline: its work waits and starts again when it's back.");
+    expect(repairHeadline({ status: 'repaired', outcome: all }, { musicOffline: true, acted: true })).toBe("All 5 parts running. The music folder is offline: its work waits and starts again when it's back.");
   });
 });
