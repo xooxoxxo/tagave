@@ -16,15 +16,17 @@ import {
   runMigrations, saveMaintenanceTask, undispatchedMaintenanceTasks,
 } from '@tagave/db';
 import type { WorkerContext } from './context.js';
-import { FileGate } from './fileGate.js';
+import { FileGate, fileGate } from './fileGate.js';
 import { FolderOfflineError } from './folderOffline.js';
-import { onlineAgain } from './folderWatch/watch.js';
+import { FolderWatch, onlineAgain } from './folderWatch/watch.js';
+import type { ProbeOutcome } from './folderWatch/reach.js';
 import { runMaintenance } from './maintenance.js';
 import { PARKED_OUTPUT, WAITING_STAGE, parkable, requireOnline } from './parking.js';
 import { prepareWorkerQueues } from './queueSetup.js';
 
 const FAKE = fileURLToPath(new URL('../testkit/fakeHelper.mjs', import.meta.url));
 const adminUrl = process.env.TEST_DATABASE_URL;
+const LISTING: ProbeOutcome = { kind: 'listing', empty: false, knownFound: 1, knownAsked: 1, isMountPoint: false, wasMountPoint: false };
 
 describe.skipIf(!adminUrl)('parking (db, pg-boss)', () => {
   let admin: postgres.Sql;
@@ -157,12 +159,58 @@ describe.skipIf(!adminUrl)('parking (db, pg-boss)', () => {
     await onlineAgain(ctx)(rootId, 'offline');
     const scans = await jobs('scan.root', `scan:${rootId}`);
     expect(scans).toHaveLength(1);
-    expect(scans[0]).toMatchObject({ state: 'created', data: { scanRootId: rootId } });
+    // the parked scan asked for full: the return's one scan is full though the folder was only offline
+    expect(scans[0]).toMatchObject({ state: 'created', data: { scanRootId: rootId, mode: 'full' } });
     expect(await parkedRows(rootId)).toEqual([]);
     // nothing parked: the return still queues its own scan (quick after offline, full after not connected)
     await sql`delete from pgboss.job where name = 'scan.root' and singleton_key = ${`scan:${rootId}`}`;
     await onlineAgain(ctx)(rootId, 'unmounted');
     expect(await jobs('scan.root', `scan:${rootId}`)).toMatchObject([{ state: 'created', data: { scanRootId: rootId, mode: 'full' } }]);
+  });
+
+  it('after not connected the return sends one full scan, never the parked scans', async () => {
+    await parkJob(sql, { scanRootId: rootId, queue: 'scan.root', data: { scanRootId: rootId, mode: 'quick' }, singletonKey: `scan:${rootId}`, reason: 'not_mounted' });
+    await parkJob(sql, { scanRootId: rootId, queue: 'scan.dir', data: { scanRootId: rootId, dirPath: 'Jazz' }, singletonKey: `scan:${rootId}`, reason: 'not_mounted' });
+    await onlineAgain(ctx)(rootId, 'unmounted');
+    expect(await jobs('scan.root', `scan:${rootId}`)).toMatchObject([{ state: 'created', data: { scanRootId: rootId, mode: 'full' } }]);
+    expect(await sql`select 1 from pgboss.job where name = 'scan.dir' and data->>'scanRootId' = ${rootId}`).toEqual([]);
+    expect(await parkedRows(rootId)).toEqual([]);
+  });
+
+  /** A watch that reads this suite's root online (no mount table: a local folder). */
+  const onlineWatch = (probe: () => Promise<ProbeOutcome> = async () => LISTING) =>
+    new FolderWatch({ ctx, env: { TAGAVE_MUSIC_NAME: 'music' }, readMountinfo: async () => { throw new Error('no procfs'); }, probe });
+
+  it('a row parked while the watch reads online goes again at the next online reading, with no scan of its own', async () => {
+    await setReach(rootId, 'online', null);
+    const key = `fingerprint:${randomUUID()}`;
+    await parkJob(sql, { scanRootId: rootId, queue: 'fingerprint.album', data: { localAlbumId: key }, singletonKey: key, reason: 'timeout' });
+    await onlineWatch().tick(rootId);
+    expect(await parkedRows(rootId)).toEqual([]);
+    expect(await jobs('fingerprint.album', key)).toMatchObject([{ state: 'created' }]);
+    expect(await jobs('scan.root', `scan:${rootId}`)).toEqual([]);
+  });
+
+  it('a row parked after the reading started stays for the next one', async () => {
+    await setReach(rootId, 'online', null);
+    const key = `fingerprint:${randomUUID()}`;
+    const parkDuring = async (): Promise<ProbeOutcome> => {
+      await parkJob(sql, { scanRootId: rootId, queue: 'fingerprint.album', data: { localAlbumId: key }, singletonKey: key, reason: 'timeout' });
+      return LISTING;
+    };
+    await onlineWatch(parkDuring).tick(rootId);
+    expect(await parkedRows(rootId)).toHaveLength(1);
+    expect(await jobs('fingerprint.album', key)).toEqual([]);
+    await onlineWatch().tick(rootId);
+    expect(await parkedRows(rootId)).toEqual([]);
+  });
+
+  it('a root whose gate is at its stuck cap reads online: the gate takes its work again', async () => {
+    await setReach(rootId, 'online', null);
+    for (let i = 0; i < 4; i++) fileGate().markStuck(rootId); // TAGAVE_FILE_HELPERS_STUCK_MAX default 4
+    expect(fileGate().refuses(rootId)).toBe(true);
+    await onlineWatch().tick(rootId);
+    expect(fileGate().refuses(rootId)).toBe(false);
   });
 
   it('a maintenance task parks as waiting and is not reconciled to interrupted', async () => {
@@ -225,9 +273,18 @@ describe.skipIf(!adminUrl)('parking (db, pg-boss)', () => {
 
   it('a root removed while jobs are parked takes its rows with it', async () => {
     await parkJob(sql, { scanRootId: rootId, queue: 'scan.root', data: { scanRootId: rootId }, singletonKey: `scan:${rootId}`, reason: 'timeout' });
-    expect(await parkedRows(rootId)).toHaveLength(1);
+    const { id, work } = await dispatched('files.embedCover', 'embed-cover', { albumId: randomUUID(), fileIds: [] });
+    await runMaintenance(ctx, work, async () => { throw new FolderOfflineError(rootId, 'timeout'); });
+    expect(await parkedRows(rootId)).toHaveLength(2);
+    await reconcileMaintenanceTasks(sql);
+    expect((await task(id)).state).toBe('waiting'); // still parked: its row is there
+
     await sql`delete from scan_roots where id = ${rootId}`;
     expect(await parkedRows(rootId)).toEqual([]);
+    // the parked task would wait for ever: the reconcile hands it to the owner
+    await reconcileMaintenanceTasks(sql);
+    const [after] = await sql`select state, stage, error from maintenance_tasks where id = ${id}`;
+    expect(after).toEqual({ state: 'interrupted', stage: WAITING_STAGE, error: 'The music folder for this task was removed.' });
   });
 
   it('requireOnline parks at once, without waiting for a deadline', async () => {

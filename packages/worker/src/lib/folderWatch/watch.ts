@@ -22,7 +22,7 @@
  * root's parked work again and queues a scan of the root.
  */
 import { readFile } from 'node:fs/promises';
-import { dispatchMaintenanceTask, maintenanceSender, parkedSender, recordReach, releaseParked, rootsToWatch, type RootToWatch } from '@tagave/db';
+import { databaseNow, dispatchMaintenanceTask, maintenanceSender, parkedSender, recordReach, releaseParkedRows, rootsToWatch, type RootToWatch } from '@tagave/db';
 import { mountPoints, musicMount, sharePort, validServer } from '@tagave/shared/mounts';
 import type { WorkerContext } from '../context.js';
 import { fileGate } from '../fileGate.js';
@@ -42,7 +42,9 @@ export interface FolderWatchDeps {
   probe?: typeof probeOnce;
   port?: typeof portAnswers;
   now?: () => Date;
-  onlineAgain?: (rootId: string, after: 'offline' | 'unmounted') => Promise<void>;
+  onlineAgain?: (rootId: string, after: 'offline' | 'unmounted', before?: Date) => Promise<void>;
+  /** default: `stillOnline(ctx)` (each reading of online that is not a return) */
+  stillOnline?: (rootId: string, before: Date) => Promise<void>;
   /** default: db `recordReach` */
   record?: typeof recordReach;
   /** default: db `rootsToWatch` */
@@ -88,6 +90,7 @@ export class FolderWatch {
       port: deps.port ?? portAnswers,
       now: deps.now ?? (() => new Date()),
       onlineAgain: deps.onlineAgain ?? onlineAgain(ctx),
+      stillOnline: deps.stillOnline ?? stillOnline(ctx),
     };
     this.everyMs = opts.everyMs ?? EVERY_MS;
     this.name = musicName(deps.env ?? process.env);
@@ -182,6 +185,8 @@ export class FolderWatch {
   }
 
   private async check(root: RootToWatch, mountinfo: string | null): Promise<Reading> {
+    // the reading's start, on the database's clock: only work parked before it is let go below
+    const started = await databaseNow(this.deps.ctx.sql);
     const real = realRootPath(root.path, this.name);
     const reading = classify(await this.look(root, real, mountinfo));
     const prev = this.states.get(root.id) ?? { reach: root.reach, since: root.reachSince, pendingOffline: null };
@@ -191,13 +196,18 @@ export class FolderWatch {
     // Written first: a failed write leaves memory as it was, so the next tick makes the same change again.
     await this.deps.record(this.deps.ctx.sql, root.id, { reach: state.reach, reason, since: state.since, changed });
     this.states.set(root.id, state);
-    if (changed) {
-      this.log(root, state.reach, reason);
-      if (state.reach === 'online' && (prev.reach === 'offline' || prev.reach === 'unmounted')) {
-        await this.deps.onlineAgain(root.id, prev.reach).catch((err) =>
-          this.deps.ctx.logger.warn({ err: (err as Error).message, scanRootId: root.id }, 'folder watch: could not send the work of a music folder back online'),
-        );
-      }
+    if (changed) this.log(root, state.reach, reason);
+    if (state.reach !== 'online') return reading;
+    if (changed && (prev.reach === 'offline' || prev.reach === 'unmounted')) {
+      await this.deps.onlineAgain(root.id, prev.reach, started).catch((err) =>
+        this.deps.ctx.logger.warn({ err: (err as Error).message, scanRootId: root.id }, 'folder watch: could not send the work of a music folder back online'),
+      );
+    } else if (reading.reach === 'online') {
+      // Online and staying so: work that parked meanwhile (a deadline the watch never saw as an outage) goes
+      // again. Not on a bad reading the status has not followed yet (pending offline): that work stays parked.
+      await this.deps.stillOnline(root.id, started).catch((err) =>
+        this.deps.ctx.logger.warn({ err: (err as Error).message, scanRootId: root.id }, 'folder watch: could not send the parked work of a music folder online'),
+      );
     }
     return reading;
   }
@@ -211,34 +221,59 @@ export class FolderWatch {
   }
 }
 
+/** Dispatches released maintenance tasks after the commit; a failure is left to the app's dispatch loop. */
+async function dispatchReleased(ctx: WorkerContext, tasks: string[]): Promise<void> {
+  for (const id of tasks) {
+    await dispatchMaintenanceTask(ctx.sql, maintenanceSender(ctx.boss), id).catch((err) =>
+      ctx.logger.warn({ err: (err as Error).message, taskId: id }, 'folder watch: parked task left to the dispatch loop'),
+    );
+  }
+}
+
 /**
  * A root is back online (vault "tagave - Offline Library Spec", section 4
- * "Back online"): the gate takes work for it again, every parked job of the
+ * "Back online"): the gate takes work for it again; every parked job of the
  * root is sent again in one transaction with the deletes (parked maintenance
- * tasks released, then dispatched right after the commit; the app's dispatch
- * loop would send them too, and the attempt id keeps it to one job), then a
- * scan of the root: quick after offline (files were not changing), full
- * after not connected. A parked scan.root and this one share the singleton
- * key `scan:<root>`, so one scan runs.
+ * tasks released, then dispatched right after the commit: the attempt id
+ * keeps it to one job); then exactly one scan of the root, singleton key
+ * `scan:<root>`. Parked scan.root and scan.dir rows are not sent: the scan
+ * covers them (ruling R14). It is full after not connected, or when a parked
+ * scan.root asked for full; quick otherwise (files were not changing).
+ * `before`: only rows parked before the reading that saw the return started.
  */
-export function onlineAgain(ctx: WorkerContext): (rootId: string, after: 'offline' | 'unmounted') => Promise<void> {
-  return async (rootId, after) => {
+export function onlineAgain(ctx: WorkerContext): (rootId: string, after: 'offline' | 'unmounted', before?: Date) => Promise<void> {
+  return async (rootId, after, before) => {
     fileGate().clear(rootId);
     const tasks: string[] = [];
     let failed: unknown = null;
+    let fullScan = false;
     try {
-      const sent = await releaseParked(ctx.sql, rootId, parkedSender(ctx.boss), (id) => tasks.push(id));
-      if (sent > 0) ctx.logger.info({ scanRootId: rootId, sent }, 'parked work sent again: music folder back online');
+      const out = await releaseParkedRows(ctx.sql, rootId, parkedSender(ctx.boss), { before, coverScans: true, onTask: (id) => tasks.push(id) });
+      fullScan = out.fullScan;
+      if (out.count > 0) ctx.logger.info({ scanRootId: rootId, released: out.count }, 'parked work sent again: music folder back online');
     } catch (err) {
-      failed = err; // the rows stay; the scan below still goes
+      failed = err; // the rows stay: the next reading of online sends them (stillOnline)
     }
-    for (const id of tasks) {
-      await dispatchMaintenanceTask(ctx.sql, maintenanceSender(ctx.boss), id).catch((err) =>
-        ctx.logger.warn({ err: (err as Error).message, taskId: id }, 'folder watch: parked task left to the dispatch loop'),
-      );
-    }
-    await ctx.boss.send('scan.root', { scanRootId: rootId, mode: after === 'offline' ? 'quick' : 'full' }, { singletonKey: `scan:${rootId}` });
+    await dispatchReleased(ctx, tasks);
+    const mode = after === 'unmounted' || fullScan ? 'full' : 'quick';
+    await ctx.boss.send('scan.root', { scanRootId: rootId, mode }, { singletonKey: `scan:${rootId}` });
     if (failed) throw failed;
+  };
+}
+
+/**
+ * A reading of online that is not a return (ruling R13): the gate takes work
+ * for the root again, and work parked before the reading started is sent
+ * again (scans included; no scan of its own). Quiet unless something went:
+ * one info line then. A release that throws is tried again at the next reading.
+ */
+export function stillOnline(ctx: WorkerContext): (rootId: string, before: Date) => Promise<void> {
+  return async (rootId, before) => {
+    fileGate().clear(rootId);
+    const tasks: string[] = [];
+    const out = await releaseParkedRows(ctx.sql, rootId, parkedSender(ctx.boss), { before, onTask: (id) => tasks.push(id) });
+    await dispatchReleased(ctx, tasks);
+    if (out.count > 0) ctx.logger.info({ scanRootId: rootId, released: out.count }, 'parked work sent again: music folder online');
   };
 }
 

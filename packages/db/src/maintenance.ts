@@ -113,8 +113,21 @@ export async function undispatchedMaintenanceTasks(sql: Sql): Promise<string[]> 
   return rows.map((row) => row.id);
 }
 
+const FOLDER_REMOVED = 'The music folder for this task was removed.';
+
 /** pg-boss expires abandoned jobs. A terminal or missing attempt cannot advance the task. */
 export async function reconcileMaintenanceTasks(sql: Sql): Promise<void> {
+  // A task parked for a music folder that was removed since (its parked_jobs row went with the root):
+  // nothing would ever release it. parkMaintenanceTask and its row commit together, so a parked task
+  // always has its row until the release, which lets the task go in the same transaction.
+  await sql`
+    update maintenance_tasks t
+    set state = 'interrupted', error = ${FOLDER_REMOVED}, updated_at = now()
+    where t.state = 'waiting' and t.dispatch_after = 'infinity'
+      and not exists (
+        select 1 from parked_jobs p where p.queue = 'maintenance' and p.data ->> 'taskId' = t.id::text
+      )
+  `;
   const [schema] = await sql<{ exists: boolean }[]>`select to_regclass('pgboss.job') is not null as exists`;
   if (!schema?.exists) return;
   await sql`
