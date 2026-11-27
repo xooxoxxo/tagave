@@ -70,7 +70,7 @@ describe('spawnGuarded', () => {
   });
 
   it('stops a runaway tool at maxStdout with code -1, not as offline', async () => {
-    const r = await spawnGuarded('sh', ['-c', 'yes'], { rootId: 'root-big', maxStdout: 64 * 1024 });
+    const r = await spawnGuarded('sh', ['-c', 'exec yes'], { rootId: 'root-big', maxStdout: 64 * 1024 });
     expect(r.code).toBe(-1);
     expect(fileGate().stuckCount('root-big')).toBe(0);
   });
