@@ -1075,18 +1075,29 @@ function markUnavailable(index: number, reason: 'not_scanned' | 'offline' = 'not
 let offlinePending = 0;
 let offlineRunSeq = 0;
 
-/** A run of offline skips ends (a song plays, or nothing can): the bar says how many, once. */
+/** A run of offline skips ends with a song playing: the bar says how many were skipped, once. */
 function endOfflineRun() {
   if (offlinePending <= 0) return;
   set({ offlineSkips: { id: ++offlineRunSeq, count: offlinePending } });
   offlinePending = 0;
 }
 
+/** The skipped songs are not worth a word any more (nothing plays after them, or the queue went): forget the count. */
+function dropOfflineRun() {
+  offlinePending = 0;
+}
+
+/** The bar's error. A run of offline skips that ends here gets no toast: the error already says why nothing plays. */
 function showError(message: string, retry: PlayerState['retry']) {
+  dropOfflineRun();
   try { el()?.pause(); } catch { /* already stopped */ }
   set({ status: 'error', message, retry, loadingAlbumId: null });
   setPlaybackState('paused');
-  endOfflineRun();
+}
+
+/** The bar has shown the toast for `offlineSkips`: it is not shown again (a remount, the player coming back). */
+export function clearOfflineSkips() {
+  if (get().offlineSkips) set({ offlineSkips: null });
 }
 
 // ---- play events ----
@@ -1240,6 +1251,7 @@ export async function playAlbum(album: AlbumRef, startTrackId: string | null = n
     if (gen !== generation) return;
     const status = (err as ApiError)?.status;
     set({ loadingAlbumId: null, queue: keep ?? { context: { kind: 'album', id: album.albumId, name: album.title }, tracks: [], scanRequested: false } });
+    dropOfflineRun();
     showError(status === 404 ? 'The player is not set up.' : status ? 'tagave could not load this album’s tracks. Try again.' : FAILURE_TEXT.network, 'queue');
     return;
   }
@@ -1558,6 +1570,7 @@ export function removeFromQueue(at: number) {
 
 /** Clear: the upcoming tracks added by hand go. */
 export function clearQueue() {
+  dropOfflineRun();
   editQueue((tracks, index) => clearQueued(tracks, index));
 }
 
@@ -1568,6 +1581,7 @@ export function clearQueue() {
  */
 export function stop(opts: { forget?: boolean } = {}) {
   deckOwner?.leave(false);
+  dropOfflineRun();
   // the receiver stops too; the cast session stays, for the next Play
   try { sink?.stop(); } catch { /* the session is gone already */ }
   clearHandoff();

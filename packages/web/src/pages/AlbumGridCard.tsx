@@ -25,6 +25,12 @@ export function formatLabel(a: AlbumSummary): string {
   return (a.formats[0] ?? '').toUpperCase();
 }
 
+/** "Files offline": the small tag the grid tile and the list row carry while the album's music folder is offline (all or some of its files). */
+export function OfflineTag({ filesOffline, className }: { filesOffline: AlbumSummary['filesOffline'] | undefined; className?: string | undefined }) {
+  if (filesOffline !== 'all' && filesOffline !== 'some') return null;
+  return <Badge size="sm" tone="warning" className={className ?? ''}>Files offline</Badge>;
+}
+
 export interface AlbumGridCardProps {
   album: AlbumSummary;
   /** the card's width, and its padding (the cover is the width less twice that) */
@@ -81,7 +87,7 @@ export function AlbumGridCard({ album, width, pad, narrow, selected, maintenance
         <h3 className={styles.albumTitle} dir="auto">{album.title}</h3>
         <p className={styles.albumArtist} dir="auto">{album.artistCredit}</p>
         <p className={styles.albumStats}>
-          {(album.filesOffline === 'all' || album.filesOffline === 'some') && <Badge size="sm" tone="warning" className={styles.offlineTag ?? ''}>Files offline</Badge>}
+          <OfflineTag filesOffline={album.filesOffline} className={styles.offlineTag} />
           <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}>{formatLabel(album)}</span>
           {' · '}{album.trackCount} {album.trackCount === 1 ? 'track' : 'tracks'}
           {album.year ? ` · ${album.year}` : ''}

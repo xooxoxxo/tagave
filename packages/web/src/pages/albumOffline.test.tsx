@@ -3,11 +3,12 @@
  * behind "?"), Play and Shuffle waiting with one note, the Rescan hint, and
  * nothing of the player's when the player module is off.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AlbumSummary, PlayerAlbumAvailability } from '@tagave/shared';
 import { AlbumOfflineLine, albumPlayWait, offlineLine, rescanHint } from './albumOffline';
-import { AlbumGridCard } from './AlbumGridCard';
+import { AlbumGridCard, OfflineTag } from './AlbumGridCard';
 import { AlbumActionRow } from './AlbumActionRow';
 import { albumActionContext } from './albumActions';
 
@@ -112,6 +113,24 @@ describe('the albums grid tile', () => {
   it('online: no tag', () => {
     expect(card(album())).not.toContain('Files offline');
     expect(card(album({ filesOffline: null }))).not.toContain('Files offline');
+  });
+});
+
+describe('the albums list row', () => {
+  it('the same tag, for all or some of the files; nothing online', () => {
+    for (const filesOffline of ['all', 'some'] as const) {
+      expect(renderToStaticMarkup(<OfflineTag filesOffline={filesOffline} />), filesOffline).toContain('Files offline');
+    }
+    expect(renderToStaticMarkup(<OfflineTag filesOffline={null} />)).toBe('');
+    expect(renderToStaticMarkup(<OfflineTag filesOffline={undefined} />)).toBe('');
+  });
+
+  it('sits in the row after the title, not in listBadges (which a narrow list hides), and no rule hides it', () => {
+    const src = readFileSync(new URL('./AlbumsPage.tsx', import.meta.url), 'utf8');
+    const row = src.slice(src.indexOf('styles.listTitle'), src.indexOf('styles.listArtist'));
+    expect(row).toContain('<OfflineTag filesOffline={album.filesOffline} className={styles.listOffline} />');
+    const css = readFileSync(new URL('./AlbumsPage.module.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const rule of css.matchAll(/([^{}]*)\{[^{}]*display:\s*none[^{}]*\}/g)) expect(rule[1]).not.toContain('listOffline');
   });
 });
 

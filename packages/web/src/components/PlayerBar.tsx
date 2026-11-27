@@ -20,7 +20,7 @@ import { CoverArt, DjIcon, EmbossIconButton, IconButton, Button, PlayIcon, Pause
 import { clock, nextPlayable, offlineSkipText, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
 import {
-  clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnHide, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, syncQueue, toggle,
+  clearOfflineSkips, clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnHide, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, syncQueue, toggle,
   usePlayerStore, type PlayerState, type PlayerStatus,
 } from '../player/engine';
 import { useMediaQuery, PHONE_QUERY } from '../hooks/useMediaQuery';
@@ -200,6 +200,17 @@ export function offlineSkipToast(run: PlayerState['offlineSkips'], installed: bo
 }
 
 /**
+ * Takes the engine's last run of offline skips: its toast's words (null
+ * with the player module off), and the run is cleared either way, so a
+ * remount of the bar or the player coming back never says it again.
+ */
+export function takeOfflineSkipToast(installed: boolean): string | null {
+  const text = offlineSkipToast(usePlayerStore.getState().offlineSkips, installed);
+  clearOfflineSkips();
+  return text;
+}
+
+/**
  * The connected player. On a desktop with a player the bar, always (empty
  * until something is queued), whose queue key opens Now Playing over the
  * page; on a phone the mini bar while a queue exists, which opens the full
@@ -228,14 +239,12 @@ export function PlayerBar() {
   useEffect(() => { if (uninstalled) { stop(); stopCastWatch(); } }, [uninstalled]);
   const installed = player?.installed === true;
   // one toast for a run of songs skipped because their music folder is offline (never with the module off)
-  const offlineToast = offlineSkipToast(s.offlineSkips, installed);
   const offlineRun = s.offlineSkips?.id ?? null;
-  const toastedRun = useRef<number | null>(null);
   useEffect(() => {
-    if (!offlineToast || offlineRun == null || toastedRun.current === offlineRun) return;
-    toastedRun.current = offlineRun;
-    showToast({ message: offlineToast });
-  }, [offlineRun, offlineToast]);
+    if (offlineRun == null) return;
+    const text = takeOfflineSkipToast(installed);
+    if (text) showToast({ message: text });
+  }, [offlineRun, installed]);
   const hasQueue = !!s.queue && s.queue.tracks.length > 0 && !uninstalled;
   // cast devices are looked for once something is queued (the Cast SDK loads then, on a desktop Chrome only);
   // a cast that is going on outlives a cleared queue

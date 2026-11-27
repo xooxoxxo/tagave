@@ -29,7 +29,7 @@ import { useAlbumDrawer } from './AlbumMenu';
 import { useMaintenance } from '../maintenance';
 import { plural } from '../utils/qualityFlags';
 import { useEntry, useScrollPlace } from '../utils/listPlace';
-import { AlbumGridCard, formatLabel } from './AlbumGridCard';
+import { AlbumGridCard, OfflineTag, formatLabel } from './AlbumGridCard';
 import styles from './AlbumsPage.module.css';
 
 // a phone's filters: a sheet, loaded the first time it opens
@@ -521,6 +521,8 @@ export function AlbumsPage() {
                         </label>}
                         <span className={styles.thumb}><CoverArt src={album.coverUrl} title={album.title} compact /></span>
                         <span className={styles.listTitle} dir="auto">{album.title}</span>
+                        {/* for everyone, at every width (not in listBadges, which a narrow list hides) */}
+                        <OfflineTag filesOffline={album.filesOffline} className={styles.listOffline} />
                         <span className={styles.listArtist} dir="auto">{album.artistCredit}</span>
                         <span className={styles.listYear}>{album.year ?? '–'}</span>
                         <span className={styles.listTracks}>
