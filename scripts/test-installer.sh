@@ -538,6 +538,9 @@ case "$1" in
       *psql*) cat >/dev/null; echo "${FAKE_FILE_WORKERS:-0}" ;;
       *pg_dump*) printf 'PGDMP fake dump' ;;
       *"pg_restore --list"*) cat >/dev/null; printf ';\n; Archive\n215; 1259 16385 TABLE public albums tagave\n' ;;
+      # In the parent layout /mnt/music is a link, and find lists what it
+      # points to only when given /mnt/music/.
+      *" find /mnt/music/ "*) echo /mnt/music/a.flac ;;
     esac ;;
 esac
 exit 0
@@ -593,7 +596,8 @@ cp "$work/upd-rw.env" "$work/upd/.env"
 fake update --dir "$work/upd" --yes >"$work/update.log" 2>&1 || { cat "$work/update.log" >&2; fail "update"; }
 [ "$(env_value TAGAVE_VERSION "$work/upd/.env")" = "0.5.0" ] || fail "update: .env not moved to 0.5.0"
 [ "$(env_value TAGAVE_MUSIC_MODE "$work/upd/.env")" = "rw" ] || fail "update: an rw install lost TAGAVE_MUSIC_MODE=rw"
-render "$work/upd" | grep -q '"read_only": true' && fail "update: an rw install from before 0.38.0 mounts the music read-only with the new compose.yml"
+render "$work/upd" | python3 -c 'import json,sys; c=json.load(sys.stdin); v=[v for v in c["services"]["worker-files"]["volumes"] if v["target"] in ("/mnt/music", "/mnt/.host")][0]; sys.exit(1 if v.get("read_only") else 0)' \
+  || fail "update: an rw install from before 0.38.0 mounts the worker's music read-only with the new compose.yml"
 backup="$(find "$work/upd/backups" -mindepth 1 -maxdepth 1 -type d -name 'pre-update-0.4.1-*' | head -n 1)"
 [ -n "$backup" ] || fail "update: no pre-update-0.4.1 backup folder"
 [ -s "$backup/database.pgdump" ] || fail "update: no database dump in $backup"
@@ -1340,8 +1344,8 @@ fi
 # so these cases run the same on macOS and on Linux: the system
 # (TAGAVE_TEST_UNAME_S), the mount table (_MOUNTINFO),
 # /etc/fstab (_FSTAB), the parent's propagation (_PROPAGATION), Docker's data
-# folder and security options (_DOCKER_ROOT, _DOCKER_SECURITY), the docker
-# program's path (_DOCKER_PATH), and a folder listed in place of the parent
+# folder, security options and system (_DOCKER_ROOT, _DOCKER_SECURITY,
+# _DOCKER_OS), the docker program's path (_DOCKER_PATH), and a folder listed in place of the parent
 # (_PARENT_DIR). Every share is at 192.0.2.x, where nothing answers, so no
 # music folder is looked at; each case waits 1 s for it. Only a writable
 # install takes the parent, so lay adds --music-writable unless L_RW is set
@@ -1376,7 +1380,8 @@ layout_hooks() {
     TAGAVE_TEST_PROPAGATION="${L_PROP:-shared}" TAGAVE_TEST_MOUNTINFO="${L_MI:-$work/mountinfo-layout}" \
     TAGAVE_TEST_FSTAB="${L_FSTAB:-$work/fstab-none}" TAGAVE_TEST_PARENT_DIR="${L_LIST:-$work/list-music}" \
     TAGAVE_TEST_DOCKER_ROOT="${L_ROOT:-/var/lib/docker}" TAGAVE_TEST_DOCKER_SECURITY="${L_SEC:-name=seccomp,profile=builtin name=cgroupns}" \
-    TAGAVE_TEST_DOCKER_PATH="${L_DPATH:-/usr/bin/docker}" TAGAVE_TEST_SHARE_WAIT=1
+    TAGAVE_TEST_DOCKER_OS="${L_OS:-Ubuntu 24.04.1 LTS}" TAGAVE_TEST_DOCKER_PATH="${L_DPATH:-/usr/bin/docker}" \
+    TAGAVE_TEST_SHARE_WAIT=1
 }
 # lay NAME ARGS...: the installer (--yes --no-start) with the hooks, into
 # $work/lay-NAME, its output in $work/lay-NAME.log; --music-writable unless
@@ -1441,7 +1446,7 @@ pass "layout: a read-only install on an NFS /mnt/music with shared propagation k
 expect_parent trace /mnt music
 # A test operator ([ -d, test -e, [[ -r ...) or ls, stat, cd, find, readlink
 # or realpath, with any options, given /mnt/music or a path inside it.
-touch_re="(-[defrxsLh]|(^|[ +'])(ls|stat|cd|find|readlink|realpath))( +[^ /'][^ ]*)* +'?/mnt/music('|\$| |/)"
+touch_re="(-[abcdefghkprsuwxGLNOS]|(^|[ +'])(ls|stat|cd|find|readlink|realpath))( +[^ /'][^ ]*)* +'?/mnt/music('|\$| |/)"
 grep -E -- "$touch_re" "$work/lay-trace.trace" \
   && fail "layout: a folder test touched /mnt/music"
 grep -qF -- 'local dir=/mnt/music' "$work/lay-trace.trace" || fail "layout: the trace does not show the layout being picked"
@@ -1492,7 +1497,7 @@ expect_direct forced "you asked for it with --music-direct"
 [ "$(env_value TAGAVE_MUSIC_LAYOUT "$work/lay-forced/.env")" = direct ] || fail "layout: --music-direct did not write TAGAVE_MUSIC_LAYOUT=direct"
 # A later plain re-run keeps it; a run with --music-parent picks again.
 lay forced --music /mnt/music || fail "layout: the re-run after --music-direct failed"
-expect_direct forced "you asked for it with --music-direct"
+expect_direct forced "you asked for it with --music-direct (TAGAVE_MUSIC_LAYOUT=direct in .env)"
 [ "$(env_value TAGAVE_MUSIC_LAYOUT "$work/lay-forced/.env")" = direct ] || fail "layout: a re-run dropped TAGAVE_MUSIC_LAYOUT=direct"
 lay forced --music /mnt/music --music-parent /mnt || fail "layout: --music-parent after --music-direct failed"
 expect_parent forced /mnt music
@@ -1510,7 +1515,46 @@ L_SEC='name=seccomp,profile=builtin name=rootless name=cgroupns' lay rootless --
 expect_direct rootless "Docker runs rootless"
 L_DPATH=/snap/bin/docker lay snap --music /mnt/music || fail "layout: snap failed the install"
 expect_direct snap "Docker is the snap package, which only sees some folders"
-pass "layout: a plain folder, rootless and snap Docker keep the music folder; an fstab entry counts as a mount"
+L_OS='Docker Desktop' lay desktop --music /mnt/music || fail "layout: Docker Desktop failed the install"
+expect_direct desktop "Docker Desktop does not pass later mounts on"
+pass "layout: a plain folder, rootless, snap Docker and Docker Desktop keep the music folder; an fstab entry counts as a mount"
+
+# docker info answers what a hook does not: one hook missing, and it is asked
+# for all three (the data folder, the security options, the system).
+: >"$work/docker.log"
+(
+  layout_hooks
+  unset TAGAVE_TEST_DOCKER_OS
+  TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --no-start --version edge --timezone UTC --role all --dir "$work/lay-noos" \
+    --music /mnt/music --music-writable
+) >"$work/lay-noos.log" 2>&1 || { cat "$work/lay-noos.log" >&2; fail "layout: the run without the system hook failed"; }
+grep -F 'info --format' "$work/docker.log" | grep -qF '{{.DockerRootDir}}' \
+  || { cat "$work/docker.log" >&2; fail "layout: without the system hook docker info was not asked"; }
+grep -F 'info --format' "$work/docker.log" | grep -qF '{{.OperatingSystem}}' || fail "layout: docker info is not asked for the system"
+: >"$work/docker.log"
+(
+  layout_hooks
+  TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --no-start --version edge --timezone UTC --role all --dir "$work/lay-allhooks" \
+    --music /mnt/music --music-writable
+) >"$work/lay-allhooks.log" 2>&1 || { cat "$work/lay-allhooks.log" >&2; fail "layout: the run with every hook failed"; }
+grep -qF '{{.DockerRootDir}}' "$work/docker.log" && fail "layout: docker info was asked with every hook set"
+pass "layout: docker info is skipped only when every docker hook is set"
+
+# A files computer never runs the player: only the worker's four keys.
+(
+  layout_hooks
+  run --role files --dir "$work/lay-files" --from "$work/app/files-worker.env" --music /mnt/music --music-writable
+) >"$work/lay-files.log" 2>&1 || { cat "$work/lay-files.log" >&2; fail "layout: role files failed the install"; }
+[ "$(parent_keys "$work/lay-files/.env")" = "TAGAVE_MUSIC_BIND_SOURCE='/mnt'
+TAGAVE_MUSIC_BIND_TARGET=/mnt/.host
+TAGAVE_MUSIC_PROPAGATION=rslave
+TAGAVE_MUSIC_NAME='music'" ] || fail "layout: role files wrote: $(parent_keys "$work/lay-files/.env")"
+pass "layout: role files writes the worker's parent keys and none of the player's"
+
+# The reason names where a choice came from.
+L_RW='' lay roparent --music /mnt/music --music-parent /mnt || fail "layout: a read-only install with --music-parent failed"
+expect_direct roparent "a read-only music folder stays read-only only when it is mounted directly (--music-parent needs --music-writable)"
+pass "layout: a read-only install given --music-parent says it needs --music-writable"
 
 listing="  The folder above your music, /mnt, also holds: backup, photos"
 L_LIST="$work/list-plain" lay plain --music /mnt/music || fail "layout: a parent with a plain folder failed the install"
@@ -1570,6 +1614,19 @@ grep -qF "$silent_line" "$work/lay-start.log" || fail "layout: the start does no
 grep -q 'tagave starts once the share answers' "$work/lay-start.log" && fail "layout: the parent layout waited for the share"
 [ -n "$(line_of 'compose up -d')" ] || { cat "$work/lay-start.log" >&2; fail "layout: the parent layout did not start tagave on a silent share"; }
 pass "layout: a silent share in the parent layout says so and the install goes on"
+
+# The music check looks inside /mnt/music/, so it sees the share through the
+# parent layout's link too.
+mkdir -p "$work/music-full"
+: >"$work/music-full/a.flac"
+: >"$work/docker.log"
+TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --version 0.4.1 --timezone UTC --role all --dir "$work/vis" --music "$work/music-full" \
+  >"$work/vis.log" 2>&1 || { cat "$work/vis.log" >&2; fail "music check: the install failed"; }
+[ -n "$(line_of 'compose exec -T worker-files find /mnt/music/ -mindepth 1 -maxdepth 1')" ] \
+  || { cat "$work/docker.log" >&2; fail "music check: the probe inside the worker does not list /mnt/music/"; }
+grep -qF 'The file worker can see your music' "$work/vis.log" || { cat "$work/vis.log" >&2; fail "music check: the worker's music is not seen"; }
+grep -q 'sees an empty /mnt/music' "$work/vis.log" && fail "music check: warned about an empty /mnt/music"
+pass "music check: the probe inside the file worker lists /mnt/music/, through the parent layout's link"
 
 # The two cases that wait the installer's full limits ran in the background.
 check_silent_share
