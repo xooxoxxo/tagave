@@ -22,6 +22,7 @@ import {
   planLayout,
   cheapRefusal,
   decideLayout,
+  fstabEntries,
   fstabTargets,
   LAYOUT_HELPER_PREFIX,
   layoutReason,
@@ -233,6 +234,12 @@ describe('mount table and fstab', () => {
   it('reads fstab targets, trailing slashes trimmed, comments skipped', () => {
     const t = fstabTargets('# c\n  #192.0.2.1:/x /a nfs hard 0 0\n192.0.2.1:/y /b/\\040c/ nfs4 hard 0 0\n/dev/sdb1 / ext4 defaults 0 1\nshort line\n');
     expect([...t].sort()).toEqual(['/', '/b/ c']);
+  });
+  it('fstabEntries: each line in order with its target and options, defaults without an options field', () => {
+    expect(fstabEntries('# c\n192.0.2.1:/y /b/\\040c/ nfs4 hard,nofail 0 0\n/dev/sdb1 /data ext4\nshort line\n')).toEqual([
+      { target: '/b/ c', options: ['hard', 'nofail'] },
+      { target: '/data', options: ['defaults'] },
+    ]);
   });
 });
 
@@ -516,6 +523,25 @@ describe('planLayout', () => {
     expect(asked).toBe(0);
     expect((await planLayout({ env: envOf(), docker, image, installDir: '/opt/tagave' })).moved).toBe(true);
     expect(asked).toBe(1);
+  });
+
+  it('no music folder (an app computer): nothing asked and no line to log', async () => {
+    const { docker, calls } = moveDocker();
+    for (const env of [envOf({ role: 'app', music: null }), envOf({ music: null })]) {
+      expect(await planLayout({ env, docker, image: IMAGE, installDir: '/opt/tagave' })).toEqual({ env, moved: false, why: 'no_music_dir', message: null });
+    }
+    expect(calls).toEqual([]);
+    // every other refusal keeps its one line
+    expect((await planLayout({ env: envOf({ mode: 'ro' }), docker, image: IMAGE, installDir: '/opt/tagave' })).message).toBe(`the music share stays on the direct layout: ${layoutReason('read_only')}`);
+  });
+
+  it('the move line names the other mount points the folder above holds, names only', async () => {
+    const { docker } = moveDocker({ host: { list: { stdout: 'music\nbackup\nphotos\n' }, mountinfo: { stdout: `${MOUNTINFO}${mi(80, '/mnt/photos')}\n` } } });
+    const plan = await planLayout({ env: envOf(), docker, image: IMAGE, installDir: '/opt/tagave' });
+    expect(plan.moved).toBe(true);
+    expect(plan.message).toBe('the music share moves to the parent layout: tagave mounts /mnt, the folder above it, so the parts start while the share is off; it also holds the mounts backup, photos');
+    const alone = await planLayout({ env: envOf(), docker: moveDocker({ host: { list: { stdout: 'music\n' } } }).docker, image: IMAGE, installDir: '/opt/tagave' });
+    expect(alone.message).toBe('the music share moves to the parent layout: tagave mounts /mnt, the folder above it, so the parts start while the share is off');
   });
 
   it('no image: no helper, and nothing moves on a guess', async () => {

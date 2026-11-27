@@ -113,16 +113,26 @@ export function mountPoints(mountinfo: string): Set<string> {
 
 const trimSlashes = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') || '/' : p);
 
-/** Every mount target in fstab text (the second field), escapes decoded and trailing slashes trimmed. */
-export function fstabTargets(fstab: string): Set<string> {
-  const targets = new Set<string>();
+/**
+ * The lines of fstab text, in order, as mount reads them: comment lines and
+ * lines with fewer than three fields skipped; the target (the second field)
+ * with escapes such as \040 decoded and trailing slashes trimmed; the options
+ * (the fourth field) split on commas, `defaults` when there is none.
+ */
+export function fstabEntries(fstab: string): Array<{ target: string; options: string[] }> {
+  const entries: Array<{ target: string; options: string[] }> = [];
   for (const line of fstab.split('\n')) {
     if (/^[ \t]*#/.test(line)) continue;
     const fields = line.trim().split(/[ \t]+/);
     if (fields.length < 3) continue;
-    targets.add(trimSlashes(decodeMountPath(fields[1]!)));
+    entries.push({ target: trimSlashes(decodeMountPath(fields[1]!)), options: (fields[3] ?? 'defaults').split(',') });
   }
-  return targets;
+  return entries;
+}
+
+/** Every mount target in fstab text (fstabEntries' targets). */
+export function fstabTargets(fstab: string): Set<string> {
+  return new Set(fstabEntries(fstab).map((e) => e.target));
 }
 
 /** The worker links /mnt/music to /mnt/.host/NAME and takes only such names. */
@@ -188,8 +198,8 @@ function nameCheck(name: string): LayoutRefusal | null {
 /** The parent's own checks: not too wide, a plain path, under /mnt, /media or /srv, not holding the install folder. */
 function parentCheck(parent: string, installDir?: string): LayoutRefusal | null {
   // The installer's check against the home folder ($HOME) is left out on
-  // purpose: the updater cannot know the owner's HOME (ruling R3), and a
-  // home folder already fails the /mnt, /media, /srv rule below.
+  // purpose: the updater cannot know the owner's HOME (ruling R3), and most
+  // home folders (/home/*) already fail the /mnt, /media, /srv rule below.
   if (parent === '/' || parent === '/home') return 'unsafe_parent';
   if (/\/\.\.?(\/|$)/.test(`${parent}/`) || posix.normalize(parent) !== parent) return 'unsafe_parent';
   if (!QUOTABLE.test(parent)) return 'unsafe_parent';
@@ -412,7 +422,7 @@ export interface LayoutPlan {
   moved: boolean;
   /** Why it stays direct; null when it moves or already has the parent keys. */
   why: LayoutRefusal | null;
-  /** The one line to log; null when the parent keys are there already. */
+  /** The one line to log; null when the parent keys are there already or there is no music folder. */
   message: string | null;
 }
 
@@ -422,16 +432,19 @@ const stays = (why: LayoutRefusal, noAnswer?: boolean) => `the music share stays
  * The .env text a decision gives, pure: the update folds it into its own
  * single .env write (so .env.bak stays the file from before the update, and
  * a roll back puts the direct layout back), moveLayout writes it on its own.
+ * `otherMounts`: the names of the other mount points the parent holds, named
+ * in the line, since the parts then see them too (the installer lists them).
  */
-export function applyLayout(env: string, decision: LayoutDecision): LayoutPlan {
+export function applyLayout(env: string, decision: LayoutDecision, otherMounts: readonly string[] = []): LayoutPlan {
   if (decision.layout === 'direct') return { env, moved: false, why: decision.why, message: stays(decision.why, decision.noAnswer) };
   try {
     const source = decision.keys['TAGAVE_MUSIC_BIND_SOURCE'] ?? '';
+    const others = otherMounts.length > 0 ? `; it also holds the mounts ${otherMounts.join(', ')}` : '';
     return {
       env: withLayoutKeys(env, decision.keys),
       moved: true,
       why: null,
-      message: `the music share moves to the parent layout: tagave mounts ${source}, the folder above it, so the parts start while the share is off`,
+      message: `the music share moves to the parent layout: tagave mounts ${source}, the folder above it, so the parts start while the share is off${others}`,
     };
   } catch {
     return { env, moved: false, why: 'unsafe_parent', message: stays('unsafe_parent') };
@@ -445,7 +458,8 @@ export const hasParentLayout = (env: string) => !!envGet(env, 'TAGAVE_MUSIC_BIND
  * What the move would do to this .env, without writing anything: nothing
  * when the parent keys are there; the cheap refusal without asking the host
  * (`image` is not even looked up then); else readHostFacts and decideLayout.
- * No image: nothing moves on a guess (`no_facts`). Never throws.
+ * No image: nothing moves on a guess (`no_facts`). No music folder (an app
+ * computer): no line to log either, as there is nothing to move. Never throws.
  */
 export async function planLayout(deps: {
   env: string;
@@ -457,10 +471,15 @@ export async function planLayout(deps: {
   const { env } = deps;
   if (hasParentLayout(env)) return { env, moved: false, why: null, message: null };
   const cheap = cheapRefusal(env, deps.installDir);
+  if (cheap === 'no_music_dir') return { env, moved: false, why: cheap, message: null };
   if (cheap !== null) return applyLayout(env, { layout: 'direct', why: cheap });
   const image = typeof deps.image === 'function' ? await deps.image().catch(() => null) : deps.image;
   const facts = image ? await readHostFacts(deps.docker, image, deps.installDir, env, deps.name ? { name: deps.name } : {}) : null;
-  return applyLayout(env, decideLayout(env, facts));
+  const decision = decideLayout(env, facts);
+  // On the parent layout every other name in the parent is a mount point (decideLayout's siblings rule).
+  const name = decision.layout === 'parent' ? decision.keys['TAGAVE_MUSIC_NAME'] : undefined;
+  const others = (facts?.parentEntries ?? []).filter((e) => e !== '' && e !== name);
+  return applyLayout(env, decision, decision.layout === 'parent' ? others : []);
 }
 
 export interface MoveDeps {
@@ -495,6 +514,9 @@ export async function moveLayout(deps: MoveDeps): Promise<{ moved: boolean; why:
   if (plan.message) deps.log('info', plan.message);
   if (!plan.moved) return { moved: false, why: plan.why };
 
+  // This write replaces an older .env.bak (from the last update, say) with
+  // the .env from just before the move. Accepted: the move is the newer
+  // change, and the file it keeps is the one a hand restore needs.
   await writeFileAtomic(path, plan.env);
   const run = safe(deps.docker);
   const svc = await run(['compose', 'config', '--services'], { timeoutMs: 60_000 });
@@ -540,13 +562,7 @@ export function musicBootWanted(env: string): boolean {
 export function bootCodes(fstab: string, env: string): MusicBootCode[] {
   if (!musicBootWanted(env)) return [];
   const dir = musicDirOf(env)!;
-  let options: string[] | null = null;
-  for (const line of fstab.split('\n')) {
-    if (/^[ \t]*#/.test(line)) continue;
-    const fields = line.trim().split(/[ \t]+/);
-    if (fields.length < 3) continue;
-    if (trimSlashes(decodeMountPath(fields[1]!)) === dir) options = (fields[3] ?? 'defaults').split(',');
-  }
+  const options = fstabEntries(fstab).filter((e) => e.target === dir).at(-1)?.options;
   if (!options) return [];
   const codes: MusicBootCode[] = [];
   if (!options.includes('nofail') && !options.includes('noauto')) codes.push('nofail_missing');
