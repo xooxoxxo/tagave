@@ -4,7 +4,7 @@ import {
   albumMatches, artists as canonicalArtists, files, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
   releaseGroupArtists, fieldLocks, auditLog, albumLiveSql, albumDeletedSql, fileDeletedSql, trackLiveSql,
-  saveMaintenanceTask, restartMaintenanceTask, latestMaintenanceTask,
+  saveMaintenanceTask, restartMaintenanceTask, latestMaintenanceTask, notOnlineRoots,
 } from '@tagave/db';
 import { normalizeGenreMap, effectiveGenres, physicalFormatLabel } from '@tagave/core';
 import { getDb, getSql } from '../db.js';
@@ -15,7 +15,7 @@ import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
 import { summaryEligible, summaryFresh, summaryFilterCounts, markFilterCountsDirty } from '../lib/filterCounts.js';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
 import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
-import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER, type DecidedKind, type MatchProvenance } from '@tagave/shared';
+import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER, type AlbumRescanResponse, type DecidedKind, type MatchProvenance } from '@tagave/shared';
 import { scanRoots as scanRootRows, files as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
@@ -1715,12 +1715,15 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
     const boss = await getBoss();
     // pg-boss returns null when the same folder is already queued (singleton key)
-    const queued: Array<{ scanRootId: string; dirPath: string; jobId: string | null; alreadyQueued: boolean }> = [];
+    const queued: AlbumRescanResponse['queued'] = [];
     for (const t of targets.values()) {
       const jobId = await boss.send('scan.dir', { ...t, reason: `album:${albumId}` }, { singletonKey: `scan.dir:${t.scanRootId}:${t.dirPath}` });
       queued.push({ ...t, jobId: jobId ?? null, alreadyQueued: jobId === null });
     }
-    reply.status(202).send({ queued });
+    // a folder it queued is on an offline music folder: the scan still queues, and waits for it (spec §5)
+    const away = await notOnlineRoots(getSql());
+    const body: AlbumRescanResponse = queued.some((q) => away.has(q.scanRootId)) ? { queued, waiting: true } : { queued };
+    reply.status(202).send(body);
   });
 
   /** Split a lossless+lossy album; the other copies get their own album, pinned by cluster overrides. */

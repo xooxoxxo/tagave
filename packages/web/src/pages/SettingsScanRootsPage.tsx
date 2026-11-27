@@ -13,6 +13,7 @@ import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, 
 import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, type ScanRoot, type StartScanResponse, type WaitingCounts } from '@tagave/shared';
 import { Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, sentence, showToast, useSaveFlash, useSettingsDraft } from '../components/ui';
 import { shortDate, sinceLabel } from '../utils/time';
+import { SCAN_QUEUED } from '../utils/offlinePaused';
 import styles from './SettingsScanRootsPage.module.css';
 
 /** The folder's own switch: the library's Tag writes (Settings › Tag writing) still has the last word. */
@@ -32,7 +33,7 @@ export function rescanLabel(seconds: number): string {
 export const OFFLINE_HELP = "tagave can't reach this folder. Your library, tags and plays are safe. Scans and tag writes wait and start again on their own when it's back.";
 export const UNMOUNTED_HELP = "The folder is there but its share isn't connected. tagave tries to connect it again. If it can't, connect the drive or share.";
 const WAITING_HELP = 'Work that needs the files. It starts when the folder is back.';
-export const SCAN_QUEUED = 'Scan queued. It runs when the folder is back.';
+export { SCAN_QUEUED };
 
 type FolderCheck = { text: string; problem: boolean; help?: string | undefined };
 
