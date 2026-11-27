@@ -57,8 +57,10 @@ import {
   requestPlayerScan,
   songIdFor,
   trackById,
+  trackFileOffline,
   type PlayerLibrarySettings,
 } from '../lib/player.js';
+import { createProblemDetails } from '@tagave/shared/problem';
 import { hasPlayerPermission, permission, requirePlayer } from '../lib/playerAccess.js';
 import { PlayerAccountError, personServer } from '../lib/playerPeople.js';
 import { kickPlayerSync } from '../lib/playerSync.js';
@@ -143,6 +145,10 @@ async function streamTrack(request: FastifyRequest, reply: FastifyReply, userId:
   if (!track) throw new ApiError(404, 'Not Found', 'Track not found');
   const backend = backendFor(track.settings);
   if (!backend) throw notInstalled();
+  // the file's music folder is offline: say so before the server is asked anything
+  if (await trackFileOffline(sql, track)) {
+    return reply.status(409).send(createProblemDetails(409, 'Files offline', 'The music folder with this file is offline.', 'files_offline'));
+  }
   // the stream is this person's on the server (their account, made on their first play)
   let person;
   try {

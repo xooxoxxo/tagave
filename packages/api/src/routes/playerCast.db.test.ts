@@ -200,4 +200,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cast links', () => {
     const bad = pathOf(coverUrl).replace(pack(albumId), pack(bareAlbumId));
     expect((await app.inject({ method: 'GET', url: bad })).statusCode).toBe(403);
   });
+
+  it('a cast link of an offline track is the same', async () => {
+    const { url } = (await mint({ localTrackId: tracks.one }, listenerId, 'listener')).json();
+    await sql`update scan_roots set reach = 'offline', reach_since = now() where id = ${rootId}`;
+    try {
+      nav.state.requests.length = 0;
+      const res = await app.inject({ method: 'GET', url: pathOf(url) });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ type: 'files_offline', title: 'Files offline', status: 409 });
+      expect(nav.state.requests).toEqual([]);
+    } finally {
+      await sql`update scan_roots set reach = 'unknown', reach_since = null where id = ${rootId}`;
+    }
+    expect((await app.inject({ method: 'GET', url: pathOf(url) })).statusCode).toBe(200);
+  });
 });

@@ -60,6 +60,8 @@ export function fakeNavidrome(adminPassword: string) {
     hold: false,
     holds: [] as ServerResponse[],
     tokens: new Map<string, string>(),
+    /** every request's path, in order: a test proves the server was never asked */
+    requests: [] as string[],
   };
   const allAlbums = (): FakeAlbum[] => [
     ...(state.songs.length ? [{ id: 'al-1', name: 'Test Album', artist: 'Test Artist', musicBrainzId: state.albumMbid, songs: state.songs.map((s) => ({ ...s, albumId: 'al-1' })) }] : []),
@@ -111,6 +113,7 @@ export function fakeNavidrome(adminPassword: string) {
 
   const server: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://x');
+    state.requests.push(url.pathname);
     // ---- the native API ----
     if (url.pathname === '/auth/login' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}') as { username?: string; password?: string };

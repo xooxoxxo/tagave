@@ -9,7 +9,7 @@
  */
 import type { PgBoss } from 'pg-boss';
 import type postgres from 'postgres';
-import { trackLiveSql } from '@tagave/db';
+import { albumsOffline, notOnlineRoots, trackLiveSql, type NotOnlineRoot } from '@tagave/db';
 import type { PlayerAlbumAvailability, PlayerCapability, PlayerQueueTrack, PlayerQueueView, PlayerScanStatus, UnplayableReason } from '@tagave/shared';
 import {
   getAlbum,
@@ -302,6 +302,7 @@ interface TrackRow {
   codec: string | null;
   lossless: boolean | null;
   file_status: string;
+  root_id: string;
   root_path: string;
   recording_mbid: string | null;
   song_id: string | null;
@@ -338,7 +339,7 @@ export async function albumById(sql: Sql, albumId: string): Promise<AlbumRow | n
 async function albumTracks(sql: Sql, albumId: string, serverKey: string): Promise<TrackRow[]> {
   return sql<TrackRow[]>`
     select lt.id, lt.disc_no, lt.track_no, lt.title_guess, lt.artist_guess, lt.duration_ms, lt.origin,
-           af.rel_path, af.container, af.codec, af.lossless, af.status as file_status, sr.path as root_path,
+           af.rel_path, af.container, af.codec, af.lossless, af.status as file_status, sr.id as root_id, sr.path as root_path,
            coalesce(ct.recording_mbid, rec.mbid) as recording_mbid,
            ptm.song_id
     from local_tracks lt
@@ -423,11 +424,26 @@ export interface QueueDeps {
 /**
  * The album as a play queue. Tracks without a cached song are matched now
  * (and cached); what the server does not have yet triggers a scan of those
- * folders and comes back as not_scanned.
+ * folders and comes back as not_scanned. Tracks whose own file sits on a
+ * music folder that is not online are left out (and counted), so they are
+ * never matched or scanned for.
  */
-export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album: AlbumRow, opts: { requestScan?: boolean } = {}): Promise<PlayerQueueView> {
+export async function albumQueue(
+  deps: QueueDeps,
+  backend: PlayerBackend,
+  album: AlbumRow,
+  opts: { requestScan?: boolean; roots?: Map<string, NotOnlineRoot> } = {},
+): Promise<PlayerQueueView> {
   const root = musicRoot();
-  let rows = await albumTracks(deps.sql, album.id, backend.key);
+  const away = opts.roots ?? await notOnlineRoots(deps.sql);
+  let skippedOffline = 0;
+  const onlineOnly = (all: TrackRow[]) => {
+    if (away.size === 0) return all;
+    const kept = all.filter((t) => !away.has(t.root_id));
+    skippedOffline = all.length - kept.length;
+    return kept;
+  };
+  let rows = onlineOnly(await albumTracks(deps.sql, album.id, backend.key));
   const needs = rows.filter((t) => !t.song_id && unplayableReason(t) === null);
   let scanRequested = false;
   if (needs.length > 0) {
@@ -446,7 +462,7 @@ export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album:
       await requestPlayerScan(deps.sql, deps.boss, album.library_id, missing.map((r) => folderOf(r.relPath)));
       scanRequested = true;
     }
-    rows = await albumTracks(deps.sql, album.id, backend.key);
+    rows = onlineOnly(await albumTracks(deps.sql, album.id, backend.key));
   }
   const albumTitle = album.release_title ?? album.title_guess ?? 'Untitled';
   const albumArtist = album.artist_guess ?? 'Unknown artist';
@@ -493,22 +509,36 @@ export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album:
     tracks,
     scanRequested,
     scan,
+    skippedOffline,
   };
 }
 
 /**
  * Can Play start on this album now? The queue's matching without its side
  * effect: an album page asks this on every visit, and a visit must not make
- * the server scan.
+ * the server scan. An album whose files are all offline is answered from the
+ * database alone: the server is never asked.
  */
 export async function albumAvailability(deps: QueueDeps, backend: PlayerBackend, album: AlbumRow): Promise<PlayerAlbumAvailability> {
-  const q = await albumQueue(deps, backend, album, { requestScan: false });
+  const roots = await notOnlineRoots(deps.sql);
+  if (roots.size > 0) {
+    const offline = (await albumsOffline(deps.sql, [album.id], roots)).get(album.id);
+    if (offline?.filesOffline === 'all') {
+      const [n] = await deps.sql<{ n: number }[]>`
+        select count(*)::int as n from local_tracks lt
+        where lt.local_album_id = ${album.id} and ${deps.sql.unsafe(trackLiveSql('lt.audio_file_id'))}`;
+      return { albumId: album.id, tracks: n?.n ?? 0, playable: 0, reason: 'offline', scan: null, since: offline.since };
+    }
+  }
+  const q = await albumQueue(deps, backend, album, { requestScan: false, roots });
   const playable = q.tracks.filter((t) => t.available).length;
+  // tracks counts the whole album; the offline ones are not playable
+  const firstReason = q.tracks.find((t) => t.reason)?.reason ?? (q.skippedOffline > 0 ? 'offline' : null);
   return {
     albumId: album.id,
-    tracks: q.tracks.length,
+    tracks: q.tracks.length + q.skippedOffline,
     playable,
-    reason: playable > 0 ? null : q.tracks.find((t) => t.reason)?.reason ?? null,
+    reason: playable > 0 ? null : firstReason,
     scan: q.scan ?? null,
   };
 }
@@ -522,6 +552,8 @@ export interface TrackForUser {
   release_id: string | null;
   recording_mbid: string | null;
   duration_ms: number | null;
+  /** the scan root of the track's own file: a stream checks it is online before asking the server */
+  scan_root_id: string | null;
   settings: PlayerLibrarySettings;
 }
 
@@ -529,7 +561,8 @@ export async function trackById(sql: Sql, localTrackId: string): Promise<TrackFo
   if (!/^[0-9a-f-]{36}$/i.test(localTrackId)) return null;
   const rows = await sql<(Omit<TrackForUser, 'settings'> & { settings: unknown })[]>`
     select lt.id, lt.local_album_id, la.library_id, la.release_id, lt.duration_ms,
-           coalesce(ct.recording_mbid, rec.mbid) as recording_mbid, l.settings
+           coalesce(ct.recording_mbid, rec.mbid) as recording_mbid, l.settings,
+           (select f.scan_root_id from files f where f.id = lt.audio_file_id) as scan_root_id
     from local_tracks lt
     join local_albums la on la.id = lt.local_album_id
     join libraries l on l.id = la.library_id
@@ -538,6 +571,12 @@ export async function trackById(sql: Sql, localTrackId: string): Promise<TrackFo
     where lt.id = ${localTrackId} and ${sql.unsafe(trackLiveSql('lt.audio_file_id'))}`;
   const r = rows[0];
   return r ? { ...r, settings: parseSettings(r.settings) } : null;
+}
+
+/** Is the track's own file on a music folder that is not online? One read of the roots, nothing more. */
+export async function trackFileOffline(sql: Sql, track: Pick<TrackForUser, 'scan_root_id'>): Promise<boolean> {
+  if (!track.scan_root_id) return false;
+  return (await notOnlineRoots(sql)).has(track.scan_root_id);
 }
 
 export async function songIdFor(sql: Sql, localTrackId: string, serverKey: string): Promise<string | null> {
