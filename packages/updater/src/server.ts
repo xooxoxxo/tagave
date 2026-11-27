@@ -124,6 +124,8 @@ export interface UpdaterOptions {
   report?: RepairDeps['report'];
   /** The app's own music check: true when it says the music folder is unmounted. */
   musicUnmounted?: RepairDeps['musicUnmounted'];
+  /** The updater's own image, for a repair's one-time move to the parent music layout (main.ts, cli.ts: selfImage); absent: no move. */
+  layoutImage?: RepairDeps['layoutImage'];
   /** Repair limits; default DEFAULT_REPAIR_CONFIG with `config`'s health limit and poll. */
   repairConfig?: Partial<RepairConfig>;
   /** How long a status call waits for the parts (default 6 s, never more than the time left in its budget). */
@@ -730,6 +732,7 @@ export class UpdaterService {
       app: this.opts.app,
       music: this.opts.music ?? null,
       ...(this.opts.musicUnmounted ? { musicUnmounted: this.opts.musicUnmounted } : {}),
+      ...(this.opts.layoutImage ? { layoutImage: this.opts.layoutImage } : {}),
       healer: this.healer,
       ...(this.opts.report ? { report: this.opts.report } : {}),
       save: (r) => this.saveRepair(r),

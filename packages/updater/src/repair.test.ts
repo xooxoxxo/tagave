@@ -698,6 +698,104 @@ describe('repair', () => {
     });
   });
 
+  describe('the move to the parent layout in the start step', () => {
+    const MOVED = 'Mounted the folder above the music share, so tagave starts while the share is off.';
+    const OFFLINE = "All 5 parts running. The music folder is offline: its work waits and starts again when it's back.";
+    const IMAGE = `sha256:${'c'.repeat(64)}`;
+    const writable = () => writeFile(join(dir, '.env'), 'COMPOSE_PROJECT_NAME=tagave\nTAGAVE_ROLE=all\nMUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_MODE=rw\n', { mode: 0o600 });
+    let helpers: string[][];
+
+    /** The fake plus a host where /mnt/music is an NFS mount in a shared /mnt that holds nothing else. */
+    const host: Runner = async (args, opts) => {
+      assertAllowed(args);
+      const ok = (stdout: string): CommandResult => ({ code: 0, stdout, stderr: '' });
+      if (args[0] === 'info') {
+        helpers.push(args);
+        return ok('linux\nUbuntu 24.04.1 LTS\n/var/lib/docker\nname=seccomp,profile=builtin \n');
+      }
+      if (args[0] === 'run' && args.includes('nsenter')) {
+        helpers.push(args);
+        const command = args.slice(args.indexOf('--') + 1).join(' ');
+        if (command === 'cat /proc/self/mountinfo') return ok('22 1 8:1 / / rw shared:1 - ext4 /dev/sda1 rw\n60 22 0:60 / /mnt/music rw shared:60 - nfs4 192.0.2.10:/export/music rw,hard\n');
+        if (command === 'cat /etc/fstab') return ok('');
+        if (command.startsWith('findmnt')) return ok('shared\n');
+        if (command.startsWith('sh -c')) return ok('music\n');
+      }
+      return fake.docker(args, opts);
+    };
+    const moving = (over: Partial<RepairDeps> = {}) => repair({ docker: host, layoutImage: async () => IMAGE, ...over });
+    const envText = () => readFile(join(dir, '.env'), 'utf8');
+
+    beforeEach(() => {
+      helpers = [];
+    });
+
+    it('moves even when no part is down, and starts only the music parts on it', async () => {
+      await writable();
+      const run = await moving().execute();
+      expect(run.status).toBe('repaired');
+      expect(run.headline).toBe('Repaired. All 5 parts running.');
+      expect(run.details).toEqual([MOVED, '5 of 5 parts running.']);
+      expect(stepStatus(run)).toMatchObject({ start: 'done', verify: 'done' });
+      expect(fake.changes()).toEqual([['compose', 'up', '-d', '--no-deps', 'worker-files'], ['compose', 'up', '-d', '--no-deps', 'player']]);
+      const env = await envText();
+      expect(env).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+      expect(env).toContain('TAGAVE_PLAYER_MUSIC_FOLDER=/host/music\n');
+      expect(helpers.filter((c) => c[0] === 'run').every((c) => c.includes(IMAGE))).toBe(true);
+    });
+
+    it('the incident: a music part that waited on a silent share starts on the new layout, and the run ends repaired, folder offline', async () => {
+      await writable();
+      fake.box('worker-files').status = 'created';
+      fake.share = 'silent';
+      const run = await moving().execute();
+      expect(run.status).toBe('repaired');
+      expect(run.headline).toBe(OFFLINE);
+      expect(run.outcome).toEqual({ cause: null, service: null, server: null, partsRunning: 5, partsTotal: 5 });
+      expect(run.details).toEqual([MOVED, '5 of 5 parts running.']);
+      expect(fake.sleeps).toEqual([]);
+      expect(fake.reports).toEqual([{ status: 'repaired', cause: null }]);
+    });
+
+    it('a music part that still will not start on a silent share waits, as before', async () => {
+      await writable();
+      fake.box('worker-files').status = 'created';
+      fake.box('worker-files').up = (b) => { b.status = 'created'; };
+      fake.share = 'silent';
+      const run = await moving().execute();
+      expect(run.status).toBe('waiting');
+      expect(run.outcome?.cause).toBe('music_unreachable');
+      expect(run.details).toContain(MOVED);
+    });
+
+    it('a second Repair changes nothing more', async () => {
+      await writable();
+      await moving().execute();
+      const moved = await envText();
+      fake = new Fake();
+      helpers = [];
+      const run = await moving().execute();
+      expect(helpers).toEqual([]);
+      expect(await envText()).toBe(moved);
+      expect(run.headline).toBe('All 5 parts running. Nothing to repair.');
+    });
+
+    it('a read-only install never starts a helper and keeps today\'s start step', async () => {
+      const run = await moving().execute();
+      expect(helpers).toEqual([]);
+      expect(stepStatus(run)).toMatchObject({ start: 'skipped' });
+      expect(run.log.some((l) => l.message.startsWith('the music share stays on the direct layout: '))).toBe(true);
+      expect(await envText()).toBe('COMPOSE_PROJECT_NAME=tagave\nMUSIC_DIR=/mnt/music\n');
+    });
+
+    it('without an image for the helpers, nothing is tried', async () => {
+      await writable();
+      const run = await repair({ docker: host }).execute();
+      expect(helpers).toEqual([]);
+      expect(run.headline).toBe('All 5 parts running. Nothing to repair.');
+    });
+  });
+
   it('a cancel while the share is probed never resumes the run (Repair pressed again)', async () => {
     fake.box('worker-files').status = 'removing';
     fake.share = 'silent';

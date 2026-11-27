@@ -26,8 +26,19 @@
  * updater service (when installed) takes it over; --wait keeps watching here
  * up to MINUTES (1 to 120) first. Without that service the printed headline
  * names the installer instead of the service and the Repair button.
+ *
+ *   node dist/cli.js music-layout [--apply]
+ *
+ * The one-time move to the parent music layout (music-layout.ts), which
+ * install-tagave.sh update runs from the target's updater image once the
+ * update is healthy. Without --apply it prints the decision, its reason and
+ * the .env lines it would write, and changes nothing. With --apply it writes
+ * them and starts the music parts on them, printing each log line. Exit 0
+ * when it moved, had nothing to do or was refused with a reason; 1 on an
+ * error; 2 bad arguments. It never reads what is in the music folder.
  */
 import { readFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import type { RepairRun } from '@tagave/shared/updater';
 import { DEFAULT_CONFIG } from './update.js';
@@ -35,9 +46,9 @@ import { dockerRunner, httpAppProbe, httpRepairReport } from './runner.js';
 import { STOPPED_REPAIR, UpdaterService } from './server.js';
 import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 import { envGet, readText } from './envFile.js';
-import { MusicHealer, httpMusicApp, type MusicApp } from './music-heal.js';
+import { MusicHealer, httpMusicApp, selfImage, type MusicApp } from './music-heal.js';
 import { cachedProber, musicProber } from './music-probe.js';
-import { ALREADY_RUNNING, USAGE, WAIT_NOT_NEEDED, parseRepairArgs, printedHeadline, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import { ALREADY_RUNNING, USAGE, WAIT_NOT_NEEDED, layoutCommand, parseLayoutArgs, parseRepairArgs, printedHeadline, repairExitCode, updaterServiceRuns } from './cli-args.js';
 
 /** Only the app's health is asked for with it; nothing is signed with it. */
 const UNUSED_SECRET = 'unused-by-module-runs';
@@ -60,6 +71,7 @@ function appUrlOf(): string {
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
   if (args[0] === 'repair') return repair(args.slice(1));
+  if (args[0] === 'music-layout') return musicLayout(args.slice(1));
   if (args[0] !== 'module' || (args[1] !== 'enable' && args[1] !== 'disable') || !args[2]) usage();
   const action = args[1];
   const id = args[2];
@@ -143,6 +155,8 @@ async function repair(args: string[]): Promise<number> {
     config: { ...DEFAULT_CONFIG, selfUpdate: false },
     music,
     ...(appSecret ? { musicUnmounted: () => musicApp.unmounted(), report: httpRepairReport(appUrl, appSecret) } : {}),
+    // The start step's one-time move to the parent music layout: helpers from this one-off's own image.
+    layoutImage: () => selfImage(docker, hostname()),
   });
   service.attachHealer(new MusicHealer({
     installDir,
@@ -210,6 +224,21 @@ async function repair(args: string[]): Promise<number> {
   if (code === 0 || code === 4) console.log(headline);
   else console.error(headline);
   return code;
+}
+
+/** The one-time move to the parent music layout; its helpers run from this one-off's own image. */
+async function musicLayout(args: string[]): Promise<number> {
+  const parsed = parseLayoutArgs(args);
+  if (!parsed.ok) usage();
+  const installDir = installDirOf();
+  const docker = dockerRunner(installDir);
+  return layoutCommand(parsed.apply, {
+    installDir,
+    docker,
+    image: () => selfImage(docker, hostname()),
+    out: (line) => console.log(line),
+    err: (line) => console.error(line),
+  });
 }
 
 main().then((code) => process.exit(code), (err: unknown) => {

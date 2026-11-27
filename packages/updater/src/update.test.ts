@@ -1827,3 +1827,90 @@ describe('an update with a signed manifest', () => {
     expect(run.reason).toMatch(/TAGAVE_PLAYER_IMAGE/);
   });
 });
+
+describe('the music share layout in the config step', () => {
+  const MUSIC_ENV = `${ENV}MUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_MODE=rw\n`;
+  const PARENT_KEYS = ['TAGAVE_MUSIC_BIND_SOURCE', 'TAGAVE_MUSIC_BIND_TARGET', 'TAGAVE_PLAYER_BIND_TARGET', 'TAGAVE_MUSIC_PROPAGATION', 'TAGAVE_MUSIC_NAME', 'TAGAVE_PLAYER_MUSIC_FOLDER'];
+
+  /** The fake install plus a host where /mnt/music is an NFS mount in a shared /mnt that holds nothing else. */
+  function host(over: { mountinfoFails?: boolean } = {}): { docker: Runner; helpers: string[][] } {
+    const helpers: string[][] = [];
+    const docker: Runner = async (args, opts) => {
+      assertAllowed(args);
+      const ok = (stdout: string): CommandResult => ({ code: 0, stdout, stderr: '' });
+      if (args[0] === 'info' && args.join(' ').includes('{{.OSType}}')) {
+        helpers.push(args);
+        return ok('linux\nUbuntu 24.04.1 LTS\n/var/lib/docker\nname=seccomp,profile=builtin \n');
+      }
+      if (args[0] === 'run' && args.includes('nsenter')) {
+        helpers.push(args);
+        const command = args.slice(args.indexOf('--') + 1).join(' ');
+        if (command === 'cat /proc/self/mountinfo') {
+          return over.mountinfoFails ? { code: 1, stdout: '', stderr: 'nsenter: cannot open' } : ok('22 1 8:1 / / rw shared:1 - ext4 /dev/sda1 rw\n60 22 0:60 / /mnt/music rw shared:60 - nfs4 192.0.2.10:/export/music rw,hard\n');
+        }
+        if (command === 'cat /etc/fstab') return ok('');
+        if (command.startsWith('findmnt')) return ok('shared\n');
+        if (command.startsWith('sh -c')) return ok('music\n');
+      }
+      return fake.runner(args, opts);
+    };
+    return { docker, helpers };
+  }
+  const envText = () => readFile(join(dir, '.env'), 'utf8');
+
+  it('the keys go into the one .env write of the update, and nothing else restarts for them', async () => {
+    await writeFile(join(dir, '.env'), MUSIC_ENV, { mode: 0o600 });
+    const h = host();
+    const run = await update('0.8.0', {}, { docker: h.docker });
+    expect(run.status).toBe('succeeded');
+    const env = await envText();
+    expect(envGet(env, 'TAGAVE_VERSION')).toBe('0.8.0');
+    expect(envGet(env, 'TAGAVE_MUSIC_BIND_SOURCE')).toBe('/mnt');
+    expect(envGet(env, 'TAGAVE_MUSIC_NAME')).toBe('music');
+    // .env.bak is the file from before the update, not a step in between
+    expect(await readFile(join(dir, '.env.bak'), 'utf8')).toBe(MUSIC_ENV);
+    // the helpers ran from the target's updater image
+    expect(h.helpers.filter((c) => c[0] === 'run').every((c) => c.includes('ghcr.io/xooxoxxo/tagave-updater:0.8.0'))).toBe(true);
+    expect(run.log.filter((l) => l.message.startsWith('the music share moves to the parent layout'))).toHaveLength(1);
+  });
+
+  it('a rollback puts the direct layout back', async () => {
+    await writeFile(join(dir, '.env'), MUSIC_ENV, { mode: 0o600 });
+    fake.unhealthy.add('0.8.0');
+    const run = await update('0.8.0', {}, { docker: host().docker });
+    expect(run.status).toBe('rolled_back');
+    const env = await envText();
+    expect(env).toBe(MUSIC_ENV);
+    for (const k of PARENT_KEYS) expect(envGet(env, k), k).toBeNull();
+  });
+
+  it('a failed check writes no key and never fails the update', async () => {
+    await writeFile(join(dir, '.env'), MUSIC_ENV, { mode: 0o600 });
+    const run = await update('0.8.0', {}, { docker: host({ mountinfoFails: true }).docker });
+    expect(run.status).toBe('succeeded');
+    const env = await envText();
+    for (const k of PARENT_KEYS) expect(envGet(env, k), k).toBeNull();
+    expect(run.log.some((l) => l.message.startsWith('the music share stays on the direct layout: '))).toBe(true);
+  });
+
+  it('it runs once: a second update changes nothing', async () => {
+    await writeFile(join(dir, '.env'), MUSIC_ENV, { mode: 0o600 });
+    expect((await update('0.8.0', {}, { docker: host().docker })).status).toBe('succeeded');
+    const moved = await envText();
+    const h = host();
+    const second = await update('0.9.0', {}, { docker: h.docker });
+    expect(second.status).toBe('succeeded');
+    expect(h.helpers).toEqual([]);
+    const env = await envText();
+    for (const k of PARENT_KEYS) expect(envGet(env, k), k).toBe(envGet(moved, k));
+    expect(second.log.some((l) => l.message.includes('music share'))).toBe(false);
+  });
+
+  it('a read-only install never starts a helper', async () => {
+    await writeFile(join(dir, '.env'), `${ENV}MUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_MODE=ro\n`, { mode: 0o600 });
+    const h = host();
+    expect((await update('0.8.0', {}, { docker: h.docker })).status).toBe('succeeded');
+    expect(h.helpers).toEqual([]);
+    expect(envGet(await envText(), 'TAGAVE_MUSIC_BIND_SOURCE')).toBeNull();
+  });
+});
