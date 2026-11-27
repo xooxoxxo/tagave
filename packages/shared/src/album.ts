@@ -75,6 +75,10 @@ export const albumSummarySchema = z.object({
   releaseGroupId: z.string().uuid().optional().describe('Matched release group ID'),
   createdAt: z.string().datetime().describe('When added to the library'),
   updatedAt: z.string().datetime().describe('Last metadata update'),
+  filesOffline: z.enum(['all', 'some']).nullable().optional()
+    .describe('Present files on a music folder that is not online; absent when every folder is online'),
+  offlineSince: z.string().datetime().nullable().optional()
+    .describe('ISO 8601: since when that music folder is not online'),
 }).strict();
 
 export type AlbumSummary = z.infer<typeof albumSummarySchema>;
