@@ -23,8 +23,16 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+const notConnected = { state: { kind: 'offline', folders: [folder({ reach: 'unmounted', reason: 'not_mounted' })] } } satisfies Story['args'];
+const several = { state: { kind: 'offline', folders: [folder(), folder({ id: 'root-2', name: 'Vinyl rips', path: '/mnt/vinyl', since: '2026-11-23T09:10:00' })] } } satisfies Story['args'];
+const reconnecting = { state: { kind: 'healing', folders: [] } } satisfies Story['args'];
+const phone = { tags: ['phone'], globals: { viewport: { value: 'phone' } } } satisfies Story;
+
 export const Offline: Story = {};
-export const NotConnected: Story = { name: 'Not connected', args: { state: { kind: 'offline', folders: [folder({ reach: 'unmounted', reason: 'not_mounted' })] } } };
-export const Several: Story = { args: { state: { kind: 'offline', folders: [folder(), folder({ id: 'root-2', name: 'Vinyl rips', path: '/mnt/vinyl', since: '2026-11-23T09:10:00' })] } } };
-export const Reconnecting: Story = { args: { state: { kind: 'healing', folders: [] } } };
-export const PhoneOffline: Story = { name: 'Phone, offline', tags: ['phone'], globals: { viewport: { value: 'phone' } } };
+export const NotConnected: Story = { name: 'Not connected', args: notConnected };
+export const Several: Story = { args: several };
+export const Reconnecting: Story = { args: reconnecting };
+export const PhoneOffline: Story = { name: 'Phone, offline', ...phone };
+export const PhoneNotConnected: Story = { name: 'Phone, not connected', ...phone, args: notConnected };
+export const PhoneSeveral: Story = { name: 'Phone, several', ...phone, args: several };
+export const PhoneReconnecting: Story = { name: 'Phone, reconnecting', ...phone, args: reconnecting };

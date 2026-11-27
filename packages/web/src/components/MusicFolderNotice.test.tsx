@@ -61,6 +61,12 @@ describe('MusicFolderNoticeView', () => {
     expect(html).toContain('Music folder offline since 14:02 · <a href="/settings/library">Music folders</a>');
   });
 
+  it('several: how many, the way to Music folders', () => {
+    const html = renderToStaticMarkup(<MusicFolderNoticeView state={{ kind: 'offline', folders: [f({}), f({ id: 'r2', path: '/mnt/vinyl' })] }} now={now} action={link} />);
+    expect(html).toMatch(/tone-warning/);
+    expect(html).toContain('2 music folders offline · <a href="/settings/library">Music folders</a>');
+  });
+
   it('an older API answer: as before', () => {
     const html = renderToStaticMarkup(<MusicFolderNoticeView state={legacy} now={now} action={link} />);
     expect(html).toContain('Music folder unreachable · /mnt/music · <a href="/settings/library">Music folders</a>');
