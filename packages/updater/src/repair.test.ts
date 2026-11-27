@@ -680,6 +680,26 @@ describe('repair', () => {
       expect(run.headline).toBe('All 5 parts running. Nothing to repair.');
     });
 
+    it('the parent layout: a music part stopped for another reason is started while the share is silent, not left waiting', async () => {
+      await parentLayout();
+      fake.box('worker-files').status = 'exited';
+      fake.share = 'silent';
+      const run = await repair().execute();
+      expect(run.status).toBe('repaired');
+      expect(run.outcome?.cause).toBeNull();
+      expect(fake.changes()).toEqual([['compose', 'up', '-d', '--no-deps', 'worker-files']]);
+      expect(fake.sleeps).toEqual([]);
+    });
+
+    it('the parent layout: a music part really stuck on a silent share still waits', async () => {
+      await parentLayout();
+      fake.box('worker-files').status = 'removing';
+      fake.share = 'silent';
+      const run = await repair().execute();
+      expect(run.status).toBe('waiting');
+      expect(run.outcome?.cause).toBe('music_unreachable');
+    });
+
     it('the direct layout: a silent share still leaves the music parts waiting', async () => {
       fake.box('worker-files').status = 'removing';
       fake.share = 'silent';
@@ -786,6 +806,40 @@ describe('repair', () => {
       expect(stepStatus(run)).toMatchObject({ start: 'skipped' });
       expect(run.log.some((l) => l.message.startsWith('the music share stays on the direct layout: '))).toBe(true);
       expect(await envText()).toBe('COMPOSE_PROJECT_NAME=tagave\nMUSIC_DIR=/mnt/music\n');
+    });
+
+    it('a move that throws after .env was written: the warning and the layout follow .env', async () => {
+      await writable();
+      const r = moving();
+      const parts = r['parts'];
+      const real = parts.startParts.bind(parts);
+      let first = true;
+      parts.startParts = async (services, opts) => {
+        if (first) {
+          first = false;
+          throw new Error('Docker went away');
+        }
+        return real(services, opts);
+      };
+      const run = await r.execute();
+      expect(await envText()).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+      expect(run.log.some((l) => l.level === 'warn' && l.message === ".env has the parent layout's settings, but the music parts were not started on them: Docker went away")).toBe(true);
+      expect(run.log.some((l) => l.message.startsWith('the music share layout was not changed'))).toBe(false);
+      expect(r['parentLayout']).toBe(true);
+    });
+
+    it('a move that compose refuses: .env as it was, and the warning says the layout was not changed', async () => {
+      await writable();
+      const before = await envText();
+      // compose refuses only the .env with the new keys (the check step reads the services first)
+      const refusing: Runner = async (args, opts) => (args.join(' ') === 'compose config --services' && (await envText()).includes('TAGAVE_MUSIC_BIND_SOURCE')
+        ? { code: 1, stdout: '', stderr: 'invalid interpolation format' }
+        : host(args, opts));
+      const r = moving({ docker: refusing });
+      const run = await r.execute();
+      expect(await envText()).toBe(before);
+      expect(run.log.some((l) => l.level === 'warn' && l.message.startsWith('the music share layout was not changed: docker compose rejects'))).toBe(true);
+      expect(r['parentLayout']).toBe(false);
     });
 
     it('without an image for the helpers, nothing is tried', async () => {

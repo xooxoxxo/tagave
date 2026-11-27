@@ -35,7 +35,7 @@ import type { PartState, RepairCause, RepairRun, RepairStatus, RepairStepId, Upd
 import { envGet, readText } from './envFile.js';
 import { musicBindSourceOf, musicDirOf, type RemountResult } from './music-heal.js';
 import { MUSIC_BOUND, type MusicProber, type MusicReading } from './music-probe.js';
-import { cheapRefusal, moveLayout } from './music-layout.js';
+import { cheapRefusal, hasParentLayout, moveLayout } from './music-layout.js';
 import { Parts, readParts, type PartsResult } from './parts.js';
 import { formatBytes, type StatfsLike } from './preflight-space.js';
 import { ENOSPC, INSPECT_FORMAT, PORT, appPhase, lastErrorLine, parseInspect, partName, postgresRecovering, type ContainerState } from './progress.js';
@@ -459,7 +459,11 @@ export class Repair {
     // The parent layout reads the share even with every part up, so the ending can say the folder is offline.
     if (this.deps.music && (musicDown.length > 0 || unmounted === true || this.parentLayout)) {
       this.progress('checking the music share');
-      this.reading = await this.deps.music.read({ parts: musicDown.map((service) => ({ service, stuck: true })), appUnmounted: unmounted }).catch(() => null);
+      // The direct layout: a music part that does not run is taken as stuck on
+      // the share. The parent layout: only one really stuck counts, so a part
+      // stopped for another reason is started even while the share is silent.
+      const stuck = (service: string) => !this.parentLayout || parts.find((p) => p.service === service)?.state === 'stuck';
+      this.reading = await this.deps.music.read({ parts: musicDown.map((service) => ({ service, stuck: stuck(service) })), appUnmounted: unmounted }).catch(() => null);
       this.run.checkedAt = this.now().toISOString();
       if (this.reading?.verdict === 'music_unreachable') {
         this.note('music_unreachable', musicDown[0] ?? null);
@@ -594,6 +598,9 @@ export class Repair {
         docker: this.runner,
         image: this.deps.layoutImage,
         log: (l, m) => this.log(l, m),
+        // In the incident case an old container of a music part may hang on
+        // the silent share: its `up -d` then waits up to PART_LIMITS.upMs, and
+        // the part goes back to waiting as before. The wait is bounded.
         start: async (services) => {
           this.progress(`starting ${services.map(partName).join(', ')} on the new music share layout`);
           started = await this.parts.startParts(services);
@@ -604,7 +611,15 @@ export class Repair {
         return false;
       }
     } catch (err) {
-      this.log('warn', `the music share layout was not changed: ${(err as Error)?.message ?? String(err)}`);
+      // It may have thrown after .env was written (starting the parts): .env says which layout is in place now.
+      const after = (await readText(join(this.deps.installDir, '.env')).catch(() => null)) ?? env;
+      const why = (err as Error)?.message ?? String(err);
+      if (hasParentLayout(after)) {
+        this.parentLayout = true;
+        this.log('warn', `.env has the parent layout's settings, but the music parts were not started on them: ${why}`);
+      } else {
+        this.log('warn', `the music share layout was not changed: ${why}`);
+      }
       if (this.step('start').status === 'running') Object.assign(this.step('start'), { status: 'pending', startedAt: null });
       return false;
     }
