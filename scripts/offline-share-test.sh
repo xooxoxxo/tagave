@@ -245,9 +245,12 @@ start_scan() {
 # field, which a tag write could leave as it was over changed audio), read on
 # the export side (local disk, never through the mount)
 audio_md5s() {
-  local f
+  local f h
   for f in "$EXPORT/$ALBUM_DIR"/*.flac; do
-    printf '%s %s\n' "$(basename "$f")" "$(flac -d -c -s "$f" | md5sum | cut -d' ' -f1)"
+    # A file that does not decode gets a value no other call can give, so a
+    # before and after that both fail never match.
+    h="$(set -o pipefail; flac -d -c -s "$f" | md5sum | cut -d' ' -f1)" || h="not-decodable-$RANDOM$RANDOM"
+    printf '%s %s\n' "$(basename "$f")" "$h"
   done
 }
 
@@ -451,6 +454,13 @@ api POST "/libraries/$LIB_ID/tag-plans/$PLAN_ID/preview" >/dev/null
 check "the Tag Plan is previewed" wait_until 180 plan_is previewed
 plan_items() { psql_q "select count(*) from tag_plan_items where tag_plan_id = '$PLAN_ID'"; }
 check "the Tag Plan has an item per fixture" test "$(plan_items)" = "$TRACKS"
+
+# Every later step needs a working setup. Stopping here keeps a broken run
+# short, so the trap prints the logs well before the job's time limit.
+if [ "$FAILS" -gt 0 ]; then
+  echo "FAIL setup did not finish; the later steps need it"
+  exit 1
+fi
 
 # ================================================================ 2. NAS off at create
 step "2. NAS off at create"
