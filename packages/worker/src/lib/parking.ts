@@ -55,6 +55,36 @@ export function parkable<T extends object>(
   };
 }
 
+/** A batch handler's output: one job's result as is (pg-boss stores it, `{ parked: true }` included), else the list. */
+export function batchOutput(results: unknown[]): unknown {
+  return results.length === 1 ? results[0] : results;
+}
+
+/**
+ * Runs a batch's jobs side by side (scan.parse, cluster.dir, art.fetch). A job
+ * that fails is failed on its own (boss.fail: retried within its limit), as
+ * identify's handler does; the rest, parked ones included, complete. With
+ * Promise.all one failure would fail the whole batch, and a parked job would
+ * run again and park a second time.
+ */
+export async function settleBatch<J extends { id: string }>(
+  ctx: WorkerContext, queue: string, jobs: J[], run: (job: J) => Promise<unknown>,
+): Promise<unknown> {
+  const settled = await Promise.allSettled(jobs.map(run));
+  const results: unknown[] = [];
+  for (const [i, r] of settled.entries()) {
+    if (r.status === 'fulfilled') {
+      results.push(r.value);
+      continue;
+    }
+    const err = r.reason as Error;
+    ctx.logger.error({ queue, jobId: jobs[i]!.id, err: err?.message }, `${queue} job failed`);
+    await ctx.boss.fail(queue, jobs[i]!.id, { message: err?.message ?? String(err) });
+    results.push(null);
+  }
+  return batchOutput(results);
+}
+
 /**
  * Before file work: parks at once when the root is not online (offline or not
  * connected), without waiting for a gate deadline. A root with no reading yet

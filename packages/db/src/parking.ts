@@ -41,39 +41,78 @@ export function parkedSender(boss: MaintenanceJobQueue): ParkedSender {
   };
 }
 
+/** The scan queues the return's own scan of the root covers (ruling R14). */
+export const COVERED_SCAN_QUEUES: readonly string[] = ['scan.root', 'scan.dir'];
+
+export interface ReleaseOptions {
+  /** Only rows parked before this (a reading's start, database clock): a job that parks during the reading stays. */
+  before?: Date | undefined;
+  /**
+   * The return sends a scan of the root itself: parked scan.root and scan.dir
+   * rows are deleted, not sent. `fullScan` comes back true when one of the
+   * deleted scan.root rows asked for a full scan.
+   */
+  coverScans?: boolean | undefined;
+  /** Each released maintenance task, after the commit (the caller dispatches it). */
+  onTask?: (taskId: string) => void;
+}
+
+export interface Released {
+  /** rows released: sent, covered by the return's scan, or tasks let go */
+  count: number;
+  /** a covered scan.root row asked for mode 'full' */
+  fullScan: boolean;
+}
+
 /**
- * Sends every parked job of the root again and deletes the rows, in one
+ * Sends the root's parked jobs again and deletes the rows, in one
  * transaction with the sends: a send that throws rolls back and leaves every
  * row. A maintenance row lets its task be dispatched again
- * (releaseMaintenanceTask); `onTask` hears of each, so the caller can
- * dispatch it right after the commit. The delete takes the rows first, so a
- * release running beside this one waits and then finds none.
+ * (releaseMaintenanceTask). The delete takes the rows first, so a release
+ * running beside this one waits and then finds none.
  */
-export async function releaseParked(
-  sql: postgres.Sql,
-  rootId: string,
-  send: ParkedSender,
-  onTask?: (taskId: string) => void,
-): Promise<number> {
+export async function releaseParked(sql: postgres.Sql, rootId: string, send: ParkedSender, opts: ReleaseOptions = {}): Promise<number> {
+  return (await releaseParkedRows(sql, rootId, send, opts)).count;
+}
+
+export async function releaseParkedRows(sql: postgres.Sql, rootId: string, send: ParkedSender, opts: ReleaseOptions = {}): Promise<Released> {
+  const before = opts.before?.toISOString() ?? null;
+  // the usual answer (nothing parked) without a transaction
+  const [any] = await sql<{ any: boolean }[]>`
+    select exists (select 1 from parked_jobs where scan_root_id = ${rootId}
+                     and (${before}::timestamptz is null or parked_at < ${before}::timestamptz)) as any`;
+  if (!any?.any) return { count: 0, fullScan: false };
   const tasks: string[] = [];
-  const count = await sql.begin(async (tx) => {
+  const out = await sql.begin(async (tx) => {
     const rows = await tx<{ queue: string; data: Record<string, unknown>; singleton_key: string | null }[]>`
-      with gone as (delete from parked_jobs where scan_root_id = ${rootId} returning *)
+      with gone as (
+        delete from parked_jobs
+        where scan_root_id = ${rootId} and (${before}::timestamptz is null or parked_at < ${before}::timestamptz)
+        returning *)
       select queue, data, singleton_key from gone order by parked_at, id`;
+    let fullScan = false;
     for (const row of rows) {
       if (row.queue === PARKED_MAINTENANCE_QUEUE) {
         const taskId = typeof row.data.taskId === 'string' ? row.data.taskId : null;
         if (!taskId) continue; // a malformed row: nothing to release, deleted with the rest
         await releaseMaintenanceTask(tx, taskId);
         tasks.push(taskId);
+      } else if (opts.coverScans && COVERED_SCAN_QUEUES.includes(row.queue)) {
+        if (row.queue === 'scan.root' && row.data.mode === 'full') fullScan = true;
       } else {
         await send(tx, row.queue, row.data, row.singleton_key);
       }
     }
-    return rows.length;
+    return { count: rows.length, fullScan };
   });
-  if (onTask) for (const id of tasks) onTask(id);
-  return count;
+  if (opts.onTask) for (const id of tasks) opts.onTask(id);
+  return out;
+}
+
+/** The database's clock now: the start of a reading, to compare with parked_at. */
+export async function databaseNow(sql: Q): Promise<Date> {
+  const [row] = await sql<{ ms: number }[]>`select (extract(epoch from clock_timestamp()) * 1000)::float8 as ms`;
+  return new Date(row!.ms);
 }
 
 /** What the folder watch last read on a root: reach and its reason. */
