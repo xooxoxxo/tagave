@@ -112,6 +112,10 @@ PROJECT_NAME="tagave"
 FIRST_REPAIR_RELEASE="0.34.0"
 REPAIR_TOO_OLD="Repair needs tagave $FIRST_REPAIR_RELEASE or newer. Update first, or run the installer again to start the parts."
 REPAIR_SPACE="The repair can't run from a folder whose name has a space. Run the installer again to start the parts."
+# The first release whose updater image has "cli.js music-layout", the
+# one-time move to the parent music layout. Bump it if that release ships
+# under another number.
+FIRST_LAYOUT_RELEASE="0.39.0"
 COMPOSE_MAIN="compose.yml"
 COMPOSE_DB="compose.db-published.yml"
 WORKER_ENV_NAME="files-worker.env"
@@ -2780,6 +2784,8 @@ update_app_computer() {
   # A player that does not come back is reported, not rolled back: tagave
   # itself runs fine without it.
   [ -z "$PLAYER_IMAGE_AFTER" ] || wait_for_player || true
+  # An app computer has no music folder to move.
+  [ "$ROLE" = "app" ] || move_music_layout
 
   step "Old images"
   remove_old_images "$FROM_VERSION" "$TARGET" || warn "Removing old images did not finish; the update itself is done."
@@ -2860,6 +2866,7 @@ update_files_computer() {
     [ "$builds" != "pass" ] || ok "The app and every worker run the same build"
   fi
   ON_DIE=""
+  move_music_layout
   step "Old images"
   remove_old_images "$FROM_VERSION" "$TARGET" || warn "Removing old images did not finish; the update itself is done."
   step "Done"
@@ -3218,14 +3225,16 @@ run_module() {
 }
 
 # run_updater_cli ARGS...: runs cli.js ARGS of the release's own updater image
-# (CURRENT, pinned by its digest when .env has one; pulled when missing) as a
-# one-off container: the Docker socket and this folder mounted, on the
-# install's network so it can ask the app for its health. Returns cli.js's
-# exit status.
+# (CURRENT, or UPDATER_CLI_VERSION when set: the update's target, whose
+# digest apply_release_pins wrote; pinned by its digest when .env has one;
+# pulled when missing) as a one-off container: the Docker socket and this
+# folder mounted, on the install's network so it can ask the app for its
+# health. Returns cli.js's exit status.
+UPDATER_CLI_VERSION=""
 run_updater_cli() {
   local env_file="$INSTALL_DIR/.env" project image digest
   digest="$(env_get TAGAVE_DIGEST_UPDATER "$env_file")"
-  image="$TAGAVE_REGISTRY/tagave-updater:$CURRENT${digest:+@$digest}"
+  image="$TAGAVE_REGISTRY/tagave-updater:${UPDATER_CLI_VERSION:-$CURRENT}${digest:+@$digest}"
   project="$(env_get COMPOSE_PROJECT_NAME "$env_file")"
   project="${project:-$PROJECT_NAME}"
   # These go into docker run's arguments: only plain names get there.
@@ -3246,6 +3255,24 @@ run_updater_cli() {
     -e TAGAVE_INSTALL_DIR="$INSTALL_DIR" \
     --network "${project}_default" \
     --entrypoint node "$image" /opt/tagave/updater/dist/cli.js "$@"
+}
+
+# move_music_layout: after an update to TARGET reported healthy, the one-time
+# move to the parent music layout, "cli.js music-layout --apply" of the
+# target's updater image (it decides, writes the .env keys and starts only
+# the music parts on them; it changes nothing it refuses). Only a release
+# from FIRST_LAYOUT_RELEASE on has it, and only an install folder without
+# whitespace goes into docker run's arguments. Its failure only warns: the
+# update itself is done.
+move_music_layout() {
+  is_release "$TARGET" || return 0
+  ! version_lt "$TARGET" "$FIRST_LAYOUT_RELEASE" || return 0
+  case "$INSTALL_DIR" in *[[:space:]]*) return 0 ;; esac
+  step "Music share layout"
+  # A subshell: a die in run_updater_cli (a download that fails) ends only this step.
+  if ! ( UPDATER_CLI_VERSION="$TARGET"; run_updater_cli music-layout --apply ); then
+    warn "The music share layout was not checked or changed (see above); the update itself is done. Run install-tagave.sh repair to try it again."
+  fi
 }
 
 # ---------------------------------------------------------------------------
