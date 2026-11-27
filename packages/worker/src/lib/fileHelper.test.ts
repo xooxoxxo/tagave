@@ -2,7 +2,10 @@
  * The real file helper (dist/lib/fileHelper.js), forked by the gate, on real
  * temp files. Build first: `pnpm --filter @tagave/worker build`.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, fork, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +27,22 @@ const FLAC_FIXTURE = Buffer.concat([
 type Tree = { [name: string]: string | Buffer | Tree };
 
 const dirs: string[] = [];
+const HELPER = fileURLToPath(new URL('../../dist/lib/fileHelper.js', import.meta.url));
+const forked: ChildProcess[] = [];
+
+/** The built helper, forked by hand, with this environment; its messages collected. */
+function helperWith(env: Record<string, string | undefined>): { child: ChildProcess; messages: Array<Record<string, unknown>> } {
+  const child = fork(HELPER, [], { execArgv: [], env, stdio: ['ignore', 'ignore', 'inherit', 'ipc'], serialization: 'advanced' });
+  forked.push(child);
+  const messages: Array<Record<string, unknown>> = [];
+  child.on('message', (m) => messages.push(m as Record<string, unknown>));
+  return { child, messages };
+}
+
+async function until(cond: () => boolean, ms: number): Promise<boolean> {
+  for (const end = Date.now() + ms; Date.now() < end; await sleep(25)) if (cond()) return true;
+  return cond();
+}
 const savedPython = process.env.TAGAVE_TAGWRITER_PYTHON;
 const gates: FileGate[] = [];
 
@@ -68,6 +87,13 @@ function mutagenAvailable(): boolean {
 
 afterEach(async () => {
   await Promise.all(gates.splice(0).map((g) => g.close()));
+  for (const c of forked.splice(0)) {
+    if (c.exitCode === null && c.signalCode === null) {
+      const gone = new Promise((r) => c.once('exit', r));
+      c.kill('SIGKILL');
+      await gone;
+    }
+  }
   expect(helpers()).toEqual([]);
   await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
   delete process.env.TAGAVE_HELPER_TEST_STOP_AFTER;
@@ -166,7 +192,7 @@ describe('fileHelper', () => {
     const dir = await tree({ 'a.flac': FLAC_FIXTURE });
     const abs = join(dir, 'a.flac');
     const hashBefore = await hashAudioStream(abs, 'flac');
-    // The helper reads the hook at fork, so it is set before the gate forks one.
+    // A helper gets its environment when the gate forks it, so the hook is set first.
     process.env.TAGAVE_HELPER_TEST_STOP_AFTER = 'copy';
     const g = gate({ idleMs: 1_000 });
     await expect(g.run('r', { op: 'writeTagged', path: abs, handlerId: 'audio', values: { title: 'Changed' } })).rejects.toBeInstanceOf(FolderOfflineError);
@@ -182,7 +208,7 @@ describe('fileHelper', () => {
     const abs = join(dir, 'a.flac');
     const fake = join(dir, '.fake-python');
     await writeFile(fake, '#!/bin/sh\necho "tagwriter sidecar started" >&2\nwhile read line; do :; done\n', { mode: 0o755 });
-    // The helper reads these at fork.
+    // A helper gets its environment when the gate forks it, so these are set first.
     process.env.TAGAVE_TAGWRITER_PYTHON = fake;
     process.env.TAGAVE_HELPER_TEST_SIDECAR_MS = '300';
     const g = gate({ idleMs: 10_000 });
@@ -207,4 +233,28 @@ describe('fileHelper', () => {
     expect(JSON.stringify(parsed.metadata)).toContain('Changed');
     expect(await readdir(dir)).toEqual(['a.flac']);
   }, 20_000);
+
+  // Linux only: where /proc/self/io is missing no progress is ever sent, so there is nothing to pin.
+  it.skipIf(!existsSync('/proc/self/io'))('a read hung on a dead share sends no progress, however many ticks pass', async () => {
+    const dir = await tree({});
+    const fifo = join(dir, 'track.flac');
+    execFileSync('mkfifo', [fifo]);
+    const { child, messages } = helperWith({ ...process.env, VITEST: 'true', TAGAVE_HELPER_TEST_PROGRESS_MS: '100' });
+    child.send({ id: 1, rootId: 'r', op: { op: 'readSmall', path: fifo } });
+    await sleep(1_000); // ten ticks: each one reads /proc/self/io, which must not count
+    expect(messages).toEqual([]);
+  });
+
+  it('the test hook does nothing outside tests', async () => {
+    const dir = await tree({ 'a.flac': FLAC_FIXTURE });
+    const abs = join(dir, 'a.flac');
+    const env: Record<string, string | undefined> = { ...process.env, TAGAVE_HELPER_TEST_STOP_AFTER: 'copy', TAGAVE_TAGWRITER_PYTHON: '/nonexistent/python' };
+    delete env.VITEST;
+    delete env.NODE_ENV;
+    const { child, messages } = helperWith(env);
+    child.send({ id: 1, rootId: 'r', op: { op: 'writeTagged', path: abs, handlerId: 'audio', values: { title: 'Changed' } } });
+    // Without the hook the write goes on to the writer, which is not there: an answer, not a hang.
+    expect(await until(() => messages.some((m) => m.id === 1 && 'ok' in m), 5_000)).toBe(true);
+    expect(Buffer.compare(await readFile(abs), FLAC_FIXTURE)).toBe(0);
+  }, 10_000);
 });

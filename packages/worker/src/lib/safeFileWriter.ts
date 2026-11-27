@@ -50,7 +50,7 @@ function failed(error: string, code: string, cause?: unknown): WriteResult {
 /**
  * Writes `values` to the file through `handler`, safely: hash before → free
  * space → temp copy → handler write → re-read and compare the fields → hash
- * compare → rename over the original (when it did not change meanwhile) →
+ * compare → fsync the new file → rename over the original (when it did not change meanwhile) →
  * fsync the folder. A failure at any step leaves the original untouched and
  * returns {error, code}; a cut-off run leaves the original or the new file,
  * plus at most a `.tagave-tmp-*` copy beside it.
@@ -171,7 +171,20 @@ async function runWriteSteps(filePath: string, steps: Steps): Promise<WriteResul
       return { error: 'Audio-stream hash mismatch after write', code: 'hash_mismatch' };
     }
 
-    // 6. Atomic rename - replace original with temp
+    // 6. The new file's bytes on disk before it takes the original's name (power loss).
+    try {
+      const fh = await fs.open(tempFilePath, 'r');
+      try {
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+    } catch (syncError) {
+      await cleanup(tempFilePath);
+      return failed(`fsync_failed: ${messageOf(syncError)}`, 'fsync_error', syncError);
+    }
+
+    // 7. Atomic rename - replace original with temp
     try {
       await steps.beforePublish?.();
       const current = await fs.lstat(filePath, { bigint: true });
@@ -185,7 +198,7 @@ async function runWriteSteps(filePath: string, steps: Steps): Promise<WriteResul
       return failed(`rename_failed: ${messageOf(renameError)}`, 'rename_error', renameError);
     }
 
-    // 7. fsync directory to ensure rename is durable
+    // 8. fsync directory to ensure rename is durable
     try {
       await fsyncDirectory(dir);
     } catch (fsyncError) {
