@@ -112,20 +112,21 @@ export function jobLabel(type: string, subjectName?: string | null): string {
 export interface ParkedRow {
   id: string;
   queue: string;
-  /** for a parked maintenance task (queue 'maintenance'): the task's own queue */
-  taskQueue: string | null;
   rootName: string | null;
   parkedAt: Date | string;
 }
 
-/** Work held for an offline music folder: Waiting, "Music folder offline". It starts again on its own. */
+/**
+ * Work held for an offline music folder: Waiting, "Music folder offline". It
+ * starts again on its own. (A parked maintenance task is not one of these: the
+ * route leaves it to the Maintenance section.)
+ */
 export function parkedJobView(row: ParkedRow): JobView {
   const at = toIso(row.parkedAt) ?? new Date().toISOString();
-  const type = row.queue === 'maintenance' ? row.taskQueue ?? row.queue : row.queue;
   return {
     id: row.id,
-    type,
-    label: jobLabel(type, row.rootName),
+    type: row.queue,
+    label: jobLabel(row.queue, row.rootName),
     status: 'waiting',
     summary: 'Music folder offline',
     error: null,

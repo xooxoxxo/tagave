@@ -9,7 +9,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { PAUSED_OFFLINE_STAGE, type MaintenanceTaskView } from '@tagave/shared';
 import { MaintenanceTaskStatusView } from './MaintenanceTaskStatus';
 import { MoveError } from '../pages/MovedPage';
-import { movedToast } from '../utils/offlinePaused';
+import { movedToast, undoneToast } from '../utils/offlinePaused';
+import { MoveStatus } from './MoveSheet';
 import { PlanStatusBadge } from './PlanStatusBadge';
 import { planStatusView } from '../utils/planStatus';
 
@@ -49,10 +50,26 @@ describe('a split paused while the music folder is offline', () => {
 });
 
 describe('a move cut off by the offline folder', () => {
-  it('reads as paused, with its help behind "?"', () => {
+  it('reads as paused in Moved, quiet and with no "?" (a move offers only Undo)', () => {
     const html = renderToStaticMarkup(<div><MoveError error={PAUSED_OFFLINE_STAGE} /></div>);
-    expect(visible(html)).toBe('Paused while the music folder is offline?'); // the line, then the "?"
-    expect(hidden(html)).toBe('Press Continue when the folder is back.');
+    expect(visible(html)).toBe('Paused while the music folder is offline');
+    expect(html).not.toContain('Help:');
+    expect(html).not.toContain('Press Continue');
+  });
+
+  it('reads as paused in the move sheet, not in danger, with no "?"', () => {
+    const paused = renderToStaticMarkup(<MoveStatus status={PAUSED_OFFLINE_STAGE} failed={false} />);
+    expect(visible(paused)).toBe('Paused while the music folder is offline');
+    expect(paused).not.toContain('Help:');
+    expect(paused).not.toContain('statusFailed');
+    expect(renderToStaticMarkup(<MoveStatus status="Name taken" failed />)).toContain('statusFailed');
+  });
+
+  it('an undo cut off by the folder says so quietly; any other end of an undo as before', () => {
+    expect(undoneToast({ state: 'done', error: PAUSED_OFFLINE_STAGE })).toEqual({ message: 'Paused while the music folder is offline' });
+    expect(undoneToast({ state: 'undone', error: null })).toEqual({ message: 'Undone' });
+    expect(undoneToast({ state: 'failed', error: 'Disk full' })).toEqual({ message: 'Disk full', tone: 'danger' });
+    expect(undoneToast(null)).toEqual({ message: 'Not undone', tone: 'danger' });
   });
 
   it('keeps any other error as it was', () => {

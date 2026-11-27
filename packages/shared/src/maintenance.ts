@@ -17,8 +17,10 @@ export const maintenanceTaskSchema = z.object({
   actions: z.array(z.enum(['retry', 'continue', 'cancel', 'restore-original'])),
   /**
    * Paused for a music folder (checkpoint.offlineRootId): true while that
-   * folder is offline or not connected, and Continue is refused; false once
-   * it is back (or was removed). Absent for a task that never paused for one.
+   * folder is enabled and offline or not connected, and Continue is refused.
+   * False once it is back, removed, or turned off: the folder watch reads only
+   * enabled folders, so a turned-off folder's reach is frozen and waiting on
+   * it would refuse Continue for good. Absent for a task that never paused for one.
    */
   waitsForFolder: z.boolean().optional(),
 }).strict();

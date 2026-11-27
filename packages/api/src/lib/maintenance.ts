@@ -50,8 +50,11 @@ function pausedFor(row: MaintenanceRow): string | null {
 
 /**
  * The music folders some of these tasks paused for that are still offline or
- * not connected (enabled roots only: a folder removed or turned off is not
- * waited for). No query when no task paused for a folder.
+ * not connected, among enabled roots only. A folder removed since is not
+ * waited for. Nor is a folder turned off since: the folder watch reads only
+ * enabled roots, so a turned-off root's reach stays frozen at what it last
+ * read (offline, say), and waiting on it would refuse Continue for good.
+ * No query when no task paused for a folder.
  */
 export async function foldersAway(rows: readonly MaintenanceRow[]): Promise<ReadonlySet<string>> {
   if (!rows.some((row) => pausedFor(row) !== null)) return new Set();

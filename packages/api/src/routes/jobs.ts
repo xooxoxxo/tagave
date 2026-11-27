@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, desc, gte, notInArray, sql } from 'drizzle-orm';
-import { libraries, jobRuns, scanRoots } from '@tagave/db';
+import { PARKED_MAINTENANCE_QUEUE, libraries, jobRuns, scanRoots } from '@tagave/db';
 import type { JobView, JobsListResponse, JobsSummary } from '@tagave/shared';
 import { JOB_EVENTS_CHANNEL, LEGACY_JOB_EVENTS_CHANNEL } from '@tagave/shared/job';
 import { getDb, getSql } from '../db.js';
@@ -74,15 +74,15 @@ const PARKED_ROWS = 500;
 /**
  * Work held for the library's offline music folders (parked_jobs, 0097), one
  * view per row, newest first: Waiting, "Music folder offline". A parked
- * maintenance task is named by its own queue.
+ * maintenance task (queue 'maintenance') is left out: the page's Maintenance
+ * section already shows that task waiting, and one piece of work is one item.
  */
 export async function loadParkedViews(sql: ReturnType<typeof getSql>, libraryId: string): Promise<JobView[]> {
   const rows = await sql<ParkedRow[]>`
-    select p.id::text as id, p.queue, t.queue as "taskQueue", r.display_name as "rootName", p.parked_at as "parkedAt"
+    select p.id::text as id, p.queue, r.display_name as "rootName", p.parked_at as "parkedAt"
       from parked_jobs p
       join scan_roots r on r.id = p.scan_root_id
-      left join maintenance_tasks t on p.queue = 'maintenance' and t.id::text = p.data ->> 'taskId'
-     where r.library_id = ${libraryId}
+     where r.library_id = ${libraryId} and p.queue <> ${PARKED_MAINTENANCE_QUEUE}
      order by p.parked_at desc
      limit ${PARKED_ROWS}`;
   return rows.map(parkedJobView);

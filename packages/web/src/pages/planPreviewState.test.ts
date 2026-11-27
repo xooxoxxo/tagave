@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TagPlanPreviewJob } from '@tagave/shared';
-import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan, type PreviewInput } from './planPreviewState';
+import { awaitAfterPreview, canPreview, derivePreviewState, planPollMs, progressSignature, shouldPollPlan, type PreviewInput } from './planPreviewState';
 import { previewTagPlanOptions } from '../hooks/usePlanWizard';
 
 const base: PreviewInput = {
@@ -108,6 +108,14 @@ describe('re-preview of a previewed plan', () => {
     expect(shouldPollPlan({ previewRequested: false, jobActive: false, awaiting: null, status: 'applying' })).toBe(true);
     expect(shouldPollPlan({ previewRequested: false, jobActive: false, awaiting: null, status: 'paused' })).toBe(true);
     expect(shouldPollPlan({ previewRequested: false, jobActive: false, awaiting: null, status: 'applied' })).toBe(false);
+  });
+
+  it('looks slowly at a plan waiting for its music folder, so it moves on to applying by itself', () => {
+    const idle = { polling: false, splitsWaiting: false, applyWaiting: false };
+    expect(planPollMs({ ...idle, status: 'waiting' })).toBe(5000);
+    expect(planPollMs({ ...idle, status: 'applied' })).toBe(false);
+    expect(planPollMs({ ...idle, polling: true, status: 'waiting' })).toBe(2000);
+    expect(planPollMs({ ...idle, splitsWaiting: true, status: 'previewed' })).toBe(5000);
   });
 
   it('refetches the plan, its items and its summary once POST /preview succeeds', () => {

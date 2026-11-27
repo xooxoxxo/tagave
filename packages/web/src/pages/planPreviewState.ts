@@ -93,6 +93,17 @@ export function shouldPollPlan(i: {
 }
 
 /**
+ * How often the plan page reads the plan: every 2 s while it polls
+ * (shouldPollPlan); every 5 s while splits or the apply task wait, or while
+ * the plan waits for its music folder ('waiting'), so the page moves on to
+ * applying by itself when the folder is back; otherwise not.
+ */
+export function planPollMs(i: { polling: boolean; splitsWaiting: boolean; applyWaiting: boolean; status: string | undefined }): number | false {
+  if (i.polling) return 2000;
+  return i.splitsWaiting || i.applyWaiting || i.status === 'waiting' ? 5000 : false;
+}
+
+/**
  * The status the page waits to see change after POST /preview succeeds.
  * A previewed plan goes back to draft on the server, and until the page sees
  * that it must keep polling, or it would go on showing the old diff with
