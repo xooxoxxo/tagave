@@ -69,7 +69,7 @@ export type SavePlayerServer = z.infer<typeof savePlayerServerSchema>;
  *  - not_scanned  the server has not seen the file yet (tagave asked it to scan)
  *  - no_file      the file is missing or unreadable in tagave's own scan
  *  - cue          a track inside a CUE image (one file, many tracks): not supported yet
- *  - offline      the album's music folder is offline or not connected (scan_roots.reach)
+ *  - offline      the track's music folder is offline or not connected (scan_roots.reach)
  */
 export const unplayableReasonSchema = z.enum(['not_scanned', 'no_file', 'cue', 'offline']);
 export type UnplayableReason = z.infer<typeof unplayableReasonSchema>;
