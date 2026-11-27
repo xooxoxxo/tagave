@@ -18,7 +18,10 @@ export class FolderOfflineError extends Error {
   }
 }
 
-/** The error codes that mean the share is gone, not that one file is bad. */
+/**
+ * The error codes that mean the share is gone, not that one file is bad.
+ * Keep in step with the code-to-reason table in folderWatch/reach.ts (OFFLINE_CODES there).
+ */
 export const OFFLINE_CODES = new Set(['EIO', 'ETIMEDOUT', 'ESTALE', 'EHOSTDOWN', 'ENOTCONN']);
 
 /** A FolderOfflineError, or an error whose `code` is an offline code. */

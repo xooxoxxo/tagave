@@ -18,6 +18,7 @@ export interface Reading {
   reason: ReachReason | null;
 }
 
+// Keep in step with OFFLINE_CODES in ../folderOffline.ts (the codes the file gate reads as offline).
 const OFFLINE_CODES = new Map<string, ReachReason>([
   ['EIO', 'io_error'],
   ['ETIMEDOUT', 'timeout'],
