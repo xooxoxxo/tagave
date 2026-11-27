@@ -11,7 +11,8 @@
  *                                                    yet, its latest scan was stopped by the LIB-5 guard); reach per
  *                                                    enabled root, which older updaters ignore
  *   POST /api/v1/internal/updater/music-heal         { phase: 'start' } | { phase: 'done', ok, reason }: an audit entry
- *                                                    per step; a heal that mounted it queues a scan of each aborted root
+ *                                                    per step; a heal that mounted it rescans the roots it concerned
+ *                                                    (healTargets: unmounted, or legacy with no reading; never offline)
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { MUSIC_HEAL_REASONS, musicFolderNotice, healTargets, musicFolderState, musicLooksUnmounted, recordMusicHeal, rootReaches, type MusicHealReason } from '@tagave/db';
