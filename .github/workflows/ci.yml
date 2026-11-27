@@ -199,8 +199,11 @@ jobs:
   # pull requests get it too.
   offline-share:
     needs: gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Pinned like gates: ubuntu-latest moved to 26.04.
+    runs-on: ubuntu-24.04
+    # The script's own waits add up to well under this, so its trap prints the
+    # logs before a cancel.
+    timeout-minutes: 60
     env:
       OFFLINETEST_IMAGE_TAG: offlinetest-${{ github.run_id }}
     steps:
@@ -210,6 +213,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nfs-kernel-server flac
+          # The script exports the share from a file of its own in here.
+          sudo mkdir -p /etc/exports.d
           sudo systemctl start nfs-kernel-server
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
