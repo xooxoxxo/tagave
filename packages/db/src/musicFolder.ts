@@ -103,3 +103,73 @@ export async function recordMusicHeal(sql: Q, entry: { phase: 'start' } | { phas
   await sql`insert into audit_log (library_id, actor_user_id, action, subject_type, payload)
             values (null, null, ${action}, 'music_folder', ${JSON.stringify(payload)}::text::jsonb)`;
 }
+
+/**
+ * Music folder reach (0097, vault "tagave - Offline Library Spec" §2 "The
+ * folder watch"): what the file worker's folder watch last saw on a root.
+ * copy of @tagave/shared musicFolder.ts (db does not depend on shared);
+ * api › reachCopies.test.ts checks they agree.
+ */
+export const ROOT_REACH_VALUES = ['unknown', 'online', 'offline', 'unmounted'] as const;
+export type RootReach = (typeof ROOT_REACH_VALUES)[number];
+export const ROOT_REACH_REASONS = ['server_silent', 'timeout', 'io_error', 'stale', 'empty', 'not_mounted'] as const;
+export type RootReachReason = (typeof ROOT_REACH_REASONS)[number];
+
+/** How many of a root's present files the watch asks about (the `checkMusicFolder` sample rule). */
+const KNOWN_SAMPLE = 5;
+
+export interface RootToWatch {
+  id: string;
+  path: string;
+  displayName: string;
+  reach: RootReach;
+  reachSince: Date | null;
+  /** up to 5 present files, relative to the root */
+  known: string[];
+}
+
+/** Every enabled root, with its last reach and a few present files the probe looks for. */
+export async function rootsToWatch(sql: Q): Promise<RootToWatch[]> {
+  const rows = await sql<Array<{ id: string; path: string; display_name: string; reach: string; since_ms: number | null; known: string[] | null }>>`
+    select sr.id, sr.path, sr.display_name, sr.reach,
+           -- epoch ms: drizzle makes timestamps come back raw (text) on the shared client
+           (extract(epoch from sr.reach_since) * 1000)::float8 as since_ms,
+           array(select f.rel_path from files f
+                  where f.scan_root_id = sr.id and f.status = 'present'
+                  limit ${KNOWN_SAMPLE}) as known
+      from scan_roots sr
+     where sr.enabled
+     order by sr.path`;
+  return rows.map((r) => ({
+    id: r.id,
+    path: r.path,
+    displayName: r.display_name,
+    reach: (ROOT_REACH_VALUES as readonly string[]).includes(r.reach) ? (r.reach as RootReach) : 'unknown',
+    reachSince: r.since_ms === null ? null : new Date(r.since_ms),
+    known: r.known ?? [],
+  }));
+}
+
+/**
+ * One reading of a root. Always stamps `reach_checked_at`. On a change
+ * (`changed`) it sets `reach`, `reach_reason` and `reach_since`. While the
+ * root stays offline or not connected it also writes the reason, which can
+ * change without a change of reach (server_silent, then timeout); `reach_since`
+ * still moves only with `reach`.
+ */
+export async function recordReach(
+  sql: Q,
+  rootId: string,
+  next: { reach: RootReach; reason: RootReachReason | null; since: Date | null; changed: boolean },
+): Promise<void> {
+  // An ISO string: drizzle makes timestamps pass through raw on the shared client.
+  if (next.changed) {
+    await sql`update scan_roots
+                 set reach = ${next.reach}, reach_reason = ${next.reason}, reach_since = ${next.since?.toISOString() ?? null}::timestamptz, reach_checked_at = now()
+               where id = ${rootId}`;
+  } else if (next.reach !== 'online' && next.reach !== 'unknown') {
+    await sql`update scan_roots set reach_reason = ${next.reason}, reach_checked_at = now() where id = ${rootId}`;
+  } else {
+    await sql`update scan_roots set reach_checked_at = now() where id = ${rootId}`;
+  }
+}
