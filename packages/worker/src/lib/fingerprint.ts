@@ -42,7 +42,7 @@ export async function fpcalcFingerprint(path: string, opts: { rootId: string; le
   const bin = opts.fpcalc ?? process.env['FPCALC'] ?? 'fpcalc';
   const r = await runTool(bin, ['-json', '-length', String(opts.lengthS ?? FPCALC_LENGTH_S), path],
     { rootId: opts.rootId, idleMs: IDLE_MS, maxStdout: 4 * 1024 * 1024 },
-    `${bin} not found — install libchromaprint-tools on this host or set FPCALC`);
+    `${bin} not found. Install libchromaprint-tools on this host or set FPCALC`);
   if (r.code !== 0) throw new Error(`fpcalc failed: ${lastLines(r.stderr) || `exit ${r.code}`}`);
   let parsed: { duration?: number; fingerprint?: string };
   try {
@@ -75,7 +75,7 @@ export async function fpcalcSliceFingerprint(
   if (dec.code !== 0) throw new Error(`fpcalc slice failed: ${lastLines(dec.stderr) || `ffmpeg exit ${dec.code}`}`);
   const fp = await runTool(fpcalc, ['-json', '-format', 's16le', '-rate', '44100', '-channels', '2', '-length', String(lengthS), '-'],
     { rootId: opts.rootId, idleMs: IDLE_MS, input: dec.stdout, maxStdout: 4 * 1024 * 1024 },
-    `${fpcalc} not found — install libchromaprint-tools or set FPCALC`);
+    `${fpcalc} not found. Install libchromaprint-tools or set FPCALC`);
   try {
     const parsed = JSON.parse(fp.stdout.toString()) as { fingerprint?: string };
     if (fp.code === 0 && parsed.fingerprint) return parsed.fingerprint;

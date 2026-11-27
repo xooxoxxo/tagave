@@ -154,7 +154,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
 
   // LIB-5: previously non-empty root that now yields nothing = unmounted share.
   if (walk.looksUnmounted) {
-    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing' + finishNotes(walk), { unmounted: true });
+    await fail('aborted', 'root yielded zero files but previously had files: treating as unmounted, nothing marked missing' + finishNotes(walk), { unmounted: true });
     return;
   }
 

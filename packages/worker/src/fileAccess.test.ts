@@ -109,6 +109,8 @@ const MM_IMPORT = /\bimport\s+(?!type\b)([^;]*?)\s*from\s*['"]music-metadata['"]
 const MM_DYNAMIC = /\b(?:import|require)\s*\(\s*['"]music-metadata['"]\s*\)/g;
 /** A file type handler's own file call (`handler.parse(`, `fileHandler?.write(`, ...). */
 const HANDLER_CALL = /\b\w*andler\s*[!?]?\s*\??\.\s*(?:parse|contentHash|cover|write)\s*\(/g;
+/** createRequire: a require of its own, which loads fs (or anything) out of sight of the import checks. */
+const CREATE_REQUIRE = /\bcreateRequire\b/g;
 
 /** Every place in `text` (comments out) that reaches a file outside the gate, as `line: what`. */
 function fileAccessIn(text: string): Array<{ line: number; what: string }> {
@@ -124,6 +126,7 @@ function fileAccessIn(text: string): Array<{ line: number; what: string }> {
   }
   for (const m of code.matchAll(MM_DYNAMIC)) found.push({ line: lineOf(m.index!), what: 'loads music-metadata' });
   for (const m of code.matchAll(HANDLER_CALL)) found.push({ line: lineOf(m.index!), what: `calls a file type handler: ${m[0].trim()}` });
+  for (const m of code.matchAll(CREATE_REQUIRE)) found.push({ line: lineOf(m.index!), what: 'uses createRequire' });
   return found.sort((a, b) => a.line - b.line);
 }
 
@@ -138,6 +141,11 @@ describe('the file access rule reads code, not comments', () => {
       "import { stat as s } from \"node:fs\";",
     ].join('\n');
     expect(fileAccessIn(text).map((h) => h.line)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('sees createRequire, the require that hides an fs load', () => {
+    const text = "import { createRequire } from 'node:module';\nconst req = createRequire(import.meta.url);\nconst f = req('node:' + 'fs');";
+    expect(fileAccessIn(text).map((h) => h.line)).toEqual([1, 2]);
   });
 
   it('sees parseFile from music-metadata, not its types', () => {

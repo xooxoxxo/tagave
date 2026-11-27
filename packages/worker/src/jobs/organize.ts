@@ -131,7 +131,15 @@ const albumKey = (f: Record<string, unknown>) => {
 async function canWrite(rootId: string, root: string, dir: string): Promise<boolean> {
   for (let d = dir; ; d = path.posix.dirname(d)) {
     const abs = path.join(root, d === '.' ? '' : d);
-    if (await gateExists(rootId, abs)) {
+    let there: boolean;
+    try {
+      there = await gateExists(rootId, abs);
+    } catch (err) {
+      // a folder it cannot look into (EACCES) takes no new entries either
+      if (isOfflineError(err) || isGateFailure(err)) throw err;
+      return false;
+    }
+    if (there) {
       try {
         await fileGate().run(rootId, { op: 'access', path: abs, mode: W_OK });
         return true;

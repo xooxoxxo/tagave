@@ -41,7 +41,7 @@ async function runFfmpeg(ffmpeg: string, args: string[], opts: GuardedOptions): 
     return await spawnGuarded(ffmpeg, args, { ...opts, nice: NICE });
   } catch (err) {
     if (err instanceof FolderOfflineError) throw err;
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`${ffmpeg} not found — install ffmpeg on this host or set FFMPEG`);
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`${ffmpeg} not found. Install ffmpeg on this host or set FFMPEG`);
     throw err;
   }
 }
