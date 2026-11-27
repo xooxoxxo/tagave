@@ -41,7 +41,7 @@ import {
 import { formatDateTime, formatRelativeTime } from '../utils';
 import { applyToast, planStatusView, planUsesId3, diffRowKind, diffValueText } from '../utils/planStatus';
 import styles from './PlanPage.module.css';
-import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan } from './planPreviewState';
+import { awaitAfterPreview, canPreview, derivePreviewState, planPollMs, progressSignature, shouldPollPlan } from './planPreviewState';
 import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
 import { pairingOf } from './planPairing';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
@@ -276,7 +276,8 @@ export function PlanPage() {
   const splitsWaiting = planQ.data?.splits?.some((split) => split.state === 'analyzing' || split.task?.workerAvailable === false);
   const applyTask = planQ.data?.applyTask;
   const applyWaiting = applyTask && (applyTask.state === 'waiting' || applyTask.state === 'running' || !applyTask.workerAvailable);
-  const liveQ = useTagPlan(libraryId, planId, { refetchInterval: polling ? 2000 : splitsWaiting || applyWaiting ? 5000 : false });
+  // a plan waiting for its music folder is read every 5 s, so it moves on to applying by itself
+  const liveQ = useTagPlan(libraryId, planId, { refetchInterval: planPollMs({ polling, splitsWaiting: !!splitsWaiting, applyWaiting: !!applyWaiting, status }) });
   const p = liveQ.data ?? planQ.data;
 
   useEffect(() => {

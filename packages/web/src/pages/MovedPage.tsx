@@ -8,23 +8,17 @@ import { PAUSED_OFFLINE_STAGE, type MoveListItem } from '@tagave/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCurrentLibrary } from '../hooks';
 import { invalidateAfterMove, useMoves, useUndoMove } from '../hooks/useAlbumMove';
-import { Button, EmptyState, HelpToggle, showToast } from '../components/ui';
-import { PAUSED_OFFLINE_HELP } from '../utils/offlinePaused';
+import { Button, EmptyState, showToast } from '../components/ui';
 import styles from './DeletingPage.module.css';
 
 /**
- * A move's error. One cut off by an offline music folder reads as paused,
- * with its help behind "?" (inside a wrapping flex row, its hint takes a
- * line of its own); the owner's Undo finishes it once the folder is back.
+ * A move's error. One cut off by an offline music folder reads as paused, in
+ * the quiet live tone, with no "?": a move offers only Undo, which finishes
+ * the put-back once the folder is back (the split's "Press Continue" help
+ * would point at a button a move does not have).
  */
 export function MoveError({ error }: { error: string }) {
-  if (error !== PAUSED_OFFLINE_STAGE) return <span className={styles.error}>{error}</span>;
-  return (
-    <>
-      <span className={styles.live}>{PAUSED_OFFLINE_STAGE}</span>
-      <HelpToggle label={PAUSED_OFFLINE_STAGE}>{PAUSED_OFFLINE_HELP}</HelpToggle>
-    </>
-  );
+  return <span className={error === PAUSED_OFFLINE_STAGE ? styles.live : styles.error}>{error}</span>;
 }
 
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -60,15 +54,14 @@ export function MovedPanel() {
                     ? <Link to="/albums/$albumId" params={{ albumId: m.targetAlbumId }} className={styles.album}>{m.title}</Link>
                     : <span className={styles.album}>{m.title}</span>}
                 </p>
-                {/* a div: a paused move's "?" opens a block hint inside it */}
-                <div className={styles.meta}>
+                <p className={styles.meta}>
                   {KIND[m.kind] && <span>{KIND[m.kind]}</span>}
                   {m.artist && <span>{m.artist}</span>}
                   <span>{m.files === 1 ? '1 song' : `${m.files} songs`}</span>
                   {m.finishedAt && <span>{shortDate(m.finishedAt)}</span>}
                   {STATE[m.state] && <span className={styles.live}>{STATE[m.state]}</span>}
                   {m.error && <MoveError error={m.error} />}
-                </div>
+                </p>
                 {m.fromDir !== null && m.toDir && <p className={styles.meta}><span>{m.fromDir || '/'} → {m.toDir}</span></p>}
               </div>
               <div className={styles.actions}>

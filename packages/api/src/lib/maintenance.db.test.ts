@@ -164,6 +164,15 @@ describe.skipIf(!adminUrl)('maintenance task delivery', () => {
       // a folder removed since is not waited for
       await sql`update maintenance_tasks set state = 'interrupted', checkpoint = ${sql.json({ offlineRootId: randomUUID() })} where id = ${task.id}`;
       expect((await app.inject({ url: `${base}/${task.id}` })).json()).toMatchObject({ waitsForFolder: false, actions: ['continue'] });
+
+      // a folder turned off since still reads offline (the watch reads only enabled
+      // folders, so its reach is frozen): not waited for, or Continue would wait for good
+      await sql`update scan_roots set reach = 'offline', enabled = false where id = ${root!.id}`;
+      await sql`update maintenance_tasks set state = 'interrupted', checkpoint = ${sql.json({ offlineRootId: root!.id })} where id = ${task.id}`;
+      expect((await app.inject({ url: `${base}/${task.id}` })).json()).toMatchObject({ waitsForFolder: false, actions: ['continue'] });
+      const turnedOff = await app.inject({ method: 'POST', url: `${base}/${task.id}/continue` });
+      expect(turnedOff.statusCode).toBe(200);
+      expect(turnedOff.json()).toMatchObject({ state: 'waiting' });
     } finally {
       bossHolder.boss = undefined;
       await app.close();

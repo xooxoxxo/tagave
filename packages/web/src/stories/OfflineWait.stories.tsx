@@ -22,18 +22,18 @@ const plans = () => (
     <PlanStatusBadge view={planStatusView('paused', null, PAUSED_OFFLINE_STAGE)} />
   </div>
 );
-// a row of Library care › Moved: the move the offline folder cut off, its Undo unchanged
+// a row of Library care › Moved: the move the offline folder cut off, quiet and with no "?" (Undo is its action)
 const movedRow = () => (
   <ul className={moved.list}>
     <li className={moved.row}>
       <div className={moved.body}>
         <p className={moved.title}><span className={moved.album}>Funeral</span></p>
-        <div className={moved.meta}>
+        <p className={moved.meta}>
           <span>Arcade Fire</span>
           <span>4 songs</span>
           <span>24 Nov</span>
           <MoveError error={PAUSED_OFFLINE_STAGE} />
-        </div>
+        </p>
       </div>
     </li>
   </ul>
@@ -48,7 +48,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: 'Work the offline music folder holds. A split paused while the folder is offline says so, its help behind "?", and Continue stays off until the folder is back (the API refuses it too). A tag plan waiting for the folder, or paused by a split it cut off, keeps its help behind the "?" next to its status. A move cut off reads as paused in Library care › Moved, and Undo stays the owner\'s action.',
+        component: 'Work the offline music folder holds. A split paused while the folder is offline says so, its help behind "?", and Continue stays off until the folder is back (the API refuses it too). A tag plan waiting for the folder, or paused by a split it cut off, keeps its help behind the "?" next to its status. A move cut off reads as paused in Library care › Moved, in the quiet tone and with no "?": Undo stays its only action.',
       },
     },
   },

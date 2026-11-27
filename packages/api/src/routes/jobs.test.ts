@@ -93,6 +93,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('loadJobRows (db)', () => {
       values (${rootId}, 'tags.apply', ${JSON.stringify({ planId: randomUUID() })}::text::jsonb, null, 'server_silent') returning id::text as id`;
     await sql`insert into parked_jobs (scan_root_id, queue, data, singleton_key, reason)
       values (${otherRoot}, 'scan.root', ${JSON.stringify({ scanRootId: otherRoot })}::text::jsonb, ${`scan:${otherRoot}`}, 'timeout')`;
+    // a parked maintenance task is the Maintenance section's item (the task row shows it waiting), never a second one here
+    const taskId = randomUUID();
+    await sql`insert into parked_jobs (scan_root_id, queue, data, singleton_key, reason)
+      values (${rootId}, 'maintenance', ${JSON.stringify({ taskId })}::text::jsonb, ${`maintenance:${taskId}`}, 'timeout')`;
     const parked = await loadParkedViews(sql, libraryId);
     expect(parked.map((v) => v.id).sort()).toEqual([scan!.id, tags!.id].sort());
     expect(parked.find((v) => v.id === scan!.id)).toMatchObject({ label: 'Scan Music', status: 'waiting', summary: 'Music folder offline' });

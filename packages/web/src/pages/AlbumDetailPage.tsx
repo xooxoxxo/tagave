@@ -91,7 +91,7 @@ import { useDeleteAction, useHiddenDeletions } from './deleteAction';
 import { useLeaveDeleted } from '../hooks/useLeaveDeleted';
 import { UNDO_MS } from './collectionRemoval';
 import { invalidateAfterMove, useUndoMove } from '../hooks/useAlbumMove';
-import { movedToast } from '../utils/offlinePaused';
+import { movedToast, undoneToast } from '../utils/offlinePaused';
 import type { AlbumMoveView } from '@tagave/shared';
 
 const AddToPlaylistSheet = lazy(() => import('../components/player/TrackDrawer').then((m) => ({ default: m.AddToPlaylistSheet })));
@@ -1122,7 +1122,8 @@ export function AlbumDetailPage() {
             const poll = async (left: number): Promise<void> => {
               const v = await api.get<AlbumMoveView>(`/libraries/${libraryId}/moves/${view.id}`).catch(() => null);
               if (v && (v.state === 'undoing' || v.state === 'moving') && left > 0) { setTimeout(() => void poll(left - 1), 1000); return; }
-              updateToast(id, { message: v?.state === 'undone' ? 'Undone' : v?.error ?? 'Not undone', ...(v?.state === 'undone' ? {} : { tone: 'danger' as const }), durationMs: 5000 });
+              // an undo the offline folder cut off says so quietly, as Moved shows it
+              updateToast(id, { ...undoneToast(v), durationMs: 5000 });
               await invalidateAfterMove(queryClient, libraryId);
               setTimeout(again, 4000);
             };

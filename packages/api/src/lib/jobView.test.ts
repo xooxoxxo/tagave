@@ -52,15 +52,13 @@ describe('jobLabel', () => {
 describe('parkedJobView', () => {
   it('shows work held for an offline music folder as Waiting, Music folder offline', () => {
     const at = '2026-11-24T14:02:00.000Z';
-    const view = parkedJobView({ id: ROOT, queue: 'scan.root', taskQueue: null, rootName: 'Music', parkedAt: at });
+    const view = parkedJobView({ id: ROOT, queue: 'scan.root', rootName: 'Music', parkedAt: at });
     expect(view).toEqual({
       id: ROOT, type: 'scan.root', label: 'Scan Music', status: 'waiting', summary: 'Music folder offline',
       error: null, progress: null, startedAt: null, finishedAt: null, createdAt: at, at,
       routine: false, retryable: false, resolvedAt: null, retrying: false, needsAttention: false,
     } satisfies JobView);
-    // a parked maintenance task is named by the task's own queue
-    expect(parkedJobView({ id: ROOT, queue: 'maintenance', taskQueue: 'tags.apply', rootName: 'Music', parkedAt: new Date(at) }).label).toBe('Write tags');
-    expect(parkedJobView({ id: ROOT, queue: 'maintenance', taskQueue: null, rootName: 'Music', parkedAt: at }).label).toBe('Background task');
+    expect(parkedJobView({ id: ROOT, queue: 'tags.apply', rootName: 'Music', parkedAt: new Date(at) }).label).toBe('Write tags');
   });
 });
 
