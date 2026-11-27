@@ -63,7 +63,9 @@
  * successful run it is replaced last, by a one-off container, so the process
  * running this code is never the one being recreated mid-run.
  */
+import { randomBytes } from 'node:crypto';
 import { statfs } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { basename, join } from 'node:path';
 import type { UpdateHeld, UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@tagave/shared/updater';
 import { unlink } from 'node:fs/promises';
@@ -86,7 +88,9 @@ import {
   type Observation,
   type Readings,
 } from './progress.js';
-import { MUSIC_BOUND, type MusicProber } from './music-probe.js';
+import { MUSIC_BOUND, PROBE_HELPER_PREFIX, mountinfoArgs, musicMount, type MusicProber } from './music-probe.js';
+import { musicDirOf, selfImage } from './music-heal.js';
+import { musicBindKeys } from './music-layout.js';
 import { PART_LIMITS, Parts, readParts, type PartsResult, type StuckPart } from './parts.js';
 import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
 import { redact } from './redact.js';
@@ -845,6 +849,7 @@ export class Update {
     this.services = svc.stdout.split('\n').map((s) => s.trim()).filter((s) => s && s !== 'updater');
     if (!this.services.includes('app')) this.fail('the app does not run on this computer');
     this.log('info', `services: ${this.services.join(', ')}`);
+    await this.checkMusicDir(env);
 
     const health = await this.deps.app.health();
     if (!health.ok) this.fail(`the install is not healthy now, so an update would be hard to judge: ${health.detail}`);
@@ -905,6 +910,40 @@ export class Update {
       if (/not found|manifest unknown|does not exist/i.test(text)) this.fail(`${this.run.target} is not published (${this.registry})`);
       this.fail(`downloading the ${this.run.target} images failed: ${tail(text, 3)}`);
     }
+  }
+
+  /**
+   * compose.yml binds the music with `create_host_path: false`, so a missing
+   * MUSIC_DIR is an error when a part is created, no longer a silent empty
+   * folder. Stop before anything changes instead, without touching a share:
+   * the host mount table comes first (a mount point there counts as there,
+   * and a folder on a network share is never named in a command), and only
+   * a plain local path is checked, with `test -d` on the host and a time
+   * limit. The ./music placeholder (no absolute MUSIC_DIR) passes. When the
+   * host cannot be asked, or the check runs out of time, the update goes on
+   * with a warning.
+   */
+  private async checkMusicDir(env: string): Promise<void> {
+    if (!this.services.some((s) => s === 'worker-files' || s === PLAYER)) return;
+    const dir = musicDirOf(env);
+    if (!dir) return;
+    const unsure = (why: string) => this.log('warn', `could not check that the music folder ${dir} is there (${why}); going on`);
+    const run: Runner = (args, opts) =>
+      this.deps.docker(args, opts).catch((err: unknown): CommandResult => ({ code: -1, stdout: '', stderr: String(err) }));
+    const name = () => `${PROBE_HELPER_PREFIX}-${randomBytes(4).toString('hex')}`;
+    const image = await selfImage(run, hostname());
+    if (!image) return unsure('the updater cannot read its own image');
+    const table = await run(mountinfoArgs(image, name()), { timeoutMs: 15_000 });
+    if (table.code !== 0) return unsure('the host mount table did not come back');
+    const mount = musicMount(table.stdout, dir);
+    // A mount point at MUSIC_DIR (a share, a disk or an automount), or a folder on a network share: never touched.
+    if (mount.mountPoint === dir || mount.kind === 'network' || mount.fstype === 'autofs') return;
+    const check = await run(['run', '--rm', '--privileged', '--pid=host', '--name', name(), '--entrypoint', 'nsenter', image, '-t', '1', '-m', '--', 'test', '-d', dir], { timeoutMs: 15_000 });
+    if (check.code === 0) return;
+    if (check.code === 1) {
+      this.fail(`The music folder ${dir} does not exist on this computer. Mount your music there, or set MUSIC_DIR in .env to your music folder, and start the update again`);
+    }
+    unsure(check.code === 143 || /timed out/.test(check.stderr) ? 'the check ran out of time' : `exit ${check.code}`);
   }
 
   /** The compressed layers of an image, for the download's byte count; null when the registry does not say within 10 s. */
@@ -1169,6 +1208,12 @@ export class Update {
       }
     }
     env = envSet(env, 'TAGAVE_VERSION', this.run.target);
+    // compose.yml reads TAGAVE_MUSIC_READ_ONLY (true by default); an rw
+    // install from before it only has TAGAVE_MUSIC_MODE=rw (music-layout.ts).
+    for (const [key, value] of Object.entries(musicBindKeys(env))) {
+      env = envSet(env, key, value);
+      this.log('info', `${key}=${value} in .env, from TAGAVE_MUSIC_MODE`);
+    }
     if (this.deps.release) env = await this.pinRelease(env);
     await writeFileAtomic(this.envPath, env);
     this.log('info', `TAGAVE_VERSION=${this.run.target} in .env (was ${this.run.from}; old file kept as .env.bak)`);

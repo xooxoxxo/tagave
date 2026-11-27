@@ -42,6 +42,8 @@ function workerServices(file: string): Array<{ name: string; queues: string[]; m
     const q = /^\s*TAGAVE_QUEUES:\s*(\S+)\s*$/.exec(line);
     if (q) cur.queues = q[1]!.split(',').map((x) => x.trim());
     if (/^\s*-\s*.*:\/mnt\/music(:|\s*$)/.test(line)) cur.music = true;
+    // the long syntax: deploy/compose.yml's target, /mnt/music unless .env moves it to the parent bind
+    if (/^\s*target:\s*(\$\{TAGAVE_MUSIC_BIND_TARGET:-\/mnt\/music\}|\/mnt\/music)\s*$/.test(line)) cur.music = true;
   }
   if (cur?.queues.length) out.push(cur);
   return out;

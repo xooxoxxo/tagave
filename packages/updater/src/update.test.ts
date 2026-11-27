@@ -1528,6 +1528,132 @@ describe('an install from before 0.9', () => {
   });
 });
 
+describe('the music bind keys in the config step', () => {
+  it('the config step writes the derived key before compose runs', async () => {
+    await writeFile(join(dir, '.env'), `${ENV}MUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_MODE=rw\n`, { mode: 0o600 });
+    const seen: Array<string | null> = [];
+    const docker: Runner = async (args, opts) => {
+      if (args.join(' ') === 'compose config --quiet') seen.push(envGet(await readFile(join(dir, '.env'), 'utf8'), 'TAGAVE_MUSIC_READ_ONLY'));
+      return fake.runner(args, opts);
+    };
+    const run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('succeeded');
+    expect(seen[0]).toBe('false');
+    const env = await readFile(join(dir, '.env'), 'utf8');
+    expect(envGet(env, 'TAGAVE_MUSIC_READ_ONLY')).toBe('false');
+    expect(envGet(env, 'TAGAVE_MUSIC_MODE')).toBe('rw');
+    expect(envGet(await readFile(join(dir, '.env.bak'), 'utf8'), 'TAGAVE_MUSIC_READ_ONLY')).toBeNull();
+    expect(run.log.some((l) => l.message.includes('TAGAVE_MUSIC_READ_ONLY=false'))).toBe(true);
+  });
+
+  it('leaves an old ro .env without the key', async () => {
+    await writeFile(join(dir, '.env'), `${ENV}MUSIC_DIR=/mnt/music\n`, { mode: 0o600 });
+    const run = await update('0.8.0');
+    expect(run.status).toBe('succeeded');
+    expect(envGet(await readFile(join(dir, '.env'), 'utf8'), 'TAGAVE_MUSIC_READ_ONLY')).toBeNull();
+  });
+});
+
+describe('the music folder in preflight', () => {
+  const IMAGE = `sha256:${'a'.repeat(64)}`;
+  const mountLine = (mountPoint: string, fstype: string, source: string) => `36 25 0:52 / ${mountPoint} rw,relatime shared:1 - ${fstype} ${source} rw\n`;
+  const ROOT = mountLine('/', 'ext4', '/dev/sda1');
+  let table: string;
+  let folders: Set<string>;
+  let hostCalls: string[][];
+  let testAnswer: CommandResult | null;
+  const docker: Runner = async (args, opts) => {
+    if (args[0] === 'inspect' && args[1] === '--format' && args[2] === '{{.Image}}') return { code: 0, stdout: `${IMAGE}\n`, stderr: '' };
+    if (args[0] === 'run' && args.includes('nsenter')) {
+      assertAllowed(args);
+      hostCalls.push(args);
+      if (args.at(-1) === '/proc/self/mountinfo') return { code: 0, stdout: table, stderr: '' };
+      if (args.includes('test')) return testAnswer ?? { code: folders.has(args.at(-1)!) ? 0 : 1, stdout: '', stderr: '' };
+    }
+    return fake.runner(args, opts);
+  };
+  const withMusic = (value: string) => writeFile(join(dir, '.env'), `${ENV}MUSIC_DIR=${value}\n`, { mode: 0o600 });
+  /** Every argv sent, to the fake install and to the host helper. */
+  const allArgv = () => [...fake.calls, ...hostCalls];
+
+  beforeEach(() => {
+    table = ROOT;
+    folders = new Set();
+    hostCalls = [];
+    testAnswer = null;
+  });
+
+  it('preflight: a missing plain MUSIC_DIR stops the update; a mount point in the host table counts as there; ./music passes', async () => {
+    // a plain local folder that is not there: the update stops before anything changes
+    await withMusic('/srv/music');
+    let run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('failed');
+    expect(stepStatus(run)).toMatchObject({ preflight: 'failed', backup: 'skipped', config: 'skipped' });
+    expect(run.reason).toContain('The music folder /srv/music does not exist on this computer');
+    expect(run.reason).not.toContain(String.fromCharCode(0x2014));
+    expect(await envNow()).toBe('0.7.0');
+    expect(hostCalls.some((c) => c.includes('test') && c.at(-1) === '/srv/music')).toBe(true);
+
+    // the same folder once it is there
+    fake = new FakeInstall(dir);
+    folders.add('/srv/music');
+    run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('succeeded');
+
+    // a network share mounted at MUSIC_DIR counts as there and is never named in any argv
+    fake = new FakeInstall(dir);
+    hostCalls = [];
+    await withMusic('/mnt/music');
+    table = ROOT + mountLine('/mnt/music', 'nfs4', '192.0.2.10:/export/music');
+    run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('succeeded');
+    expect(hostCalls.length).toBeGreaterThan(0);
+    expect(allArgv().some((argv) => argv.some((a) => a.includes('/mnt/music')))).toBe(false);
+
+    // ./music, the placeholder, passes without asking the host
+    fake = new FakeInstall(dir);
+    hostCalls = [];
+    await withMusic('./music');
+    run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('succeeded');
+    expect(hostCalls).toEqual([]);
+  });
+
+  it('no argv names a network mount, also for a folder inside the share', async () => {
+    await withMusic('/mnt/nas/music');
+    table = ROOT + mountLine('/mnt/nas', 'cifs', '//192.0.2.10/media');
+    const run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('succeeded');
+    expect(allArgv().some((argv) => argv.some((a) => a.includes('/mnt/nas')))).toBe(false);
+  });
+
+  it('a local disk mounted at MUSIC_DIR counts as there without a check', async () => {
+    await withMusic('/srv/music');
+    table = ROOT + mountLine('/srv/music', 'ext4', '/dev/sdb1');
+    const run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('succeeded');
+    expect(hostCalls.some((c) => c.includes('test'))).toBe(false);
+  });
+
+  it('a check that runs out of time is a warning; the update goes on', async () => {
+    await withMusic('/srv/music');
+    testAnswer = { code: 143, stdout: '', stderr: 'timed out after 10 s' };
+    const run = await update('0.8.0', {}, { docker });
+    expect(run.status).toBe('succeeded');
+    expect(run.log.some((l) => l.level === 'warn' && l.message.includes('/srv/music'))).toBe(true);
+    expect(hostCalls.some((c) => c.includes('test'))).toBe(true);
+  });
+
+  it('skips the check when no part here binds the music folder', async () => {
+    await withMusic('/srv/music');
+    const services: Runner = async (args, opts) =>
+      args.join(' ') === 'compose config --services' ? { code: 0, stdout: 'postgres\napp\nworker-identify\nupdater\n', stderr: '' } : docker(args, opts);
+    const run = await update('0.8.0', {}, { docker: services });
+    expect(run.reason ?? '').not.toContain('music folder');
+    expect(hostCalls).toEqual([]);
+  });
+});
+
 describe('old images after an update', () => {
   const set = (v: string) => ['app', 'worker', 'updater'].map((n) => `ghcr.io/xooxoxxo/tagave-${n}:${v}`);
 
