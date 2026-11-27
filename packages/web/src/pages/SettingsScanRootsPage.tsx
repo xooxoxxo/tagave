@@ -3,14 +3,16 @@
  * name, its path in the head), then Add music folder, whose Allow writes
  * choice joins Add. A folder's Scanning and Allow writes are Off and On, saved
  * when changed (Allow writes asks first); Rescan every and the folder link are typed and saved together with the folder's one Save; Scan,
- * Check and Remove are actions. MusicFoldersView is the section alone,
+ * Check and Remove are actions. Check says what the folder watch last saw
+ * (Online, Offline since 14:02, Not connected, Checking) and Waiting what
+ * work waits for the folder to come back. MusicFoldersView is the section alone,
  * driven by props (stories); SettingsScanRootsContent connects it.
  */
 import { useMemo, useState, type FormEvent } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
-import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, type ScanRoot } from '@tagave/shared';
-import { Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, sentence, useSaveFlash, useSettingsDraft } from '../components/ui';
-import { shortDate } from '../utils/time';
+import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, type ScanRoot, type StartScanResponse, type WaitingCounts } from '@tagave/shared';
+import { Button, Input, SaveStatus, SegmentedControl, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, sentence, showToast, useSaveFlash, useSettingsDraft } from '../components/ui';
+import { shortDate, sinceLabel } from '../utils/time';
 import styles from './SettingsScanRootsPage.module.css';
 
 /** The folder's own switch: the library's Tag writes (Settings › Tag writing) still has the last word. */
@@ -27,8 +29,35 @@ export function rescanLabel(seconds: number): string {
   return `${seconds} s`;
 }
 
+export const OFFLINE_HELP = "tagave can't reach this folder. Your library, tags and plays are safe. Scans and tag writes wait and start again on their own when it's back.";
+export const UNMOUNTED_HELP = "The folder is there but its share isn't connected. tagave tries to connect it again. If it can't, connect the drive or share.";
+const WAITING_HELP = 'Work that needs the files. It starts when the folder is back.';
+export const SCAN_QUEUED = 'Scan queued. It runs when the folder is back.';
+
+type FolderCheck = { text: string; problem: boolean; help?: string | undefined };
+
+/**
+ * The folder's Check: what the folder watch last saw (reach) first, then what
+ * the worker found there. An API older than 0097 sends no reach, and the
+ * worker's findings alone decide.
+ */
+export function folderCheck(root: ScanRoot, now: Date = new Date()): FolderCheck {
+  const since = (state: string) => (root.reachSince ? `${state} since ${sinceLabel(root.reachSince, now)}` : state);
+  switch (root.reach) {
+    case 'offline': return { text: since('Offline'), problem: true, help: OFFLINE_HELP };
+    case 'unmounted': return { text: since('Not connected'), problem: true, help: UNMOUNTED_HELP };
+    case 'unknown': return { text: 'Checking', problem: false };
+    case 'online': {
+      // online, but the worker may still have found something wrong there
+      const found = workerCheck(root);
+      return found.problem ? found : { text: 'Online', problem: false };
+    }
+    default: return workerCheck(root);
+  }
+}
+
 /** What the worker found at the folder, as a word, whether it is a problem, and the worker's own words for it. */
-export function folderCheck(root: ScanRoot): { text: string; problem: boolean; help?: string | undefined } {
+function workerCheck(root: ScanRoot): FolderCheck {
   const help = root.validationMessage || undefined;
   switch (root.validationStatus) {
     case 'pending': return { text: 'Pending', problem: false };
@@ -42,6 +71,24 @@ export function folderCheck(root: ScanRoot): { text: string; problem: boolean; h
   // the probe warning: writes are allowed but the worker sees a read-only mount
   if (root.probeWritable === false) return root.writable ? { text: 'Mount is read-only', problem: true } : { text: 'Read-only mount', problem: false };
   return { text: 'OK', problem: false };
+}
+
+const count = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
+/** Work that waits for the folder: "3 tag writes, 1 scan", or "Nothing". */
+export function waitingText(w: WaitingCounts | undefined): string {
+  if (!w) return 'Nothing';
+  const parts = [
+    ...(w.tagWrites > 0 ? [count(w.tagWrites, 'tag write', 'tag writes')] : []),
+    ...(w.scans > 0 ? [count(w.scans, 'scan', 'scans')] : []),
+    ...(w.other > 0 ? [count(w.other, 'other task', 'other tasks')] : []),
+  ];
+  return parts.length > 0 ? parts.join(', ') : 'Nothing';
+}
+
+/** The toast after Scan: only when the API queued it for the folder's return. */
+export function scanToast(body: StartScanResponse | undefined): string | null {
+  return body?.waiting === true ? SCAN_QUEUED : null;
 }
 
 /** A folder's typed fields, saved together with its one Save. */
@@ -94,16 +141,18 @@ export interface MusicFoldersViewProps {
   addError?: string | null;
   /** resolves true once the folder is added (the form then empties) */
   onAdd: (folder: NewMusicFolder) => Promise<boolean> | boolean;
+  /** the clock "Offline since" reads against (stories); now by default */
+  now?: Date;
 }
 
-export function MusicFoldersView({ roots, loading = false, pending = () => false, onUpdate, onScan, onCheck, onRemove, adding = false, addError = null, onAdd }: MusicFoldersViewProps) {
+export function MusicFoldersView({ roots, loading = false, pending = () => false, onUpdate, onScan, onCheck, onRemove, adding = false, addError = null, onAdd, now }: MusicFoldersViewProps) {
   return (
     <div className={styles.page}>
       {loading ? null : roots.length === 0 ? (
         <SettingsGroup title="Music folders" meta="No music folders" />
       ) : (
         roots.map((root) => (
-          <FolderGroup key={root.id} root={root} busy={pending(root.id)} onUpdate={onUpdate} onScan={onScan} onCheck={onCheck} onRemove={onRemove} />
+          <FolderGroup key={root.id} root={root} busy={pending(root.id)} onUpdate={onUpdate} onScan={onScan} onCheck={onCheck} onRemove={onRemove} now={now} />
         ))
       )}
       <AddMusicFolder adding={adding} error={addError} onAdd={onAdd} />
@@ -118,9 +167,10 @@ interface FolderGroupProps {
   onScan: (root: ScanRoot) => void;
   onCheck: (root: ScanRoot) => void;
   onRemove: (root: ScanRoot) => void;
+  now?: Date | undefined;
 }
 
-function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: FolderGroupProps) {
+function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove, now }: FolderGroupProps) {
   const choice = useSaveFlash();
   const saveFlash = useSaveFlash();
   const base = useMemo<FolderFields>(() => ({ folderLink: root.folderLink ?? '', pollIntervalS: root.pollIntervalS }), [root.folderLink, root.pollIntervalS]);
@@ -129,7 +179,8 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
   const { patch, problem } = folderPatch(base, fields);
   const dirty = patch !== null;
   const [saving, setSaving] = useState(false);
-  const check = folderCheck(root);
+  const check = folderCheck(root, now);
+  const waiting = waitingText(root.waiting);
   const scanning = root.lastStatus === 'scanning';
   const writesLocked = !root.writable && !canEnableWrites(root);
 
@@ -195,6 +246,9 @@ function FolderGroup({ root, busy, onUpdate, onScan, onCheck, onRemove }: Folder
         </SettingsRow>
         <SettingsRow as="div" label="Found" value={<span className={styles.value}>{found}</span>} />
         <SettingsRow as="div" label="Check" help={check.help} value={<span className={check.problem ? styles.problem : styles.value} role={check.problem ? 'alert' : undefined}>{check.text}</span>} />
+        {root.waiting && (
+          <SettingsRow as="div" label="Waiting" help={waiting === 'Nothing' ? undefined : WAITING_HELP} value={<span className={styles.value}>{waiting}</span>} />
+        )}
         <SettingsRow
           label="Folder link"
           help="Where your own computer sees this folder. An album's Open folder link is this plus the album's folder."
@@ -300,7 +354,7 @@ export function SettingsScanRootsContent() {
         onError: (err) => resolve(detailOf(err)),
         onSettled: done,
       })))}
-      onScan={(root) => run(root.id, (done) => scan.mutate(root.id, { onSettled: done }))}
+      onScan={(root) => run(root.id, (done) => scan.mutate(root.id, { onSuccess: (body) => { const message = scanToast(body); if (message) showToast({ message }); }, onSettled: done }))}
       onCheck={(root) => run(root.id, (done) => validate.mutate(root.id, { onSettled: done }))}
       onRemove={(root) => void (async () => {
         if (!(await confirmDialog({ title: 'Remove this folder?', message: 'Your files stay on disk.', confirmLabel: 'Remove', tone: 'danger' }))) return;

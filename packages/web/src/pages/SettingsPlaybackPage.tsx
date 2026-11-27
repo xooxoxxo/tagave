@@ -10,7 +10,7 @@
  * account and scrobbling live in Your settings › Listening.
  */
 import { useEffect, useState, type FormEvent } from 'react';
-import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
+import { PLAYER_SCAN_HELD, STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, Input, SaveStatus, SegmentedControl, Select, SettingsGroup, SettingsRow, SettingsSave, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
@@ -79,11 +79,13 @@ export function SettingsPlaybackContent() {
   );
 }
 
-function ScanValue({ lastScan, justAsked, error }: { lastScan: PlayerSettingsView['lastScan']; justAsked: boolean; error: string | null }) {
+export function ScanValue({ lastScan, justAsked, error }: { lastScan: PlayerSettingsView['lastScan']; justAsked: boolean; error: string | null }) {
   if (error) return <span className={styles.danger} role="alert">{error}</span>;
   if (justAsked) return <span className={styles.value} role="status">Requested</span>;
   if (!lastScan) return <span className={styles.value}>None yet</span>;
   if (lastScan.state === 'failed') return <span className={styles.danger}>Failed{lastScan.error ? `: ${lastScan.error}` : ''}</span>;
+  // held while a music folder is offline: why it waits, not a failure
+  if (lastScan.error === PLAYER_SCAN_HELD) return <span className={styles.value}>{PLAYER_SCAN_HELD}</span>;
   return <span className={styles.value}>{when(lastScan.requestedAt)}</span>;
 }
 
