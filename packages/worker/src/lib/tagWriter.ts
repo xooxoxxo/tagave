@@ -37,8 +37,12 @@ export interface MutagenTagWriterOptions {
   rootId?: string;
   /** The response deadline (30 s). */
   responseMs?: number;
-  /** Told of each sidecar given up on. Default: counts it stuck for the root in this process's file gate. */
-  onStuck?: (rootId: string | undefined) => void;
+  /**
+   * Told of each sidecar given up on, with a promise that settles once that
+   * sidecar has exited. Default: counts it stuck for the root in this
+   * process's file gate until it exits.
+   */
+  onStuck?: (rootId: string | undefined, gone: Promise<void>) => void;
 }
 
 interface Pending {
@@ -78,7 +82,7 @@ export class MutagenTagWriter implements TagWriter {
   /** The scan root of the files being written (see MutagenTagWriterOptions.rootId). */
   rootId: string | undefined;
   private readonly responseMs: number;
-  private readonly onStuck: (rootId: string | undefined) => void;
+  private readonly onStuck: (rootId: string | undefined, gone: Promise<void>) => void;
   private subprocess: ChildProcess | null = null;
   private pending: Map<number, Pending> = new Map();
   private sidecarIo: SidecarIo | null = null;
@@ -90,7 +94,7 @@ export class MutagenTagWriter implements TagWriter {
   constructor(opts: MutagenTagWriterOptions = {}) {
     this.rootId = opts.rootId;
     this.responseMs = opts.responseMs ?? RESPONSE_MS;
-    this.onStuck = opts.onStuck ?? ((rootId) => { if (rootId !== undefined) fileGate().markStuck(rootId); });
+    this.onStuck = opts.onStuck ?? ((rootId, gone) => { if (rootId !== undefined) fileGate().markStuck(rootId, gone); });
     this.initPromise = this.start();
   }
 
@@ -231,6 +235,10 @@ export class MutagenTagWriter implements TagWriter {
     this.subprocess = null;
     this.stopIo();
     this.sidecarIo = null;
+    // Listening for its exit is not waiting on it: nothing here holds for it.
+    const gone = !child || child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise<void>((done) => child.once('exit', () => done()));
     if (child) {
       child.on('error', () => undefined);
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
@@ -242,7 +250,7 @@ export class MutagenTagWriter implements TagWriter {
     this.failPending(() => rootId !== undefined
       ? new FolderOfflineError(rootId, 'timeout')
       : Object.assign(new Error('Sidecar response timeout'), { code: 'ETIMEDOUT' }));
-    this.onStuck(rootId);
+    this.onStuck(rootId, gone);
     this.initPromise = this.start();
   }
 

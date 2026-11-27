@@ -9,7 +9,9 @@
  * then once `{ id, ok: true, value }` or `{ id, ok: false, code, message }`,
  * with the real errno as `code` so the gate can tell an offline share from a
  * missing file. One op at a time. A bad op is answered, never thrown. A
- * write whose tag-writer sidecar hung is answered with `stuck: true`.
+ * write whose tag-writer sidecar hung is answered with `stuck: true` and a
+ * `stuckToken`; once that sidecar has exited, the helper sends
+ * `{ stuckGone: token }`, so the gate stops counting it stuck.
  *
  * Progress: while a long op runs, every 5 s the helper reads its bytes read
  * (`rchar` in /proc/self/io, less its own reads of that file, procIo.ts) and
@@ -140,8 +142,9 @@ function statValue(s: import('node:fs').Stats | import('node:fs').BigIntStats) {
 }
 
 let tagWriter: MutagenTagWriter | null = null;
-/** Set when the tag writer gave up on a stuck sidecar during the current op. */
-let sidecarStuck = false;
+/** The token of a sidecar the tag writer gave up on during the current op, or null. */
+let sidecarStuck: number | null = null;
+let nextStuckToken = 1;
 
 /** The sidecar's response deadline: the writer's own, or TAGAVE_HELPER_TEST_SIDECAR_MS in tests. */
 function sidecarMs(): number | undefined {
@@ -218,11 +221,15 @@ async function runOp(op: GateOp, rootId: string | undefined): Promise<unknown> {
       if (op.values === null || typeof op.values !== 'object') throw opError('EINVAL', 'The op needs values');
       // The helper's own writer: a sidecar stuck on the share is replaced (never reused) and the gate counts it.
       const ms = sidecarMs();
-      tagWriter ??= new MutagenTagWriter({ ...(ms ? { responseMs: ms } : {}), onStuck: () => { sidecarStuck = true; } });
+      tagWriter ??= new MutagenTagWriter({ ...(ms ? { responseMs: ms } : {}), onStuck: (_root, gone) => {
+        const token = nextStuckToken++;
+        sidecarStuck = token;
+        void gone.then(() => send({ stuckGone: token }));
+      } });
       tagWriter.rootId = rootId;
-      sidecarStuck = false;
+      sidecarStuck = null;
       const result = await safeWriteSteps(path, h, op.values, tagWriter, op.options, writeHooks());
-      if (sidecarStuck) throw Object.assign(opError('ETIMEDOUT', 'The tag writer did not answer'), { stuck: true });
+      if (sidecarStuck !== null) throw Object.assign(opError('ETIMEDOUT', 'The tag writer did not answer'), { stuck: true, stuckToken: sidecarStuck });
       // A step that failed on an offline share is the share's answer, not the write's.
       if (result.errno && OFFLINE_CODES.has(result.errno)) throw opError(result.errno, result.error ?? 'The write failed');
       return result;
@@ -276,7 +283,7 @@ async function handle(req: HelperRequest): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     const answer: HelperMessage = typeof code === 'string' && code !== '' ? { id, ok: false, code, message } : { id, ok: false, message };
     if (err instanceof Error && err.name !== 'Error') Object.assign(answer, { name: err.name });
-    if ((err as { stuck?: unknown }).stuck === true) Object.assign(answer, { stuck: true });
+    if ((err as { stuck?: unknown }).stuck === true) Object.assign(answer, { stuck: true, stuckToken: (err as { stuckToken?: unknown }).stuckToken });
     send(answer);
   } finally {
     if (timer) clearInterval(timer);

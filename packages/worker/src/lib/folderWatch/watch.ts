@@ -102,6 +102,11 @@ export class FolderWatch {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    // The running watch stops hearing of the gate's deadlines (R18).
+    if (current === this) {
+      fileGate().setOnSuspect(null);
+      current = null;
+    }
   }
 
   /** A check of this root now (a gate deadline, a park): counts as a reading. */
@@ -266,12 +271,19 @@ export function stillOnline(ctx: WorkerContext): (rootId: string, before: Date) 
 
 let current: FolderWatch | null = null;
 
-/** Starts the file worker's watch: the one the gate and the park rule find with `folderWatch()`. */
-export function startFolderWatch(ctx: WorkerContext): FolderWatch {
+/**
+ * Starts the file worker's watch: the one the park rule finds with
+ * `folderWatch()`, and the process's file gate tells of a deadline or an
+ * offline answer (ruling R18: registered here, not imported by the gate, so
+ * there is no import cycle). `deps`: tests.
+ */
+export function startFolderWatch(ctx: WorkerContext, deps: Omit<FolderWatchDeps, 'ctx'> = {}): FolderWatch {
   current?.stop();
-  current = new FolderWatch({ ctx });
-  current.start();
-  return current;
+  const watch = new FolderWatch({ ...deps, ctx });
+  current = watch;
+  fileGate().setOnSuspect((rootId) => watch.suspect(rootId));
+  watch.start();
+  return watch;
 }
 
 export function folderWatch(): FolderWatch | null {

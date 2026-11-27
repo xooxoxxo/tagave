@@ -14,8 +14,16 @@
  * the watch (`onSuspect`) and throws FolderOfflineError(root, 'timeout'). An
  * offline error code from the share also tells the watch, without counting
  * the helper stuck. A helper answer marked `stuck` (its tag writer's sidecar
- * hung) counts stuck and throws FolderOfflineError, keeping the helper. A
- * root with `stuckMax` stuck helpers gets no more work until `clear(root)`.
+ * hung) counts stuck and throws FolderOfflineError, keeping the helper.
+ *
+ * Stuck is a live count (ruling R16): the children given up on for a root
+ * (helpers killed at a deadline, a helper's tag-writer sidecar, child tools
+ * through `markStuck`) that have not exited yet. Each comes off the count on
+ * its 'exit' event, which still comes after SIGKILL once the kernel lets the
+ * process go; listening for it is not waiting on it. A root with `stuckMax`
+ * live stuck children gets no more work, and `clear(root)` (the watch reads
+ * it online) does not reopen it while they are still there, so children
+ * stuck on one dead file of a live share cannot pile up without bound.
  *
  * Probes (`run(root, op, { probe: true })`, the folder watch's look at a
  * root) pass that cap, or a root at the cap could never read online again,
@@ -65,7 +73,15 @@ export type HelperMessage =
   | { id: number; progress: unknown }
   | { id: number; ok: true; value: unknown }
   /** `stuck`: the helper gave up on a child of its own (the tag writer's sidecar) at a deadline. */
-  | { id: number; ok: false; code?: string; message?: string; stuck?: boolean; /** the error's class name, kept for callers that store it (a parse error) */ name?: string };
+  | {
+    id: number; ok: false; code?: string; message?: string; stuck?: boolean;
+    /** With `stuck`: the sidecar's token, sent back in `stuckGone` once it has exited. */
+    stuckToken?: number;
+    /** the error's class name, kept for callers that store it (a parse error) */
+    name?: string;
+  }
+  /** Any time, outside a request: the stuck sidecar with this token has exited. */
+  | { stuckGone: number };
 
 /** Ops that read or write a whole file: they use the idle deadline, reset by progress. */
 const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged']);
@@ -100,9 +116,13 @@ function helperFailed(message: string): Error {
   return Object.assign(new Error(message), { code: 'EHELPER' });
 }
 
+function sigkill(child: ChildProcess): void {
+  child.kill('SIGKILL');
+}
+
 /** Lets go of a helper without waiting on it. Safe on a helper that already exited. */
-function letGo(child: ChildProcess): void {
-  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+function letGo(child: ChildProcess, kill: (child: ChildProcess) => void = sigkill): void {
+  if (child.exitCode === null && child.signalCode === null) kill(child);
   child.unref();
   if (child.connected) child.disconnect();
 }
@@ -129,6 +149,14 @@ interface Helper {
   child: ChildProcess;
   job: Job | null;
   timer: NodeJS.Timeout | null;
+  /** Its stuck sidecars by token: each releases its count once gone (or once the helper itself exits). */
+  sidecars: Map<number, () => void>;
+}
+
+/** Settles once the child has exited (at once for one that already has). Never holds anything. */
+function exitOf(child: ChildProcess): Promise<void> {
+  if (exited(child)) return Promise.resolve();
+  return new Promise<void>((done) => child.once('exit', () => done()));
 }
 
 export class FileGate {
@@ -137,7 +165,11 @@ export class FileGate {
   private readonly onSuspect: (rootId: string) => void;
   private readonly helpers = new Set<Helper>();
   private readonly queue: Job[] = [];
-  private readonly stuck = new Map<string, number>();
+  /** Per root, the stuck children still alive (a token each, gone when the child exits). */
+  private readonly live = new Map<string, Set<object>>();
+  /** Per root, stuck marks with no child to follow (markStuck without one): `clear` forgets those. */
+  private readonly untracked = new Map<string, number>();
+  private onSuspectListener: ((rootId: string) => void) | null = null;
   /** Helpers let go of that may still be running: close() gives them a moment to exit. */
   private readonly abandoned = new Set<ChildProcess>();
   /** Per root, the probe helper let go of at a deadline that has not exited yet. */
@@ -145,10 +177,29 @@ export class FileGate {
   private nextId = 1;
   private closed = false;
 
-  constructor(opts: { limits?: Partial<GateLimits>; helperPath?: string; onSuspect?: (rootId: string) => void } = {}) {
+  /** How a helper given up on is killed. */
+  private readonly kill: (child: ChildProcess) => void;
+
+  constructor(opts: {
+    limits?: Partial<GateLimits>;
+    helperPath?: string;
+    onSuspect?: (rootId: string) => void;
+    /** Tests only: how a helper given up on is killed (default SIGKILL); a no-op stands in for one stuck in the kernel. */
+    kill?: (child: ChildProcess) => void;
+  } = {}) {
+    this.kill = opts.kill ?? sigkill;
     this.limits = { ...gateLimits(), ...opts.limits };
     this.helperPath = opts.helperPath ?? defaultHelperPath();
-    this.onSuspect = opts.onSuspect ?? (() => undefined);
+    this.onSuspect = opts.onSuspect ?? ((rootId) => this.onSuspectListener?.(rootId));
+  }
+
+  /**
+   * Who hears of a root that may be offline, when the gate was made without
+   * `onSuspect` (the process's gate): the running folder watch registers
+   * itself here and unregisters with null (ruling R18).
+   */
+  setOnSuspect(listener: ((rootId: string) => void) | null): void {
+    this.onSuspectListener = listener;
   }
 
   /** Runs one operation for a file under this root. Throws FolderOfflineError on a deadline or an offline errno; other fs errors come back as Error with their code. */
@@ -165,17 +216,36 @@ export class FileGate {
     });
   }
 
-  /** The root is online again: its work may be sent. */
+  /**
+   * The root reads online again: stuck marks with no child to follow are
+   * forgotten. Children still alive keep counting (ruling R16).
+   */
   clear(rootId: string): void {
-    this.stuck.delete(rootId);
+    this.untracked.delete(rootId);
   }
 
-  /** Stuck helpers (and child tools) counted for this root, or for all roots. */
+  /** Stuck children not yet exited (and untracked marks) for this root, or for all roots. */
   stuckCount(rootId?: string): number {
-    if (rootId !== undefined) return this.stuck.get(rootId) ?? 0;
+    if (rootId !== undefined) return (this.live.get(rootId)?.size ?? 0) + (this.untracked.get(rootId) ?? 0);
     let total = 0;
-    for (const n of this.stuck.values()) total += n;
+    for (const set of this.live.values()) total += set.size;
+    for (const n of this.untracked.values()) total += n;
     return total;
+  }
+
+  /** Counts one stuck child for the root until `gone` settles. */
+  private hold(rootId: string, gone: Promise<unknown>): void {
+    const token = {};
+    let set = this.live.get(rootId);
+    if (!set) this.live.set(rootId, (set = new Set()));
+    set.add(token);
+    const release = () => {
+      const s = this.live.get(rootId);
+      if (!s) return;
+      s.delete(token);
+      if (s.size === 0) this.live.delete(rootId);
+    };
+    gone.then(release, release);
   }
 
   /** True when work for this root is refused now (its stuck cap): spawnGuarded asks before it spawns. */
@@ -183,9 +253,17 @@ export class FileGate {
     return this.refusal(rootId, false) !== null;
   }
 
-  /** A child process for this root got stuck outside the gate (spawnGuarded): it counts like a stuck helper. */
-  markStuck(rootId: string): void {
-    this.stuck.set(rootId, this.stuckCount(rootId) + 1);
+  /**
+   * A child process for this root got stuck outside the gate (spawnGuarded,
+   * the tag writer's sidecar): it counts like a stuck helper until it exits.
+   * `gone` is the child, or a promise that settles once it has exited; a
+   * child that has already exited counts nothing. Without one the mark has
+   * nothing to follow and lasts until `clear(root)`.
+   */
+  markStuck(rootId: string, gone?: ChildProcess | Promise<unknown>): void {
+    if (gone === undefined) this.untracked.set(rootId, (this.untracked.get(rootId) ?? 0) + 1);
+    else if (gone instanceof Promise) this.hold(rootId, gone);
+    else if (!exited(gone)) this.hold(rootId, exitOf(gone));
     this.suspect(rootId);
   }
 
@@ -211,7 +289,7 @@ export class FileGate {
       h.job = null;
       this.helpers.delete(h);
       children.push(h.child);
-      letGo(h.child);
+      letGo(h.child, this.kill);
     }
     // Give the helpers a moment to exit, never more: one stuck in the kernel may never.
     await Promise.all(children.filter((c) => !exited(c)).map((c) => waitExit(c, 1_000)));
@@ -254,8 +332,13 @@ export class FileGate {
     // The helper is plain built JS: none of the parent's tsx or vitest flags.
     // 'advanced' serialization so Buffers and BigInts pass.
     const child = fork(this.helperPath, [], { execArgv: [], stdio: ['ignore', 'ignore', 'inherit', 'ipc'], serialization: 'advanced' });
-    const h: Helper = { child, job: null, timer: null };
+    const h: Helper = { child, job: null, timer: null, sidecars: new Map() };
     this.helpers.add(h);
+    // A helper that exits takes its sidecars' stuck counts with it: nothing is left to follow.
+    void exitOf(child).then(() => {
+      for (const release of h.sidecars.values()) release();
+      h.sidecars.clear();
+    });
     child.on('message', (msg: unknown) => this.onMessage(h, msg));
     // 'close', not 'exit': with an IPC channel it comes after every message.
     child.once('close', () => this.onGone(h));
@@ -291,6 +374,11 @@ export class FileGate {
   private onMessage(h: Helper, msg: unknown): void {
     const job = h.job;
     const m = msg as Record<string, unknown> | null;
+    if (m !== null && typeof m === 'object' && typeof m.stuckGone === 'number') {
+      h.sidecars.get(m.stuckGone)?.();
+      h.sidecars.delete(m.stuckGone);
+      return;
+    }
     if (!job || m === null || typeof m !== 'object' || m.id !== job.id) return;
     if ('progress' in m) {
       if (IDLE_OPS.has(job.op.op)) this.arm(h);
@@ -300,8 +388,14 @@ export class FileGate {
     if (m.ok === false) {
       if (m.stuck === true) {
         // A child of the helper hung on the share (the tag writer's sidecar): it counts like a stuck helper.
-        // The helper itself answered, so it stays and takes the next op.
-        this.markStuck(job.rootId);
+        // The helper itself answered, so it stays and takes the next op. The sidecar counts until
+        // the helper says it is gone (or the helper itself exits).
+        if (typeof m.stuckToken === 'number') {
+          const token = m.stuckToken;
+          this.markStuck(job.rootId, new Promise<void>((done) => h.sidecars.set(token, done)));
+        } else {
+          this.markStuck(job.rootId);
+        }
         return this.settle(h, () => job.reject(new FolderOfflineError(job.rootId, 'timeout')));
       }
       const code = typeof m.code === 'string' && m.code !== '' ? m.code : undefined;
@@ -351,6 +445,8 @@ export class FileGate {
 
   private deadline(h: Helper, job: Job): void {
     if (h.job !== job || !this.helpers.has(h)) return;
+    // Counted stuck until it exits: hooked before it is let go, never waited on.
+    if (!exited(h.child)) this.hold(job.rootId, exitOf(h.child));
     this.drop(h);
     if (job.probe && !exited(h.child)) {
       // The next probe of this root reads a deadline at once until this helper is gone.
@@ -360,7 +456,6 @@ export class FileGate {
         if (this.heldProbe.get(job.rootId) === child) this.heldProbe.delete(job.rootId);
       });
     }
-    this.stuck.set(job.rootId, this.stuckCount(job.rootId) + 1);
     // A fresh helper in its place, ready for the next call.
     if (!this.closed && this.helpers.size < this.limits.helpers) this.spawn();
     job.reject(new FolderOfflineError(job.rootId, 'timeout'));
@@ -381,7 +476,7 @@ export class FileGate {
       this.abandoned.add(h.child);
       h.child.once('exit', () => this.abandoned.delete(h.child));
     }
-    letGo(h.child);
+    letGo(h.child, this.kill);
     return job;
   }
 }
