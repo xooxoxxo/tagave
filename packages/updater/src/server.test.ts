@@ -49,6 +49,10 @@ class Fake {
   handoverGate: Promise<void> | null = null;
   /** The hand-over `ps` lists this. */
   handoverPs = '';
+  /** What the fstab helper prints; null: it fails. */
+  fstab: string | null = '';
+  /** The fstab helper waits for this when set. */
+  fstabGate: Promise<void> | null = null;
   reports: Array<{ status: string; cause: string | null }> = [];
 
   /** The service-list reads of the service itself (its 5 s limit; an update's or a repair's own reads have longer ones). */
@@ -92,6 +96,11 @@ class Fake {
     if (a[0] === 'compose' && a[1] === 'stop') {
       this.status.set(a.at(-1)!, 'exited');
       return {};
+    }
+    if (a[0] === 'run' && a.slice(a.indexOf('--') + 1).join(' ') === 'cat /etc/fstab') {
+      const fstab = this.fstab;
+      await this.fstabGate;
+      return fstab === null ? { code: 1, stderr: 'no' } : { stdout: fstab };
     }
     if (j === 'ps -q --filter label=tagave.updater.handover') {
       await this.handoverGate;
@@ -233,7 +242,94 @@ describe('updater HTTP API', () => {
     const running = (service: string): PartState => ({ service, state: 'running', health: null });
     expect(await res.json()).toEqual({
       version: '0.7.0', configuredVersion: '0.7.0', role: 'all', services: SERVICES, run: null, selfReplace: null,
-      parts: SERVICES.map(running), repair: null,
+      parts: SERVICES.map(running), repair: null, musicBoot: null,
+    });
+  });
+
+  describe('music share at boot', () => {
+    const IMAGE = `sha256:${'c'.repeat(64)}`;
+    const HARD = '192.0.2.10:/export/music  /mnt/music  nfs4  hard,_netdev  0 0\n';
+    const helperRuns = () => fake.calls.filter((c) => c[0] === 'run');
+    let clock: number;
+    const boot = (over: Partial<UpdaterOptions> = {}) => make({ layoutImage: async () => IMAGE, now: () => new Date(clock), ...over });
+    beforeEach(() => { clock = Date.parse('2026-11-28T10:00:00Z'); });
+
+    it('the status carries the codes for the music share line, read through the helper', async () => {
+      fake.fstab = HARD;
+      const s = boot();
+      expect((await s.status()).musicBoot).toEqual({ layout: 'direct', codes: ['nofail_missing'] });
+      expect(helperRuns()).toHaveLength(1);
+      expect(helperRuns()[0]!.slice(helperRuns()[0]!.indexOf('--') + 1)).toEqual(['cat', '/etc/fstab']);
+    });
+
+    it('the parent layout comes from .env', async () => {
+      await writeFile(join(dir, '.env'), 'TAGAVE_ROLE=all\nTAGAVE_VERSION=0.7.0\nMUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+      fake.fstab = '192.0.2.10:/export/music /mnt/music nfs4 hard,nofail,x-systemd.automount 0 0\n';
+      expect((await boot().status()).musicBoot).toEqual({ layout: 'parent', codes: ['automount_on'] });
+    });
+
+    it('keeps the reading 10 minutes', async () => {
+      fake.fstab = HARD;
+      const s = boot();
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
+      fake.fstab = '192.0.2.10:/export/music /mnt/music nfs4 hard,nofail 0 0\n';
+      clock += 9 * 60_000;
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
+      expect(helperRuns()).toHaveLength(1);
+      clock += 60_000;
+      expect((await s.status()).musicBoot?.codes).toEqual([]);
+      expect(helperRuns()).toHaveLength(2);
+    });
+
+    it('null when the helper fails', async () => {
+      fake.fstab = null;
+      expect((await boot().status()).musicBoot).toBeNull();
+    });
+
+    it('null without an image for the helper', async () => {
+      fake.fstab = HARD;
+      expect((await boot({ layoutImage: async () => null }).status()).musicBoot).toBeNull();
+      expect(helperRuns()).toEqual([]);
+    });
+
+    it('null without a music folder, and no helper runs', async () => {
+      await writeFile(join(dir, '.env'), 'TAGAVE_ROLE=app\nTAGAVE_VERSION=0.7.0\n');
+      fake.fstab = HARD;
+      expect((await boot().status()).musicBoot).toBeNull();
+      expect(helperRuns()).toEqual([]);
+    });
+
+    it('never names MUSIC_DIR in an argv', async () => {
+      await writeFile(join(dir, '.env'), "TAGAVE_ROLE=all\nTAGAVE_VERSION=0.7.0\nMUSIC_DIR='/srv/robin music'\n");
+      fake.fstab = '192.0.2.10:/export/music /srv/robin\\040music nfs4 soft 0 0\n';
+      expect((await boot().status()).musicBoot).toEqual({ layout: 'direct', codes: ['nofail_missing', 'soft_mount'] });
+      for (const c of fake.calls) expect(c.join(' ')).not.toMatch(/robin/);
+    });
+
+    it('a slow helper never holds the status past its budget: null first, then the reading', async () => {
+      fake.fstab = HARD;
+      let open!: () => void;
+      fake.fstabGate = new Promise((r) => { open = r; });
+      const s = boot({ statusDeadlineMs: 150 });
+      const t = Date.now();
+      expect((await s.status()).musicBoot).toBeNull();
+      expect(Date.now() - t).toBeLessThan(150 + 300);
+      // a second call while it reads shares the read
+      await s.status();
+      expect(helperRuns()).toHaveLength(1);
+      open();
+      await s['bootRead'];
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
+    });
+
+    it('while a stale reading is read again, the status keeps the last value', async () => {
+      fake.fstab = HARD;
+      const s = boot({ statusDeadlineMs: 150 });
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
+      fake.fstabGate = new Promise<void>(() => {});
+      clock += 11 * 60_000;
+      expect((await s.status()).musicBoot?.codes).toEqual(['nofail_missing']);
+      expect(helperRuns()).toHaveLength(2);
     });
   });
 

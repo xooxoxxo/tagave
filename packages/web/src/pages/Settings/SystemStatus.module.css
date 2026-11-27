@@ -7,3 +7,29 @@
   overflow-wrap: anywhere;
   text-align: right;
 }
+
+/* a row with a problem: the value in the danger colour (as Music folders' Check) */
+.problem {
+  min-width: 0;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.helpText { margin: 0 0 var(--space-xs); }
+
+/* the suggested fstab line: a long line wraps inside its box instead of widening the page */
+.fstab {
+  display: block;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--r-inner);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

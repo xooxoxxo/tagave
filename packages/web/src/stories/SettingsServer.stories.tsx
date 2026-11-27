@@ -6,6 +6,7 @@
  */
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState, type ReactNode } from 'react';
+import { expect, userEvent, within } from 'storybook/test';
 import type { DropPoolView, InviteView, NamingView, OidcSettingsResponse, Role, ScanRoot, StorageOverview, UserView } from '@tagave/shared';
 import { LinkButton, PageShell, SettingsGroup } from '../components/ui';
 import { InviteGroup, OpenLinksGroup, PeopleGroup, PendingLinkRow, UserRow } from '../components/users/UsersList';
@@ -279,3 +280,25 @@ export const PhonePeople: Story = { ...phone, name: 'Phone, People', tags: ['pho
 export const PhoneModulePage: Story = { ...phone, name: 'Phone, module page', tags: ['phone'], args: { role: 'owner', section: 'modules', heading: 'Lidarr', content: lidarrPage } };
 export const PhoneUpdates: Story = { ...phone, name: 'Phone, Updates', tags: ['phone'], args: { role: 'owner', section: 'updates', content: updates } };
 export const PhoneStatus: Story = { ...phone, name: 'Phone, Status', tags: ['phone'], args: { role: 'owner', section: 'status', content: status } };
+
+/*
+ * The updater read the music share's fstab line: no nofail (a problem, the
+ * suggested line behind "?") and a soft mount (a note). Both "?" open, so
+ * the long fstab line shows it wraps inside its box.
+ */
+const statusMusicShare = (
+  <SystemStatusView
+    data={{ ok: true, checkedAt: '2026-11-04T08:00:00.000Z', checks: [{ id: 'database', title: 'Database', status: 'pass', detail: 'Postgres 17' }] }}
+    onRecheck={noop}
+    musicBoot={{ layout: 'direct', codes: ['nofail_missing', 'soft_mount'] }}
+  />
+);
+const openMusicShareHelp: Story['play'] = async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await userEvent.click(await canvas.findByRole('button', { name: 'Help: Music share at boot' }));
+  await userEvent.click(await canvas.findByRole('button', { name: 'Help: Music share mount' }));
+  await expect(await canvas.findByText(/x-systemd\.automount/)).toBeVisible();
+};
+/** Status with the music share rows, their help open. */
+export const StatusMusicShare: Story = { name: 'Status, music share at boot', tags: ['viewport-1440'], args: { role: 'owner', section: 'status', content: statusMusicShare }, play: openMusicShareHelp };
+export const PhoneStatusMusicShare: Story = { ...phone, name: 'Phone, Status, music share at boot', tags: ['phone'], args: { role: 'owner', section: 'status', content: statusMusicShare }, play: openMusicShareHelp };

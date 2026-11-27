@@ -277,6 +277,26 @@ export interface UpdaterStatus {
   parts?: PartState[];
   /** The last repair, if any (absent from older updaters). */
   repair?: RepairRun | null;
+  /**
+   * What the host's /etc/fstab line for MUSIC_DIR means at boot (absent from
+   * older updaters; null when this install has no music folder or the
+   * updater could not read fstab).
+   */
+  musicBoot?: MusicBoot | null;
+}
+
+/**
+ * What the fstab line for the music share says about boot, as fixed codes:
+ * `nofail_missing` (boot may wait or stop while the NAS is off: a problem),
+ * `soft_mount` (soft or softerr: a note, never a problem), `automount_on`
+ * (x-systemd.automount: no row). No line: no codes.
+ */
+export type MusicBootCode = 'nofail_missing' | 'soft_mount' | 'automount_on';
+
+export interface MusicBoot {
+  /** parent when .env has TAGAVE_MUSIC_BIND_SOURCE, else direct. */
+  layout: 'direct' | 'parent';
+  codes: MusicBootCode[];
 }
 
 /** GET /api/v1/updater: the page's view of the updater. */

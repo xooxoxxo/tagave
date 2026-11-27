@@ -8,10 +8,15 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { MusicBootCode } from '@tagave/shared/updater';
 import { assertAllowed } from './argv-guard.testkit.js';
 import { envGet } from './envFile.js';
 import {
   applyLayout,
+  bootCodes,
+  musicBootOf,
+  musicBootWanted,
+  readFstab,
   LAYOUT_PARTS,
   moveLayout,
   planLayout,
@@ -635,5 +640,86 @@ describe('moveLayout', () => {
     const { docker, calls } = moveDocker();
     await moveLayout({ installDir: dir, docker, image: IMAGE, log });
     expect(helpers(calls).map((c) => c[0])).toEqual(['info', 'run', 'run', 'run', 'run']);
+  });
+});
+
+describe('bootCodes', () => {
+  const line = (target: string, options: string) => `192.0.2.10:/export/music  ${target}  nfs4  ${options}  0 0`;
+  const RECOMMENDED = 'hard,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30';
+  const cases: Record<string, { fstab: string; music?: string; want: MusicBootCode[] }> = {
+    'no line for the music folder': { fstab: `${line('/mnt/backup', 'hard')}\n`, want: [] },
+    'an empty fstab': { fstab: '', want: [] },
+    'nofail present': { fstab: `${line('/mnt/music', 'hard,_netdev,nofail')}\n`, want: [] },
+    'nofail missing': { fstab: `${line('/mnt/music', 'hard,_netdev')}\n`, want: ['nofail_missing'] },
+    'no options field reads as defaults': { fstab: '192.0.2.10:/export/music /mnt/music nfs4\n', want: ['nofail_missing'] },
+    'noauto: not mounted at boot, no nofail code': { fstab: `${line('/mnt/music', 'hard,noauto')}\n`, want: [] },
+    'soft': { fstab: `${line('/mnt/music', 'soft,nofail')}\n`, want: ['soft_mount'] },
+    'softerr': { fstab: `${line('/mnt/music', 'softerr,nofail')}\n`, want: ['soft_mount'] },
+    'automount': { fstab: `${line('/mnt/music', 'hard,nofail,x-systemd.automount')}\n`, want: ['automount_on'] },
+    'the recommended line': { fstab: `${line('/mnt/music', RECOMMENDED)}\n`, want: ['automount_on'] },
+    'every code at once': { fstab: `${line('/mnt/music', 'soft,x-systemd.automount')}\n`, want: ['nofail_missing', 'soft_mount', 'automount_on'] },
+    'a path with \\040': { fstab: `${line('/mnt/my\\040music', 'hard')}\n`, music: '/mnt/my music', want: ['nofail_missing'] },
+    'a trailing slash on the line': { fstab: `${line('/mnt/music/', 'hard')}\n`, want: ['nofail_missing'] },
+    'a trailing slash on MUSIC_DIR': { fstab: `${line('/mnt/music', 'hard')}\n`, music: '/mnt/music/', want: ['nofail_missing'] },
+    'the last of two lines wins': { fstab: `${line('/mnt/music', 'soft')}\n${line('/mnt/music', 'hard,nofail')}\n`, want: [] },
+    'the last of two lines wins, the other way': { fstab: `${line('/mnt/music', 'hard,nofail')}\n${line('/mnt/music', 'soft')}\n`, want: ['nofail_missing', 'soft_mount'] },
+    'comment lines are ignored': { fstab: `# ${line('/mnt/music', 'soft')}\n  #${line('/mnt/music', 'soft')}\n${line('/mnt/music', 'hard,nofail')}\n`, want: [] },
+    'a commented line alone gives no codes': { fstab: `# ${line('/mnt/music', 'soft')}\n`, want: [] },
+    'a word that only contains nofail is not nofail': { fstab: `${line('/mnt/music', 'hard,x-nofail-not')}\n`, want: ['nofail_missing'] },
+    'tabs between fields': { fstab: '192.0.2.10:/export/music\t/mnt/music\tnfs4\thard\t0\t0\n', want: ['nofail_missing'] },
+  };
+  for (const [name, c] of Object.entries(cases)) {
+    it(name, () => {
+      expect(bootCodes(c.fstab, envOf(c.music ? { music: c.music } : {}))).toEqual(c.want);
+    });
+  }
+
+  it('no MUSIC_DIR or an app computer: no codes', () => {
+    const fstab = `${line('/mnt/music', 'soft')}\n`;
+    expect(bootCodes(fstab, envOf({ music: null }))).toEqual([]);
+    expect(bootCodes(fstab, envOf({ role: 'app' }))).toEqual([]);
+  });
+});
+
+describe('musicBootOf', () => {
+  const fstab = '192.0.2.10:/export/music /mnt/music nfs4 hard 0 0\n';
+
+  it('the layout comes from .env: parent with TAGAVE_MUSIC_BIND_SOURCE', () => {
+    expect(musicBootOf(fstab, envOf())).toEqual({ layout: 'direct', codes: ['nofail_missing'] });
+    expect(musicBootOf(fstab, envOf({ extra: ['TAGAVE_MUSIC_BIND_SOURCE=/mnt'] }))).toEqual({ layout: 'parent', codes: ['nofail_missing'] });
+  });
+
+  it('null when fstab could not be read, or the install has no music folder', () => {
+    expect(musicBootOf(null, envOf())).toBeNull();
+    expect(musicBootOf(fstab, envOf({ music: null }))).toBeNull();
+    expect(musicBootOf(fstab, envOf({ role: 'app' }))).toBeNull();
+    expect(musicBootWanted(envOf({ role: 'app' }))).toBe(false);
+    expect(musicBootWanted(envOf())).toBe(true);
+  });
+});
+
+describe('readFstab', () => {
+  it('one helper, `cat /etc/fstab` only, a unique name and a 15 s limit', async () => {
+    const { docker, calls } = fakeDocker({ fstab: { stdout: 'x /mnt/music nfs4 hard 0 0\n' } });
+    expect(await readFstab(docker, IMAGE)).toBe('x /mnt/music nfs4 hard 0 0\n');
+    expect(await readFstab(docker, IMAGE)).not.toBeNull();
+    expect(calls).toHaveLength(2);
+    for (const c of calls) {
+      expect(c.args.slice(0, 4)).toEqual(['run', '--rm', '--privileged', '--pid=host']);
+      expect(c.args.slice(c.args.indexOf('--') + 1)).toEqual(['cat', '/etc/fstab']);
+      expect(c.opts?.timeoutMs).toBe(15_000);
+    }
+    const names = calls.map((c) => c.args[c.args.indexOf('--name') + 1]!);
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it('no fstab on the host reads as empty', async () => {
+    const { docker } = fakeDocker({ fstab: { code: 1, stderr: 'cat: /etc/fstab: No such file or directory\n' } });
+    expect(await readFstab(docker, IMAGE)).toBe('');
+  });
+
+  it('null when the helper fails or throws', async () => {
+    expect(await readFstab(fakeDocker({ fstab: { code: 125, stderr: 'docker: no such image' } }).docker, IMAGE)).toBeNull();
+    expect(await readFstab(fakeDocker({ fstab: 'throw' }).docker, IMAGE)).toBeNull();
   });
 });
