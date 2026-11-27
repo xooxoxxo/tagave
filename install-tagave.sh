@@ -1489,6 +1489,8 @@ EOF
       local music_mode=ro
       [ "$MUSIC_WRITABLE" = 1 ] && music_mode=rw
       printf "\n# your music at /mnt/music in the file worker; rw lets tag plans write tags\nMUSIC_DIR='%s'\nTAGAVE_MUSIC_MODE=%s\n" "$MUSIC_DIR" "$music_mode"
+      # compose.yml reads TAGAVE_MUSIC_READ_ONLY (true when it is not set)
+      [ "$music_mode" != rw ] || printf 'TAGAVE_MUSIC_READ_ONLY=false\n'
     fi
     carry_over_settings "$env_file"
   } | write_private "$env_file"
@@ -2012,10 +2014,30 @@ pin_db_names() {
   ok "POSTGRES_USER=$user and POSTGRES_DB=$db in $(basename "$file"): the names the database was created with"
 }
 
+# music_bind_env FILE: TAGAVE_MUSIC_READ_ONLY from TAGAVE_MUSIC_MODE, once the
+# compose files read it (true when it is not set). Installs from before 0.38.0
+# only have TAGAVE_MUSIC_MODE=rw. Only a value that must change is written,
+# the same rule as musicBindKeys in the updater (music-layout.ts).
+music_bind_env() {
+  local file="$1" read_only
+  [ -f "$file" ] || return 0
+  grep -q 'TAGAVE_MUSIC_READ_ONLY' "$INSTALL_DIR/$COMPOSE_MAIN" 2>/dev/null || return 0
+  read_only="$(env_get TAGAVE_MUSIC_READ_ONLY "$file")"
+  if [ "$(env_get TAGAVE_MUSIC_MODE "$file")" = rw ]; then
+    [ "$read_only" = false ] && return 0
+    set_env_key "$file" TAGAVE_MUSIC_READ_ONLY false
+    ok "TAGAVE_MUSIC_READ_ONLY=false in $(basename "$file"), for TAGAVE_MUSIC_MODE=rw"
+  elif [ -n "$read_only" ] && [ "$read_only" != true ]; then
+    set_env_key "$file" TAGAVE_MUSIC_READ_ONLY true
+    ok "TAGAVE_MUSIC_READ_ONLY=true in $(basename "$file"), for read-only music"
+  fi
+}
+
 # migrate_install_env: both of the above for this install's env files, once
 # its compose files read the new names (an older compose.yml still reads
 # LINER_LIBRARY_ID from .env, so its .env is left as it is).
 migrate_install_env() {
+  music_bind_env "$INSTALL_DIR/.env"
   grep -q 'TAGAVE_LIBRARY_ID' "$INSTALL_DIR/$COMPOSE_MAIN" 2>/dev/null || return 0
   migrate_legacy_env "$INSTALL_DIR/.env"
   migrate_legacy_env "$INSTALL_DIR/$WORKER_ENV_NAME"
