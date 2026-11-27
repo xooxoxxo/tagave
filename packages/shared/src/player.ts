@@ -52,6 +52,9 @@ export interface PlayerSettingsView {
   lastScan: { requestedAt: string; state: 'requested' | 'failed'; error: string | null } | null;
 }
 
+/** Last scan's reason while a player scan waits for a music folder (state 'requested'). */
+export const PLAYER_SCAN_HELD = 'Waiting for a music folder to come back';
+
 /** PUT /api/v1/libraries/:libraryId/player/server (owner): bring your own server. */
 export const savePlayerServerSchema = z.object({
   url: z.string().trim().url().max(2048).refine((u) => /^https?:\/\//i.test(u), 'Use an http:// or https:// address'),

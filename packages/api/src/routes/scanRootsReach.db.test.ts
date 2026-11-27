@@ -2,6 +2,8 @@
  * GET /libraries/:id/scan-roots (Settings › Library): each music folder
  * carries what the folder watch last saw (reach, since when) and how much
  * work waits for it to come back (vault "tagave - Offline Library Spec" §5).
+ * POST …/scan still answers 202 while the folder is not online, and says
+ * the scan waits (`waiting: true`).
  */
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -9,7 +11,7 @@ import postgres from 'postgres';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { createScratchDb, migrateAll } from '../testkit/authApp.js';
 
-vi.mock('../boss.js', () => ({ getBoss: async () => ({ send: async () => 'job' }) }));
+vi.mock('../boss.js', () => ({ getBoss: async () => ({ send: async () => 'job', createQueue: async () => undefined }) }));
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -23,6 +25,9 @@ describe.skipIf(!url)('GET scan roots: reach and waiting (integration)', () => {
   const libraryId = randomUUID();
   const offlineRoot = randomUUID();
   const newRoot = randomUUID();
+  const unmountedRoot = randomUUID();
+  const onlineRoot = randomUUID();
+  const otherLibrary = randomUUID();
   const owner = { 'x-test-user': ownerId, 'x-test-role': 'owner' };
 
   beforeAll(async () => {
@@ -38,6 +43,12 @@ describe.skipIf(!url)('GET scan roots: reach and waiting (integration)', () => {
     await raw`insert into scan_roots (id, library_id, path, display_name, validation_status, reach, reach_since, reach_reason)
       values (${offlineRoot}, ${libraryId}, '/mnt/music', 'Music', 'ok', 'offline', '2026-11-24T14:02:00Z', 'server_silent')`;
     await raw`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${newRoot}, ${libraryId}, '/mnt/more', 'More', 'ok')`;
+    // the scan POST cases live in a second library, so the GET list above stays two roots
+    await raw`insert into libraries (id, owner_user_id, name, settings) values (${otherLibrary}, ${ownerId}, 'Away', '{}'::jsonb)`;
+    await raw`insert into scan_roots (id, library_id, path, display_name, validation_status, reach, reach_since, reach_reason)
+      values (${unmountedRoot}, ${otherLibrary}, '/mnt/share', 'Share', 'ok', 'unmounted', '2026-11-24T14:02:00Z', 'not_mounted')`;
+    await raw`insert into scan_roots (id, library_id, path, display_name, validation_status, reach, reach_since)
+      values (${onlineRoot}, ${otherLibrary}, '/mnt/here', 'Here', 'ok', 'online', '2026-11-24T14:02:00Z')`;
     const park = (queue: string, key: string | null) =>
       raw`insert into parked_jobs (scan_root_id, queue, data, singleton_key, reason) values (${offlineRoot}, ${queue}, '{}', ${key}, 'offline')`;
     await park('scan.root', `scan:${offlineRoot}`);
@@ -70,5 +81,24 @@ describe.skipIf(!url)('GET scan roots: reach and waiting (integration)', () => {
     const byId = new Map((res.json().data as Array<{ id: string }>).map((r) => [r.id, r]));
     expect(byId.get(offlineRoot)).toMatchObject({ reach: 'offline', reachSince: '2026-11-24T14:02:00.000Z', waiting: { scans: 1, tagWrites: 1, other: 1 } });
     expect(byId.get(newRoot)).toMatchObject({ reach: 'unknown', reachSince: null, waiting: { scans: 0, tagWrites: 0, other: 0 } });
+  });
+
+  const scan = (lib: string, rootId: string) =>
+    app.inject({ method: 'POST', url: `/api/v1/libraries/${lib}/scan-roots/${rootId}/scan`, headers: owner, payload: {} });
+
+  it('a scan of an offline or not connected folder is queued and says it waits', async () => {
+    for (const [lib, rootId] of [[libraryId, offlineRoot], [otherLibrary, unmountedRoot]] as const) {
+      const res = await scan(lib, rootId);
+      expect(res.statusCode, res.body).toBe(202);
+      expect(res.json()).toMatchObject({ type: 'scan.root', mode: 'full', state: 'created', waiting: true });
+    }
+  });
+
+  it('a scan of an online or not yet checked folder does not say it waits', async () => {
+    for (const [lib, rootId] of [[otherLibrary, onlineRoot], [libraryId, newRoot]] as const) {
+      const res = await scan(lib, rootId);
+      expect(res.statusCode, res.body).toBe(202);
+      expect(res.json()).not.toHaveProperty('waiting');
+    }
   });
 });
