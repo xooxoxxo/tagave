@@ -26,6 +26,8 @@ export interface JobResponse {
   jobId: string;
   singletonKey: string;
   message: string;
+  /** Apply: a music folder of the plan's files is offline; the job waits for it */
+  waiting?: boolean;
 }
 
 export interface ApplyPlanResponse {

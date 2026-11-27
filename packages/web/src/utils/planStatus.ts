@@ -1,20 +1,44 @@
+import { PAUSED_OFFLINE_STAGE } from '@tagave/shared';
 import { statusTone, type BadgeTone } from '../components/ui/Badge';
+import { PAUSED_OFFLINE_HELP } from './offlinePaused';
+
+const WAITING_LABEL = 'Waiting for the music folder';
+const WAITING_HELP = 'tagave writes these tags when the folder is back. Nothing is lost.';
+
+export interface PlanStatusView {
+  label: string;
+  tone: BadgeTone;
+  allFailed: boolean;
+  /** what the status means, behind a "?"; only for the offline music folder's statuses */
+  help?: string;
+}
 
 /**
  * The status a plan shows. The worker parks a finished apply with any failed
  * file as partially_failed; when not one file was written that reads as
- * "failed", which is what it is.
+ * "failed", which is what it is. 'waiting': its music folder is offline and
+ * the apply waits for it. A plan paused because its split was cut off by the
+ * offline folder (stats.lastError) gets the split's help.
  */
 export function planStatusView(
   status: string,
   progress?: Record<string, number | undefined> | null,
-): { label: string; tone: BadgeTone; allFailed: boolean } {
+  lastError?: string | null,
+): PlanStatusView {
   const applied = progress?.['applied'] ?? 0;
   const failed = progress?.['failed'] ?? 0;
   if (status === 'partially_failed' && progress && applied === 0 && failed > 0) {
     return { label: 'failed', tone: 'danger', allFailed: true };
   }
-  return { label: status.replaceAll('_', ' '), tone: statusTone(status), allFailed: false };
+  if (status === 'waiting') return { label: WAITING_LABEL, tone: statusTone(status), allFailed: false, help: WAITING_HELP };
+  const view: PlanStatusView = { label: status.replaceAll('_', ' '), tone: statusTone(status), allFailed: false };
+  if (status === 'paused' && lastError === PAUSED_OFFLINE_STAGE) view.help = PAUSED_OFFLINE_HELP;
+  return view;
+}
+
+/** The toast after Apply: only when the plan's music folder is offline and the apply waits for it. */
+export function applyToast(response: { waiting?: boolean } | undefined): string | null {
+  return response?.waiting ? 'Queued. tagave writes the tags when the music folder is back.' : null;
 }
 
 /** Extensions whose tags are ID3 frames: only these care about the ID3 version. */
