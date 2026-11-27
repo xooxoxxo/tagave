@@ -15,8 +15,9 @@ import type { TagSet } from '@tagave/shared';
 import { hashAudioStream } from '@tagave/core';
 import type { TagWriter, WriteOptions } from '@tagave/core';
 import { audioHandler, type FileTypeHandler } from '@tagave/core/files';
-import { fileGate, type FileGate } from './fileGate.js';
+import { fileGate, type FileGate, type GateOp } from './fileGate.js';
 import type { DirPage } from './fileHelper.js';
+import { isGateFailure, isOfflineError } from './folderOffline.js';
 
 /**
  * Result from a write operation
@@ -66,14 +67,32 @@ export async function safeWriteSteps(
   opts?: WriteOptions,
   hooks: WriteStepHooks = {},
 ): Promise<WriteResult> {
+  const steps = taggedSteps(handler, values, writer, opts, hooks);
+  return 'write' in steps ? runWriteSteps(filePath, steps) : steps;
+}
+
+/** The steps before the rename, for a publish the caller checks first (prepareTagged). */
+export async function prepareTaggedSteps(
+  filePath: string,
+  handler: FileTypeHandler,
+  values: TagSet,
+  writer: TagWriter,
+  opts?: WriteOptions,
+  hooks: WriteStepHooks = {},
+): Promise<PrepareResult> {
+  const steps = taggedSteps(handler, values, writer, opts, hooks);
+  return 'write' in steps ? prepareWrite(filePath, steps) : steps;
+}
+
+function taggedSteps(handler: FileTypeHandler, values: TagSet, writer: TagWriter, opts: WriteOptions | undefined, hooks: WriteStepHooks): Steps | WriteResult {
   const { write, contentHash } = handler;
   if (!write || !contentHash) return { error: `The ${handler.id} handler cannot write files`, code: 'not_writable' };
-  return runWriteSteps(filePath, {
+  return {
     ...hooks,
     write: (temp) => write(temp, values, writer, opts),
     verify: (temp) => verifyFields(writer, temp, values),
     contentHash: (file) => contentHash(file),
-  });
+  };
 }
 
 /** The tag writer call the cover embed needs (MutagenTagWriter). */
@@ -86,8 +105,17 @@ export interface CoverWriter {
  * checks the picture is there, the audio hash checks nothing else changed.
  */
 export async function safeEmbedSteps(filePath: string, image: Buffer, writer: CoverWriter, hooks: WriteStepHooks = {}): Promise<WriteResult> {
+  return runWriteSteps(filePath, embedSteps(filePath, image, writer, hooks));
+}
+
+/** The cover embed's steps before the rename (prepareCover). */
+export async function prepareEmbedSteps(filePath: string, image: Buffer, writer: CoverWriter, hooks: WriteStepHooks = {}): Promise<PrepareResult> {
+  return prepareWrite(filePath, embedSteps(filePath, image, writer, hooks));
+}
+
+function embedSteps(filePath: string, image: Buffer, writer: CoverWriter, hooks: WriteStepHooks): Steps {
   const ext = path.extname(filePath).toLowerCase().slice(1);
-  return runWriteSteps(filePath, {
+  return {
     ...hooks,
     write: (temp) => writer.embedCover(temp, image),
     verify: async (temp) => {
@@ -95,7 +123,26 @@ export async function safeEmbedSteps(filePath: string, image: Buffer, writer: Co
       return pictures?.some((picture) => Buffer.from(picture.data).equals(image)) ? {} : { error: 'Could not verify the embedded cover' };
     },
     contentHash: (file) => hashAudioStream(file, ext),
-  });
+  };
+}
+
+/** The original's identity when its temp copy was made: the rename happens only while it still matches. */
+export interface OriginalIdentity {
+  dev: bigint;
+  ino: bigint;
+  size: bigint;
+  ctimeNs: bigint;
+  mtimeNs: bigint;
+}
+
+/** A temp copy written, verified and synced, waiting for its rename. */
+export interface PreparedWrite {
+  temp: string;
+  original: OriginalIdentity;
+}
+
+export interface PrepareResult extends WriteResult {
+  prepared?: PreparedWrite;
 }
 
 /**
@@ -147,21 +194,52 @@ export class SafeFileWriter {
   async write(
     filePath: string,
     tagSet: TagSet,
-    opts?: WriteOptions
+    opts?: WriteOptions,
+    /** Runs after the temp copy is verified, right before the rename; a throw leaves the original. */
+    beforePublish?: () => Promise<void>,
   ): Promise<WriteResult> {
     if (this.rootId !== undefined) {
-      return this.gate().run<WriteResult>(this.rootId, {
-        op: 'writeTagged', path: filePath, handlerId: audioHandler.id, values: tagSet, ...(opts ? { options: opts } : {}),
-      });
+      const options = opts ? { options: opts } : {};
+      if (!beforePublish) {
+        return this.gate().run<WriteResult>(this.rootId, { op: 'writeTagged', path: filePath, handlerId: audioHandler.id, values: tagSet, ...options });
+      }
+      return this.inTwoSteps(filePath, { op: 'prepareTagged', path: filePath, handlerId: audioHandler.id, values: tagSet, ...options }, beforePublish);
     }
     if (!this.tagWriter) throw new Error('SafeFileWriter has neither a music folder nor a tag writer');
     return safeWriteSteps(filePath, audioHandler, tagSet, this.tagWriter, opts);
   }
 
-  /** Embeds `image` as the front cover, safely, through the file gate. */
-  async embedCover(filePath: string, image: Buffer): Promise<WriteResult> {
+  /**
+   * Embeds `image` as the front cover, safely, through the file gate. With
+   * `beforePublish` the write runs in two gate calls (prepare, then publish)
+   * and the check runs in the worker between them, right before the rename.
+   */
+  async embedCover(filePath: string, image: Buffer, beforePublish?: () => Promise<void>): Promise<WriteResult> {
     if (this.rootId === undefined) throw new Error('SafeFileWriter needs its music folder to embed a cover');
-    return this.gate().run<WriteResult>(this.rootId, { op: 'embedCover', path: filePath, image });
+    if (!beforePublish) return this.gate().run<WriteResult>(this.rootId, { op: 'embedCover', path: filePath, image });
+    return this.inTwoSteps(filePath, { op: 'prepareCover', path: filePath, image }, beforePublish);
+  }
+
+  /**
+   * Prepare (the temp copy written, verified and synced in the helper), the
+   * worker's own check, then publish (the rename in the helper). A check
+   * that fails removes the temp copy through the gate and leaves the
+   * original; an offline folder or a failed gate rethrows, and the temp copy
+   * a cut-off run leaves is removed on the retry (ruling R9).
+   */
+  private async inTwoSteps(filePath: string, prepare: GateOp, beforePublish: () => Promise<void>): Promise<WriteResult> {
+    const rootId = this.rootId!;
+    const gate = this.gate();
+    const r = await gate.run<PrepareResult>(rootId, prepare);
+    if (!r.prepared) return r;
+    try {
+      await beforePublish();
+    } catch (err) {
+      if (isOfflineError(err) || isGateFailure(err)) throw err;
+      await gate.run(rootId, { op: 'unlink', path: r.prepared.temp }).catch(() => undefined);
+      return failed(`rename_failed: ${messageOf(err)}`, 'rename_error');
+    }
+    return gate.run<WriteResult>(rootId, { op: 'publishPrepared', path: filePath, prepared: r.prepared });
   }
 
   /**
@@ -187,6 +265,13 @@ export class SafeFileWriter {
 }
 
 async function runWriteSteps(filePath: string, steps: Steps): Promise<WriteResult> {
+  const r = await prepareWrite(filePath, steps);
+  if (!r.prepared) return r;
+  return publishPrepared(filePath, r.prepared, steps.beforePublish);
+}
+
+/** Steps 0 to 6: the temp copy written, verified, hash-checked and synced. A failure removes it. */
+async function prepareWrite(filePath: string, steps: Steps): Promise<PrepareResult> {
   const dir = path.dirname(filePath);
   const filename = path.basename(filePath);
   const tempFilename = `${tempPrefixFor(filePath)}${randomUUID()}${path.extname(filename)}`;
@@ -260,37 +345,52 @@ async function runWriteSteps(filePath: string, steps: Steps): Promise<WriteResul
       return failed(`fsync_failed: ${messageOf(syncError)}`, 'fsync_error', syncError);
     }
 
-    // 7. Atomic rename - replace original with temp
-    try {
-      await steps.beforePublish?.();
-      const current = await fs.lstat(filePath, { bigint: true });
-      if (current.dev !== original.dev || current.ino !== original.ino || current.size !== original.size ||
-          current.ctimeNs !== original.ctimeNs || current.mtimeNs !== original.mtimeNs) {
-        throw new Error('Audio file changed while its tags were being written');
-      }
-      await fs.rename(tempFilePath, filePath);
-    } catch (renameError) {
-      await cleanup(tempFilePath);
-      return failed(`rename_failed: ${messageOf(renameError)}`, 'rename_error', renameError);
-    }
-
-    // 8. fsync directory to ensure rename is durable
-    try {
-      await fsyncDirectory(dir);
-    } catch (fsyncError) {
-      // Log but don't fail - rename already succeeded
-      process.stderr.write(
-        `[SafeFileWriter] Warning: fsync failed for ${dir}: ${fsyncError}\n`
-      );
-    }
-
-    // Success
-    return {};
+    const { dev, ino, size, ctimeNs, mtimeNs } = original;
+    return { prepared: { temp: tempFilePath, original: { dev, ino, size, ctimeNs, mtimeNs } } };
   } catch (error) {
     // Catch-all for unexpected errors
     await cleanup(tempFilePath);
     return failed(`unexpected_error: ${messageOf(error)}`, 'error', error);
   }
+}
+
+/**
+ * Steps 7 and 8: `beforePublish`, then the temp copy renamed over the
+ * original while the original is still the one it was copied from, then the
+ * folder synced. Any failure before the rename removes the temp copy and
+ * leaves the original. Only a temp copy of this file is ever renamed.
+ */
+export async function publishPrepared(filePath: string, prepared: PreparedWrite, beforePublish?: () => Promise<void>): Promise<WriteResult> {
+  const dir = path.dirname(filePath);
+  const temp = prepared.temp;
+  if (path.dirname(temp) !== dir || !path.basename(temp).startsWith(tempPrefixFor(filePath))) {
+    return { error: 'rename_failed: not a temp copy of this file', code: 'rename_error' };
+  }
+  const original = prepared.original;
+  // 7. Atomic rename - replace original with temp
+  try {
+    await beforePublish?.();
+    const current = await fs.lstat(filePath, { bigint: true });
+    if (current.dev !== original.dev || current.ino !== original.ino || current.size !== original.size ||
+        current.ctimeNs !== original.ctimeNs || current.mtimeNs !== original.mtimeNs) {
+      throw new Error('Audio file changed while its tags were being written');
+    }
+    await fs.rename(temp, filePath);
+  } catch (renameError) {
+    await cleanup(temp);
+    return failed(`rename_failed: ${messageOf(renameError)}`, 'rename_error', renameError);
+  }
+
+  // 8. fsync directory to ensure rename is durable
+  try {
+    await fsyncDirectory(dir);
+  } catch (fsyncError) {
+    // Log but don't fail - rename already succeeded
+    process.stderr.write(
+      `[SafeFileWriter] Warning: fsync failed for ${dir}: ${fsyncError}\n`
+    );
+  }
+  return {};
 }
 
 /**

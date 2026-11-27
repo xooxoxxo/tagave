@@ -27,6 +27,7 @@ import { prepareWorkerQueues } from '../lib/queueSetup.js';
 import { tempPrefixFor } from '../lib/safeFileWriter.js';
 import { MutagenTagWriter, resolvePythonInterpreter } from '../lib/tagWriter.js';
 import { tagsApplyJob, type TagsApplyJobData } from './tagsApply.js';
+import { tagsPreviewJob } from './tagsPreview.js';
 
 const json = (v: unknown) => JSON.stringify(v);
 const FAKE = fileURLToPath(new URL('../testkit/fakeHelper.mjs', import.meta.url));
@@ -42,12 +43,14 @@ function toolsAvailable(): boolean {
   }
 }
 
-type Mode = 'ok' | 'hang' | 'cut';
+type Mode = 'ok' | 'hang' | 'cut' | 'closed' | 'fail';
 
 /**
  * The real gate, with a dead share on demand:
- *   hang  the first file the gate is asked about answers; every other file hangs (offline at the deadline)
- *   cut   the write runs, then its answer is lost (the gate gave up just as it finished)
+ *   hang    the first file the gate is asked about answers; every other file hangs (offline at the deadline)
+ *   cut     the write runs, then its answer is lost (the gate gave up just as it finished)
+ *   closed  the write meets a closed gate (the worker stopping)
+ *   fail    the write answers a plain write error (not offline)
  */
 class SwitchGate extends FileGate {
   readonly dead = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 600, helpers: 2, stuckMax: 8 } });
@@ -61,6 +64,8 @@ class SwitchGate extends FileGate {
       this.first ??= p;
       if (p !== this.first) return this.dead.run<T>(rootId, { ...op, path: 'hang' } as GateOp, opts);
     }
+    if (this.mode === 'closed' && op.op === 'writeTagged') throw Object.assign(new Error('The file gate is closed'), { code: 'EGATECLOSED' });
+    if (this.mode === 'fail' && op.op === 'writeTagged') return { error: 'write_failed: the tag writer refused', code: 'write_error' } as T;
     const out = await super.run<T>(rootId, op, opts);
     if (this.mode === 'cut' && op.op === 'writeTagged') throw new FolderOfflineError(rootId, 'timeout');
     return out;
@@ -241,5 +246,88 @@ describe.skipIf(!adminUrl || !toolsAvailable())('tags.apply and an offline music
     await expect(fs.access(stale)).rejects.toMatchObject({ code: 'ENOENT' });
     // another file's temp copy is not this file's to remove
     await expect(fs.access(other)).resolves.toBeUndefined();
+  }, 120_000);
+
+  const writes = () => gate.ops.filter((o) => o === 'writeTagged').length;
+  const setReach = (reach: string, reason: string | null) =>
+    sql`update scan_roots set reach = ${reach}, reach_reason = ${reason} where id = ${rootId}`;
+
+  it.each(['paused', 'cancelled'])('a plan %s while it waits stays so when the folder is back: nothing written', async (owner) => {
+    const { planId, files } = await planOfThree(`Owner ${owner}`);
+    gateMode('hang');
+    expect(await runParked('tags.apply', { planId })).toEqual({ parked: true });
+    expect(await plan(planId)).toMatchObject({ status: 'waiting' });
+    // the owner stops it; the parked job is still there (the worst case: the api drops it, see tagPlansWaiting.db.test.ts)
+    await sql`update tag_plans set status = ${owner} where id = ${planId}`;
+    gateMode('ok');
+    const before = writes();
+    const tags = await Promise.all(files.map((f) => tagger.read(f)));
+    await onlineAgain(ctx)(rootId, 'offline');
+    await drain('tags.apply');
+    expect(await plan(planId)).toMatchObject({ status: owner });
+    expect(writes()).toBe(before);
+    expect(await itemStatuses(planId)).toEqual({ applied: 1, pending: 2 });
+    expect(await Promise.all(files.map((f) => tagger.read(f)))).toEqual(tags);
+  }, 120_000);
+
+  it('a split in the plan meets an offline folder: the plan pauses for the owner and does not resume on its own', async () => {
+    const { planId } = await planOfThree('Split offline');
+    const [file] = await sql<{ id: string }[]>`select audio_file_id::text as id from tag_plan_items where tag_plan_id = ${planId} limit 1`;
+    await sql`insert into album_splits (library_id, file_id, state, tag_plan_id) values (${libraryId}, ${file!.id}, 'splitting', ${planId})`;
+    await setReach('offline', 'timeout');
+    try {
+      const out = await runParked('tags.apply', { planId });
+      expect(out).not.toEqual({ parked: true });
+      expect(await plan(planId)).toMatchObject({ status: 'paused', stats: { lastError: 'Paused while the music folder is offline' } });
+      expect(await sql`select 1 from parked_jobs where scan_root_id = ${rootId}`).toHaveLength(0);
+      await setReach('online', null);
+      const before = writes();
+      await onlineAgain(ctx)(rootId, 'offline');
+      await drain('tags.apply');
+      expect(await plan(planId)).toMatchObject({ status: 'paused' });
+      expect(writes()).toBe(before);
+    } finally {
+      await setReach('online', null);
+      await sql`delete from album_splits where tag_plan_id = ${planId}`;
+    }
+  }, 120_000);
+
+  it('a journal whose hash is not the file\'s: the item fails, the plan pauses, nothing is written', async () => {
+    const { planId, files } = await planOfThree('Mismatch');
+    await sql`update tag_plan_items set audio_hash_before = ${'0'.repeat(64)}, audio_hash_after = null where tag_plan_id = ${planId}`;
+    const before = writes();
+    await tagsApplyJob(ctx, { planId });
+    expect(await plan(planId)).toMatchObject({ status: 'paused' });
+    expect((await itemStatuses(planId)).failed).toBeGreaterThanOrEqual(1);
+    expect(writes()).toBe(before);
+    for (const f of files) expect(await tagger.read(f)).toMatchObject({ album: 'Old album' });
+  }, 120_000);
+
+  it('a worker that stops mid-apply leaves the plan applying, its items pending and no last error', async () => {
+    const { planId } = await planOfThree('Stopping');
+    gateMode('closed');
+    await expect(tagsApplyJob(ctx, { planId })).rejects.toMatchObject({ code: 'EGATECLOSED' });
+    const p = await plan(planId);
+    expect(p.status).toBe('applying');
+    expect(p.stats?.['lastError']).toBeUndefined();
+    expect(await itemStatuses(planId)).toEqual({ pending: 3 });
+  }, 120_000);
+
+  it('an item that fails for another reason keeps no journal of a cut-off write', async () => {
+    const { planId } = await planOfThree('Failing');
+    gateMode('fail');
+    await tagsApplyJob(ctx, { planId });
+    expect(await sql`select status, audio_hash_before, audio_hash_after from tag_plan_items where tag_plan_id = ${planId}`)
+      .toEqual(Array(3).fill({ status: 'failed', audio_hash_before: null, audio_hash_after: null }));
+  }, 120_000);
+
+  it('a re-preview of a waiting plan keeps its items and the cut-off journal', async () => {
+    const { planId } = await planOfThree('Preview waiting');
+    await sql`update tag_plans set status = 'waiting' where id = ${planId}`;
+    await sql`update tag_plan_items set audio_hash_before = ${'1'.repeat(64)}, audio_hash_after = null where tag_plan_id = ${planId}`;
+    await tagsPreviewJob(ctx, planId);
+    expect(await plan(planId)).toMatchObject({ status: 'waiting' });
+    expect(await sql`select status, audio_hash_before from tag_plan_items where tag_plan_id = ${planId}`)
+      .toEqual(Array(3).fill({ status: 'pending', audio_hash_before: '1'.repeat(64) }));
   }, 120_000);
 });

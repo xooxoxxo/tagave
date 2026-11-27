@@ -9,7 +9,7 @@ import { storeThumb, toThumb } from '../lib/coverThumbs.js';
 import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { fileGate } from '../lib/fileGate.js';
-import { FolderOfflineError } from '../lib/folderOffline.js';
+import { FolderOfflineError, isGateFailure } from '../lib/folderOffline.js';
 import { runMaintenance } from '../lib/maintenance.js';
 import { relDirname } from '../lib/helpers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
@@ -72,7 +72,8 @@ async function openVariant(rootId: string, p: string): Promise<string | null> {
       await fileGate().run(rootId, { op: 'access', path: cand });
       return cand;
     } catch (err) {
-      if (err instanceof FolderOfflineError) throw err;
+      // offline, or a failed helper or a closed gate: nothing is known about the path
+      if (err instanceof FolderOfflineError || isGateFailure(err)) throw err;
       /* next */
     }
   }
@@ -201,7 +202,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, che
             audioFileId = withArt.id;
           }
         } catch (err) {
-          if (err instanceof FolderOfflineError) throw err;
+          if (err instanceof FolderOfflineError || isGateFailure(err)) throw err;
           /* fall through */
         }
       }
@@ -241,7 +242,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, che
               license = 'sidecar file in owned folder';
               sidecarFileId = pick.id;
             } catch (err) {
-              if (err instanceof FolderOfflineError) throw err;
+              if (err instanceof FolderOfflineError || isGateFailure(err)) throw err;
               /* fall through */
             }
           }

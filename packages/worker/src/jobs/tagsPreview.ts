@@ -290,6 +290,15 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
     return;
   }
 
+  // A plan waiting for its music folder is mid-apply: its pending rows hold
+  // the journal of a cut-off write, which a re-preview would drop. It is left
+  // as it is; the apply finishes it once the folder is back.
+  if (plan.status === 'waiting') {
+    ctx.logger.info({ planId }, 'tags.preview skipped: the plan waits for its music folder');
+    await progress.superseded();
+    return;
+  }
+
   const fileIds = await enumerateFilesForScope(ctx, libraryId, scope);
   const writableRoots = new Set(
     (await db.select({ id: scanRoots.id }).from(scanRoots).where(and(eq(scanRoots.libraryId, libraryId), eq(scanRoots.writable, true)))).map((r) => r.id),
