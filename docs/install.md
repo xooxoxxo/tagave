@@ -80,7 +80,7 @@ The file worker and the player mount your music in one of two layouts:
 The installer picks the parent layout only when all of these hold:
 
 - the install is writable (`--music-writable`). [Security: The music bind](security.md#the-music-bind) says why read-only installs stay direct;
-- the computer runs Linux, with rootful Docker (not rootless, not the snap);
+- the computer runs Linux, with rootful Docker (not rootless, not the snap, not Docker Desktop);
 - the music folder is a mount point or an `/etc/fstab` entry;
 - the folder above it is under `/mnt`, `/media` or `/srv`, or is the folder you name with `--music-parent`. Either way it is the folder right above the music folder, and never `/`, `/home`, your home folder, the install folder or Docker's data;
 - that folder's mount is `shared` (`findmnt -no PROPAGATION --target /mnt`), as systemd sets it.

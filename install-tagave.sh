@@ -196,7 +196,8 @@ Usage: install-tagave.sh [install|update|status|repair|enable-updater|
                            under /mnt, /media or /srv, when that is safe;
                            writable installs only; roles all, files)
   --music-direct           mount the music folder itself, never the folder
-                           above it, on later runs too (until --music-parent)
+                           above it, on later runs too (until --music-parent;
+                           roles all, files)
   --port N                 web app port on this computer (default: 3100)
   --version TAG            release to run, e.g. 0.5.0 (default: the newest
                            release, written to .env as its number)
@@ -1129,16 +1130,17 @@ keep_direct() {
 # install; a name the worker can link to; a safe parent (the folder right
 # above, under /mnt, /media or /srv, or named with --music-parent; never /,
 # /home, the home folder, the install folder or one above it, or Docker's
-# data); the parent's mount passes new mounts on (shared); Docker neither
-# rootless nor the snap. Last, it lists what else the parent holds and asks
+# data); the parent's mount passes new mounts on (shared); Docker not
+# rootless, the snap or Docker Desktop. Last, it lists what else the parent holds and asks
 # once on a terminal; without one it goes on only when all of it is mount
 # points. Anything else keeps the direct layout, with one line why. It reads
 # the mount table, fstab and the parent folder, never MUSIC_DIR, which may sit
 # on a share that does not answer, and each command it runs has a short
 # limit. TAGAVE_TEST_UNAME_S, TAGAVE_TEST_PROPAGATION, TAGAVE_TEST_DOCKER_ROOT,
-# TAGAVE_TEST_DOCKER_SECURITY, TAGAVE_TEST_DOCKER_PATH and
-# TAGAVE_TEST_PARENT_DIR (a folder listed in place of the parent) stand in for
-# the host's answers in tests.
+# TAGAVE_TEST_DOCKER_SECURITY, TAGAVE_TEST_DOCKER_OS, TAGAVE_TEST_DOCKER_PATH
+# and TAGAVE_TEST_PARENT_DIR (a folder listed in place of the parent) stand in
+# for the host's answers in tests; docker info is skipped only when all three
+# TAGAVE_TEST_DOCKER_ROOT, _SECURITY and _OS are set.
 #
 # --music-direct, or TAGAVE_MUSIC_LAYOUT=direct in the .env an earlier
 # --music-direct wrote, keeps the direct layout for good (MUSIC_KEEP_DIRECT,
@@ -1150,11 +1152,15 @@ pick_music_layout() {
   [ "$ROLE" != "app" ] || return 0
   local dir="$MUSIC_DIR" parent name named points system propagation info="" root security
   local docker_path resolved="" entries entry others="" plain=0 share_all=""
+  local info_root="" info_security="" info_os="" docker_os
   local name_re='^[A-Za-z0-9._ -]+$'
-  if [ "$MUSIC_DIRECT" = 1 ] \
-     || { [ -z "$MUSIC_PARENT" ] && [ "$(env_get TAGAVE_MUSIC_LAYOUT "$INSTALL_DIR/.env")" = direct ]; }; then
+  if [ "$MUSIC_DIRECT" = 1 ]; then
     MUSIC_KEEP_DIRECT=1
     keep_direct "you asked for it with --music-direct"; return 0
+  fi
+  if [ -z "$MUSIC_PARENT" ] && [ "$(env_get TAGAVE_MUSIC_LAYOUT "$INSTALL_DIR/.env")" = direct ]; then
+    MUSIC_KEEP_DIRECT=1
+    keep_direct "you asked for it with --music-direct (TAGAVE_MUSIC_LAYOUT=direct in .env)"; return 0
   fi
 
   system="$(host_fact TAGAVE_TEST_UNAME_S 5 uname -s)" || system=""
@@ -1169,6 +1175,9 @@ pick_music_layout() {
   # mount writable, even when that mount is read-only. So a read-only install
   # keeps the share itself as its mount, which stays read-only.
   if [ "$MUSIC_WRITABLE" != 1 ]; then
+    if [ -n "$MUSIC_PARENT" ]; then
+      keep_direct "a read-only music folder stays read-only only when it is mounted directly (--music-parent needs --music-writable)"; return 0
+    fi
     keep_direct "a read-only music folder stays read-only only when it is mounted directly"; return 0
   fi
 
@@ -1216,12 +1225,13 @@ pick_music_layout() {
     *) keep_direct "mounts under $parent do not reach the parts (its mount is $propagation, not shared)"; return 0 ;;
   esac
 
-  if [ -z "${TAGAVE_TEST_DOCKER_ROOT:-}" ] || [ -z "${TAGAVE_TEST_DOCKER_SECURITY:-}" ]; then
-    info="$(run_limited "$DOCKER_WAIT" docker info --format '{{.DockerRootDir}}{{"\n"}}{{range .SecurityOptions}}{{.}} {{end}}' 2>/dev/null)" || info=""
+  if [ -z "${TAGAVE_TEST_DOCKER_ROOT:-}" ] || [ -z "${TAGAVE_TEST_DOCKER_SECURITY:-}" ] || [ -z "${TAGAVE_TEST_DOCKER_OS:-}" ]; then
+    info="$(run_limited "$DOCKER_WAIT" docker info --format '{{.DockerRootDir}}{{"\n"}}{{range .SecurityOptions}}{{.}} {{end}}{{"\n"}}{{.OperatingSystem}}' 2>/dev/null)" || info=""
   fi
-  root="${TAGAVE_TEST_DOCKER_ROOT:-${info%%$'\n'*}}"
-  security="${TAGAVE_TEST_DOCKER_SECURITY:-}"
-  if [ -z "$security" ]; then case "$info" in *$'\n'*) security="${info#*$'\n'}" ;; esac; fi
+  { IFS= read -r info_root; IFS= read -r info_security; IFS= read -r info_os; } <<<"$info" || true
+  root="${TAGAVE_TEST_DOCKER_ROOT:-$info_root}"
+  security="${TAGAVE_TEST_DOCKER_SECURITY:-$info_security}"
+  docker_os="${TAGAVE_TEST_DOCKER_OS:-$info_os}"
   if [ -z "$root" ]; then keep_direct "Docker didn't say where it keeps its data"; return 0; fi
   case "${root%/}/" in
     "$parent"/*) keep_direct "the folder above it, $parent, holds Docker's data"; return 0 ;;
@@ -1233,6 +1243,11 @@ pick_music_layout() {
   # mounted later is known to reach it, it keeps the direct layout.
   case " $security " in
     *name=rootless*) keep_direct "Docker runs rootless"; return 0 ;;
+  esac
+  # Docker Desktop runs containers in a virtual machine of its own, which does
+  # not get the shares this computer mounts later.
+  case "$docker_os" in
+    *"Docker Desktop"*) keep_direct "Docker Desktop does not pass later mounts on"; return 0 ;;
   esac
   docker_path="${TAGAVE_TEST_DOCKER_PATH:-}"
   if [ -z "$docker_path" ]; then
@@ -1746,8 +1761,11 @@ EOF
       printf "\n# your music at /mnt/music in the file worker; rw lets tag plans write tags\nMUSIC_DIR='%s'\nTAGAVE_MUSIC_MODE=%s\n" "$MUSIC_DIR" "$music_mode"
       # Written fresh on every run: a re-run that keeps the direct layout drops them.
       if [ "$MUSIC_LAYOUT" = parent ]; then
-        printf "\n# the folder above the music share is mounted (the parent layout), so tagave\n# starts while the share is off; /mnt/music links to the share inside it\nTAGAVE_MUSIC_BIND_SOURCE='%s'\nTAGAVE_MUSIC_BIND_TARGET=/mnt/.host\nTAGAVE_PLAYER_BIND_TARGET=/host\nTAGAVE_MUSIC_PROPAGATION=rslave\nTAGAVE_MUSIC_NAME='%s'\nTAGAVE_PLAYER_MUSIC_FOLDER='/host/%s'\n" \
-          "$LAYOUT_PARENT" "$LAYOUT_NAME" "$LAYOUT_NAME"
+        printf "\n# the folder above the music share is mounted (the parent layout), so tagave\n# starts while the share is off; /mnt/music links to the share inside it\nTAGAVE_MUSIC_BIND_SOURCE='%s'\nTAGAVE_MUSIC_BIND_TARGET=/mnt/.host\n" "$LAYOUT_PARENT"
+        # Only an all-in-one computer runs the player.
+        [ "$ROLE" != all ] || printf 'TAGAVE_PLAYER_BIND_TARGET=/host\n'
+        printf "TAGAVE_MUSIC_PROPAGATION=rslave\nTAGAVE_MUSIC_NAME='%s'\n" "$LAYOUT_NAME"
+        [ "$ROLE" != all ] || printf "TAGAVE_PLAYER_MUSIC_FOLDER='/host/%s'\n" "$LAYOUT_NAME"
       elif [ "$MUSIC_KEEP_DIRECT" = 1 ]; then
         printf '\n# --music-direct: always mount the music folder itself (a run with\n# --music-parent, or deleting this line, lets tagave pick again)\nTAGAVE_MUSIC_LAYOUT=direct\n'
       fi
@@ -1875,7 +1893,9 @@ check_music_visible() {
   host_entry="${host_entry%%$'\n'*}"
   [ -n "$host_entry" ] || return 0
   rc=0
-  inside="$(run_limited 10 compose exec -T worker-files find /mnt/music -mindepth 1 -maxdepth 1 2>/dev/null)" || rc=$?
+  # The slash: in the parent layout /mnt/music is a link, and find does not
+  # follow a link it is given as its start.
+  inside="$(run_limited 10 compose exec -T worker-files find /mnt/music/ -mindepth 1 -maxdepth 1 2>/dev/null)" || rc=$?
   [ "$rc" != 124 ] || return 0
   if [ -n "$inside" ]; then
     ok "The file worker can see your music"
