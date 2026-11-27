@@ -22,6 +22,7 @@ import { artFetchState } from '../lib/artFetchState.js';
 import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
 import { albumsChanged } from '../lib/albumCare.js';
 import { containsPattern, textMatches } from '../lib/textMatch.js';
+import { filesOfflineFields } from '../lib/filesOffline.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -427,6 +428,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               group by lt.local_album_id`)) as unknown as { local_album_id: string; all_lossless: boolean; any_lossless: boolean; deleted_tracks: number }[])
           : [];
         const losslessOf = new Map(losslessRows.map((r) => [r.local_album_id, r]));
+        const offlineOf = await filesOfflineFields(albums.map((a) => a.id));
         return albums.map((album) => ({
         id: album.id,
         libraryId: album.libraryId,
@@ -452,6 +454,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         ...(album.releaseId ? { releaseId: album.releaseId } : {}),
         ...(album.releaseGroupId ? { releaseGroupId: album.releaseGroupId } : {}),
         createdAt: album.createdAt?.toISOString() || new Date().toISOString(),
+        ...offlineOf(album.id),
         }));
       })(),
       nextCursor: albums.length === limitN ? String(offsetN + limitN) : null,
@@ -956,7 +959,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const [
         trackRows, { release, canonicalTrackRows }, { liveMatch, editions, provenance }, art, gapRows,
         { candRows, candTracksByRelease }, duplicateRows, physicalRows, { artists, genres },
-        idStates, [mix], mergeCandidates, artFetch, folders,
+        idStates, [mix], mergeCandidates, artFetch, folders, offlineOf,
       ] = await Promise.all([
         tracksP, releaseP, matchP, artP, gapsP,
         candidatesP, duplicatesP, physicalP, artistsGenresP,
@@ -966,6 +969,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         findMergeCandidates(db, { libraryId: album.libraryId, albumId: album.id, limit: 200 }),
         artFetchState(album.id, album.libraryId),
         albumFolders(db, album.id, album.dirPaths ?? [], lib[0]?.settings),
+        filesOfflineFields([album.id]),
       ]);
 
       const discogsCollectionItems = physicalRows.map((r) => ({
@@ -1016,6 +1020,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         splitFrom,
         merged,
         mergeCandidates,
+        ...offlineOf(album.id),
         dirPaths: album.dirPaths,
         formats: album.formats,
         discCount: album.discCount,
@@ -1625,6 +1630,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             a.artistGuess?.toLowerCase().includes(q.toLowerCase()))
       );
 
+      const offlineOf = await filesOfflineFields(filtered.map((a) => a.id));
       results.push(
         ...filtered.map((a) => ({
           type: 'album',
@@ -1632,6 +1638,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           title: a.titleGuess,
           artist: a.artistGuess,
           libraryId: a.libraryId,
+          ...offlineOf(a.id),
         }))
       );
     }

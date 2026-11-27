@@ -15,6 +15,7 @@ import { followRulesSchema } from '@tagave/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 import { followDefaultsFor } from '../lib/followRules.js';
 import { fetchArtistAlbums } from '../lib/artistAlbums.js';
+import { filesOfflineFields } from '../lib/filesOffline.js';
 import {
   coverKey, coversFor, fetchArtistRows, orderArtists, parseArtistGroup, parseArtistSort, readArtistListPage,
   type ArtistGroupCount, type ArtistRow,
@@ -149,7 +150,9 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
 
     // What the library holds of the artist (credited and tag-matched albums,
     // the shelf) and what a followed artist is missing (lib/artistAlbums.ts)
-    const { albums, owned } = await fetchArtistAlbums(db, libraryId, { id: artist.id, name: artist.name });
+    const { albums: held, owned } = await fetchArtistAlbums(db, libraryId, { id: artist.id, name: artist.name });
+    const offlineOf = await filesOfflineFields(held.flatMap((a) => (a.localAlbumId ? [a.localAlbumId] : [])));
+    const albums = held.map((a) => ({ ...a, ...offlineOf(a.localAlbumId) }));
 
     // Check if enrichment is needed (null or older than 7 days)
     // Enrichment reads MusicBrainz by MBID: an artist without one is never
