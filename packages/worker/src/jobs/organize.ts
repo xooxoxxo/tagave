@@ -8,12 +8,10 @@
  * folder, tag_plan_id set) and by Library care › Organize. No tag changes:
  * a tag plan wrote them already.
  */
-import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import { albumPaths, currentFieldsFrom, samePath } from '@tagave/core';
 import type { MovePlan, MovePlanFile } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
-import { onDisk } from '../lib/deletions.js';
 import { fileGate } from '../lib/fileGate.js';
 import { gateExists, gateOnDisk } from '../lib/gatedPaths.js';
 import { isGateFailure, isOfflineError } from '../lib/folderOffline.js';
@@ -26,6 +24,8 @@ interface OrganizeFile {
 }
 
 const fold = (p: string) => p.normalize('NFC').toLowerCase();
+/** fs.constants.W_OK (2 on every platform node runs on): this module never imports node:fs, the helper does the access. */
+const W_OK = 2;
 
 /** The plan for these files (one album folder); throws with the reason when nothing can move. */
 export async function organizePlanFor(ctx: WorkerContext, libraryId: string, fileIds: readonly string[]): Promise<{ plan: MovePlan; sourceAlbumId: string | null }> {
@@ -70,7 +70,7 @@ export async function organizePlanFor(ctx: WorkerContext, libraryId: string, fil
   const toDir = planned.dir;
   const albumDir = albumDirOf(inRoot.map((f) => f.relPath), (b) => discDirNumber(b) !== null);
   const moving = new Set(inRoot.map((f) => f.relPath));
-  const extras = (await companionFiles(root.path, albumDir, moving, toDir))
+  const extras = (await companionFiles(rootId, root.path, albumDir, moving, toDir))
     // a target folder inside the old one: what is already there stays where it is
     .filter((e) => !(toDir.startsWith(`${albumDir}/`) && (e.fromPath === toDir || e.fromPath.startsWith(`${toDir}/`))));
   const target = new Map(planned.files.map((p) => [p.relPath, p.toPath]));
@@ -84,7 +84,7 @@ export async function organizePlanFor(ctx: WorkerContext, libraryId: string, fil
     const toPath = target.get(f.relPath)!;
     const same = samePath(toPath, f.relPath);
     // taken: two files given one name, or a file on disk that is not one of those moving
-    const clash = !same && (names.get(fold(toPath))! > 1 || (!ours.has(fold(toPath)) && !!(await onDisk(root.path, toPath))));
+    const clash = !same && (names.get(fold(toPath))! > 1 || (!ours.has(fold(toPath)) && !!(await gateOnDisk(rootId, root.path, toPath))));
     planFiles.push({
       fileId: f.id, localTrackId: f.trackId, title: f.title ?? path.posix.basename(f.relPath),
       fromPath: f.relPath, toPath, target: null, confidence: null, diff: [], stays: null, clash,
@@ -93,7 +93,7 @@ export async function organizePlanFor(ctx: WorkerContext, libraryId: string, fil
   const plan: MovePlan = {
     scanRootId: rootId,
     toDir,
-    newFolder: !(await onDisk(root.path, toDir)),
+    newFolder: !(await gateOnDisk(rootId, root.path, toDir)),
     naming: rules.file,
     release: {
       id: album?.releaseId ?? '', mbid: album?.mbid ?? null, title: album?.title ?? path.posix.basename(albumDir || toDir),
@@ -133,7 +133,7 @@ async function canWrite(rootId: string, root: string, dir: string): Promise<bool
     const abs = path.join(root, d === '.' ? '' : d);
     if (await gateExists(rootId, abs)) {
       try {
-        await fileGate().run(rootId, { op: 'access', path: abs, mode: fsConstants.W_OK });
+        await fileGate().run(rootId, { op: 'access', path: abs, mode: W_OK });
         return true;
       } catch (err) {
         if (isOfflineError(err) || isGateFailure(err)) throw err;

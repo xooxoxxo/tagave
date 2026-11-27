@@ -2,15 +2,27 @@
  * Naming rules and the drop pool as a library keeps them (libraries.settings
  * naming, dropPool; vault "tagave - Naming Rules and Drop Pool"), and the
  * file-system helpers organize and import share: an album folder's other
- * files, the folders a move empties.
+ * files, the folders a move empties. The file-system helpers read through
+ * the file gate: an offline folder throws, it never reads as an empty one.
  */
-import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFAULT_NAMING_RULES, rulesProblems, type NamingRules } from '@tagave/core';
 import { handlerForName } from '@tagave/core/files';
 import { DROP_POOL_STATES, TRASH_DIR, namingRulesSchema, type DropPoolState, type DropPoolStatus } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
+import { isGateFailure, isOfflineError } from './folderOffline.js';
+import { gateReaddir } from './gatedPaths.js';
 import { skipDir } from './helpers.js';
+
+/** A folder's entries, or null when it cannot be read (not there, no access). Offline and gate failures throw. */
+async function entriesOf(rootId: string, abs: string): Promise<Awaited<ReturnType<typeof gateReaddir>> | null> {
+  try {
+    return await gateReaddir(rootId, abs);
+  } catch (err) {
+    if (isOfflineError(err) || isGateFailure(err)) throw err;
+    return null;
+  }
+}
 
 export interface DropPool {
   enabled: boolean;
@@ -82,20 +94,16 @@ export const insideAny = (rel: string, dirs: readonly string[]): boolean =>
 export const isAudioName = (name: string): boolean => handlerForName(name)?.id === 'audio';
 
 /** Every file under a folder (relative to the root), skipping what the scan skips. */
-export async function filesUnder(root: string, dir: string): Promise<string[]> {
+export async function filesUnder(rootId: string, root: string, dir: string): Promise<string[]> {
   const out: string[] = [];
   const walk = async (rel: string) => {
-    let entries;
-    try {
-      entries = await readdir(path.join(root, rel), { withFileTypes: true });
-    } catch {
-      return;
-    }
+    const entries = await entriesOf(rootId, path.join(root, rel));
+    if (!entries) return;
     for (const e of entries) {
       const r = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) {
+      if (e.type === 'dir') {
         if (!skipDir(e.name)) await walk(r);
-      } else if (e.isFile()) {
+      } else if (e.type === 'file') {
         out.push(r.normalize('NFC'));
       }
     }
@@ -110,9 +118,9 @@ export async function filesUnder(root: string, dir: string): Promise<string[]> {
  * folder. A subfolder that holds songs not in the move (another album) keeps
  * its files. Nothing goes when songs stay behind in the folder itself.
  */
-export async function companionFiles(root: string, albumDir: string, moving: ReadonlySet<string>, toDir: string): Promise<Array<{ fromPath: string; toPath: string }>> {
+export async function companionFiles(rootId: string, root: string, albumDir: string, moving: ReadonlySet<string>, toDir: string): Promise<Array<{ fromPath: string; toPath: string }>> {
   if (albumDir === '') return [];
-  const all = await filesUnder(root, albumDir);
+  const all = await filesUnder(rootId, root, albumDir);
   const staysDirs = new Set<string>();
   for (const f of all) {
     if (isAudioName(path.posix.basename(f)) && !moving.has(f)) staysDirs.add(path.posix.dirname(f));
@@ -141,16 +149,12 @@ export function albumDirOf(relPaths: readonly string[], discDir: (base: string) 
 }
 
 /** Holds no file at any depth (only empty folders). */
-export async function emptyTree(abs: string): Promise<boolean> {
-  let entries;
-  try {
-    entries = await readdir(abs, { withFileTypes: true });
-  } catch {
-    return false;
-  }
+export async function emptyTree(rootId: string, abs: string): Promise<boolean> {
+  const entries = await entriesOf(rootId, abs);
+  if (!entries) return false;
   for (const e of entries) {
-    if (!e.isDirectory()) return false;
-    if (!(await emptyTree(path.join(abs, e.name)))) return false;
+    if (e.type !== 'dir') return false;
+    if (!(await emptyTree(rootId, path.join(abs, e.name)))) return false;
   }
   return true;
 }
@@ -161,12 +165,12 @@ export async function emptyTree(abs: string): Promise<boolean> {
  * "Fiona Apple"). Never the root, the trash, a kept folder (the pool) or one
  * of its parents. Null when `dir` itself holds a file.
  */
-export async function highestEmpty(root: string, dir: string, keep: readonly string[]): Promise<string | null> {
+export async function highestEmpty(rootId: string, root: string, dir: string, keep: readonly string[]): Promise<string | null> {
   const kept = (d: string) => d === '' || d === TRASH_DIR || d.startsWith(`${TRASH_DIR}/`) || keep.some((k) => k === d || k.startsWith(`${d}/`));
-  if (kept(dir) || !(await emptyTree(path.join(root, dir)))) return null;
+  if (kept(dir) || !(await emptyTree(rootId, path.join(root, dir)))) return null;
   let top = dir;
   for (let up = path.posix.dirname(top); up !== '.' && !kept(up); up = path.posix.dirname(up)) {
-    if (!(await emptyTree(path.join(root, up)))) break;
+    if (!(await emptyTree(rootId, path.join(root, up)))) break;
     top = up;
   }
   return top;

@@ -12,7 +12,7 @@
  * folder of its own beside it ("… (2)").
  */
 import path from 'node:path';
-import { parseFile } from 'music-metadata';
+import type { IAudioMetadata } from 'music-metadata';
 import { albumPaths, currentFieldsFrom, samePath } from '@tagave/core';
 import { tagSnapshotOf } from '@tagave/core/files';
 import {
@@ -21,6 +21,7 @@ import {
 } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { dropDeletedFiles, moveWaiting, onDisk } from '../lib/deletions.js';
+import { fileGate } from '../lib/fileGate.js';
 import { discDirNumber } from '../lib/helpers.js';
 import { albumDirOf, companionFiles, dropPoolOf, isAudioName, namingRulesFor } from '../lib/naming.js';
 import { resolveForTarget } from '../lib/resolvedMetadata.js';
@@ -96,7 +97,8 @@ async function trashExisting(ctx: WorkerContext, libraryId: string, albumId: str
      where lt.local_album_id = ${albumId} and f.library_id = ${libraryId} and f.status = 'present'
     on conflict (file_id) do nothing
     returning file_id`;
-  if (rows.length) await moveWaiting(ctx, libraryId);
+  // an offline folder throws: the import waits (parked), the old copy's rows wait to move
+  if (rows.length) await moveWaiting(ctx, libraryId, new Date(), { throwOffline: true });
   return rows.length;
 }
 
@@ -135,9 +137,9 @@ export async function importPlanFor(ctx: WorkerContext, row: ImportRow): Promise
   const audio = (item.files ?? []).map((f) => f.relPath).filter((p) => isAudioName(path.posix.basename(p)));
   const read: Array<{ relPath: string; abs: string; fields: ReturnType<typeof currentFieldsFrom>; durationMs: number | null }> = [];
   for (const relPath of audio) {
-    const abs = await onDisk(root.path, relPath);
+    const abs = await onDisk(item.rootId, root.path, relPath);
     if (!abs) continue;
-    const meta = await parseFile(abs, { duration: true });
+    const meta = await fileGate().run<IAudioMetadata>(item.rootId, { op: 'parseAudio', path: abs, options: { duration: true } });
     read.push({ relPath, abs, fields: currentFieldsFrom(tagSnapshotOf(meta)), durationMs: meta.format.duration ? Math.round(meta.format.duration * 1000) : null });
   }
   if (read.length === 0) throw new Error('The dropped folder holds no songs');
@@ -196,13 +198,13 @@ export async function importPlanFor(ctx: WorkerContext, row: ImportRow): Promise
   if (row.query?.existing === 'keepBoth' || existingAlbumId) {
     // a folder of its own beside the library's copy
     let n = 2;
-    while (await onDisk(root.path, `${planned.dir} (${n})`)) n++;
+    while (await onDisk(item.rootId, root.path, `${planned.dir} (${n})`)) n++;
     toDir = `${planned.dir} (${n})`;
     names = new Map(planned.files.map((p) => [p.relPath, `${toDir}/${path.posix.basename(p.toPath)}`]));
   }
   const albumDir = albumDirOf(read.map((r) => r.relPath), (b) => discDirNumber(b) !== null);
   const moving = new Set(paired.map((p) => p.r.relPath));
-  const extras = await companionFiles(root.path, albumDir, moving, toDir);
+  const extras = await companionFiles(item.rootId, root.path, albumDir, moving, toDir);
 
   const files: MovePlanFile[] = [];
   const taken = new Map<string, number>();
@@ -214,7 +216,7 @@ export async function importPlanFor(ctx: WorkerContext, row: ImportRow): Promise
       fromPath: p.r.relPath, toPath,
       target: { canonicalTrackId: p.c.id, disc: p.c.mediumNo ?? 1, position: p.c.position ?? 0, title: p.c.title },
       confidence: moveConfidence(p.distance), diff: p.diff, stays: null,
-      clash: taken.get(fold(toPath))! > 1 || !!(await onDisk(root.path, toPath)),
+      clash: taken.get(fold(toPath))! > 1 || !!(await onDisk(item.rootId, root.path, toPath)),
     });
   }
   for (const r of unpaired) {
@@ -226,7 +228,7 @@ export async function importPlanFor(ctx: WorkerContext, row: ImportRow): Promise
   const plan: MovePlan = {
     scanRootId: item.rootId,
     toDir,
-    newFolder: !(await onDisk(root.path, toDir)),
+    newFolder: !(await onDisk(item.rootId, root.path, toDir)),
     naming: rules.file,
     release: { id: rel.id, mbid: rel.mbid, title: rel.title, artist: albumArtist, year: yearOf(rel.firstDate) ?? yearOf(rel.date), tracks: canon.length },
     files,

@@ -12,16 +12,26 @@
  * file, Empty trash, 30 days) its file row is deleted, which takes its tracks
  * and what hangs off them; an album left with no tracks goes too. No 24 h
  * hold: the owner asked for exactly this deletion.
+ *
+ * Every file call goes through the file gate (fileGate.ts). A music folder
+ * that goes offline stops the action for that folder: its rows stay as they
+ * are (moving, restoring, trashed), nothing is marked, dropped or recorded
+ * as failed, and the next run (the daily one, or the owner's) takes them up.
  */
-import { lstat, mkdir, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { albumKeyLock, updateMaintenanceTask, type MaintenanceWork } from '@tagave/db';
 import { TRASH_DAYS, TRASH_DIR } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { refreshAlbumCounters } from '../jobs/clusterDir.js';
+import { fileGate } from './fileGate.js';
 import { fileStat, insideRoot, mountIdentity } from './fileRecovery.js';
+import { isGateFailure, isOfflineError } from './folderOffline.js';
+import { gateDirEmpty, gateExists, gateOnDisk, gateStat } from './gatedPaths.js';
 import { runMaintenance, type MaintenanceRun } from './maintenance.js';
 import { albumsChanged } from './albumCare.js';
+
+/** An answer that says nothing about the file: the folder is offline, or the gate failed. Never a reason to mark, drop or fail. */
+export const unanswered = (err: unknown): boolean => isOfflineError(err) || isGateFailure(err);
 
 const BATCH = 1000;
 
@@ -96,36 +106,38 @@ export function trashRelPath(relPath: string, day: string): string {
   return `${TRASH_DIR}/${day}/${relPath}`;
 }
 
-export async function exists(p: string): Promise<boolean> {
-  try {
-    await lstat(p);
-    return true;
-  } catch {
-    return false;
-  }
+/** True when something is at the path (through the gate). Offline and gate failures throw. */
+export async function exists(rootId: string, p: string): Promise<boolean> {
+  return gateExists(rootId, p);
 }
 
 /** The path on disk of a relative path, trying the NFC and NFD spellings (the archive mixes them). */
-export async function onDisk(root: string, relPath: string): Promise<string | null> {
-  for (const cand of new Set([relPath, relPath.normalize('NFD'), relPath.normalize('NFC')])) {
-    const p = path.join(root, cand);
-    if (await exists(p)) return p;
-  }
-  return null;
+export async function onDisk(rootId: string, root: string, relPath: string): Promise<string | null> {
+  return gateOnDisk(rootId, root, relPath);
+}
+
+/** mkdir -p through the gate: the first folder it made, or null when all were there. */
+export async function makeDirs(rootId: string, abs: string): Promise<string | null> {
+  return fileGate().run<string | null>(rootId, { op: 'mkdir', path: abs, recursive: true });
+}
+
+/** rename(2) through the gate. */
+export async function renamePath(rootId: string, from: string, to: string): Promise<void> {
+  await fileGate().run(rootId, { op: 'rename', from, to });
 }
 
 /** The root's trash folder with its .ndignore, made when missing. */
-export async function ensureTrashDir(root: string): Promise<string> {
+export async function ensureTrashDir(rootId: string, root: string): Promise<string> {
   const dir = path.join(root, TRASH_DIR);
-  await mkdir(dir, { recursive: true });
-  if (!(await fileStat(dir))?.isDirectory()) throw new Error('The Trash folder is not a directory');
+  await makeDirs(rootId, dir);
+  if (!(await fileStat(rootId, dir))?.isDirectory) throw new Error('The Trash folder is not a directory');
   const ignore = path.join(dir, NDIGNORE);
-  if (!(await fileStat(ignore))) {
-    await writeFile(ignore, '', { flag: 'wx' }).catch((err: NodeJS.ErrnoException) => {
-      if (err.code !== 'EEXIST') throw err;
+  if (!(await fileStat(rootId, ignore))) {
+    await fileGate().run(rootId, { op: 'writeSmall', path: ignore, data: new Uint8Array(0), exclusive: true }).catch((err: unknown) => {
+      if ((err as { code?: unknown }).code !== 'EEXIST') throw err;
     });
   }
-  if (!(await fileStat(ignore))?.isFile()) throw new Error('The Trash marker is not a regular file');
+  if (!(await fileStat(rootId, ignore))?.isFile) throw new Error('The Trash marker is not a regular file');
   return dir;
 }
 
@@ -134,35 +146,63 @@ type Outcome = 'trashed' | 'marked' | 'gone';
 /**
  * Moves one file into its root's trash. 'marked' when it cannot (another
  * filesystem, no write access): the row becomes a mark with the reason.
+ * An offline folder or a failed gate throws: that is no answer about the file.
  */
-export async function trashOne(root: string, relPath: string, day: string): Promise<{ outcome: Outcome; trashRelPath?: string; trashMount?: string; error?: string }> {
-  const src = await onDisk(root, relPath);
+export async function trashOne(rootId: string, root: string, relPath: string, day: string): Promise<{ outcome: Outcome; trashRelPath?: string; trashMount?: string; error?: string }> {
+  const src = await onDisk(rootId, root, relPath);
   if (!src) return { outcome: 'gone' };
   try {
-    const trashMount = await mountIdentity(root);
-    const trashDir = await ensureTrashDir(root);
-    if ((await stat(src)).dev !== (await stat(trashDir)).dev) return { outcome: 'marked', error: 'On another disk than its music folder' };
+    const trashMount = await mountIdentity(rootId, root);
+    const trashDir = await ensureTrashDir(rootId, root);
+    const [from, into] = await Promise.all([gateStat(rootId, src), gateStat(rootId, trashDir)]);
+    if (!from) return { outcome: 'gone' };
+    if (!into || String(from.dev) !== String(into.dev)) return { outcome: 'marked', error: 'On another disk than its music folder' };
     let rel = trashRelPath(relPath, day);
     // the same path trashed twice in a day: the later one gets a numbered day folder
-    for (let n = 2; await exists(path.join(root, rel)); n++) rel = trashRelPath(relPath, `${day}-${n}`);
+    for (let n = 2; await exists(rootId, path.join(root, rel)); n++) rel = trashRelPath(relPath, `${day}-${n}`);
     const dest = path.join(root, rel);
-    await insideRoot(root, src);
-    await insideRoot(trashDir, dest);
-    await mkdir(path.dirname(dest), { recursive: true });
-    await rename(src, dest);
+    await insideRoot(rootId, root, src);
+    await insideRoot(rootId, trashDir, dest);
+    await makeDirs(rootId, path.dirname(dest));
+    await renamePath(rootId, src, dest);
     return { outcome: 'trashed', trashRelPath: rel, trashMount };
   } catch (err) {
+    if (unanswered(err)) throw err;
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return { outcome: 'gone' };
     return { outcome: 'marked', error: code === 'EXDEV' ? 'On another disk than its music folder' : code === 'EACCES' || code === 'EPERM' || code === 'EROFS' ? 'The music folder is read-only' : (err as Error).message };
   }
 }
 
-interface Row { fileId: string; libraryId: string; root: string; relPath: string; trashRelPath: string | null; trashMount: string | null }
+interface Row { fileId: string; libraryId: string; rootId: string; root: string; relPath: string; trashRelPath: string | null; trashMount: string | null }
+
+/**
+ * The music folders that went offline during one run: their later rows are
+ * left for the next run, untouched. A failed gate counts the same (nothing
+ * is known about the folder).
+ */
+class OfflineRoots {
+  private readonly roots = new Set<string>();
+  first: unknown = null;
+  has(rootId: string): boolean {
+    return this.roots.has(rootId);
+  }
+  /** True when the error is the folder's (offline) or the gate's: the row is left as it is. */
+  take(ctx: Pick<WorkerContext, 'logger'>, rootId: string, err: unknown, what: string): boolean {
+    if (!unanswered(err)) return false;
+    this.roots.add(rootId);
+    this.first ??= err;
+    ctx.logger.warn({ scanRootId: rootId, err: (err as Error).message }, `files.trash: ${what} paused, the music folder is offline`);
+    return true;
+  }
+  get size(): number {
+    return this.roots.size;
+  }
+}
 
 async function rowsIn(ctx: Pick<WorkerContext, 'sql'>, libraryId: string | null, state: string, olderThanDays?: number): Promise<Row[]> {
   return (await ctx.sql`
-    select fd.file_id::text as "fileId", fd.library_id::text as "libraryId", sr.path as root,
+    select fd.file_id::text as "fileId", fd.library_id::text as "libraryId", fd.scan_root_id::text as "rootId", sr.path as root,
            fd.rel_path as "relPath", fd.trash_rel_path as "trashRelPath", fd.trash_mount as "trashMount"
       from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
      where fd.kind = 'trash' and fd.state = ${state}
@@ -172,15 +212,32 @@ async function rowsIn(ctx: Pick<WorkerContext, 'sql'>, libraryId: string | null,
      order by fd.created_at`) as unknown as Row[];
 }
 
-/** Every file waiting to go into the trash ('moving'). */
-export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, now = new Date()): Promise<{ trashed: number; marked: number; dropped: number }> {
+export type TrashCounts = { trashed: number; marked: number; dropped: number; paused?: number };
+
+/**
+ * Every file waiting to go into the trash ('moving'). A music folder that is
+ * offline keeps its rows waiting (`paused` counts them); with `throwOffline`
+ * the first offline answer throws instead (an import's Replace waits for it).
+ */
+export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, now = new Date(), opts: { throwOffline?: boolean } = {}): Promise<TrashCounts> {
   const rows = await rowsIn(ctx, libraryId, 'moving');
   const day = trashDay(now);
   let trashed = 0;
   let marked = 0;
+  let paused = 0;
+  const offline = new OfflineRoots();
   const gone: string[] = [];
   for (const r of rows) {
-    const out = await trashOne(r.root, r.relPath, day);
+    if (offline.has(r.rootId)) { paused++; continue; }
+    let out: Awaited<ReturnType<typeof trashOne>>;
+    try {
+      out = await trashOne(r.rootId, r.root, r.relPath, day);
+    } catch (err) {
+      if (!offline.take(ctx, r.rootId, err, 'the move into the trash')) throw err;
+      if (opts.throwOffline) { await dropDeletedFiles(ctx, gone); throw err; }
+      paused++;
+      continue;
+    }
     if (out.outcome === 'trashed') {
       trashed++;
       await ctx.sql`update file_deletions set state = 'trashed', trash_rel_path = ${out.trashRelPath!}, trash_mount = ${out.trashMount ?? null}, trashed_at = now(), error = null
@@ -195,30 +252,35 @@ export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, 
     }
   }
   const { dropped } = await dropDeletedFiles(ctx, gone);
-  return { trashed, marked, dropped };
+  return { trashed, marked, dropped, ...(paused > 0 ? { paused } : {}) };
 }
 
-/** Every file waiting to come back ('restoring'): renamed to where it was, unless that place is taken. */
-export async function restoreWaiting(ctx: WorkerContext, libraryId: string | null): Promise<{ restored: number; refused: number; dropped: number }> {
+/** Every file waiting to come back ('restoring'): renamed to where it was, unless that place is taken. An offline folder keeps its rows waiting. */
+export async function restoreWaiting(ctx: WorkerContext, libraryId: string | null): Promise<{ restored: number; refused: number; dropped: number; paused?: number }> {
   const rows = await rowsIn(ctx, libraryId, 'restoring');
   let restored = 0;
   let refused = 0;
+  let paused = 0;
+  const offline = new OfflineRoots();
   const gone: string[] = [];
   const libs = new Set<string>();
   const back: string[] = [];
   for (const r of rows) {
-    const src = r.trashRelPath ? await onDisk(r.root, r.trashRelPath) : null;
-    if (!src) { gone.push(r.fileId); continue; }
+    if (offline.has(r.rootId)) { paused++; continue; }
+    let src: string | null = null;
     const dest = path.join(r.root, r.relPath);
-    if (await exists(dest)) {
-      refused++;
-      await ctx.sql`update file_deletions set state = 'trashed', error = 'Another file is in its place' where file_id = ${r.fileId}`;
-      continue;
-    }
     try {
-      await mkdir(path.dirname(dest), { recursive: true });
-      await rename(src, dest);
+      src = r.trashRelPath ? await onDisk(r.rootId, r.root, r.trashRelPath) : null;
+      if (!src) { gone.push(r.fileId); continue; }
+      if (await exists(r.rootId, dest)) {
+        refused++;
+        await ctx.sql`update file_deletions set state = 'trashed', error = 'Another file is in its place' where file_id = ${r.fileId}`;
+        continue;
+      }
+      await makeDirs(r.rootId, path.dirname(dest));
+      await renamePath(r.rootId, src, dest);
     } catch (err) {
+      if (offline.take(ctx, r.rootId, err, 'Restore')) { paused++; continue; }
       refused++;
       await ctx.sql`update file_deletions set state = 'trashed', error = ${(err as Error).message} where file_id = ${r.fileId}`;
       continue;
@@ -227,7 +289,7 @@ export async function restoreWaiting(ctx: WorkerContext, libraryId: string | nul
     libs.add(r.libraryId);
     back.push(r.fileId);
     await ctx.sql`delete from file_deletions where file_id = ${r.fileId}`;
-    await removeEmptyDirs(r.root, path.dirname(src));
+    await removeEmptyDirs(r.rootId, r.root, path.dirname(src!));
   }
   for (const l of libs) await markLibraryDirty(ctx, l);
   // Library care: a restored album has its problems again
@@ -241,45 +303,48 @@ export async function restoreWaiting(ctx: WorkerContext, libraryId: string | nul
     }
   }
   const { dropped } = await dropDeletedFiles(ctx, gone);
-  return { restored, refused, dropped };
+  return { restored, refused, dropped, ...(paused > 0 ? { paused } : {}) };
 }
 
-/** Removes empty folders from `dir` up to the trash folder (never the trash folder itself). */
-async function removeEmptyDirs(root: string, dir: string): Promise<void> {
+/** Removes empty folders from `dir` up to the trash folder (never the trash folder itself). Best effort: any trouble leaves them. */
+async function removeEmptyDirs(rootId: string, root: string, dir: string): Promise<void> {
   const top = path.join(root, TRASH_DIR);
   for (let d = dir; d.startsWith(top + path.sep); d = path.dirname(d)) {
     try {
-      if ((await readdir(d)).length > 0) return;
-      await rmdir(d);
+      if (!(await gateDirEmpty(rootId, d))) return;
+      await fileGate().run(rootId, { op: 'rmdir', path: d });
     } catch {
       return;
     }
   }
 }
 
-async function checkedTrash(root: string): Promise<{ mount: string; dir: string }> {
-  const mount = await mountIdentity(root).catch(() => {
+async function checkedTrash(rootId: string, root: string): Promise<{ mount: string; dir: string }> {
+  const mount = await mountIdentity(rootId, root).catch((err: unknown) => {
+    if (unanswered(err)) throw err;
     throw new Error('The music folder is unavailable. Check the mount.');
   });
   const dir = path.join(root, TRASH_DIR);
-  if (!(await fileStat(dir))?.isDirectory() || !(await fileStat(path.join(dir, NDIGNORE)))?.isFile()) {
+  if (!(await fileStat(rootId, dir))?.isDirectory || !(await fileStat(rootId, path.join(dir, NDIGNORE)))?.isFile) {
     throw new Error('The music folder’s Trash is unavailable. Check the mount.');
   }
-  if ((await stat(root)).dev !== (await stat(dir)).dev) throw new Error('Trash is on a different mount.');
+  const [a, b] = await Promise.all([gateStat(rootId, root), gateStat(rootId, dir)]);
+  if (!a || !b || String(a.dev) !== String(b.dev)) throw new Error('Trash is on a different mount.');
   return { mount, dir };
 }
 
-async function checkedTrashFile(dir: string, rel: string | null): Promise<string> {
+async function checkedTrashFile(rootId: string, dir: string, rel: string | null): Promise<string> {
   if (!rel?.startsWith(TRASH_DIR + '/') || rel.split('/').some((segment) => !segment || segment === '..' || segment === '.')) {
     throw new Error('The file has no valid Trash path.');
   }
   const root = path.dirname(dir);
   for (const name of new Set([rel, rel.normalize('NFD'), rel.normalize('NFC')])) {
     const file = path.join(root, name);
-    const info = await fileStat(file);
+    const info = await fileStat(rootId, file);
     if (!info) continue;
-    await insideRoot(dir, file);
-    if (!info.isFile() || info.dev !== (await stat(dir)).dev) throw new Error('The Trash file changed or is on another mount.');
+    await insideRoot(rootId, dir, file);
+    const trash = await gateStat(rootId, dir);
+    if (!info.isFile || !trash || String(info.dev) !== String(trash.dev)) throw new Error('The Trash file changed or is on another mount.');
     return file;
   }
   throw new Error('The selected file is missing from Trash.');
@@ -296,21 +361,25 @@ async function cleanPurged(ctx: WorkerContext, libraryId: string | null): Promis
 export async function emptyTrash(ctx: WorkerContext, libraryId: string | null, olderThanDays?: number): Promise<{ deleted: number; failed: number }> {
   const rows = await rowsIn(ctx, libraryId, 'trashed', olderThanDays);
   let failed = 0;
+  const offline = new OfflineRoots();
   for (const r of rows) {
+    if (offline.has(r.rootId)) continue;
     try {
       await ctx.sql.begin(async (tx) => {
         const [locked] = await tx`select fd.file_id from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
           where fd.file_id = ${r.fileId} and fd.state = 'trashed' and fd.purge_task_id is null
             and fd.trash_rel_path = ${r.trashRelPath} and sr.path = ${r.root} for update of fd skip locked`;
         if (!locked) return;
-        const { dir, mount } = await checkedTrash(r.root);
+        const { dir, mount } = await checkedTrash(r.rootId, r.root);
         if (r.trashMount && r.trashMount !== mount) throw new Error('The Trash mount changed.');
-        const file = await checkedTrashFile(dir, r.trashRelPath);
-        await unlink(file);
+        const file = await checkedTrashFile(r.rootId, dir, r.trashRelPath);
+        await fileGate().run(r.rootId, { op: 'unlink', path: file });
         await tx`update file_deletions set state = 'purged' where file_id = ${r.fileId}`;
-        await removeEmptyDirs(r.root, path.dirname(file));
+        await removeEmptyDirs(r.rootId, r.root, path.dirname(file));
       });
     } catch (err) {
+      // offline: the row stays trashed with no error, for the next day's run
+      if (offline.take(ctx, r.rootId, err, 'Empty trash')) continue;
       failed++;
       await ctx.sql`update file_deletions set error = ${(err as Error).message}
         where file_id = ${r.fileId} and state = 'trashed' and purge_task_id is null`;
@@ -326,15 +395,21 @@ interface PurgeFlight {
   fingerprint: string;
 }
 type PurgeCheckpoint = { index: number; inFlight?: PurgeFlight };
-type PurgeRow = { root: string; trash: string | null; trashMount: string | null };
+type PurgeRow = { rootId: string; root: string; trash: string | null; trashMount: string | null };
 
-async function fingerprint(file: string): Promise<string | null> {
-  const info = await fileStat(file);
+async function fingerprint(rootId: string, file: string): Promise<string | null> {
+  const info = await fileStat(rootId, file);
   if (!info) return null;
-  if (!info.isFile()) throw new Error('The Trash path is no longer a regular file.');
-  return JSON.stringify([info.dev, info.ino, info.size, info.mtimeMs]);
+  if (!info.isFile) throw new Error('The Trash path is no longer a regular file.');
+  return JSON.stringify([Number(info.dev), Number(info.ino), Number(info.size), Number(info.mtimeMs)]);
 }
 
+/**
+ * Empty Trash of a confirmed selection. A music folder that goes offline
+ * throws FolderOfflineError out of the run: runMaintenance pauses the task
+ * for the owner's Continue, its checkpoint (the index, the file in flight)
+ * kept (Decision 2).
+ */
 async function purgeSelected(ctx: WorkerContext, work: MaintenanceWork, claim: MaintenanceRun) {
   const { row } = claim;
   const selection = row.input.fileIds as string[] | undefined;
@@ -349,13 +424,14 @@ async function purgeSelected(ctx: WorkerContext, work: MaintenanceWork, claim: M
     if ((await claim.current()).cancel_requested && !flight) break;
     if (!flight) {
       const [selected] = await ctx.sql<PurgeRow[]>`
-        select sr.path as root, fd.trash_rel_path as trash, fd.trash_mount as "trashMount" from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
+        select fd.scan_root_id::text as "rootId", sr.path as root, fd.trash_rel_path as trash, fd.trash_mount as "trashMount"
+          from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
         where fd.file_id = ${id} and fd.purge_task_id = ${row.id} and fd.state = 'trashed' and sr.writable`;
       if (!selected) throw new Error('A selected Trash entry or its writable music folder changed.');
-      const { mount, dir } = await checkedTrash(selected.root);
+      const { mount, dir } = await checkedTrash(selected.rootId, selected.root);
       if (selected.trashMount && selected.trashMount !== mount) throw new Error('The Trash mount changed.');
-      const file = await checkedTrashFile(dir, selected.trash);
-      const expected = await fingerprint(file);
+      const file = await checkedTrashFile(selected.rootId, dir, selected.trash);
+      const expected = await fingerprint(selected.rootId, file);
       if (!expected) throw new Error('The selected file disappeared before deletion.');
       flight = { id, mount, file, fingerprint: expected };
       await claim.update({ checkpoint: { index, inFlight: { ...flight } } });
@@ -364,24 +440,26 @@ async function purgeSelected(ctx: WorkerContext, work: MaintenanceWork, claim: M
     const pending = flight;
     const removed = await ctx.sql.begin(async (tx) => {
       const [selected] = await tx<PurgeRow[]>`
-        select sr.path as root, fd.trash_rel_path as trash, fd.trash_mount as "trashMount" from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
+        select fd.scan_root_id::text as "rootId", sr.path as root, fd.trash_rel_path as trash, fd.trash_mount as "trashMount"
+          from file_deletions fd join scan_roots sr on sr.id = fd.scan_root_id
         where fd.file_id = ${id} and fd.purge_task_id = ${row.id} and fd.state = 'trashed' and sr.writable for update of fd`;
       if (!selected) throw new Error('A reserved Trash entry changed.');
-      const { mount, dir } = await checkedTrash(selected.root);
+      const { mount, dir } = await checkedTrash(selected.rootId, selected.root);
       if (mount !== pending.mount) throw new Error('The music mount changed during Empty Trash.');
-      const actual = await fingerprint(pending.file);
+      // null only when the file is really not there (an unlink cut off may have gone through); offline throws
+      const actual = await fingerprint(selected.rootId, pending.file);
       if (actual !== null) {
-        if (actual !== pending.fingerprint || await checkedTrashFile(dir, selected.trash) !== pending.file) {
+        if (actual !== pending.fingerprint || await checkedTrashFile(selected.rootId, dir, selected.trash) !== pending.file) {
           throw new Error('The selected Trash file was replaced.');
         }
         if ((await claim.current()).cancel_requested) return false;
-        await unlink(pending.file);
+        await fileGate().run(selected.rootId, { op: 'unlink', path: pending.file });
       }
       await tx`update file_deletions set state = 'purged' where file_id = ${id}`;
       if (!await updateMaintenanceTask(tx, work, { checkpoint: { index: index + 1 }, progress: { done: index + 1, total } })) {
         throw new Error('Empty Trash lost its worker claim');
       }
-      await removeEmptyDirs(selected.root, path.dirname(pending.file));
+      await removeEmptyDirs(selected.rootId, selected.root, path.dirname(pending.file));
       return true;
     });
     if (!removed) break;

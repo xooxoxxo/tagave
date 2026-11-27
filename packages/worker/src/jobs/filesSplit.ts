@@ -17,9 +17,16 @@
  *
  * Verified tracks and the source's destination are recorded before publication.
  * After interruption, the next attempt checks those files before continuing.
+ *
+ * Every file call goes through the file gate (fileGate.ts), and flac and
+ * metaflac run guarded with the split's root. A music folder that goes
+ * offline stops the split as any stop does, with what it wrote kept for
+ * Continue, but it never fails it: FolderOfflineError leaves the run, and
+ * the task pauses with "Paused while the music folder is offline" and the
+ * folder in its checkpoint (runMaintenance, Decision 2). It does not resume
+ * on its own.
  */
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
   expectedBoundariesMs, frameRms, msToSample, planSplit, refineCut, resolveFields, verifySplit, windowAround,
@@ -32,12 +39,14 @@ import {
 import { currentFieldsFrom } from '../lib/canonicalTags.js';
 import { decideField, fieldPolicyFor } from './tagsPreview.js';
 import type { WorkerContext } from '../lib/context.js';
-import { ensureTrashDir, markLibraryDirty, onDisk, trashDay, trashRelPath } from '../lib/deletions.js';
+import { ensureTrashDir, makeDirs, markLibraryDirty, onDisk, trashDay, trashRelPath } from '../lib/deletions.js';
+import { fileGate } from '../lib/fileGate.js';
 import { FlacTools } from '../lib/flacTools.js';
+import { FolderOfflineError, isGateFailure } from '../lib/folderOffline.js';
 import { relDirname } from '../lib/helpers.js';
 import { MutagenTagWriter } from '../lib/tagWriter.js';
-import { runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
-import { fileDigest, fileStat, insideRoot, mountIdentity } from '../lib/fileRecovery.js';
+import { PAUSED_OFFLINE_STAGE, runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
+import { fileDigest, fileStat, insideRoot, mountIdentity, sameFile } from '../lib/fileRecovery.js';
 
 export interface SplitDeps {
   tools: FlacTools;
@@ -123,7 +132,7 @@ async function loadSource(ctx: WorkerContext, row: SplitRow): Promise<Source> {
   if (!album) throw new SplitStop('The album is no longer one file that fits its release');
   const [root] = (await ctx.sql`select path from scan_roots where id = ${album.scanRootId}`) as unknown as Array<{ path: string }>;
   if (!root) throw new SplitStop('The music folder is gone');
-  const abs = await onDisk(root.path, album.relPath);
+  const abs = await onDisk(album.scanRootId, root.path, album.relPath);
   if (!abs) throw new SplitStop('The file is not in its folder');
   const tracks = (await ctx.sql`
     select id::text as id, coalesce(medium_no, 1) as "mediumNo", position, number, title, length_ms as "lengthMs",
@@ -181,6 +190,8 @@ export async function analyzeSplit(ctx: WorkerContext, row: SplitRow, deps: Spli
        where id = ${row.id} and state = 'analyzing' returning id`;
     return { state: updated.length ? 'ready' : 'cancelled', tracks: plan.tracks.length, low: plan.tracks.filter((t) => t.confidence === 'low').length };
   } catch (err) {
+    // offline: the analysis waits for the owner's Continue (runMaintenance pauses it), it did not fail
+    if (err instanceof FolderOfflineError) throw err;
     await claim?.current();
     ctx.logger.warn({ splitId: row.id, err: (err as Error).message }, 'files.split: analysis failed');
     return fail(ctx, row, err);
@@ -282,14 +293,15 @@ interface SplitCheckpoint {
 }
 
 async function newCheckpoint(src: Source, now: Date): Promise<SplitCheckpoint> {
-  await insideRoot(src.root, src.abs);
+  const rootId = src.album.scanRootId;
+  await insideRoot(rootId, src.root, src.abs);
   let trash = trashRelPath(src.album.relPath, trashDay(now));
-  for (let n = 2; await fileStat(path.join(src.root, trash)); n++) {
+  for (let n = 2; await fileStat(rootId, path.join(src.root, trash)); n++) {
     trash = trashRelPath(src.album.relPath, `${trashDay(now)}-${n}`);
   }
   return {
-    album: src.album, root: src.root, mount: await mountIdentity(src.root),
-    source: src.abs, sourceDigest: await fileDigest(src.abs), trash,
+    album: src.album, root: src.root, mount: await mountIdentity(rootId, src.root),
+    source: src.abs, sourceDigest: await fileDigest(rootId, src.abs), trash,
     staging: path.join(path.dirname(src.abs), `.tagave-split-${randomUUID()}`), digests: null,
   };
 }
@@ -325,7 +337,9 @@ async function splitParts(ctx: WorkerContext, src: Source, plan: SplitPlan, temp
   }
   const problems = verifySplit(plan, written, SPLIT_LENGTH_SLACK_MS);
   if (problems.length) throw new SplitStop(problems.join('. '));
-  return Promise.all(temps.map(fileDigest));
+  const digests: string[] = [];
+  for (const temp of temps) digests.push(await fileDigest(src.album.scanRootId, temp));
+  return digests;
 }
 
 /** One journal is used by Split and Tag Plan Apply. Published tracks are immutable until the source is safe. */
@@ -338,10 +352,12 @@ export async function runSplit(ctx: WorkerContext, row: SplitRow, deps: SplitDep
     const src = checkpoint?.digests ? null : await loadSource(ctx, row);
     checkpoint ??= await newCheckpoint(src!, deps.now?.() ?? new Date());
     const { album, root, mount, source, sourceDigest, staging, trash } = checkpoint;
-    const [configured] = await ctx.sql<{ path: string }[]>`select path from scan_roots where id = ${album.scanRootId}`;
-    if (configured?.path !== root || await mountIdentity(root) !== mount) throw new SplitStop('The music folder changed or is offline');
-    if (!(await writableRootIds(ctx.sql, row.libraryId)).has(album.scanRootId)) throw new SplitStop('The music folder is read-only');
-    await insideRoot(root, source);
+    const rootId = album.scanRootId;
+    const gate = fileGate();
+    const [configured] = await ctx.sql<{ path: string }[]>`select path from scan_roots where id = ${rootId}`;
+    if (configured?.path !== root || await mountIdentity(rootId, root) !== mount) throw new SplitStop('The music folder changed or is offline');
+    if (!(await writableRootIds(ctx.sql, row.libraryId)).has(rootId)) throw new SplitStop('The music folder is read-only');
+    await insideRoot(rootId, root, source);
     const directory = path.dirname(source);
     const finals = plan.tracks.map((track) => {
       if (path.basename(track.fileName) !== track.fileName || !track.fileName.endsWith('.flac')) throw new SplitStop('Invalid split track name');
@@ -349,56 +365,52 @@ export async function runSplit(ctx: WorkerContext, row: SplitRow, deps: SplitDep
     });
     const temps = plan.tracks.map((track) => path.join(staging, `.tagave-split-${track.n}.flac`));
     if (!checkpoint.digests) {
-      if (await fileDigest(source) !== sourceDigest || src!.album.fileId !== album.fileId || src!.album.releaseId !== album.releaseId) {
+      if (await fileDigest(rootId, source) !== sourceDigest || src!.album.fileId !== album.fileId || src!.album.releaseId !== album.releaseId) {
         throw new SplitStop('The album changed since this split started');
       }
       for (const final of finals) {
         for (const candidate of new Set([final, final.normalize('NFD'), final.normalize('NFC')])) {
-          if (await fileStat(candidate)) throw new SplitStop(`${path.basename(final)} is already in the folder`);
+          if (await fileStat(rootId, candidate)) throw new SplitStop(`${path.basename(final)} is already in the folder`);
         }
       }
       await deps.beforeWrite?.();
       await saveCheckpoint(ctx, row, checkpoint);
       await deps.checkpoint?.('Writing and verifying tracks');
-      await mkdir(staging, { recursive: true });
-      if (!(await fileStat(staging))?.isDirectory()) throw new SplitStop('The split staging path changed');
-      for (const temp of temps) await rm(temp, { force: true });
+      await makeDirs(rootId, staging);
+      if (!(await fileStat(rootId, staging))?.isDirectory) throw new SplitStop('The split staging path changed');
+      for (const temp of temps) await gate.run(rootId, { op: 'rm', path: temp, force: true });
       checkpoint.digests = await splitParts(ctx, src!, plan, temps, deps);
       await saveCheckpoint(ctx, row, checkpoint);
     }
-    if (!(await fileStat(staging))?.isDirectory()) throw new SplitStop('The split staging path changed');
-    await insideRoot(root, temps[0]!);
+    if (!(await fileStat(rootId, staging))?.isDirectory) throw new SplitStop('The split staging path changed');
+    await insideRoot(rootId, root, temps[0]!);
     await deps.checkpoint?.('Publishing verified tracks');
     for (const [index, final] of finals.entries()) {
       const temp = temps[index]!;
       const expected = checkpoint.digests[index];
-      if (await fileDigest(temp) !== expected) throw new SplitStop('A staged track changed after verification');
+      if (await fileDigest(rootId, temp) !== expected) throw new SplitStop('A staged track changed after verification');
       await deps.beforeWrite?.();
-      const existing = await fileStat(final);
-      if (!existing) await link(temp, final);
-      else {
-        const staged = await fileStat(temp);
-        if (!staged || existing.dev !== staged.dev || existing.ino !== staged.ino) throw new SplitStop(`${path.basename(final)} is already in the folder`);
-      }
+      const existing = await fileStat(rootId, final);
+      if (!existing) await gate.run(rootId, { op: 'link', from: temp, to: final });
+      else if (!sameFile(existing, await fileStat(rootId, temp))) throw new SplitStop(`${path.basename(final)} is already in the folder`);
     }
 
     await deps.checkpoint?.('Moving the source to Trash');
     const dest = path.join(root, trash);
-    if (await fileStat(source)) {
-      if (await fileDigest(source) !== sourceDigest) throw new SplitStop('The original file changed');
+    if (await fileStat(rootId, source)) {
+      if (await fileDigest(rootId, source) !== sourceDigest) throw new SplitStop('The original file changed');
       await deps.beforeWrite?.();
-      await ensureTrashDir(root);
-      await insideRoot(path.join(root, TRASH_DIR), dest);
-      await mkdir(path.dirname(dest), { recursive: true });
-      if (!await fileStat(dest)) await link(source, dest);
-      const original = await fileStat(source);
-      const moved = await fileStat(dest);
-      if (!original || !moved || moved.dev !== original.dev || moved.ino !== original.ino) throw new SplitStop('The destination in Trash is already in use');
+      await ensureTrashDir(rootId, root);
+      await insideRoot(rootId, path.join(root, TRASH_DIR), dest);
+      await makeDirs(rootId, path.dirname(dest));
+      if (!await fileStat(rootId, dest)) await gate.run(rootId, { op: 'link', from: source, to: dest });
+      if (!sameFile(await fileStat(rootId, source), await fileStat(rootId, dest))) throw new SplitStop('The destination in Trash is already in use');
       await deps.beforeWrite?.();
-      await unlink(source);
+      // cut off here: the source is at both names (its trash link checked first), never at neither
+      await gate.run(rootId, { op: 'unlink', path: source });
     }
-    await insideRoot(root, dest);
-    if (await fileDigest(dest) !== sourceDigest) throw new SplitStop('The original file could not be verified in Trash');
+    await insideRoot(rootId, root, dest);
+    if (await fileDigest(rootId, dest) !== sourceDigest) throw new SplitStop('The original file could not be verified in Trash');
     await deps.checkpoint?.('Recording the split');
     const outputs = plan.tracks.map((track) => path.posix.join(relDirname(album.relPath), track.fileName).replace(/^\//, ''));
     await deps.beforeWrite?.();
@@ -419,16 +431,24 @@ export async function runSplit(ctx: WorkerContext, row: SplitRow, deps: SplitDep
   } catch (err) {
     ctx.logger.warn({ splitId: row.id, err: (err as Error).message }, 'files.split stopped');
     if (committed) throw err;
+    if (err instanceof FolderOfflineError || isGateFailure(err)) {
+      // the folder (or the gate) gave no answer: everything written stays as it is for Continue, and
+      // the error leaves the run (runMaintenance pauses the task; a plan's split parks with the plan)
+      await ctx.sql`update album_splits set error = ${err instanceof FolderOfflineError ? PAUSED_OFFLINE_STAGE : (err as Error).message}, updated_at = now()
+                     where id = ${row.id} and state = 'splitting'`;
+      throw err;
+    }
     await deps.beforeWrite?.();
     // A verified stage may already be published. Leave it intact for Continue.
     if (checkpoint?.digests) {
       await ctx.sql`update album_splits set error = ${(err as Error).message}, updated_at = now() where id = ${row.id}`;
       return { state: 'interrupted', error: (err as Error).message };
     }
-    if (checkpoint && await mountIdentity(checkpoint.root).catch(() => '') === checkpoint.mount &&
-        (await fileStat(checkpoint.staging))?.isDirectory()) {
-      await insideRoot(checkpoint.root, checkpoint.staging);
-      await rm(checkpoint.staging, { recursive: true });
+    const rootId = checkpoint?.album.scanRootId;
+    if (checkpoint && rootId && await mountIdentity(rootId, checkpoint.root).catch(() => '') === checkpoint.mount &&
+        (await fileStat(rootId, checkpoint.staging))?.isDirectory) {
+      await insideRoot(rootId, checkpoint.root, checkpoint.staging);
+      await fileGate().run(rootId, { op: 'rm', path: checkpoint.staging, recursive: true });
     }
     const result = await fail(ctx, row, err);
     await audit(ctx, row, 'album.split.failed', { splitId: row.id, error: result.error, source: checkpoint?.album.relPath ?? null });
@@ -438,9 +458,10 @@ export async function runSplit(ctx: WorkerContext, row: SplitRow, deps: SplitDep
 
 export async function finishSplit(ctx: WorkerContext, row: SplitRow, checkpoint: SplitCheckpoint): Promise<void> {
   const { album, root, staging, mount } = checkpoint;
-  if (await mountIdentity(root) !== mount) throw new SplitStop('The music folder is offline');
-  await insideRoot(root, staging);
-  if ((await fileStat(staging))?.isDirectory()) await rm(staging, { recursive: true });
+  const rootId = album.scanRootId;
+  if (await mountIdentity(rootId, root) !== mount) throw new SplitStop('The music folder is offline');
+  await insideRoot(rootId, root, staging);
+  if ((await fileStat(rootId, staging))?.isDirectory) await fileGate().run(rootId, { op: 'rm', path: staging, recursive: true });
   await markLibraryDirty(ctx, row.libraryId);
   const dirPath = relDirname(album.relPath);
   await ctx.boss.send('scan.dir', { scanRootId: album.scanRootId, dirPath, reason: 'split' }, { singletonKey: `scan.dir:${album.scanRootId}:${dirPath}` });
@@ -494,8 +515,14 @@ export async function filesSplitJob(ctx: WorkerContext, data: FilesSplitJobData,
   if (!row) return { skipped: 'no such split' };
   const want = data.action === 'split' ? 'splitting' : 'analyzing';
   if (row.state !== want) return { skipped: `state ${row.state}` };
-  if (data.action === 'analyze') return analyzeSplit(ctx, row, deps ?? analysisDeps());
-  return withSplitTools(deps, (tools) => runSplit(ctx, row, tools));
+  try {
+    if (data.action === 'analyze') return await analyzeSplit(ctx, row, deps ?? analysisDeps());
+    return await withSplitTools(deps, (tools) => runSplit(ctx, row, tools));
+  } catch (err) {
+    // a job with no task row (an older app): it stops here, and the owner starts it again
+    if (!(err instanceof FolderOfflineError)) throw err;
+    return { state: 'interrupted', error: PAUSED_OFFLINE_STAGE, offlineRootId: err.scanRootId };
+  }
 }
 
 async function withSplitTools<T>(deps: SplitDeps | undefined, run: (deps: SplitDeps) => Promise<T>): Promise<T> {

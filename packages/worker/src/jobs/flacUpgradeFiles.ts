@@ -1,10 +1,17 @@
-import { copyFile, link, mkdir, rm, unlink } from 'node:fs/promises';
-import { constants } from 'node:fs';
+/**
+ * The file half of Upgrade to FLAC: stage, publish, catalog, trash, and the
+ * put-back. Every file call goes through the file gate (fileGate.ts), flac
+ * runs guarded with the root, and the tag writer's sidecar counts against the
+ * root. A music folder that goes offline throws FolderOfflineError out of
+ * here: the task pauses for the owner's Continue with its swap checkpoint
+ * kept (runMaintenance, Decision 2).
+ */
 import path from 'node:path';
-import { parseFile } from 'music-metadata';
+import type { IAudioMetadata } from 'music-metadata';
 import { writableRootIds, type FlacUpgradeSource } from '@tagave/db';
-import { fileDigest, fileStat, insideRoot, mountIdentity } from '../lib/fileRecovery.js';
-import { ensureTrashDir, markLibraryDirty } from '../lib/deletions.js';
+import { fileDigest, fileStat, insideRoot, mountIdentity, sameFile } from '../lib/fileRecovery.js';
+import { ensureTrashDir, makeDirs, markLibraryDirty } from '../lib/deletions.js';
+import { fileGate } from '../lib/fileGate.js';
 import { FlacTools } from '../lib/flacTools.js';
 import { MutagenTagWriter } from '../lib/tagWriter.js';
 import type { WorkerContext } from '../lib/context.js';
@@ -56,7 +63,7 @@ function matches(track: IncomingTrack, edition: { title: string; lengthMs: numbe
   return !!edition.lengthMs && Math.abs(track.lengthMs - edition.lengthMs) <= 2000 && titleKey(edition.title) === titleKey(track.title);
 }
 
-async function verifiedEdition(ctx: WorkerContext, source: FlacUpgradeSource, paths: string[]): Promise<IncomingTrack[]> {
+async function verifiedEdition(ctx: WorkerContext, source: FlacUpgradeSource, paths: string[], poolRootId: string): Promise<IncomingTrack[]> {
   const canon = await ctx.sql<CanonRow[]>`
     select id, coalesce(medium_no, 1) as "mediumNo", position, number, title, length_ms as "lengthMs",
       artist_credit as "artistCredit", recording_mbid as "recordingMbid", track_mbid as "trackMbid"
@@ -68,9 +75,9 @@ async function verifiedEdition(ctx: WorkerContext, source: FlacUpgradeSource, pa
   const byPosition = new Map(canon.map((t) => [key(t.mediumNo, t.position), t]));
   const found = new Map<string, IncomingTrack>();
   for (const abs of paths) {
-    if (!(await fileStat(abs))?.isFile()) throw new Error('An imported FLAC file is missing from the drop pool.');
-    const digest = await fileDigest(abs);
-    const { common, format } = await parseFile(abs, { duration: true, skipCovers: true });
+    if (!(await fileStat(poolRootId, abs))?.isFile) throw new Error('An imported FLAC file is missing from the drop pool.');
+    const digest = await fileDigest(poolRootId, abs);
+    const { common, format } = await fileGate().run<IAudioMetadata>(poolRootId, { op: 'parseAudio', path: abs, options: { duration: true, skipCovers: true } });
     if (format.container?.toUpperCase() !== 'FLAC' || format.codec?.toUpperCase() !== 'FLAC') throw new Error('The staged download contains audio that is not FLAC.');
     const position = key(common.disk.no ?? 1, common.track.no ?? 0);
     const expected = byPosition.get(position);
@@ -110,11 +117,13 @@ async function verifiedEdition(ctx: WorkerContext, source: FlacUpgradeSource, pa
   });
 }
 
-export async function stageUpgrade(ctx: WorkerContext, claim: MaintenanceRun, source: FlacUpgradeSource, originals: UpgradeOriginal[], imports: string[]): Promise<UpgradeSwap> {
+/** `poolRootId`: the drop pool's music folder, where the imports are (it may be another one than the album's). */
+export async function stageUpgrade(ctx: WorkerContext, claim: MaintenanceRun, source: FlacUpgradeSource, originals: UpgradeOriginal[], imports: string[], poolRootId: string = source.scanRootId): Promise<UpgradeSwap> {
   const { root, scanRootId } = source;
-  const mount = await mountIdentity(root);
+  const gate = fileGate();
+  const mount = await mountIdentity(scanRootId, root);
   const staging = path.join(root, `.tagave-upgrade-${claim.row.id}`);
-  const tracks = await verifiedEdition(ctx, source, imports);
+  const tracks = await verifiedEdition(ctx, source, imports, poolRootId);
   const tags = await releaseTags(ctx, source.releaseId, tracks.map((track) => track.canon));
   const files: SwapFile[] = [];
   const finals = new Set<string>();
@@ -122,39 +131,40 @@ export async function stageUpgrade(ctx: WorkerContext, claim: MaintenanceRun, so
   const writer = new MutagenTagWriter({ rootId: scanRootId });
   try {
     await claim.current();
-    await mkdir(staging, { recursive: true });
-    if (!(await fileStat(staging))?.isDirectory()) throw new Error('The upgrade staging folder changed.');
+    await makeDirs(scanRootId, staging);
+    if (!(await fileStat(scanRootId, staging))?.isDirectory) throw new Error('The upgrade staging folder changed.');
     for (const [index, file] of source.files.entries()) {
       await claim.current();
       const track = tracks[index]!;
       const expected = originals[index]!;
       const original = expected.path;
-      await insideRoot(root, original);
+      await insideRoot(scanRootId, root, original);
       const parsed = path.parse(file.rel);
       const replacement = path.join(parsed.dir, parsed.name + (parsed.ext.toLowerCase() === '.flac' ? ' (FLAC)' : '') + '.flac');
       const final = path.join(path.dirname(original), path.basename(replacement));
-      if (finals.has(final.normalize('NFC')) || await fileStat(final.normalize('NFC')) || await fileStat(final.normalize('NFD'))) throw new Error(`A file is already at ${replacement}.`);
+      if (finals.has(final.normalize('NFC')) || await fileStat(scanRootId, final.normalize('NFC')) || await fileStat(scanRootId, final.normalize('NFD'))) throw new Error(`A file is already at ${replacement}.`);
       finals.add(final.normalize('NFC'));
       const staged = path.join(staging, `track-${index}.flac`);
       const holding = path.join(staging, `original-${index}${parsed.ext}`);
       const trash = path.join(TRASH_DIR, `upgrade-${claim.row.id}`, file.rel);
-      const originalHash = await fileDigest(original);
+      const originalHash = await fileDigest(scanRootId, original);
       if (originalHash !== expected.hash) throw new Error('An original file changed while Lidarr was downloading.');
-      if (await fileStat(holding) || await fileStat(path.join(root, trash))) throw new Error('An upgrade recovery path is already in use.');
-      await rm(staged, { force: true });
+      if (await fileStat(scanRootId, holding) || await fileStat(scanRootId, path.join(root, trash))) throw new Error('An upgrade recovery path is already in use.');
+      await gate.run(scanRootId, { op: 'rm', path: staged, force: true });
       const incomingHash = track.digest;
-      await copyFile(track.abs, staged, constants.COPYFILE_EXCL);
-      if (await fileDigest(staged) !== incomingHash || await fileDigest(track.abs) !== incomingHash) {
+      // a copy from the pool into the album's folder: in the helper, under the album's root (the side that is written)
+      await gate.run(scanRootId, { op: 'copyFile', from: track.abs, to: staged, exclusive: true });
+      if (await fileDigest(scanRootId, staged) !== incomingHash || await fileDigest(poolRootId, track.abs) !== incomingHash) {
         throw new Error('A staged download changed while it was copied.');
       }
       await writer.write(staged, tags.get(track.canon.id)!);
-      const tagged = await parseFile(staged, { skipCovers: true });
+      const tagged = await gate.run<IAudioMetadata>(scanRootId, { op: 'parseAudio', path: staged, options: { skipCovers: true } });
       if (tagged.common.musicbrainz_albumid !== source.releaseMbid || tagged.common.track.no !== track.canon.position ||
           (tagged.common.disk.no ?? 1) !== track.canon.mediumNo || !await tools.decodes(staged)) {
         throw new Error(`Could not verify the tagged FLAC for track ${track.canon.position}.`);
       }
       files.push({ id: file.id, rel: file.rel, replacement, final, source: original, holding, staged, trash,
-        originalHash, replacementHash: await fileDigest(staged) });
+        originalHash, replacementHash: await fileDigest(scanRootId, staged) });
       await claim.update({ stage: 'Verifying and tagging FLAC tracks', progress: { done: files.length, total: tracks.length } });
     }
   } finally {
@@ -163,51 +173,52 @@ export async function stageUpgrade(ctx: WorkerContext, claim: MaintenanceRun, so
   return { scanRootId, root, mount, staging, phase: 'publish', files };
 }
 
-async function verifyPath(root: string, file: string, digest: string): Promise<void> {
-  await insideRoot(root, file);
-  if (await fileDigest(file) !== digest) throw new Error(`A file changed during the upgrade: ${path.basename(file)}.`);
+async function verifyPath(rootId: string, root: string, file: string, digest: string): Promise<void> {
+  await insideRoot(rootId, root, file);
+  if (await fileDigest(rootId, file) !== digest) throw new Error(`A file changed during the upgrade: ${path.basename(file)}.`);
 }
 
-async function linkVerified(from: string, to: string): Promise<void> {
-  const existing = await fileStat(to);
+async function linkVerified(rootId: string, from: string, to: string): Promise<void> {
+  const existing = await fileStat(rootId, to);
   if (!existing) {
-    await link(from, to);
+    await fileGate().run(rootId, { op: 'link', from, to });
     return;
   }
-  const original = await fileStat(from);
-  if (!original || existing.dev !== original.dev || existing.ino !== original.ino) {
+  if (!sameFile(existing, await fileStat(rootId, from))) {
     throw new Error(`A different file is already at ${path.basename(to)}.`);
   }
 }
 
 export async function continueSwap(ctx: WorkerContext, claim: MaintenanceRun, swap: UpgradeSwap, releaseId: string, userId: string) {
   const { root, mount, staging, files, scanRootId } = swap;
+  const gate = fileGate();
   const save = (stage: string) => claim.update({ stage, checkpoint: { swap }, progress: null });
   const [configured] = await ctx.sql<{ path: string }[]>`select path from scan_roots where id = ${scanRootId}`;
-  if (configured?.path !== root || await mountIdentity(root) !== mount ||
+  // an offline folder throws FolderOfflineError here (the task pauses), never this error
+  if (configured?.path !== root || await mountIdentity(scanRootId, root) !== mount ||
       !(await writableRootIds(ctx.sql, claim.row.library_id)).has(scanRootId)) {
     throw new Error('The original music mount is unavailable or read-only.');
   }
 
   if (swap.phase === 'publish') {
-    if (!(await fileStat(staging))?.isDirectory()) throw new Error('The verified upgrade staging folder is missing.');
+    if (!(await fileStat(scanRootId, staging))?.isDirectory) throw new Error('The verified upgrade staging folder is missing.');
     await save('Keeping a recoverable copy of the original');
     for (const file of files) {
-      await verifyPath(root, file.staged, file.replacementHash);
+      await verifyPath(scanRootId, root, file.staged, file.replacementHash);
       await claim.current();
-      if (await fileStat(file.source)) {
-        await verifyPath(root, file.source, file.originalHash);
-        await linkVerified(file.source, file.holding);
+      if (await fileStat(scanRootId, file.source)) {
+        await verifyPath(scanRootId, root, file.source, file.originalHash);
+        await linkVerified(scanRootId, file.source, file.holding);
       }
-      await verifyPath(root, file.holding, file.originalHash);
+      await verifyPath(scanRootId, root, file.holding, file.originalHash);
     }
     await save('Publishing verified FLAC tracks');
     for (const file of files) {
       await claim.current();
       const final = file.final;
-      await insideRoot(root, final);
-      await linkVerified(file.staged, final);
-      await verifyPath(root, final, file.replacementHash);
+      await insideRoot(scanRootId, root, final);
+      await linkVerified(scanRootId, file.staged, final);
+      await verifyPath(scanRootId, root, final, file.replacementHash);
     }
     await claim.current();
     await ctx.sql.begin(async (tx) => {
@@ -222,10 +233,10 @@ export async function continueSwap(ctx: WorkerContext, claim: MaintenanceRun, sw
     });
     for (const file of files) {
       await claim.current();
-      if (!(await fileStat(file.source))) continue;
-      await verifyPath(root, file.source, file.originalHash);
-      await verifyPath(root, file.holding, file.originalHash);
-      await unlink(file.source);
+      if (!(await fileStat(scanRootId, file.source))) continue;
+      await verifyPath(scanRootId, root, file.source, file.originalHash);
+      await verifyPath(scanRootId, root, file.holding, file.originalHash);
+      await gate.run(scanRootId, { op: 'unlink', path: file.source });
     }
     swap.phase = 'catalog';
     swap.catalogAt = Date.now();
@@ -234,7 +245,7 @@ export async function continueSwap(ctx: WorkerContext, claim: MaintenanceRun, sw
 
   if (swap.phase === 'catalog') {
     const paths = files.map((f) => f.replacement);
-    for (const file of files) await verifyPath(root, file.final, file.replacementHash);
+    for (const file of files) await verifyPath(scanRootId, root, file.final, file.replacementHash);
     const rows = await ctx.sql<{ path: string; albumId: string; releaseId: string | null; codec: string | null; trackCount: number }[]>`
       select distinct f.rel_path as path, la.id as "albumId", la.release_id as "releaseId", coalesce(f.codec, f.container) as codec, la.track_count as "trackCount"
       from files f join local_tracks lt on lt.audio_file_id = f.id join local_albums la on la.id = lt.local_album_id
@@ -261,16 +272,16 @@ export async function continueSwap(ctx: WorkerContext, claim: MaintenanceRun, sw
 
   if (swap.phase === 'trash') {
     await claim.current();
-    await ensureTrashDir(root);
+    await ensureTrashDir(scanRootId, root);
     for (const file of files) {
       await claim.current();
-      await verifyPath(root, file.final, file.replacementHash);
-      await verifyPath(root, file.holding, file.originalHash);
+      await verifyPath(scanRootId, root, file.final, file.replacementHash);
+      await verifyPath(scanRootId, root, file.holding, file.originalHash);
       const dest = path.join(root, file.trash);
-      await insideRoot(path.join(root, TRASH_DIR), dest);
-      await mkdir(path.dirname(dest), { recursive: true });
-      await linkVerified(file.holding, dest);
-      await verifyPath(root, dest, file.originalHash);
+      await insideRoot(scanRootId, path.join(root, TRASH_DIR), dest);
+      await makeDirs(scanRootId, path.dirname(dest));
+      await linkVerified(scanRootId, file.holding, dest);
+      await verifyPath(scanRootId, root, dest, file.originalHash);
     }
     await claim.current();
     await ctx.sql.begin(async (tx) => {
@@ -290,7 +301,7 @@ export async function continueSwap(ctx: WorkerContext, claim: MaintenanceRun, sw
   }
 
   await claim.current();
-  if ((await fileStat(staging))?.isDirectory()) await rm(staging, { recursive: true });
+  if ((await fileStat(scanRootId, staging))?.isDirectory) await gate.run(scanRootId, { op: 'rm', path: staging, recursive: true });
   await markLibraryDirty(ctx, claim.row.library_id);
   return { state: 'done' as const, stage: 'FLAC upgrade complete. Original in Trash', checkpoint: null,
     progress: { done: files.length, total: files.length }, error: null };
@@ -299,27 +310,28 @@ export async function continueSwap(ctx: WorkerContext, claim: MaintenanceRun, sw
 /** Put every original back before removing any published replacement. */
 export async function restoreUpgrade(ctx: WorkerContext, claim: MaintenanceRun, swap: UpgradeSwap) {
   const { root, mount, scanRootId, staging, files } = swap;
-  if (await mountIdentity(root) !== mount || !(await writableRootIds(ctx.sql, claim.row.library_id)).has(scanRootId)) {
+  const gate = fileGate();
+  if (await mountIdentity(scanRootId, root) !== mount || !(await writableRootIds(ctx.sql, claim.row.library_id)).has(scanRootId)) {
     throw new Error('The original music mount is unavailable or read-only.');
   }
   await claim.update({ stage: 'Restoring the original album' });
   for (const file of files) {
     await claim.current();
-    await insideRoot(root, file.source);
-    if (!await fileStat(file.source)) {
-      await verifyPath(root, file.holding, file.originalHash);
-      await linkVerified(file.holding, file.source);
+    await insideRoot(scanRootId, root, file.source);
+    if (!await fileStat(scanRootId, file.source)) {
+      await verifyPath(scanRootId, root, file.holding, file.originalHash);
+      await linkVerified(scanRootId, file.holding, file.source);
     }
-    await verifyPath(root, file.source, file.originalHash);
+    await verifyPath(scanRootId, root, file.source, file.originalHash);
   }
   for (const file of files) {
     await claim.current();
     const final = file.final;
-    await insideRoot(root, final);
-    const [published, staged] = await Promise.all([fileStat(final), fileStat(file.staged)]);
-    if (published && staged && published.ino === staged.ino && published.dev === staged.dev) {
-      await verifyPath(root, final, file.replacementHash);
-      await unlink(final);
+    await insideRoot(scanRootId, root, final);
+    const [published, staged] = await Promise.all([fileStat(scanRootId, final), fileStat(scanRootId, file.staged)]);
+    if (sameFile(published, staged)) {
+      await verifyPath(scanRootId, root, final, file.replacementHash);
+      await gate.run(scanRootId, { op: 'unlink', path: final });
     }
   }
   await ctx.sql`delete from file_deletions where file_id = any(${files.map((f) => f.id)}::uuid[])
@@ -328,6 +340,6 @@ export async function restoreUpgrade(ctx: WorkerContext, claim: MaintenanceRun, 
     await ctx.boss.send('scan.dir', { scanRootId, dirPath, reason: 'flac-upgrade-restore' }, { singletonKey: `scan.dir:${scanRootId}:${dirPath}` });
   }
   await markLibraryDirty(ctx, claim.row.library_id);
-  if ((await fileStat(staging))?.isDirectory()) await rm(staging, { recursive: true });
+  if ((await fileStat(scanRootId, staging))?.isDirectory) await gate.run(scanRootId, { op: 'rm', path: staging, recursive: true });
   return { state: 'cancelled' as const, stage: 'Original album restored', checkpoint: null, progress: null, error: null };
 }

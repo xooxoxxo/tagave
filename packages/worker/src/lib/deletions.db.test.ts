@@ -16,6 +16,9 @@ import type { WorkerContext } from './context.js';
 import { walkTree } from './walk.js';
 import { finishWalk } from './scanFinish.js';
 import { emptyTrash, filesTrashJob, moveWaiting, restoreWaiting, trashDay } from './deletions.js';
+import { setFileGate } from './fileGate.js';
+import { FolderOfflineError } from './folderOffline.js';
+import { OutageGate } from '../testkit/outageGate.js';
 
 const there = (p: string) => access(p).then(() => true, () => false);
 
@@ -175,7 +178,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('deletions on the file worker (d
     const info = await lstat(file);
     const { mountIdentity } = await import('./fileRecovery.js');
     const checkpoint = { index: 0, inFlight: {
-      id, file, mount: await mountIdentity(rootPath),
+      id, file, mount: await mountIdentity(rootId, rootPath),
       fingerprint: JSON.stringify([info.dev, info.ino, info.size, info.mtimeMs]),
     } };
     await sql`update maintenance_tasks set checkpoint = ${JSON.stringify(checkpoint)}::text::jsonb where id = ${task.id}`;
@@ -217,6 +220,37 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('deletions on the file worker (d
     expect(f.missing).toBe(0);
     expect((await sql`select count(*)::int as n from files where id = any(${Object.values(a.files)}::uuid[])`)[0].n).toBe(0);
     expect((await sql`select count(*)::int as n from local_albums where id = ${a.albumId}`)[0].n).toBe(0);
+  });
+
+  it('an offline music folder leaves every row waiting: nothing marked, dropped or failed', async () => {
+    const a = await album('Artist/Outage', ['01 Wait.flac', '02 Wait.flac']);
+    await deleteFiles('trash', [a.files['01 Wait.flac']!]);
+    const gate = new OutageGate();
+    setFileGate(gate);
+    try {
+      gate.down = true;
+      expect(await moveWaiting(ctx, libraryId)).toEqual({ trashed: 0, marked: 0, dropped: 0, paused: 1 });
+      expect(await row(a.files['01 Wait.flac']!)).toMatchObject({ kind: 'trash', state: 'moving', error: null });
+      expect((await sql`select count(*)::int as n from files where id = ${a.files['01 Wait.flac']!}`)[0].n).toBe(1);
+      // an import's Replace waits for the folder instead
+      await expect(moveWaiting(ctx, libraryId, new Date(), { throwOffline: true })).rejects.toBeInstanceOf(FolderOfflineError);
+
+      // the folder is back for the move into the trash, then away for Restore and Empty trash
+      gate.up();
+      expect(await moveWaiting(ctx, libraryId)).toMatchObject({ trashed: 1 });
+      gate.down = true;
+      expect(await emptyTrash(ctx, libraryId)).toEqual({ deleted: 0, failed: 0 });
+      expect(await row(a.files['01 Wait.flac']!)).toMatchObject({ state: 'trashed', error: null });
+      await sql`update file_deletions set state = 'restoring' where file_id = ${a.files['01 Wait.flac']!}`;
+      expect(await restoreWaiting(ctx, libraryId)).toEqual({ restored: 0, refused: 0, dropped: 0, paused: 1 });
+      expect(await row(a.files['01 Wait.flac']!)).toMatchObject({ state: 'restoring', error: null });
+      gate.up();
+      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ restored: 1 });
+      expect(await there(path.join(rootPath, 'Artist/Outage/01 Wait.flac'))).toBe(true);
+    } finally {
+      setFileGate(null);
+      await gate.close();
+    }
   });
 
   it('a marked file still on disk stays marked and present', async () => {

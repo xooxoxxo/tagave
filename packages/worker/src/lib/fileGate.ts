@@ -41,8 +41,19 @@ import { FolderOfflineError, OFFLINE_CODES } from './folderOffline.js';
 export type GateOp =
   | { op: 'stat' | 'lstat' | 'access' | 'realpath' | 'unlink' | 'rmdir' | 'statfs'; path: string; mode?: number; bigint?: boolean }
   | { op: 'readdirPage'; path: string; cursor?: string | null; limit?: number /* 500 */ }
+  /** Answers the first folder it made (recursive), else null. */
   | { op: 'mkdir'; path: string; recursive?: boolean }
   | { op: 'rename'; from: string; to: string }
+  /** A hard link: refuses a taken name (EEXIST). */
+  | { op: 'link'; from: string; to: string }
+  /** rm(2) of a path, a folder with what is in it when recursive. */
+  | { op: 'rm'; path: string; recursive?: boolean; force?: boolean }
+  /** A small file written whole; exclusive refuses one already there (EEXIST). */
+  | { op: 'writeSmall'; path: string; data: Uint8Array; exclusive?: boolean }
+  /** A whole-file copy; exclusive refuses a taken name (EEXIST). */
+  | { op: 'copyFile'; from: string; to: string; exclusive?: boolean }
+  /** The sha256 (hex) of a regular file's bytes. */
+  | { op: 'digest'; path: string }
   | { op: 'readSmall'; path: string; maxBytes?: number /* 32 MB */ }
   | { op: 'parse' | 'contentHash'; handlerId: string; path: string }
   | { op: 'cover'; handlerId: string; path: string; metadata: unknown }
@@ -86,7 +97,7 @@ export type HelperMessage =
   | { stuckGone: number };
 
 /** Ops that read or write a whole file: they use the idle deadline, reset by progress. */
-const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover']);
+const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover', 'digest', 'copyFile']);
 
 function positiveInt(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
