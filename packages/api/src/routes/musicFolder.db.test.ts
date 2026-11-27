@@ -22,7 +22,7 @@ vi.mock('../boss.js', () => ({
 const { TEST_APP_SECRET, TEST_PUBLIC_URL, buildAuthApp, cookieHeader, cookieJar, createScratchDb, migrateAll, testAuth } = await import('../testkit/authApp.js');
 const { initDb } = await import('../db.js');
 const { createMusicFolderInternalRoutes, createMusicFolderRoutes } = await import('./musicFolder.js');
-const { musicFolderNotice, musicFolderState, waitingCounts } = await import('@tagave/db');
+const { healTargets, musicFolderNotice, musicFolderState, musicLooksUnmounted, waitingCounts } = await import('@tagave/db');
 const { createTestUser } = await import('../testkit/users.js');
 
 const url = process.env.TEST_DATABASE_URL;
@@ -214,6 +214,35 @@ describe.skipIf(!url)('music folder state (integration)', () => {
     expect((await signedGet('/api/v1/internal/updater/music')).json()).toEqual({ unmounted: false, reach: [{ id: rootA, reach: 'offline' }] });
   });
 
+  it('a watched root whose path is missing (offline, io_error) asks no heal', async () => {
+    await scan(rootA, 'aborted', false); // the scan found no root folder
+    await handle.sql`update scan_roots set reach = 'offline', reach_since = '2026-11-24T14:02:00Z', reach_reason = 'io_error' where id = ${rootA}`;
+    const state = await musicFolderState(handle.sql);
+    expect(musicLooksUnmounted(state)).toBe(false);
+    expect(healTargets(state)).toEqual([]);
+    expect((await signedGet('/api/v1/internal/updater/music')).json()).toEqual(healer(false, 'offline'));
+    expect(await notice()).toMatchObject({ kind: 'offline', paths: ['/mnt/music'] });
+  });
+
+  it('a root that lists but is missing its sampled files reads online and asks no heal', async () => {
+    // the watch read it online; even a LIB-5 abort of its last scan does not make it look unmounted
+    await scan(rootA, 'aborted', true);
+    await handle.sql`update scan_roots set reach = 'online', reach_since = now(), reach_reason = null where id = ${rootA}`;
+    const state = await musicFolderState(handle.sql);
+    expect(musicLooksUnmounted(state)).toBe(false);
+    expect(healTargets(state)).toEqual([]);
+    expect((await signedGet('/api/v1/internal/updater/music')).json()).toEqual(healer(false, 'online'));
+    expect(await notice()).toEqual({ kind: 'none', folders: [] });
+  });
+
+  it('a heal that worked while every unreachable root is offline: the notice says offline, not healing, and nothing rescans', async () => {
+    await scan(rootA, 'aborted', true, 120);
+    await handle.sql`update scan_roots set reach = 'offline', reach_since = '2026-11-24T14:02:00Z', reach_reason = 'server_silent'`;
+    expect((await signedPost('/api/v1/internal/updater/music-heal', { phase: 'done', ok: true, reason: 'mounted' })).statusCode).toBe(200);
+    expect(sent).toEqual([]);
+    expect(await notice()).toMatchObject({ kind: 'offline', paths: ['/mnt/more', '/mnt/music'] });
+  });
+
   it('counts what waits per root: scans, tag writes (maintenance tasks too) and the rest', async () => {
     const sql = handle.sql;
     const task = async (kind: string, scope: string, queue: string) => (await sql<Array<{ id: string }>>`
@@ -290,7 +319,7 @@ describe.skipIf(!url)('0097 reach columns', () => {
     const [r] = await sql`select reach, reach_since from scan_roots where id = ${rootId}`;
     expect(r).toEqual({ reach: 'unknown', reach_since: null });
     await expect(sql`update scan_roots set reach = 'gone' where id = ${rootId}`).rejects.toThrow(/scan_roots_reach_check/);
-    await expect(sql`update scan_roots set reach_reason = '192.0.2.10 down' where id = ${rootId}`).rejects.toThrow();
+    await expect(sql`update scan_roots set reach_reason = '192.0.2.10 down' where id = ${rootId}`).rejects.toThrow(/scan_roots_reach_reason_check/);
   });
   it('a tag plan can be waiting', async () => {
     await sql`update tag_plans set status = 'waiting' where id = ${planId}`;
