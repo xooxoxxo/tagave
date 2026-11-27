@@ -478,11 +478,13 @@ printf '%s\n' "$*" >>"$FAKE_LOG"
 # that service's container reads "exited". FAKE_REPAIR_EXIT: the exit code of
 # the updater's "cli.js repair" one-off, FAKE_REPAIR_HEADLINE the last line it
 # prints. FAKE_SERVICES_FAIL=1: "compose config --services" fails.
+# FAKE_LAYOUT_EXIT: the exit code of the updater's "cli.js music-layout" one-off.
 case "$1" in
   info) [ "${FAKE_DOCKER_SILENT:-0}" != 1 ] || sleep 30; exit 0 ;;
   version) [ "${FAKE_DOCKER_SILENT:-0}" != 1 ] || sleep 30; echo 27.0.0; exit 0 ;;
   run)
     case "$*" in *"cli.js repair"*) echo 'fake repair: started the file worker'; echo "${FAKE_REPAIR_HEADLINE:-Repaired. All 4 parts running.}"; exit "${FAKE_REPAIR_EXIT:-0}" ;; esac
+    case "$*" in *"cli.js music-layout"*) echo '  fake layout: the music share stays on the direct layout'; exit "${FAKE_LAYOUT_EXIT:-0}" ;; esac
     exit 0 ;;
   manifest) echo '{"manifests":[{"platform":{"architecture":"amd64"}},{"platform":{"architecture":"arm64"}}]}'; exit 0 ;;
   inspect)
@@ -596,6 +598,7 @@ cp "$work/upd-rw.env" "$work/upd/.env"
 fake update --dir "$work/upd" --yes >"$work/update.log" 2>&1 || { cat "$work/update.log" >&2; fail "update"; }
 [ "$(env_value TAGAVE_VERSION "$work/upd/.env")" = "0.5.0" ] || fail "update: .env not moved to 0.5.0"
 [ "$(env_value TAGAVE_MUSIC_MODE "$work/upd/.env")" = "rw" ] || fail "update: an rw install lost TAGAVE_MUSIC_MODE=rw"
+grep -q 'cli.js music-layout' "$work/docker.log" && fail "update: a target below FIRST_LAYOUT_RELEASE (0.5.0) ran cli.js music-layout"
 render "$work/upd" | python3 -c 'import json,sys; c=json.load(sys.stdin); v=[v for v in c["services"]["worker-files"]["volumes"] if v["target"] in ("/mnt/music", "/mnt/.host")][0]; sys.exit(1 if v.get("read_only") else 0)' \
   || fail "update: an rw install from before 0.38.0 mounts the worker's music read-only with the new compose.yml"
 backup="$(find "$work/upd/backups" -mindepth 1 -maxdepth 1 -type d -name 'pre-update-0.4.1-*' | head -n 1)"
@@ -784,6 +787,63 @@ FAKE_FILE_WORKERS=0 fake update --dir "$work/split-app" --dry-run >"$work/split-
   || { cat "$work/split-quiet.log" >&2; fail "split update: dry run without a file worker"; }
 grep -q 'still running' "$work/split-quiet.log" && fail "split update: warned although no file worker checks in"
 pass "update on the app computer asks to stop the file worker first"
+
+# --- the update moves the music share layout ---------------------------------
+# 0.39.0 is FIRST_LAYOUT_RELEASE: from it on, a healthy update runs
+# "cli.js music-layout --apply" of the target's updater image (all and files
+# roles; an app computer has no music folder). No signed manifest here, so
+# nothing is fetched from GitHub and the images go by tag.
+lay_assets="file://$work/no-release-assets"
+lay_line() { grep 'cli.js music-layout' "$work/docker.log" || true; }
+
+at_version 0.38.0 --role all --dir "$work/mv-all" --music "$work/music" >"$work/mv-all-install.log" 2>&1 \
+  || { cat "$work/mv-all-install.log" >&2; fail "layout move: install 0.38.0"; }
+printf '0.38.0' >"$work/state/version"
+: >"$work/docker.log"
+TAGAVE_RELEASE_ASSETS_URL="$lay_assets" fake update --dir "$work/mv-all" --version 0.39.0 --yes >"$work/mv-all.log" 2>&1 \
+  || { cat "$work/mv-all.log" >&2; fail "layout move: update to 0.39.0"; }
+mv_run="$(lay_line)"
+case "$mv_run" in
+  "run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $work/mv-all:$work/mv-all -w $work/mv-all -e TAGAVE_INSTALL_DIR=$work/mv-all --network "*"_default --entrypoint node "*"/tagave-updater:0.39.0 /opt/tagave/updater/dist/cli.js music-layout --apply") ;;
+  *) cat "$work/docker.log" >&2; fail "layout move: the update did not run the 0.39.0 updater's cli.js music-layout --apply once (got: $mv_run)" ;;
+esac
+[ "$(printf '%s\n' "$mv_run" | grep -c .)" = 1 ] || fail "layout move: ran cli.js music-layout more than once"
+mv_at="$(line_of "$mv_run")"
+mv_rest_at="$(line_of 'compose up -d')"
+[ -n "$mv_rest_at" ] && [ "$mv_rest_at" -lt "$mv_at" ] || { cat "$work/docker.log" >&2; fail "layout move: ran before the update started every part"; }
+grep -q 'fake layout: the music share stays on the direct layout' "$work/mv-all.log" || fail "layout move: its lines are not printed"
+pass "update to 0.39.0 on one computer runs the target updater's music-layout --apply after it is healthy"
+
+# Its failure only warns: the update is done.
+at_version 0.38.0 --role all --dir "$work/mv-fail" --music "$work/music" >"$work/mv-fail-install.log" 2>&1 \
+  || { cat "$work/mv-fail-install.log" >&2; fail "layout move: install 0.38.0 (failing)"; }
+printf '0.38.0' >"$work/state/version"
+FAKE_LAYOUT_EXIT=1 TAGAVE_RELEASE_ASSETS_URL="$lay_assets" fake update --dir "$work/mv-fail" --version 0.39.0 --yes >"$work/mv-fail.log" 2>&1 \
+  || { cat "$work/mv-fail.log" >&2; fail "layout move: a failing music-layout failed the update"; }
+grep -q 'The music share layout was not checked or changed' "$work/mv-fail.log" || { cat "$work/mv-fail.log" >&2; fail "layout move: a failing music-layout did not warn"; }
+[ "$(env_value TAGAVE_VERSION "$work/mv-fail/.env")" = "0.39.0" ] || fail "layout move: a failing music-layout undid the update"
+pass "a failing music-layout after the update only warns"
+
+# The music computer of a split install runs it too; the app computer never.
+at_version 0.38.0 --role files --dir "$work/mv-files" --from "$work/split-app/files-worker.env" --music "$work/music" \
+  >"$work/mv-files-install.log" 2>&1 || { cat "$work/mv-files-install.log" >&2; fail "layout move: files install 0.38.0"; }
+mkdir -p "$work/appsrv39/api/v1"
+printf '{"version":"0.39.0","sha":"abc"}' >"$work/appsrv39/api/v1/version"
+cp "$work/appsrv/api/v1/health" "$work/appsrv39/api/v1/health"
+: >"$work/docker.log"
+TAGAVE_RELEASE_ASSETS_URL="$lay_assets" fake update --dir "$work/mv-files" --app-url "file://$work/appsrv39" --yes >"$work/mv-files.log" 2>&1 \
+  || { cat "$work/mv-files.log" >&2; fail "layout move: files update to 0.39.0"; }
+case "$(lay_line)" in
+  *"/tagave-updater:0.39.0 /opt/tagave/updater/dist/cli.js music-layout --apply") ;;
+  *) cat "$work/docker.log" >&2; fail "layout move: the files computer's update did not run music-layout --apply" ;;
+esac
+printf '0.4.1' >"$work/state/version"
+: >"$work/docker.log"
+FAKE_FILE_WORKERS=0 TAGAVE_RELEASE_ASSETS_URL="$lay_assets" fake update --dir "$work/split-app" --version 0.39.0 --yes >"$work/mv-app.log" 2>&1 \
+  || { cat "$work/mv-app.log" >&2; fail "layout move: app update to 0.39.0"; }
+[ "$(env_value TAGAVE_VERSION "$work/split-app/.env")" = "0.39.0" ] || fail "layout move: the app computer was not updated"
+[ -z "$(lay_line)" ] || fail "layout move: the app computer ran music-layout"
+pass "update to 0.39.0 runs music-layout on the music computer, not on the app computer"
 
 # --- an .env from an older installer: TAGAVE_VERSION=latest ------------------
 float_env() { sed 's/^TAGAVE_VERSION=.*/TAGAVE_VERSION=latest/' "$work/float/.env" >"$work/float/.env.new" && mv "$work/float/.env.new" "$work/float/.env"; }
