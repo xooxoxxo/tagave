@@ -371,6 +371,12 @@ printf '"%s" %s(rw,sync,no_subtree_check,no_root_squash,insecure,fsid=%s)\n' "$E
 MADE_EXPORT=1
 CREATED+=("export $EXPORTS_FILE")
 exportfs -ra
+# No NFSv4 delegations on this throwaway runner: with one, the client answers
+# stat and readdir from its cache while the lease lasts, so a scan right after
+# the drop finishes without asking the server (seen in CI). Leases are off for
+# the whole runner, which the job discards afterwards.
+sysctl -q -w fs.leases-enable=0
+note "fs.leases-enable=0: the NFS server grants no delegations"
 mount_share
 CREATED+=("mount $MUSIC (nfs $NFS_HOST:$EXPORT, hard)")
 check "the share is mounted hard at $MUSIC" grep -q " $MUSIC nfs4 .*hard" /proc/mounts
