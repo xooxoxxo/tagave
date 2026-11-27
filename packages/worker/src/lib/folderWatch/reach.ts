@@ -18,36 +18,44 @@ export interface Reading {
   reason: ReachReason | null;
 }
 
-const OFFLINE_CODES: Record<string, ReachReason> = {
-  EIO: 'io_error',
-  ETIMEDOUT: 'timeout',
-  EHOSTDOWN: 'timeout',
-  ESTALE: 'stale',
-};
+const OFFLINE_CODES = new Map<string, ReachReason>([
+  ['EIO', 'io_error'],
+  ['ETIMEDOUT', 'timeout'],
+  ['EHOSTDOWN', 'timeout'],
+  ['ESTALE', 'stale'],
+]);
 
 const ONLINE: Reading = { reach: 'online', reason: null };
 
+/**
+ * A root reads unmounted only from a listing that found none of the files the
+ * library knows, with the root empty or no longer the mount point it was
+ * ("No known file found, with an empty root or no longer a mount point where
+ * it was one"). Unmounted asks the updater to remount and restart the music
+ * parts, so every other case stays away from it: an error (a missing root
+ * too) reads offline, a root with no known files to ask about never reads
+ * unmounted, and a listing that is not empty and keeps its mount point reads
+ * online even when the sampled files are gone (renamed or deleted files are
+ * the scan's business, not a lost share).
+ */
 export function classify(o: ProbeOutcome): Reading {
   switch (o.kind) {
     case 'server_silent':
       return { reach: 'offline', reason: 'server_silent' };
     case 'deadline':
       return { reach: 'offline', reason: 'timeout' };
-    case 'error': {
-      const reason = OFFLINE_CODES[o.code];
-      if (reason) return { reach: 'offline', reason };
-      if (o.code === 'ENOENT') return { reach: 'unmounted', reason: 'not_mounted' };
-      // A probe that errored never listed anything, so any other code fails safe as offline.
-      return { reach: 'offline', reason: 'io_error' };
-    }
-    case 'listing':
+    case 'error':
+      // A probe that errored never listed anything: offline, never unmounted. A missing root
+      // (ENOENT: renamed or deleted) and any code not listed read io_error.
+      return { reach: 'offline', reason: OFFLINE_CODES.get(o.code) ?? 'io_error' };
+    case 'listing': {
+      if (o.knownAsked === 0 || o.knownFound > 0) return ONLINE;
       // The share was mounted here and is not any more.
       if (o.wasMountPoint && !o.isMountPoint) return { reach: 'unmounted', reason: 'not_mounted' };
-      // None of the files the library knows are there.
-      if (o.knownAsked > 0 && o.knownFound === 0) return { reach: 'unmounted', reason: 'empty' };
-      // Nothing known to ask about, and an empty plain folder where the music should be.
-      if (o.knownAsked === 0 && o.empty && !o.isMountPoint) return { reach: 'unmounted', reason: 'empty' };
+      // None of the known files, and an empty folder where the music should be.
+      if (o.empty) return { reach: 'unmounted', reason: 'empty' };
       return ONLINE;
+    }
   }
 }
 
