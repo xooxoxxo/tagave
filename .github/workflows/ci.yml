@@ -182,7 +182,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: shellcheck
-        run: shellcheck install-tagave.sh scripts/test-installer.sh scripts/check-templates.sh scripts/release.sh scripts/sync-music-connections.sh scripts/sync-music-connections.test.sh scripts/mc-e2e.sh docker/worker-entrypoint.sh scripts/worker-entrypoint.test.sh
+        run: shellcheck install-tagave.sh scripts/test-installer.sh scripts/check-templates.sh scripts/release.sh scripts/sync-music-connections.sh scripts/sync-music-connections.test.sh scripts/mc-e2e.sh docker/worker-entrypoint.sh scripts/worker-entrypoint.test.sh scripts/offline-share-test.sh
 
       # Portainer, Dokploy, Coolify and Unraid templates in deploy/templates/
       - name: App templates
@@ -190,6 +190,82 @@ jobs:
 
       - name: Installer, every role
         run: ./scripts/test-installer.sh
+
+  # The music share layout on a real NFS mount (scripts/offline-share-test.sh):
+  # this runner exports a folder of small FLACs over NFS, mounts it hard, runs
+  # a writable parent layout install on it, and turns the NAS off with an
+  # iptables rule. It needs root, so it runs here and never on a laptop. It
+  # builds its own app and worker images (build-amd64 runs on pushes only), so
+  # pull requests get it too.
+  offline-share:
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OFFLINETEST_IMAGE_TAG: offlinetest-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: NFS server and flac tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nfs-kernel-server flac
+          sudo systemctl start nfs-kernel-server
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+
+      - name: Build metadata
+        id: meta
+        run: |
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      # Loaded into this runner's Docker only, never pushed. The cache is read,
+      # not written, so these builds leave the release builds' cache alone.
+      - name: Build the app image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
+        with:
+          context: .
+          file: docker/app.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: offlinetest/tagave-app:${{ env.OFFLINETEST_IMAGE_TAG }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
+            TAGAVE_BUILD_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+
+      - name: Build the worker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
+        with:
+          context: .
+          file: docker/worker.Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: offlinetest/tagave-worker:${{ env.OFFLINETEST_IMAGE_TAG }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
+            TAGAVE_BUILD_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+
+      # The script removes these two images by name when it ends.
+      - name: The music share, NAS off and on
+        env:
+          OFFLINETEST_REGISTRY: offlinetest
+          OFFLINETEST_REMOVE_IMAGES: '1'
+        run: sudo -E ./scripts/offline-share-test.sh
+
+      # Only when the script did not get to it (it failed before its trap).
+      - name: Remove the test images
+        if: always()
+        run: |
+          for img in "offlinetest/tagave-app:${OFFLINETEST_IMAGE_TAG}" "offlinetest/tagave-worker:${OFFLINETEST_IMAGE_TAG}"; do
+            if docker image inspect "$img" >/dev/null 2>&1; then docker image rm "$img"; fi
+          done
 
   build-amd64:
     needs: gates
