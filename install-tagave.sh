@@ -90,6 +90,8 @@ WITH_UPDATER="${TAGAVE_WITH_UPDATER:-}"
 WITH_PLAYER="${TAGAVE_WITH_PLAYER:-}"
 PLAYER_PORT="${TAGAVE_PLAYER_PORT:-}"
 MUSIC_WRITABLE="${TAGAVE_MUSIC_WRITABLE:-}"
+MUSIC_PARENT=""   # --music-parent: the folder right above the music folder
+MUSIC_DIRECT=0    # --music-direct: always mount the music folder itself
 ASSUME_YES="${TAGAVE_YES:-0}"
 NO_START=0
 PLATFORM=""
@@ -188,7 +190,14 @@ Usage: install-tagave.sh [install|update|status|repair|enable-updater|
   --music PATH             your music folder on this computer (roles all, files)
   --music-writable         mount it writable, so applying a tag plan can write
                            tags (default: read-only; roles all, files)
-  --port N                 web app port on this computer (default: 3100)
+  --music-parent DIR       mount DIR, the folder right above the music folder,
+                           in its place, so tagave starts while the music
+                           share is off (default: the folder above a share
+                           under /mnt, /media or /srv, when that is safe;
+                           roles all, files)
+  --music-direct           mount the music folder itself, never the folder
+                           above it
+  --port N                web app port on this computer (default: 3100)
   --version TAG            release to run, e.g. 0.5.0 (default: the newest
                            release, written to .env as its number)
   --timezone ZONE          e.g. Europe/Berlin (default: this computer's, or UTC)
@@ -289,6 +298,8 @@ while [ "$#" -gt 0 ]; do
     --with-player)       WITH_PLAYER=1; shift ;;
     --player-port)       need_arg "$@"; PLAYER_PORT="$2"; shift 2 ;;
     --music-writable)    MUSIC_WRITABLE=1; shift ;;
+    --music-parent)      need_arg "$@"; MUSIC_PARENT="$2"; shift 2 ;;
+    --music-direct)      MUSIC_DIRECT=1; shift ;;
     --public-url)        need_arg "$@"; PUBLIC_URL="$2"; shift 2 ;;
     --replace-secrets)   REPLACE_SECRETS=1; shift ;;
     --yes|-y)            ASSUME_YES=1; shift ;;
@@ -297,6 +308,10 @@ while [ "$#" -gt 0 ]; do
     *)                   die "unknown option: $1 (see --help)" ;;
   esac
 done
+
+if [ -n "$MUSIC_PARENT" ] && [ "$MUSIC_DIRECT" = 1 ]; then
+  die "--music-parent and --music-direct don't go together; pick one"
+fi
 
 if [ -n "$REPAIR_WAIT" ]; then
   case "$REPAIR_WAIT" in
@@ -971,19 +986,10 @@ valid_server() {
   return 1
 }
 
-# music_mount DIR: prints "fstype server" for the mount that holds DIR (the
-# longest mount point over it, on a / boundary), from the mount table. The
-# server is empty for a local mount, or when it is not a valid name. Without
-# a mount table (macOS) it prints nothing. Only fstype and server leave here:
-# the mount's options can hold a user name.
-# TAGAVE_TEST_MOUNTINFO (test only): a file read in place of /proc/self/mountinfo.
-music_mount() {
-  local file="${TAGAVE_TEST_MOUNTINFO:-/proc/self/mountinfo}" dir="$1" line fstype source re host=""
-  [ -r "$file" ] || return 0
-  while [ "${#dir}" -gt 1 ] && [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
-  # ENVIRON, not -v: awk -v would read backslashes in the path as escapes.
-  line="$(MOUNT_DIR="$dir" awk '
-    # mountinfo writes space, tab, newline and backslash in paths as \ooo.
+# An awk function: mountinfo and fstab write space, tab, newline and backslash
+# in paths as \ooo, and decode(s) turns them back.
+# shellcheck disable=SC2016 # awk code, not shell
+MOUNT_DECODE_AWK='
     function decode(s,   out, i, c) {
       out = ""
       while ((i = index(s, "\\")) > 0) {
@@ -997,7 +1003,20 @@ music_mount() {
         }
       }
       return out s
-    }
+    }'
+
+# music_mount DIR: prints "fstype server" for the mount that holds DIR (the
+# longest mount point over it, on a / boundary), from the mount table. The
+# server is empty for a local mount, or when it is not a valid name. Without
+# a mount table (macOS) it prints nothing. Only fstype and server leave here:
+# the mount's options can hold a user name.
+# TAGAVE_TEST_MOUNTINFO (test only): a file read in place of /proc/self/mountinfo.
+music_mount() {
+  local file="${TAGAVE_TEST_MOUNTINFO:-/proc/self/mountinfo}" dir="$1" line fstype source re host=""
+  [ -r "$file" ] || return 0
+  while [ "${#dir}" -gt 1 ] && [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+  # ENVIRON, not -v: awk -v would read backslashes in the path as escapes.
+  line="$(MOUNT_DIR="$dir" awk "$MOUNT_DECODE_AWK"'
     BEGIN { dir = ENVIRON["MOUNT_DIR"]; best = -1 }
     {
       sep = 0
@@ -1052,6 +1071,224 @@ music_share() {
   fi
 }
 
+# mount_points: every mount point in the mount table, one per line. Without
+# a mount table (macOS) it prints nothing.
+mount_points() {
+  local file="${TAGAVE_TEST_MOUNTINFO:-/proc/self/mountinfo}"
+  [ -r "$file" ] || return 0
+  awk "$MOUNT_DECODE_AWK"'
+    { for (i = 7; i <= NF; i++) if ($i == "-") { print decode($5); next } }
+  ' "$file" 2>/dev/null || true
+}
+
+# fstab_entry DIR: prints "fstype options" of the /etc/fstab line that mounts
+# on DIR (the last one, as mount reads it), or nothing. The options stay
+# inside the installer: they can hold a user name.
+# TAGAVE_TEST_FSTAB (test only): a file read in place of /etc/fstab.
+fstab_entry() {
+  local file="${TAGAVE_TEST_FSTAB:-/etc/fstab}"
+  [ -r "$file" ] || return 0
+  MOUNT_DIR="$1" awk "$MOUNT_DECODE_AWK"'
+    BEGIN { dir = ENVIRON["MOUNT_DIR"]; found = "" }
+    /^[ \t]*#/ || NF < 3 { next }
+    {
+      mp = decode($2)
+      while (length(mp) > 1 && substr(mp, length(mp)) == "/") mp = substr(mp, 1, length(mp) - 1)
+      if (mp == dir) found = $3 " " (NF >= 4 ? $4 : "defaults")
+    }
+    END { if (found != "") print found }
+  ' "$file" 2>/dev/null || true
+}
+
+# host_fact HOOK SECONDS CMD...: the value of the variable HOOK when a test
+# sets it, otherwise what CMD prints, with a limit of SECONDS. Returns 1 when
+# CMD fails or runs out of time.
+host_fact() {
+  local hook="$1" limit="$2"
+  shift 2
+  if [ -n "${!hook:-}" ]; then printf '%s\n' "${!hook}"; return 0; fi
+  run_limited "$limit" "$@" 2>/dev/null
+}
+
+# Which folder the file worker and the player mount for the music. direct:
+# MUSIC_DIR itself on /mnt/music, as every install before had it. parent:
+# LAYOUT_PARENT, the folder that holds the music share, with the share
+# LAYOUT_NAME inside it, so a share that is off cannot stop the parts starting.
+MUSIC_LAYOUT=direct
+LAYOUT_PARENT=""
+LAYOUT_NAME=""
+
+# keep_direct REASON: keeps the direct layout and says why, in one line.
+keep_direct() {
+  MUSIC_LAYOUT=direct; LAYOUT_PARENT=""; LAYOUT_NAME=""
+  say "  Music folder mounted directly: $1."
+}
+
+# pick_music_layout: picks the parent layout only when every check passes:
+# Linux; MUSIC_DIR a mount point, or an fstab or automount target; a name the
+# worker can link to; a safe parent (the folder right above, under /mnt,
+# /media or /srv, or named with --music-parent; never /, /home, the home
+# folder, the install folder or one above it, or Docker's data); the parent's
+# mount passes new mounts on (shared); kernel 5.12 or later for a read-only
+# install; Docker neither rootless nor the snap. Last, it lists what else the
+# parent holds and asks once on a terminal; without one it goes on only when
+# all of it is mount points. Anything else keeps the direct layout, with one
+# line why. It reads the mount table, fstab and the parent folder, never
+# MUSIC_DIR, which may sit on a share that does not answer, and each command
+# it runs has a short limit. TAGAVE_TEST_UNAME_S, TAGAVE_TEST_KERNEL,
+# TAGAVE_TEST_PROPAGATION, TAGAVE_TEST_DOCKER_ROOT, TAGAVE_TEST_DOCKER_SECURITY,
+# TAGAVE_TEST_DOCKER_PATH and TAGAVE_TEST_PARENT_DIR (a folder listed in place
+# of the parent) stand in for the host's answers in tests.
+pick_music_layout() {
+  MUSIC_LAYOUT=direct; LAYOUT_PARENT=""; LAYOUT_NAME=""
+  [ "$ROLE" != "app" ] || return 0
+  local dir="$MUSIC_DIR" parent name named points system propagation kernel info="" root security
+  local docker_path resolved="" entries entry others="" plain=0 share_all=""
+  local name_re='^[A-Za-z0-9._ -]+$' kernel_re='^([0-9]+)\.([0-9]+)'
+  if [ "$MUSIC_DIRECT" = 1 ]; then keep_direct "you asked for it with --music-direct"; return 0; fi
+
+  system="$(host_fact TAGAVE_TEST_UNAME_S 5 uname -s)" || system=""
+  if [ "$system" != Linux ]; then keep_direct "this computer is not Linux"; return 0; fi
+
+  while [ "${#dir}" -gt 1 ] && [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+  points="$(mount_points)"
+  if ! grep -qxF -- "$dir" <<<"$points" && [ -z "$(fstab_entry "$dir")" ]; then
+    keep_direct "the music folder $dir is not a mount point or an fstab entry"; return 0
+  fi
+
+  parent="${dir%/*}"
+  [ -n "$parent" ] || parent=/
+  name="${dir##*/}"
+  # The worker links /mnt/music to /mnt/.host/NAME and takes only such names.
+  if ! [[ $name =~ $name_re ]] || [ "$name" = . ] || [ "$name" = .. ]; then
+    keep_direct "the music folder's name, $name, has characters tagave can't use there"; return 0
+  fi
+  if [ -n "$MUSIC_PARENT" ]; then
+    named="$MUSIC_PARENT"
+    while [ "${#named}" -gt 1 ] && [ "${named%/}" != "$named" ]; do named="${named%/}"; done
+    if [ "$named" != "$parent" ]; then
+      keep_direct "--music-parent $MUSIC_PARENT is not the folder right above $dir"; return 0
+    fi
+  fi
+
+  case "$parent" in
+    /|/home) keep_direct "the folder above it, $parent, is too wide to share"; return 0 ;;
+  esac
+  case "$parent/" in
+    */./*|*/../*) keep_direct "the folder above it, $parent, is not a plain path"; return 0 ;;
+  esac
+  if [ -n "${HOME:-}" ] && [ "$parent" = "${HOME%/}" ]; then
+    keep_direct "the folder above it, $parent, is your home folder"; return 0
+  fi
+  case "$INSTALL_DIR/" in
+    "$parent"/*) keep_direct "the folder above it, $parent, holds the install folder"; return 0 ;;
+  esac
+  if [ -z "$MUSIC_PARENT" ]; then
+    case "$parent" in
+      /mnt|/mnt/*|/media|/media/*|/srv|/srv/*) ;;
+      *) keep_direct "the folder above it, $parent, is not under /mnt, /media or /srv (name it with --music-parent)"; return 0 ;;
+    esac
+  fi
+
+  # A share mounted later must show up inside the parts: the parent's mount
+  # has to pass new mounts on.
+  propagation="$(host_fact TAGAVE_TEST_PROPAGATION 5 findmnt -no PROPAGATION --target "$parent")" || propagation=""
+  propagation="${propagation//[[:space:]]/}"
+  case ",$propagation," in
+    *,shared,*) ;;
+    ,,) keep_direct "tagave can't tell whether mounts under $parent reach the parts (findmnt gave no answer)"; return 0 ;;
+    *) keep_direct "mounts under $parent do not reach the parts (its mount is $propagation, not shared)"; return 0 ;;
+  esac
+
+  # A read-only mount keeps the share inside it read-only only from 5.12 on.
+  if [ "$MUSIC_WRITABLE" != 1 ]; then
+    kernel="$(host_fact TAGAVE_TEST_KERNEL 5 uname -r)" || kernel=""
+    kernel="${kernel%%$'\n'*}"
+    if ! [[ $kernel =~ $kernel_re ]]; then
+      keep_direct "tagave can't tell the kernel version, and a read-only music folder needs 5.12 or later"; return 0
+    fi
+    if [ "${BASH_REMATCH[1]}" -lt 5 ] || { [ "${BASH_REMATCH[1]}" -eq 5 ] && [ "${BASH_REMATCH[2]}" -lt 12 ]; }; then
+      keep_direct "the kernel, $kernel, is older than 5.12, which a read-only music folder needs"; return 0
+    fi
+  fi
+
+  if [ -z "${TAGAVE_TEST_DOCKER_ROOT:-}" ] || [ -z "${TAGAVE_TEST_DOCKER_SECURITY:-}" ]; then
+    info="$(run_limited "$DOCKER_WAIT" docker info --format '{{.DockerRootDir}}{{"\n"}}{{range .SecurityOptions}}{{.}} {{end}}' 2>/dev/null)" || info=""
+  fi
+  root="${TAGAVE_TEST_DOCKER_ROOT:-${info%%$'\n'*}}"
+  security="${TAGAVE_TEST_DOCKER_SECURITY:-}"
+  if [ -z "$security" ]; then case "$info" in *$'\n'*) security="${info#*$'\n'}" ;; esac; fi
+  if [ -z "$root" ]; then keep_direct "Docker didn't say where it keeps its data"; return 0; fi
+  case "${root%/}/" in
+    "$parent"/*) keep_direct "the folder above it, $parent, holds Docker's data"; return 0 ;;
+  esac
+  case "$parent/" in
+    "${root%/}"/*) keep_direct "the folder above it, $parent, is inside Docker's data"; return 0 ;;
+  esac
+  # Rootless Docker runs in a mount namespace of its own: until a share
+  # mounted later is known to reach it, it keeps the direct layout.
+  case " $security " in
+    *name=rootless*) keep_direct "Docker runs rootless"; return 0 ;;
+  esac
+  docker_path="${TAGAVE_TEST_DOCKER_PATH:-}"
+  if [ -z "$docker_path" ]; then
+    docker_path="$(command -v docker || true)"
+    [ -z "$docker_path" ] || resolved="$(run_limited 5 readlink -f "$docker_path" 2>/dev/null)" || resolved=""
+  fi
+  case "$docker_path" in /snap/*) resolved="$docker_path" ;; esac
+  case "$resolved" in
+    /snap/*|*/snap) keep_direct "Docker is the snap package, which only sees some folders"; return 0 ;;
+  esac
+
+  # Names only: the parent is a local folder, but what it holds may be other
+  # shares, and a stat on one whose server is gone could hang.
+  # shellcheck disable=SC2016 # $1 expands in the inner bash
+  entries="$(run_limited 5 bash -c 'shopt -s nullglob dotglob; for e in "$1"/*; do printf "%s\n" "${e##*/}"; done' \
+    _ "${TAGAVE_TEST_PARENT_DIR:-$parent}")" || { keep_direct "tagave can't list the folder above it, $parent"; return 0; }
+  while IFS= read -r entry; do
+    if [ -z "$entry" ] || [ "$entry" = "$name" ]; then continue; fi
+    others="${others:+$others, }$entry"
+    grep -qxF -- "$parent/$entry" <<<"$points" || plain=1
+  done <<<"$entries"
+  if [ -n "$others" ]; then
+    say "  The folder above your music, $parent, also holds: $others"
+    if [ -n "$TTY" ]; then
+      ask share_all "Let tagave see all of $parent? (y/N)" "n"
+      case "$share_all" in
+        y|Y|yes|Yes|YES) ;;
+        *) keep_direct "you chose not to share all of $parent"; return 0 ;;
+      esac
+    elif [ "$plain" = 1 ]; then
+      keep_direct "$parent also holds folders that are not mounts, and there is no terminal to ask"; return 0
+    fi
+  fi
+
+  MUSIC_LAYOUT=parent; LAYOUT_PARENT="$parent"; LAYOUT_NAME="$name"
+  ok "Mounting $parent, the folder above the music folder, so tagave starts while the share is off"
+}
+
+# advise_mount_options: when MUSIC_DIR is an fstab entry without nofail (or,
+# for an NFS or SMB share, without _netdev), prints the line tagave suggests,
+# once. The example keeps the server 192.0.2.10: nothing of the owner's own
+# line is printed, as its options can hold a user name. It never edits fstab.
+advise_mount_options() {
+  [ "$ROLE" != "app" ] || return 0
+  local dir="$MUSIC_DIR" entry fstype options missing=""
+  while [ "${#dir}" -gt 1 ] && [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+  entry="$(fstab_entry "$dir")"
+  [ -n "$entry" ] || return 0
+  fstype="${entry%% *}"
+  options=",${entry#* },"
+  case "$options" in *,nofail,*) ;; *) missing="nofail" ;; esac
+  case "$fstype" in
+    nfs|nfs4|cifs|smb3) case "$options" in *,_netdev,*) ;; *) missing="${missing:+$missing or }_netdev" ;; esac ;;
+  esac
+  [ -n "$missing" ] || return 0
+  warn "The line for $dir in /etc/fstab has no $missing, so this computer may wait or stop at boot while the NAS is off."
+  say "  tagave suggests a line like this one, with your own server and export (tagave never edits fstab):"
+  say "    192.0.2.10:/export/music  ${dir// /\\040}  nfs4  hard,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0 0"
+}
+
 check_music_dir() {
   [ "$ROLE" != "app" ] || return 0
   local rc=0
@@ -1060,7 +1297,13 @@ check_music_dir() {
   case "$SHARE_KIND" in
     silent)
       MUSIC_SILENT=1
-      warn "Your music share at $SHARE_SERVER doesn't answer. Turn the NAS on or check its cable."
+      # In the parent layout the parts start without the share and see it
+      # once it is mounted again.
+      if [ "$MUSIC_LAYOUT" = parent ]; then
+        warn "Your music share isn't connected now. tagave starts anyway and picks it up when it's back."
+      else
+        warn "Your music share at $SHARE_SERVER doesn't answer. Turn the NAS on or check its cable."
+      fi
       return 0 ;;
     unknown)
       # The server could not be asked, so the folder tests run with a limit.
@@ -1489,6 +1732,11 @@ EOF
       local music_mode=ro
       [ "$MUSIC_WRITABLE" = 1 ] && music_mode=rw
       printf "\n# your music at /mnt/music in the file worker; rw lets tag plans write tags\nMUSIC_DIR='%s'\nTAGAVE_MUSIC_MODE=%s\n" "$MUSIC_DIR" "$music_mode"
+      # Written fresh on every run: a re-run that keeps the direct layout drops them.
+      if [ "$MUSIC_LAYOUT" = parent ]; then
+        printf "\n# the folder above the music share is mounted (the parent layout), so tagave\n# starts while the share is off; /mnt/music links to the share inside it\nTAGAVE_MUSIC_BIND_SOURCE='%s'\nTAGAVE_MUSIC_BIND_TARGET=/mnt/.host\nTAGAVE_PLAYER_BIND_TARGET=/host\nTAGAVE_MUSIC_PROPAGATION=rslave\nTAGAVE_MUSIC_NAME='%s'\nTAGAVE_PLAYER_MUSIC_FOLDER='/host/%s'\n" \
+          "$LAYOUT_PARENT" "$LAYOUT_NAME" "$LAYOUT_NAME"
+      fi
     fi
     carry_over_settings "$env_file"
   } | write_private "$env_file"
@@ -1745,6 +1993,10 @@ main() {
     warn "--repair does nothing with --no-start or --dry-run."
   fi
   collect_answers
+  # Before check_music_dir: a silent share stops the install only in the
+  # direct layout.
+  pick_music_layout
+  advise_mount_options
   check_music_dir
   resolve_version
   # A signed manifest that does not check out stops here, before anything is written.
@@ -1756,8 +2008,9 @@ main() {
   apply_release_pins "$VERSION"
   validate_compose
 
-  # Starting would bind the dead share, and the parts would hang on it.
-  if [ "$MUSIC_SILENT" = "1" ] && [ "$NO_START" != "1" ]; then
+  # In the direct layout starting would bind the dead share, and the parts
+  # would hang on it. The parent layout binds a local folder and starts.
+  if [ "$MUSIC_SILENT" = "1" ] && [ "$MUSIC_LAYOUT" != parent ] && [ "$NO_START" != "1" ]; then
     step "Configuration written; nothing started"
     say "tagave starts once the share answers: run the installer again then."
     return 0
