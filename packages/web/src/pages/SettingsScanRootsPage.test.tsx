@@ -120,6 +120,26 @@ describe('the Check row reads the folder watch (reach)', () => {
     expect(folderCheck(root({ reach: 'online', validationMessage: 'folder is empty' })).text).toBe('Empty');
   });
 
+  it('an online folder is not "Unreachable" from a scan the outage cut off', () => {
+    const rows: Array<[Partial<ScanRoot>, { text: string; problem: boolean; help?: string }]> = [
+      [{ reach: 'online', lastStatus: 'aborted' }, { text: 'Online', problem: false }],
+      [{ reach: 'online', lastStatus: 'aborted', validationStatus: 'missing', validationMessage: 'gone' }, { text: 'Missing', problem: true, help: 'gone' }],
+      [{ reach: 'online', lastStatus: 'aborted', validationMessage: 'folder is empty' }, { text: 'Empty', problem: true }],
+      [{ reach: 'online', lastStatus: 'aborted', probeWritable: false }, { text: 'Mount is read-only', problem: true }],
+    ];
+    for (const [over, want] of rows) expect(folderCheck(root(over), nowLocal), JSON.stringify(over)).toEqual(want);
+  });
+
+  it('a folder with Scanning off keeps the rules it had: the folder watch does not read it', () => {
+    const rows: Array<[Partial<ScanRoot>, string]> = [
+      [{ enabled: false, reach: 'offline', reachSince: '2026-11-24T14:02:00' }, 'OK'],
+      [{ enabled: false, reach: 'unknown' }, 'OK'],
+      [{ enabled: false, reach: 'unmounted', reachSince: '2026-11-24T14:02:00', lastStatus: 'aborted' }, 'Unreachable'],
+      [{ enabled: false, reach: 'online', validationStatus: 'pending' }, 'Pending'],
+    ];
+    for (const [over, want] of rows) expect(folderCheck(root(over), nowLocal).text, JSON.stringify(over)).toBe(want);
+  });
+
   it('an older API (no reach) keeps the rules it had', () => {
     expect(folderCheck(root()).text).toBe('OK');
     expect(folderCheck(root({ lastStatus: 'aborted' })).text).toBe('Unreachable');
