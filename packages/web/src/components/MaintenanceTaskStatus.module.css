@@ -1,0 +1,14 @@
+/* "Paused while the music folder is offline" and its "?": the hint (HelpToggle) wraps under the line. */
+.stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.stage > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

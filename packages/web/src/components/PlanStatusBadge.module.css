@@ -1,0 +1,11 @@
+/* The chip and its "?" on one row; the hint (HelpToggle) wraps to a line of its own under them. */
+.status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 2px;
+  min-width: 0;
+  /* an open hint wraps at this width instead of widening the plans table's status column */
+  max-width: min(100%, 20rem);
+  text-align: start;
+}

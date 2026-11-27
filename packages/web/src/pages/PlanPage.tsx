@@ -11,7 +11,7 @@ import { Fragment, Suspense, lazy, useEffect, useMemo, useState, useRef } from '
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { splitDoneLine, type PlanSplit, type SplitCuts, type TagDiffEntry, type TagPlanItem } from '@tagave/shared';
-import { PageShell, Button, Badge, Banner, SegmentedControl, UndoIcon, confirmDialog, showToast, type ConfirmOptions } from '../components/ui';
+import { PageShell, Button, Badge, Banner, HelpToggle, SegmentedControl, UndoIcon, confirmDialog, showToast, type ConfirmOptions } from '../components/ui';
 import { PlanSplits } from './PlanSplits';
 import { MaintenanceTaskStatus } from '../components/MaintenanceTaskStatus';
 import { useAlbumDrawer } from './AlbumMenu';
@@ -39,7 +39,7 @@ import {
   previewGuardKey,
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
-import { planStatusView, planUsesId3, diffRowKind, diffValueText } from '../utils/planStatus';
+import { applyToast, planStatusView, planUsesId3, diffRowKind, diffValueText } from '../utils/planStatus';
 import styles from './PlanPage.module.css';
 import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan } from './planPreviewState';
 import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
@@ -533,7 +533,10 @@ export function PlanPage() {
     setError(null);
     try {
       const reviewed = Object.fromEntries(pendingSplits.flatMap(({ splitId }) => cuts[splitId]?.length ? [[splitId, cuts[splitId]]] : []));
-      await applyM.mutateAsync(confirmed.length > 0 ? { confirmSplits: confirmed, splitCuts: reviewed } : undefined);
+      const res = await applyM.mutateAsync(confirmed.length > 0 ? { confirmSplits: confirmed, splitCuts: reviewed } : undefined);
+      // the plan's music folder is offline: queued, and written when it is back
+      const queued = applyToast(res);
+      if (queued) showToast({ message: queued });
       setAwaiting(p?.status ?? null);
     } catch (e) {
       setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
@@ -592,7 +595,7 @@ export function PlanPage() {
     );
   }
 
-  const statusView = planStatusView(p.status, progress);
+  const statusView = planStatusView(p.status, progress, stats?.lastError);
   // a file the plan splits first is not skipped: its tracks are tagged by the split
   const skippedCount = (stats?.filesSkipped ?? []).filter((x) => x.reason !== 'split_first').length;
   // A plan that wrote files keeps its journal for Revert; the API refuses to
@@ -795,7 +798,18 @@ export function PlanPage() {
         )}
 
         {p.status === 'paused' && stats?.lastError && (
-          <Banner tone="danger">The last run stopped early: {stats.lastError}</Banner>
+          <Banner tone="danger">
+            The last run stopped early: {stats.lastError}
+            {statusView.help && <HelpToggle label={stats.lastError}>{statusView.help}</HelpToggle>}
+          </Banner>
+        )}
+
+        {/* the chip in the title says it; what it means is behind the "?" here */}
+        {p.status === 'waiting' && statusView.help && (
+          <Banner tone="info">
+            {statusView.label}
+            <HelpToggle label={statusView.label}>{statusView.help}</HelpToggle>
+          </Banner>
         )}
 
         {p.status === 'partially_failed' && (

@@ -91,6 +91,7 @@ import { useDeleteAction, useHiddenDeletions } from './deleteAction';
 import { useLeaveDeleted } from '../hooks/useLeaveDeleted';
 import { UNDO_MS } from './collectionRemoval';
 import { invalidateAfterMove, useUndoMove } from '../hooks/useAlbumMove';
+import { movedToast } from '../utils/offlinePaused';
 import type { AlbumMoveView } from '@tagave/shared';
 
 const AddToPlaylistSheet = lazy(() => import('../components/player/TrackDrawer').then((m) => ({ default: m.AddToPlaylistSheet })));
@@ -1111,7 +1112,7 @@ export function AlbumDetailPage() {
     // the folders are scanned again just after the move: look once more
     setTimeout(again, 4000);
     showToast({
-      message: `${n === 1 ? '1 song' : `${n} songs`} · Moved`,
+      message: movedToast(n, view.error),
       durationMs: UNDO_MS,
       action: {
         label: 'Undo',

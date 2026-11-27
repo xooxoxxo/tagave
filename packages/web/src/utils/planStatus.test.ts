@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffRowKind, diffValueText, planStatusView, planUsesId3 } from './planStatus';
+import { applyToast, diffRowKind, diffValueText, planStatusView, planUsesId3 } from './planStatus';
 
 describe('planStatusView', () => {
   it('calls a plan where every file failed "failed"', () => {
@@ -11,6 +11,25 @@ describe('planStatusView', () => {
   it('keeps the status when counts are unknown', () => {
     expect(planStatusView('partially_failed')).toMatchObject({ label: 'partially failed', allFailed: false });
     expect(planStatusView('applied', { applied: 0, failed: 0 })).toMatchObject({ label: 'applied', tone: 'success' });
+  });
+  it('says a plan waits for its music folder, with what that means behind "?"', () => {
+    expect(planStatusView('waiting')).toMatchObject({
+      label: 'Waiting for the music folder',
+      help: 'tagave writes these tags when the folder is back. Nothing is lost.',
+    });
+    expect(planStatusView('applied').help).toBeUndefined();
+  });
+  it('tells a plan whose split was cut off by the offline folder to Continue when it is back', () => {
+    expect(planStatusView('paused', null, 'Paused while the music folder is offline')).toMatchObject({ label: 'paused', help: 'Press Continue when the folder is back.' });
+    expect(planStatusView('paused', null, 'Disk full').help).toBeUndefined();
+  });
+});
+
+describe('the apply toast', () => {
+  it('says the tags are written when the folder is back, only while it waits', () => {
+    expect(applyToast({ waiting: true })).toBe('Queued. tagave writes the tags when the music folder is back.');
+    expect(applyToast({})).toBeNull();
+    expect(applyToast(undefined)).toBeNull();
   });
 });
 

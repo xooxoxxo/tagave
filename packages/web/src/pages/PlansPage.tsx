@@ -7,7 +7,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { api } from '../services/api';
 import { isFinishedPlanStatus, type TagPlan } from '@tagave/shared';
-import { PageShell, Button, IconButton, Badge, Table, Th, Td, TableRow, EmptyState, type TabItem } from '../components/ui';
+import { PageShell, Button, IconButton, Table, Th, Td, TableRow, EmptyState, type TabItem } from '../components/ui';
+import { PlanStatusBadge } from '../components/PlanStatusBadge';
 import { useCurrentLibrary } from '../hooks';
 import { useTagPlans, useDeleteTagPlan, useRenameTagPlan, useArchiveTagPlan } from '../hooks/usePlanWizard';
 import { InlineRename } from '../components/InlineRename';
@@ -238,7 +239,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
   };
   const [error, setError] = useState<string | null>(null);
   const [keptNote, setKeptNote] = useState(false);
-  const status = planStatusView(plan.status, plan.progress);
+  const status = planStatusView(plan.status, plan.progress, plan.stats?.lastError);
 
   const handleDelete = async () => {
     if (!confirming) {
@@ -275,7 +276,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
       </Td>
       <Td className={styles.cellScope}>{scope}</Td>
       <Td className={styles.cellStatus}>
-        <Badge tone={status.tone}>{status.label}</Badge>
+        <PlanStatusBadge view={status} />
       </Td>
       <Td className={`${styles.cellFiles} ${plan.stats ? '' : styles.cellEmpty}`} data-label={plan.stats ? 'files' : undefined}>
         {plan.stats?.filesTouched ?? 'Unknown'}
