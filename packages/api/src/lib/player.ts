@@ -203,6 +203,25 @@ async function anyRootNotOnline(sql: Sql): Promise<boolean> {
   return row?.held === true;
 }
 
+/** Last scan's reason while a player scan waits for a music folder (Settings › Playback). */
+export const PLAYER_SCAN_HELD = 'Waiting for a music folder to come back';
+
+/**
+ * A music folder that held the player scans was turned off or removed: it
+ * has no return scan to send them (the worker's afterReturn). When no
+ * enabled folder is still not online, one player.scan goes for each library
+ * with requests waiting. The number of libraries sent for.
+ */
+export async function sendWaitingPlayerScans(sql: Sql, boss: Pick<PgBoss, 'send'>): Promise<number> {
+  if (await anyRootNotOnline(sql)) return 0;
+  const waiting = await sql<{ libraryId: string }[]>`
+    select distinct library_id::text as "libraryId" from player_scan_requests`;
+  for (const { libraryId } of waiting) {
+    await boss.send(PLAYER_SCAN_QUEUE, { libraryId }, { singletonKey: `${PLAYER_SCAN_QUEUE}:${libraryId}`, startAfter: 10 });
+  }
+  return waiting.length;
+}
+
 /**
  * The player.scan job: drains the library's scan requests into one
  * startScan. While the server is already scanning it leaves them for the
@@ -221,7 +240,11 @@ export async function runPlayerScan(sql: Sql, libraryId: string, opts: { fetchIm
     await sql`delete from player_scan_requests where library_id = ${libraryId}`;
     return 'none';
   }
-  if (await anyRootNotOnline(sql)) return 'held';
+  if (await anyRootNotOnline(sql)) {
+    // the requests wait; Last scan says why
+    await recordLastScan(sql, libraryId, 'requested', PLAYER_SCAN_HELD);
+    return 'held';
+  }
   const f = opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {};
   const status = await getScanStatus(backend.server, f);
   if (status.scanning) return 'busy';

@@ -361,7 +361,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
 
   it.each(['offline', 'unmounted'])('holds the scan while a music folder is %s, and runs it once the folder is back', async (reach) => {
     bundled();
-    const { requestPlayerScan, runPlayerScan } = await import('../lib/player.js');
+    const { requestPlayerScan, runPlayerScan, PLAYER_SCAN_HELD } = await import('../lib/player.js');
     await sql`delete from player_scan_requests where library_id = ${libraryId}`;
     await requestPlayerScan(sql, null, libraryId, ['A/One']);
     const before = nav.state.scans.length;
@@ -370,11 +370,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
       expect(await runPlayerScan(sql, libraryId)).toBe('held');
       expect(nav.state.scans.length).toBe(before);
       expect(await sql`select folder from player_scan_requests where library_id = ${libraryId}`).toEqual([{ folder: 'A/One' }]);
+      // the Playback page's Last scan says why it waits
+      const [held] = await sql`select settings from libraries where id = ${libraryId}`;
+      expect(held.settings.playerLastScan).toMatchObject({ state: 'requested', error: PLAYER_SCAN_HELD });
       // 'unknown' counts online
       await sql`update scan_roots set reach = 'unknown' where id = ${rootId}`;
       expect(await runPlayerScan(sql, libraryId)).toBe('started');
       expect(nav.state.scans.slice(before)).toEqual([['1:A/One']]);
       expect(await sql`select 1 from player_scan_requests where library_id = ${libraryId}`).toHaveLength(0);
+      const [ran] = await sql`select settings from libraries where id = ${libraryId}`;
+      expect(ran.settings.playerLastScan).toMatchObject({ state: 'requested', error: null });
     } finally {
       await sql`update scan_roots set reach = 'unknown' where id = ${rootId}`;
     }
