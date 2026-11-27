@@ -15,14 +15,18 @@
  *   2. systemctl show --property=SourcePath --value <unit>   it must come from /etc/fstab (else stop)
  *   3. systemctl start <unit>
  *   4. mountpoint -q <MUSIC_DIR>, and something in it
- *   5. restarts only this install's containers that bind MUSIC_DIR
- *      (worker-files, app, player), found by the compose project label
+ *   5. in the direct layout, restarts only this install's containers that
+ *      bind MUSIC_DIR (worker-files, app, player), found by the compose
+ *      project label; in the parent layout (TAGAVE_MUSIC_BIND_SOURCE in .env,
+ *      the folder above MUSIC_DIR bound with rslave) it restarts nothing,
+ *      because the mount propagates into the running parts
  *
  * Before any of that it reads the host mount table (music-probe.ts, which
  * never touches MUSIC_DIR). A network share whose server does not answer,
  * or whose answer is not known, ends the attempt as `server_silent`: on a dead hard NFS mount
  * `mountpoint` and `find` would hang in the kernel. A network share already
- * mounted on MUSIC_DIR that answers skips steps 1 to 4. A silent share does
+ * mounted on MUSIC_DIR that answers skips steps 1 to 4 (and so, in the parent
+ * layout, does nothing but report `mounted`). A silent share does
  * not count as a failure (the wait does not grow) and is reported once, when the
  * reason changes, so days of silence add one audit entry.
  *
@@ -69,12 +73,26 @@ export interface HealConfig {
 
 export const DEFAULT_HEAL_CONFIG: HealConfig = { checkMs: 60_000, minGapMs: 10 * 60_000, maxGapMs: 6 * 60 * 60_000 };
 
-/** MUSIC_DIR from the install's .env, only as a plain absolute path (what compose binds). */
-export function musicDirOf(envText: string): string | null {
-  const raw = envGet(envText, 'MUSIC_DIR');
+/** A key of the install's .env, only as a plain absolute path other than `/`. */
+function cleanPathOf(envText: string, key: string): string | null {
+  const raw = envGet(envText, key);
   if (!raw || !raw.startsWith('/') || raw === '/' || /[\0-\x1f\x7f]/.test(raw)) return null;
   const normal = posix.normalize(raw).replace(/\/+$/, '');
   return normal === raw.replace(/\/+$/, '') && normal !== '' && normal !== '/' ? normal : null;
+}
+
+/** MUSIC_DIR from the install's .env, only as a plain absolute path (what compose binds). */
+export function musicDirOf(envText: string): string | null {
+  return cleanPathOf(envText, 'MUSIC_DIR');
+}
+
+/**
+ * TAGAVE_MUSIC_BIND_SOURCE from the install's .env, the same way: the folder
+ * above MUSIC_DIR that compose binds in the parent layout. Null in the direct
+ * layout.
+ */
+export function musicBindSourceOf(envText: string): string | null {
+  return cleanPathOf(envText, 'TAGAVE_MUSIC_BIND_SOURCE');
 }
 
 /** On unless TAGAVE_MUSIC_SELF_HEAL is 0, false, off or no. */
@@ -239,7 +257,7 @@ export class MusicHealer {
         // this go are each one step, so exactly one wins.
         if (!decide().go) return null;
         const project = envGet(env, 'COMPOSE_PROJECT_NAME') || 'tagave';
-        return await this.attemptRecorded(musicDir!, project);
+        return await this.attemptRecorded(musicDir!, project, musicBindSourceOf(env));
       } finally {
         await release().catch(() => undefined);
       }
@@ -257,15 +275,15 @@ export class MusicHealer {
       const env = await this.readEnv();
       if (!selfHealOn(env)) return 'off';
       if (this.deps.updating?.()) return 'busy';
-      return this.attemptRecorded(dir, project);
+      return this.attemptRecorded(dir, project, musicBindSourceOf(env));
     });
   }
 
   /** One attempt and its record, with `running` set throughout; the caller sets nothing in between. */
-  private async attemptRecorded(dir: string, project: string): Promise<HealReason> {
+  private async attemptRecorded(dir: string, project: string, bindSource: string | null): Promise<HealReason> {
     this.running = true;
     try {
-      return await this.record(await this.attempt(dir, project));
+      return await this.record(await this.attempt(dir, project, bindSource));
     } finally {
       this.running = false;
     }
@@ -311,7 +329,8 @@ export class MusicHealer {
     return this.deps.docker(helperArgs(image, command), { timeoutMs: 120_000 });
   }
 
-  private async attempt(dir: string, project: string): Promise<HealReason> {
+  /** `bindSource`: TAGAVE_MUSIC_BIND_SOURCE (the parent layout), or null (the direct layout). */
+  private async attempt(dir: string, project: string, bindSource: string | null): Promise<HealReason> {
     const d = this.deps.docker;
     const reading = this.deps.music ? await this.deps.music.read({ parts: [], appUnmounted: true }).catch(() => null) : null;
     const network = reading?.mount.kind === 'network';
@@ -319,7 +338,7 @@ export class MusicHealer {
     if (network && reading.answer !== 'answers') return 'server_silent';
     if (network && reading.mount.mountPoint === dir) {
       await this.deps.app.report({ phase: 'start' });
-      return this.restart(project, dir);
+      return this.restart(project, dir, bindSource);
     }
 
     const image = await selfImage(d, this.deps.self ?? hostname());
@@ -338,11 +357,16 @@ export class MusicHealer {
     const first = await this.host(image, hostCommand.firstEntry(dir));
     if (first.code !== 0 || first.stdout.trim() === '') return 'still_empty';
 
-    return this.restart(project, dir);
+    return this.restart(project, dir, bindSource);
   }
 
-  /** Restarts this install's music containers, so they pick the mount up. */
-  private async restart(project: string, dir: string): Promise<HealReason> {
+  /**
+   * Restarts this install's music containers, so they pick the mount up. In
+   * the parent layout nothing restarts: the parts bind the folder above
+   * MUSIC_DIR with rslave, so the new mount propagates into them as they run.
+   */
+  private async restart(project: string, dir: string, bindSource: string | null): Promise<HealReason> {
+    if (bindSource) return 'mounted';
     const d = this.deps.docker;
     const targets = await musicContainers(d, project, dir);
     if (targets === null) return 'restart_failed';
@@ -360,10 +384,13 @@ export async function selfImage(docker: Runner, self: string): Promise<string | 
 
 /**
  * This install's containers (the compose project label) of the music
- * services that bind MUSIC_DIR: what a restart picks the mount up in. Null
- * when Docker did not answer.
+ * services that bind MUSIC_DIR, or `bindSource` (TAGAVE_MUSIC_BIND_SOURCE,
+ * the folder above it in the parent layout) when given: what a restart picks
+ * the mount up in. Null when Docker did not answer.
  */
-export async function musicContainers(docker: Runner, project: string, dir: string): Promise<string[] | null> {
+export async function musicContainers(docker: Runner, project: string, dir: string, bindSource?: string | null): Promise<string[] | null> {
+  const parent = bindSource?.replace(/\/+$/, '');
+  const wanted = parent ? [dir, parent] : [dir];
   const ps = await docker(['ps', '-q', '--no-trunc', '--filter', `label=${COMPOSE_PROJECT_LABEL}=${project}`], { timeoutMs: 30_000 });
   if (ps.code !== 0) return null;
   const ids = ps.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -376,7 +403,7 @@ export async function musicContainers(docker: Runner, project: string, dir: stri
     const [id, service, mounts] = line.split('\t');
     if (!id || !service || !(MUSIC_SERVICES as readonly string[]).includes(service)) continue;
     const sources = (mounts ?? '').split('\x1f').map((s) => s.replace(/\/+$/, ''));
-    if (sources.includes(dir)) out.push(id);
+    if (sources.some((s) => wanted.includes(s))) out.push(id);
   }
   return out;
 }
