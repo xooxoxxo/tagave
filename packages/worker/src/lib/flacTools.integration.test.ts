@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifySplit } from '@tagave/core';
-import { FlacTools, spawnRunner } from './flacTools.js';
+import { FlacTools } from './flacTools.js';
 import { planFromFile } from '../jobs/filesSplit.js';
 import { MutagenTagWriter, resolvePythonInterpreter } from './tagWriter.js';
 
@@ -45,7 +45,8 @@ function album(rate: number, bits: 16 | 24, tones: number[], gapS: number): Buff
 
 describe.skipIf(!hasFlac)('flac and metaflac for a split (real binaries)', () => {
   let dir: string;
-  const tools = new FlacTools(spawnRunner);
+  // The real tools for a stand-in root id, through spawnGuarded as the worker runs them.
+  const tools = new FlacTools().forRoot('root-flac-test');
   beforeAll(async () => { dir = await mkdtemp(path.join(tmpdir(), 'tagave-flac-')); });
   afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
 

@@ -21,6 +21,7 @@
  */
 import path from 'node:path';
 import { djEnabled, recordDjError, saveDjAnalysis } from '@tagave/db';
+import type { DjAnalysis } from '@tagave/core/dj';
 import type { WorkerContext } from '../lib/context.js';
 import { djAudioHash, djDecodeAndAnalyze, type DjWindow } from '../lib/djDecode.js';
 
@@ -44,6 +45,7 @@ interface TrackRow {
   id: string;
   rel_path: string;
   root_path: string;
+  root_id: string;
   status: string;
   size_bytes: number | null;
   mtime: number | null;
@@ -59,11 +61,15 @@ interface TrackRow {
 
 /** The decoder as the worker runs it (tests pass their own). */
 export interface DjDecoder {
-  hash: (path: string, window: DjWindow) => Promise<string>;
-  analyze: typeof djDecodeAndAnalyze;
+  /** `rootId`: the file's scan root, which a hung share counts against. */
+  hash: (path: string, window: DjWindow, rootId: string) => Promise<string>;
+  analyze: (path: string, window: DjWindow, rootId: string) => Promise<DjAnalysis>;
 }
 
-const DEFAULT_DECODER: DjDecoder = { hash: (p, w) => djAudioHash(p, w), analyze: (p, w) => djDecodeAndAnalyze(p, w) };
+const DEFAULT_DECODER: DjDecoder = {
+  hash: (p, w, rootId) => djAudioHash(p, w, { rootId }),
+  analyze: (p, w, rootId) => djDecodeAndAnalyze(p, w, { rootId }),
+};
 
 export async function djAnalyzeJob(ctx: WorkerContext, data: DjAnalyzeJobData = {}, decoder: DjDecoder = DEFAULT_DECODER): Promise<Result> {
   if (!(await djEnabled(ctx.sql))) return { skipped: 'dj is off' };
@@ -74,7 +80,7 @@ export async function djAnalyzeJob(ctx: WorkerContext, data: DjAnalyzeJobData = 
 
 async function analyzeTrack(ctx: WorkerContext, localTrackId: string, force: boolean, decoder: DjDecoder): Promise<Outcome> {
   const [t] = await ctx.sql<TrackRow[]>`
-    select lt.id::text as id, f.rel_path, sr.path as root_path, f.status, f.size_bytes::float8 as size_bytes, f.mtime::float8 as mtime,
+    select lt.id::text as id, f.rel_path, sr.path as root_path, f.scan_root_id::text as root_id, f.status, f.size_bytes::float8 as size_bytes, f.mtime::float8 as mtime,
            lt.origin, lt.cue_start_ms, lt.duration_ms,
            d.audio_hash as a_hash, d.file_size_bytes::float8 as a_size, d.file_mtime::float8 as a_mtime, d.error as a_error,
            d.local_track_id is not null as has_row
@@ -92,7 +98,7 @@ async function analyzeTrack(ctx: WorkerContext, localTrackId: string, force: boo
   const window: DjWindow = t.origin === 'cue' ? { startMs: t.cue_start_ms ?? 0, durationMs: t.duration_ms } : {};
   const log = ctx.logger.child({ job: 'dj.analyze', localTrackId });
   try {
-    const audioHash = await decoder.hash(full, window);
+    const audioHash = await decoder.hash(full, window, t.root_id);
     if (!force) {
       // a re-tag: the same audio, a new size and mtime
       if (t.a_hash === audioHash && !t.a_error) {
@@ -119,7 +125,7 @@ async function analyzeTrack(ctx: WorkerContext, localTrackId: string, force: boo
       }
     }
     const started = Date.now();
-    const a = await decoder.analyze(full, window);
+    const a = await decoder.analyze(full, window, t.root_id);
     await saveDjAnalysis(ctx.sql, localTrackId, { audioHash, fileSizeBytes: file.size, fileMtime: file.mtime, ...a });
     log.debug({ ms: Date.now() - started, bpm: a.bpm, durationMs: a.durationMs }, 'dj analysis done');
     return 'analyzed';

@@ -24,6 +24,7 @@ const FLAC_FIXTURE = Buffer.concat([
 type Tree = { [name: string]: string | Buffer | Tree };
 
 const dirs: string[] = [];
+const savedPython = process.env.TAGAVE_TAGWRITER_PYTHON;
 const gates: FileGate[] = [];
 
 /** A temp folder holding the tree; removed after each test. */
@@ -70,6 +71,9 @@ afterEach(async () => {
   expect(helpers()).toEqual([]);
   await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
   delete process.env.TAGAVE_HELPER_TEST_STOP_AFTER;
+  delete process.env.TAGAVE_HELPER_TEST_SIDECAR_MS;
+  if (savedPython === undefined) delete process.env.TAGAVE_TAGWRITER_PYTHON;
+  else process.env.TAGAVE_TAGWRITER_PYTHON = savedPython;
 });
 
 describe('fileHelper', () => {
@@ -172,6 +176,25 @@ describe('fileHelper', () => {
     // What is left is the temp copy, under its own dot name, never at the original's path.
     for (const name of await readdir(dir)) if (name !== 'a.flac') expect(name).toMatch(/^\.tagave-tmp-[0-9a-f-]+\.flac$/);
   });
+
+  it('a sidecar that never answers is the share hanging: the write gives up, counts stuck and leaves the original', async () => {
+    const dir = await tree({ 'a.flac': FLAC_FIXTURE });
+    const abs = join(dir, 'a.flac');
+    const fake = join(dir, '.fake-python');
+    await writeFile(fake, '#!/bin/sh\necho "tagwriter sidecar started" >&2\nwhile read line; do :; done\n', { mode: 0o755 });
+    // The helper reads these at fork.
+    process.env.TAGAVE_TAGWRITER_PYTHON = fake;
+    process.env.TAGAVE_HELPER_TEST_SIDECAR_MS = '300';
+    const g = gate({ idleMs: 10_000 });
+    const err = await g.run('r', { op: 'writeTagged', path: abs, handlerId: 'audio', values: { title: 'Changed' } }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FolderOfflineError);
+    expect((err as FolderOfflineError).reason).toBe('timeout');
+    expect(g.stuckCount('r')).toBe(1);
+    expect(Buffer.compare(await readFile(abs), FLAC_FIXTURE)).toBe(0);
+    expect((await readdir(dir)).sort()).toEqual(['.fake-python', 'a.flac']);
+    // The helper itself is fine and takes the next op.
+    expect(await g.run('r', { op: 'stat', path: abs })).toMatchObject({ isFile: true });
+  }, 20_000);
 
   it.skipIf(!mutagenAvailable())('writes tags through the safe steps and keeps the audio', async () => {
     const dir = await tree({ 'a.flac': FLAC_FIXTURE });

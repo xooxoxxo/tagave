@@ -4,10 +4,12 @@
  * passes its arguments as a list (no shell) and absolute paths only, so a
  * file name is never parsed as an option.
  *
- * TAGAVE_FLAC_BIN / TAGAVE_METAFLAC_BIN point at other binaries.
+ * TAGAVE_FLAC_BIN / TAGAVE_METAFLAC_BIN point at other binaries. The tools
+ * run through spawnGuarded, so a hung music share throws FolderOfflineError.
  */
-import { spawn } from 'node:child_process';
 import { tagaveEnv } from '@tagave/shared/env';
+import { gateLimits } from './fileGate.js';
+import { spawnGuarded } from './spawnGuarded.js';
 
 export interface RunResult {
   code: number | null;
@@ -21,23 +23,13 @@ export type BinaryRunner = (bin: string, args: readonly string[]) => Promise<Run
 /** Most a decoded window may be (±6 s of 32-bit 8-channel 384 kHz is ~150 MB): a guard against a runaway decode. */
 const MAX_STDOUT = 256 * 1024 * 1024;
 
-export const spawnRunner: BinaryRunner = (bin, args) => new Promise((resolve, reject) => {
-  const child = spawn(bin, [...args], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const out: Buffer[] = [];
-  let size = 0;
-  let err = '';
-  child.stdout.on('data', (d: Buffer) => {
-    size += d.length;
-    if (size > MAX_STDOUT) {
-      child.kill();
-      return;
-    }
-    out.push(d);
-  });
-  child.stderr.on('data', (d: Buffer) => { err = (err + d.toString()).slice(-4000); });
-  child.on('error', reject);
-  child.on('close', (code) => resolve({ code: size > MAX_STDOUT ? -1 : code, stdout: Buffer.concat(out), stderr: err }));
-});
+/** The tools for files under one scan root, with the file gate's deadlines (spawnGuarded): a hung share throws FolderOfflineError. */
+export function guardedRunner(rootId: string): BinaryRunner {
+  return (bin, args) => spawnGuarded(bin, args, { rootId, idleMs: gateLimits().idleMs, maxStdout: MAX_STDOUT });
+}
+
+/** A FlacTools made without a runner has no root yet: forRoot gives it one. */
+const noRoot: BinaryRunner = () => Promise.reject(new Error('FlacTools has no music folder: call forRoot(scanRootId) first'));
 
 export interface StreamInfo {
   sampleRate: number;
@@ -60,10 +52,21 @@ function why(r: RunResult): string {
 export class FlacTools {
   readonly flac: string;
   readonly metaflac: string;
+  private readonly run: BinaryRunner;
 
-  constructor(private readonly run: BinaryRunner = spawnRunner, bins: { flac?: string; metaflac?: string } = {}) {
+  /**
+   * With a runner (tests), every call goes to it. Without one, the tools
+   * run nothing until `forRoot` names the scan root their files are under.
+   */
+  constructor(private readonly given?: BinaryRunner, private readonly bins: { flac?: string; metaflac?: string } = {}) {
+    this.run = given ?? noRoot;
     this.flac = bins.flac ?? tagaveEnv('FLAC_BIN') ?? 'flac';
     this.metaflac = bins.metaflac ?? tagaveEnv('METAFLAC_BIN') ?? 'metaflac';
+  }
+
+  /** These tools for files under this scan root: guarded (guardedRunner), or the runner given. */
+  forRoot(rootId: string): FlacTools {
+    return new FlacTools(this.given ?? guardedRunner(rootId), this.bins);
   }
 
   /** STREAMINFO: rate, channels, bits, total samples (one metaflac call per value, so the order is never in doubt). */

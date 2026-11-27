@@ -15,6 +15,7 @@ interface FileRow {
   id: string;
   rel_path: string;
   root_path: string;
+  root_id: string;
   fingerprint: string | null;
   fingerprinted_at: Date | null;
 }
@@ -27,6 +28,7 @@ interface CueTrackRow {
   fingerprinted_at: Date | null;
   rel_path: string;
   root_path: string;
+  root_id: string;
 }
 
 /**
@@ -36,7 +38,7 @@ interface CueTrackRow {
  */
 export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintAlbumJobData): Promise<void> {
   const files = (await ctx.sql`
-    select distinct af.id, af.rel_path, sr.path as root_path, af.fingerprint, af.fingerprinted_at
+    select distinct af.id, af.rel_path, sr.path as root_path, af.scan_root_id::text as root_id, af.fingerprint, af.fingerprinted_at
     from local_tracks lt
     join files af on af.id = lt.audio_file_id
     join scan_roots sr on sr.id = af.scan_root_id
@@ -55,7 +57,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
     for (let f = queue.shift(); f; f = queue.shift()) {
       const full = path.join(f.root_path, f.rel_path);
       try {
-        const fp = await fpcalcFingerprint(full);
+        const fp = await fpcalcFingerprint(full, { rootId: f.root_id });
         await ctx.sql`
           update files
           set fingerprint = ${fp.fingerprint}, fingerprint_duration = ${Math.round(fp.durationS)},
@@ -75,7 +77,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
   // Cue images: the file fingerprint covers the first two minutes of a whole
   // album and never matches a recording; each virtual track gets its own slice.
   const cueTracks = (await ctx.sql`
-    select lt.id, lt.cue_start_ms, lt.duration_ms, lt.fingerprint, lt.fingerprinted_at, af.rel_path, sr.path as root_path
+    select lt.id, lt.cue_start_ms, lt.duration_ms, lt.fingerprint, lt.fingerprinted_at, af.rel_path, sr.path as root_path, af.scan_root_id::text as root_id
     from local_tracks lt
     join files af on af.id = lt.audio_file_id
     join scan_roots sr on sr.id = af.scan_root_id
@@ -91,7 +93,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
       const full = path.join(t.root_path, t.rel_path);
       const durationS = t.duration_ms ? Math.max(1, Math.round(t.duration_ms / 1000)) : FPCALC_LENGTH_S;
       try {
-        const fp = await fpcalcSliceFingerprint(full, t.cue_start_ms / 1000, { lengthS: Math.min(FPCALC_LENGTH_S, durationS) });
+        const fp = await fpcalcSliceFingerprint(full, t.cue_start_ms / 1000, { rootId: t.root_id, lengthS: Math.min(FPCALC_LENGTH_S, durationS) });
         await ctx.sql`
           update local_tracks
           set fingerprint = ${fp}, fingerprint_duration = ${durationS}, fingerprinted_at = now(), fingerprint_error = null

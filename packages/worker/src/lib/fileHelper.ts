@@ -5,10 +5,11 @@
  * one.
  *
  * Protocol (HelperRequest / HelperMessage in fileGate.ts): the gate sends
- * `{ id, op }`; the helper answers `{ id, progress }` any number of times,
+ * `{ id, rootId, op }`; the helper answers `{ id, progress }` any number of times,
  * then once `{ id, ok: true, value }` or `{ id, ok: false, code, message }`,
  * with the real errno as `code` so the gate can tell an offline share from a
- * missing file. One op at a time. A bad op is answered, never thrown.
+ * missing file. One op at a time. A bad op is answered, never thrown. A
+ * write whose tag-writer sidecar hung is answered with `stuck: true`.
  *
  * Progress: while a long op runs, every 5 s the helper reads its bytes read
  * (`rchar` in /proc/self/io) and sends `{ progress: bytes }` only when they
@@ -132,6 +133,14 @@ function statValue(s: import('node:fs').Stats | import('node:fs').BigIntStats) {
 }
 
 let tagWriter: MutagenTagWriter | null = null;
+/** Set when the tag writer gave up on a stuck sidecar during the current op. */
+let sidecarStuck = false;
+
+/** The sidecar's response deadline: the writer's own, or TAGAVE_HELPER_TEST_SIDECAR_MS in tests. */
+function sidecarMs(): number | undefined {
+  const n = Number(process.env.TAGAVE_HELPER_TEST_SIDECAR_MS);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
 
 /** The test hooks of the write steps (TAGAVE_HELPER_TEST_STOP_AFTER=copy hangs after the temp copy). */
 function writeHooks(): WriteStepHooks {
@@ -139,7 +148,7 @@ function writeHooks(): WriteStepHooks {
   return {};
 }
 
-async function runOp(op: GateOp): Promise<unknown> {
+async function runOp(op: GateOp, rootId: string | undefined): Promise<unknown> {
   if (op === null || typeof op !== 'object') throw opError('EINVAL', 'The request has no op');
   const o = op as Record<string, unknown>;
   switch (op.op) {
@@ -200,8 +209,13 @@ async function runOp(op: GateOp): Promise<unknown> {
       const h = handlerOf(op.handlerId);
       const path = str(o.path, 'path');
       if (op.values === null || typeof op.values !== 'object') throw opError('EINVAL', 'The op needs values');
-      tagWriter ??= new MutagenTagWriter();
+      // The helper's own writer: a sidecar stuck on the share is replaced (never reused) and the gate counts it.
+      const ms = sidecarMs();
+      tagWriter ??= new MutagenTagWriter({ ...(ms ? { responseMs: ms } : {}), onStuck: () => { sidecarStuck = true; } });
+      tagWriter.rootId = rootId;
+      sidecarStuck = false;
       const result = await safeWriteSteps(path, h, op.values, tagWriter, op.options, writeHooks());
+      if (sidecarStuck) throw Object.assign(opError('ETIMEDOUT', 'The tag writer did not answer'), { stuck: true });
       // A step that failed on an offline share is the share's answer, not the write's.
       if (result.errno && OFFLINE_CODES.has(result.errno)) throw opError(result.errno, result.error ?? 'The write failed');
       return result;
@@ -224,6 +238,7 @@ function send(msg: HelperMessage): void {
 
 async function handle(req: HelperRequest): Promise<void> {
   const { id, op } = req;
+  const rootId = typeof req.rootId === 'string' ? req.rootId : undefined;
   let timer: NodeJS.Timeout | null = null;
   let last = LONG_OPS.has((op as { op?: GateOp['op'] } | null)?.op as GateOp['op']) ? bytesRead() : null;
   if (last !== null) {
@@ -236,11 +251,13 @@ async function handle(req: HelperRequest): Promise<void> {
     }, PROGRESS_MS);
   }
   try {
-    send({ id, ok: true, value: await runOp(op) });
+    send({ id, ok: true, value: await runOp(op, rootId) });
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     const message = err instanceof Error ? err.message : String(err);
-    send(typeof code === 'string' && code !== '' ? { id, ok: false, code, message } : { id, ok: false, message });
+    const answer: HelperMessage = typeof code === 'string' && code !== '' ? { id, ok: false, code, message } : { id, ok: false, message };
+    if ((err as { stuck?: unknown }).stuck === true) Object.assign(answer, { stuck: true });
+    send(answer);
   } finally {
     if (timer) clearInterval(timer);
   }

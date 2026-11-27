@@ -13,7 +13,8 @@
  * it to exit, counts it stuck for the op's root, forks a fresh helper, tells
  * the watch (`onSuspect`) and throws FolderOfflineError(root, 'timeout'). An
  * offline error code from the share also tells the watch, without counting
- * the helper stuck. A
+ * the helper stuck. A helper answer marked `stuck` (its tag writer's sidecar
+ * hung) counts stuck and throws FolderOfflineError, keeping the helper. A
  * root with `stuckMax` stuck helpers gets no more work until `clear(root)`.
  */
 import { fork, type ChildProcess } from 'node:child_process';
@@ -48,6 +49,8 @@ export interface GateLimits {
 /** A request to a helper. */
 export interface HelperRequest {
   id: number;
+  /** The root the op's path is under. */
+  rootId?: string;
   op: GateOp;
 }
 
@@ -55,7 +58,8 @@ export interface HelperRequest {
 export type HelperMessage =
   | { id: number; progress: unknown }
   | { id: number; ok: true; value: unknown }
-  | { id: number; ok: false; code?: string; message?: string };
+  /** `stuck`: the helper gave up on a child of its own (the tag writer's sidecar) at a deadline. */
+  | { id: number; ok: false; code?: string; message?: string; stuck?: boolean };
 
 /** Ops that read or write a whole file: they use the idle deadline, reset by progress. */
 const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged']);
@@ -240,7 +244,7 @@ export class FileGate {
     h.child.ref();
     (h.child.channel as { ref?: () => void } | null | undefined)?.ref?.();
     this.arm(h);
-    const req: HelperRequest = { id: job.id, op: job.op };
+    const req: HelperRequest = { id: job.id, rootId: job.rootId, op: job.op };
     try {
       h.child.send(req, (err) => {
         if (err && h.job === job) this.fail(h, helperFailed(`The file helper did not take the request: ${err.message}`));
@@ -269,6 +273,12 @@ export class FileGate {
     }
     if (m.ok === true) return this.settle(h, () => job.resolve(m.value));
     if (m.ok === false) {
+      if (m.stuck === true) {
+        // A child of the helper hung on the share (the tag writer's sidecar): it counts like a stuck helper.
+        // The helper itself answered, so it stays and takes the next op.
+        this.markStuck(job.rootId);
+        return this.settle(h, () => job.reject(new FolderOfflineError(job.rootId, 'timeout')));
+      }
       const code = typeof m.code === 'string' && m.code !== '' ? m.code : undefined;
       if (code && OFFLINE_CODES.has(code)) {
         const reason = classify({ kind: 'error', code }).reason ?? 'io_error';

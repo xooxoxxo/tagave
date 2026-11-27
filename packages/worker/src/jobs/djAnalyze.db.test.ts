@@ -182,7 +182,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || !ffmpegAvailable())('dj.analyz
     const b = await track('twin-b', { bpm: 118, seconds: 15, pad: 0.1, seed: 5 }, { trackNo: 5, title: 'Twin (compilation)' });
     await djAnalyzeJob(ctx, { localTrackId: a.trackId });
     let decoded = 0;
-    const counting: DjDecoder = { hash: (p, w) => djAudioHash(p, w), analyze: (p, w) => { decoded++; return djDecodeAndAnalyze(p, w); } };
+    const counting: DjDecoder = { hash: (p, w, rootId) => djAudioHash(p, w, { rootId }), analyze: (p, w, rootId) => { decoded++; return djDecodeAndAnalyze(p, w, { rootId }); } };
     expect(await djAnalyzeJob(ctx, { localTrackId: b.trackId }, counting)).toEqual({ outcome: 'copied' });
     expect(decoded).toBe(0);
     const [ra, rb] = [await row(a.trackId), await row(b.trackId)];
@@ -286,10 +286,11 @@ describe.skipIf(!ffmpegAvailable())('dj decode: the audio hash ignores tags', ()
       for (const ext of ['flac', 'mp3']) {
         ff(['-i', path.join(dir, 'a.wav'), '-metadata', 'title=One', path.join(dir, `a.${ext}`)]);
         ff(['-i', path.join(dir, `a.${ext}`), '-c', 'copy', '-metadata', 'title=Two, and longer', '-metadata', 'artist=Someone', path.join(dir, `b.${ext}`)]);
-        const [ha, hb] = [await djAudioHash(path.join(dir, `a.${ext}`)), await djAudioHash(path.join(dir, `b.${ext}`))];
+        const at = { rootId: 'root-djh' };
+        const [ha, hb] = [await djAudioHash(path.join(dir, `a.${ext}`), {}, at), await djAudioHash(path.join(dir, `b.${ext}`), {}, at)];
         expect(ha).toBe(hb);
         const w: DjWindow = { startMs: 1000, durationMs: 2000 };
-        expect(await djAudioHash(path.join(dir, `a.${ext}`), w)).not.toBe(ha);
+        expect(await djAudioHash(path.join(dir, `a.${ext}`), w, at)).not.toBe(ha);
       }
     } finally {
       await rm(dir, { recursive: true, force: true });

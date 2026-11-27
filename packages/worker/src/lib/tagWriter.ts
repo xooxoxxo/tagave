@@ -10,6 +10,8 @@ import { existsSync } from 'node:fs';
 import type { TagSet } from '@tagave/shared';
 import type { TagWriter, WriteOptions } from '@tagave/core';
 import { tagaveEnv } from '@tagave/shared/env';
+import { fileGate } from './fileGate.js';
+import { FolderOfflineError } from './folderOffline.js';
 
 /**
  * Response from the sidecar
@@ -22,9 +24,35 @@ interface SidecarResponse {
   supported?: boolean;
 }
 
+/** How long the sidecar may take to answer one request. */
+const RESPONSE_MS = 30_000;
+
+export interface MutagenTagWriterOptions {
+  /**
+   * The scan root the files are under. A response deadline then throws
+   * FolderOfflineError for it; without one it throws an Error with code
+   * ETIMEDOUT. Settable later (`rootId`), as the file helper does per op.
+   */
+  rootId?: string;
+  /** The response deadline (30 s). */
+  responseMs?: number;
+  /** Told of each sidecar given up on. Default: counts it stuck for the root in this process's file gate. */
+  onStuck?: (rootId: string | undefined) => void;
+}
+
+interface Pending {
+  resolve: (value: SidecarResponse) => void;
+  reject: (err: unknown) => void;
+  timer: NodeJS.Timeout;
+}
+
 /**
  * Mutagen tag writer implementation via sidecar subprocess
- * Creates one long-lived process per instance, reused for all read/write calls
+ * Creates one long-lived process per instance, reused for all read/write calls.
+ *
+ * A sidecar that does not answer in time is taken to be stuck on the music
+ * share: it is killed and abandoned (never waited on, never reused), every
+ * request it held fails, and the next request goes to a fresh sidecar.
  */
 export class MutagenTagWriter implements TagWriter {
   private stderrTail = '';
@@ -38,19 +66,32 @@ export class MutagenTagWriter implements TagWriter {
   }
 
   readonly id = 'mutagen';
+  /** The scan root of the files being written (see MutagenTagWriterOptions.rootId). */
+  rootId: string | undefined;
+  private readonly responseMs: number;
+  private readonly onStuck: (rootId: string | undefined) => void;
   private subprocess: ChildProcess | null = null;
-  private inputBuffer = '';
-  private responseQueue: Promise<SidecarResponse>[] = [];
-  private responseResolvers: Map<string | number, (value: SidecarResponse) => void> = new Map();
+  private pending: Map<number, Pending> = new Map();
   private nextRequestId = 0;
   private initPromise: Promise<void>;
 
-  constructor() {
-    // Start the subprocess immediately in constructor
-    this.initPromise = this.initSubprocess();
-    // The sidecar can fail while the caller is preparing the first file.
-    // Keep that failure for write() without leaving an unhandled rejection.
-    void this.initPromise.catch(() => undefined);
+  constructor(opts: MutagenTagWriterOptions = {}) {
+    this.rootId = opts.rootId;
+    this.responseMs = opts.responseMs ?? RESPONSE_MS;
+    this.onStuck = opts.onStuck ?? ((rootId) => { if (rootId !== undefined) fileGate().markStuck(rootId); });
+    this.initPromise = this.start();
+  }
+
+  /** The running sidecar's process id (it changes when a stuck one is replaced). */
+  get pid(): number | undefined {
+    return this.subprocess?.pid;
+  }
+
+  /** Starts a sidecar; its failure waits for the next request without leaving an unhandled rejection. */
+  private start(): Promise<void> {
+    const p = this.initSubprocess();
+    void p.catch(() => undefined);
+    return p;
   }
 
   /**
@@ -65,7 +106,7 @@ export class MutagenTagWriter implements TagWriter {
       );
 
       try {
-        this.subprocess = spawn(pythonInterpreter, [scriptPath], {
+        const child = spawn(pythonInterpreter, [scriptPath], {
           stdio: ['pipe', 'pipe', 'pipe'],
           // Ensure the subprocess inherits environment for Python path
           env: {
@@ -73,15 +114,20 @@ export class MutagenTagWriter implements TagWriter {
             PYTHONUNBUFFERED: '1',
           },
         });
+        this.subprocess = child;
+        this.exitCode = undefined;
+        this.stderrTail = '';
+        const current = () => this.subprocess === child;
 
         // Handle stdout (responses)
-        this.subprocess.stdout?.on('data', (data) => {
-          this.handleStdoutData(data);
+        child.stdout?.on('data', (data: Buffer) => {
+          if (current()) this.handleStdoutData(data);
         });
 
         // Handle stderr (logging) and keep a tail for error messages
         let settled = false;
-        this.subprocess.stderr?.on('data', (data) => {
+        child.stderr?.on('data', (data: Buffer) => {
+          if (!current()) return;
           const message = data.toString();
           this.stderrTail = (this.stderrTail + message).slice(-4000);
           if (message.includes('tagwriter sidecar started') && !settled) { settled = true; resolve(); }
@@ -92,19 +138,23 @@ export class MutagenTagWriter implements TagWriter {
         });
 
         // Handle subprocess exit
-        this.subprocess.on('exit', (code) => {
+        child.on('exit', (code) => {
+          if (!current()) return;
           this.exitCode = code;
           if (code !== 0 && code !== null) {
             process.stderr.write(`[mutagen sidecar] exited with code ${code}\n`);
           }
           this.subprocess = null;
+          // A sidecar that died is not one stuck on the share: its requests fail now.
+          this.failPending(() => new Error(this.notRunningMessage()));
           if (!settled) { settled = true; reject(new Error(this.notRunningMessage())); }
         });
 
         // Handle subprocess errors
-        this.subprocess.on('error', (error) => {
-          reject(error);
+        child.on('error', (error) => {
+          if (!settled) { settled = true; reject(error); }
         });
+        child.stdin?.on('error', () => undefined);
 
         // Resolve once the sidecar announces itself, or after a grace period
         // if it stays silent but alive (older sidecar builds).
@@ -113,6 +163,40 @@ export class MutagenTagWriter implements TagWriter {
         reject(error);
       }
     });
+  }
+
+  /** Fails every request in flight. */
+  private failPending(err: () => unknown): void {
+    const all = [...this.pending.values()];
+    this.pending.clear();
+    for (const p of all) {
+      clearTimeout(p.timer);
+      p.reject(err());
+    }
+  }
+
+  /**
+   * The sidecar did not answer in time: kill it and let go without waiting
+   * (one stuck in the kernel on a dead share may never exit), fail what it
+   * held, and start a fresh one for the next request.
+   */
+  private giveUp(): void {
+    const child = this.subprocess;
+    const rootId = this.rootId;
+    this.subprocess = null;
+    if (child) {
+      child.on('error', () => undefined);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      child.unref();
+      child.stdin?.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    }
+    this.failPending(() => rootId !== undefined
+      ? new FolderOfflineError(rootId, 'timeout')
+      : Object.assign(new Error('Sidecar response timeout'), { code: 'ETIMEDOUT' }));
+    this.onStuck(rootId);
+    this.initPromise = this.start();
   }
 
   /**
@@ -139,10 +223,11 @@ export class MutagenTagWriter implements TagWriter {
         const requestId = response.id;
 
         if (requestId !== undefined && requestId !== null) {
-          const resolver = this.responseResolvers.get(requestId);
-          if (resolver) {
-            this.responseResolvers.delete(requestId);
-            resolver(response);
+          const p = typeof requestId === 'number' ? this.pending.get(requestId) : undefined;
+          if (p) {
+            this.pending.delete(requestId as number);
+            clearTimeout(p.timer);
+            p.resolve(response);
           } else {
             // Late response for timed-out or unknown request
             process.stderr.write(
@@ -169,7 +254,8 @@ export class MutagenTagWriter implements TagWriter {
   private async sendCommand(command: string): Promise<SidecarResponse> {
     await this.initPromise;
 
-    if (!this.subprocess?.stdin) {
+    const child = this.subprocess;
+    if (!child?.stdin) {
       throw new Error(this.notRunningMessage());
     }
 
@@ -186,35 +272,20 @@ export class MutagenTagWriter implements TagWriter {
         cmdObj = { id: requestId, __raw: command };
       }
 
-      const commandWithId = JSON.stringify(cmdObj);
+      // The response deadline: past it the sidecar is taken to be stuck and replaced.
+      const timer = setTimeout(() => {
+        if (this.pending.has(requestId) && this.subprocess === child) this.giveUp();
+      }, this.responseMs);
+      this.pending.set(requestId, { resolve, reject, timer });
 
-      // Create a timeout handler
-      let timeoutId: NodeJS.Timeout | null = null;
-
-      // Create wrapper resolver that clears timeout
-      const wrappedResolve = (response: SidecarResponse) => {
-        if (timeoutId) clearTimeout(timeoutId);
-        resolve(response);
-      };
-
-      // Add resolver to map by request id
-      this.responseResolvers.set(requestId, wrappedResolve);
-
-      // Send command
-      this.subprocess!.stdin!.write(commandWithId + '\n', (error) => {
-        if (error) {
-          this.responseResolvers.delete(requestId);
+      child.stdin!.write(JSON.stringify(cmdObj) + '\n', (error) => {
+        const p = this.pending.get(requestId);
+        if (error && p) {
+          this.pending.delete(requestId);
+          clearTimeout(p.timer);
           reject(error);
         }
       });
-
-      // Set timeout to prevent hanging
-      timeoutId = setTimeout(() => {
-        if (this.responseResolvers.has(requestId)) {
-          this.responseResolvers.delete(requestId);
-          reject(new Error('Sidecar response timeout'));
-        }
-      }, 30000); // 30 second timeout
     });
   }
 
@@ -294,27 +365,25 @@ export class MutagenTagWriter implements TagWriter {
    * Cleanup: close the subprocess
    */
   async close(): Promise<void> {
-    if (this.subprocess) {
-      return new Promise((resolve) => {
-        if (this.subprocess) {
-          this.subprocess.stdin?.end();
-          this.subprocess.on('exit', () => {
-            this.subprocess = null;
-            resolve();
-          });
-
-          // Force kill after 5 seconds
-          setTimeout(() => {
-            if (this.subprocess) {
-              this.subprocess.kill();
-            }
-            resolve();
-          }, 5000);
-        } else {
-          resolve();
-        }
+    await this.initPromise.catch(() => undefined);
+    const child = this.subprocess;
+    if (!child) return;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        // Force kill after 5 seconds, and do not wait on it further
+        if (this.subprocess === child) this.subprocess = null;
+        child.kill('SIGKILL');
+        child.unref();
+        resolve();
+      }, 5000);
+      timer.unref();
+      child.once('exit', () => {
+        clearTimeout(timer);
+        if (this.subprocess === child) this.subprocess = null;
+        resolve();
       });
-    }
+      child.stdin?.end();
+    });
   }
 }
 

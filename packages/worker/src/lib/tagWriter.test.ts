@@ -8,6 +8,9 @@ import { MutagenTagWriter, resolvePythonInterpreter } from './tagWriter.js';
 import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
+import os from 'os';
+import { fileGate } from './fileGate.js';
+import { FolderOfflineError } from './folderOffline.js';
 import type { TagSet } from '@tagave/shared';
 import type { WriteOptions } from '@tagave/core';
 
@@ -487,4 +490,75 @@ describe.skipIf(!isMutagenAvailable())('MutagenTagWriter', () => {
       });
     });
   }
+});
+
+/**
+ * A stand-in for the sidecar's Python: it announces itself, logs each line it
+ * is sent with its own pid, and never answers. Needs no mutagen.
+ */
+describe('MutagenTagWriter response deadline', () => {
+  let dir: string;
+  let log: string;
+  let saved: string | undefined;
+  const writers: MutagenTagWriter[] = [];
+
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tagwriter-deadline-'));
+    log = path.join(dir, 'requests.log');
+    const fake = path.join(dir, 'fake-python');
+    fs.writeFileSync(fake, `#!/bin/sh\necho "tagwriter sidecar started" >&2\nwhile read line; do echo "$$ $line" >> "${log}"; done\n`, { mode: 0o755 });
+    saved = process.env.TAGAVE_TAGWRITER_PYTHON;
+    process.env.TAGAVE_TAGWRITER_PYTHON = fake;
+  });
+
+  afterAll(async () => {
+    await Promise.all(writers.map((w) => w.close()));
+    if (saved === undefined) delete process.env.TAGAVE_TAGWRITER_PYTHON;
+    else process.env.TAGAVE_TAGWRITER_PYTHON = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const requestPids = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '').split('\n').filter(Boolean).map((l) => Number(l.split(' ')[0]));
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+  it('replaces a sidecar that never answers, and the next write goes to the new one', async () => {
+    const writer = new MutagenTagWriter({ rootId: 'root-sidecar', responseMs: 300 });
+    writers.push(writer);
+    const before = fileGate().stuckCount('root-sidecar');
+    await new Promise((r) => setTimeout(r, 50));
+    const first = writer.pid;
+    expect(first).toBeTypeOf('number');
+
+    const started = Date.now();
+    const err = await writer.write('/mnt/music/Robin/a.flac', { title: 'A' }).catch((e: unknown) => e);
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(err).toBeInstanceOf(FolderOfflineError);
+    expect((err as FolderOfflineError).scanRootId).toBe('root-sidecar');
+    expect((err as FolderOfflineError).reason).toBe('timeout');
+    expect(fileGate().stuckCount('root-sidecar')).toBe(before + 1);
+
+    const second = writer.pid;
+    expect(second).toBeTypeOf('number');
+    expect(second).not.toBe(first);
+    for (let i = 0; i < 20 && alive(first!); i++) await new Promise((r) => setTimeout(r, 25));
+    expect(alive(first!)).toBe(false);
+
+    await expect(writer.write('/mnt/music/Robin/b.flac', { title: 'B' })).rejects.toBeInstanceOf(FolderOfflineError);
+    const pids = requestPids();
+    expect(pids[0]).toBe(first);
+    expect(pids[1]).toBe(second);
+    expect(writer.pid).not.toBe(second);
+    fileGate().clear('root-sidecar');
+  });
+
+  it('without a root, a deadline is a plain ETIMEDOUT error and still replaces the sidecar', async () => {
+    const writer = new MutagenTagWriter({ responseMs: 300 });
+    writers.push(writer);
+    await new Promise((r) => setTimeout(r, 50));
+    const first = writer.pid;
+    const err = await writer.read('/mnt/music/Robin/a.flac').catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(FolderOfflineError);
+    expect((err as NodeJS.ErrnoException).code).toBe('ETIMEDOUT');
+    expect(writer.pid).not.toBe(first);
+  });
 });
