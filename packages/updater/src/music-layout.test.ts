@@ -4,10 +4,17 @@
  * "the parent layout"), and readHostFacts through a fake Docker. No host fact
  * is read for real.
  */
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertAllowed } from './argv-guard.testkit.js';
 import { envGet } from './envFile.js';
 import {
+  applyLayout,
+  LAYOUT_PARTS,
+  moveLayout,
+  planLayout,
   cheapRefusal,
   decideLayout,
   fstabTargets,
@@ -429,5 +436,204 @@ describe('readHostFacts', () => {
         expect(decideLayout(envOf(), facts)).toEqual({ layout: 'direct', why });
       });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The one-time move.
+
+const EVERY_PART = ['postgres', 'app', 'worker-identify', 'worker-files', 'player', 'updater'];
+
+/** fakeDocker plus what the move asks compose: the services, and starting a part. */
+function moveDocker(opts: { services?: string[]; configFails?: boolean; host?: Parameters<typeof fakeDocker>[0] } = {}): { docker: Runner; calls: string[][] } {
+  const host = fakeDocker(opts.host);
+  const calls: string[][] = [];
+  const docker: Runner = async (args, o) => {
+    assertAllowed(args);
+    calls.push(args);
+    const ok = (stdout = ''): CommandResult => ({ code: 0, stdout, stderr: '' });
+    const a = args.join(' ');
+    if (a === 'compose config --services') {
+      return opts.configFails ? { code: 1, stdout: '', stderr: 'invalid interpolation format' } : ok(`${(opts.services ?? EVERY_PART).join('\n')}\n`);
+    }
+    if (args[0] === 'compose' && args[1] === 'up') return ok();
+    if (args[0] === 'compose' && args[1] === 'ps') return ok(`${Buffer.from(args.at(-1)!).toString('hex').padEnd(12, '0')}\n`);
+    if (args[0] === 'inspect') return ok('running\n');
+    if (args[0] === 'compose') throw new Error(`unexpected: docker ${a}`);
+    return host.docker(args, o);
+  };
+  return { docker, calls };
+}
+
+const helpers = (calls: string[][]) => calls.filter((c) => c[0] === 'run' || c[0] === 'info');
+const ups = (calls: string[][]) => calls.filter((c) => c[0] === 'compose' && c[1] === 'up').map((c) => c.at(-1));
+
+describe('applyLayout', () => {
+  it('the parent decision: the keys in the text, one line to log', () => {
+    const env = envOf();
+    const plan = applyLayout(env, { layout: 'parent', keys: allKeys('/mnt', 'music') });
+    expect(plan.moved).toBe(true);
+    expect(plan.why).toBeNull();
+    expect(envGet(plan.env, 'TAGAVE_MUSIC_BIND_SOURCE')).toBe('/mnt');
+    expect(envGet(plan.env, 'TAGAVE_PLAYER_MUSIC_FOLDER')).toBe('/host/music');
+    expect(plan.message).toMatch(/^the music share moves to the parent layout: /);
+    expect(plan.message!.includes(String.fromCharCode(0x2014))).toBe(false);
+  });
+
+  it('a refusal: the text as it was, and the plain reason', () => {
+    const env = envOf({ mode: 'ro' });
+    expect(applyLayout(env, { layout: 'direct', why: 'read_only' })).toEqual({
+      env,
+      moved: false,
+      why: 'read_only',
+      message: `the music share stays on the direct layout: ${layoutReason('read_only')}`,
+    });
+  });
+
+  it('the no-answer reason of findmnt is kept', () => {
+    expect(applyLayout(envOf(), { layout: 'direct', why: 'private_propagation', noAnswer: true }).message).toBe(`the music share stays on the direct layout: ${layoutReason('private_propagation', true)}`);
+  });
+});
+
+describe('planLayout', () => {
+  it('the parent keys there already: nothing to do, nothing asked, nothing logged', async () => {
+    const { docker, calls } = moveDocker();
+    const env = envOf({ extra: ['TAGAVE_MUSIC_BIND_SOURCE=/mnt'] });
+    expect(await planLayout({ env, docker, image: IMAGE, installDir: '/opt/tagave' })).toEqual({ env, moved: false, why: null, message: null });
+    expect(calls).toEqual([]);
+  });
+
+  it('asks for the image only once .env alone does not refuse', async () => {
+    let asked = 0;
+    const image = async () => { asked += 1; return IMAGE; };
+    const { docker } = moveDocker();
+    await planLayout({ env: envOf({ mode: 'ro' }), docker, image, installDir: '/opt/tagave' });
+    expect(asked).toBe(0);
+    expect((await planLayout({ env: envOf(), docker, image, installDir: '/opt/tagave' })).moved).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  it('no image: no helper, and nothing moves on a guess', async () => {
+    const { docker, calls } = moveDocker();
+    const plan = await planLayout({ env: envOf(), docker, image: null, installDir: '/opt/tagave' });
+    expect(plan).toMatchObject({ moved: false, why: 'no_facts' });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('moveLayout', () => {
+  let dir: string;
+  let lines: Array<[string, string]>;
+  const log = (l: 'info' | 'warn', m: string) => { lines.push([l, m]); };
+  const envFile = () => readFile(join(dir, '.env'), 'utf8');
+  const bakFile = () => readFile(join(dir, '.env.bak'), 'utf8').catch(() => null);
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'tagave-layout-'));
+    lines = [];
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('keys written and only the music parts restarted', async () => {
+    const env = envOf();
+    await writeFile(join(dir, '.env'), env, { mode: 0o600 });
+    const { docker, calls } = moveDocker();
+    expect(await moveLayout({ installDir: dir, docker, image: IMAGE, log })).toEqual({ moved: true, why: null });
+    const now = await envFile();
+    for (const [k, v] of Object.entries(allKeys('/mnt', 'music'))) expect(envGet(now, k), k).toBe(v);
+    expect(await bakFile()).toBe(env);
+    expect(ups(calls)).toEqual([...LAYOUT_PARTS]);
+    // only the parts the move names were touched: no stop, no restart of anything else
+    const touched = calls.filter((c) => c[0] === 'compose' && !(c[1] === 'config' || c[1] === 'ps'));
+    expect(touched.every((c) => c[1] === 'up' && ['worker-files', 'player'].includes(c.at(-1)!))).toBe(true);
+    expect(lines.filter(([, m]) => m.startsWith('the music share moves to the parent layout'))).toHaveLength(1);
+    for (const [, m] of lines) expect(m.includes(String.fromCharCode(0x2014))).toBe(false);
+  });
+
+  it('a files computer starts only its file worker', async () => {
+    await writeFile(join(dir, '.env'), envOf({ role: 'files' }));
+    const { docker, calls } = moveDocker({ services: ['worker-files', 'updater'] });
+    expect((await moveLayout({ installDir: dir, docker, image: IMAGE, log })).moved).toBe(true);
+    expect(ups(calls)).toEqual(['worker-files']);
+    expect(envGet(await envFile(), 'TAGAVE_PLAYER_BIND_TARGET')).toBeNull();
+  });
+
+  it('starts the parts through the given start, when there is one', async () => {
+    await writeFile(join(dir, '.env'), envOf());
+    const { docker, calls } = moveDocker();
+    const started: string[][] = [];
+    await moveLayout({ installDir: dir, docker, image: IMAGE, log, start: async (s) => { started.push(s); } });
+    expect(started).toEqual([['worker-files', 'player']]);
+    expect(ups(calls)).toEqual([]);
+  });
+
+  it('TAGAVE_MUSIC_LAYOUT=direct is respected', async () => {
+    const env = envOf({ extra: ['TAGAVE_MUSIC_LAYOUT=direct'] });
+    await writeFile(join(dir, '.env'), env);
+    const { docker, calls } = moveDocker();
+    expect(await moveLayout({ installDir: dir, docker, image: IMAGE, log })).toEqual({ moved: false, why: 'owner_direct' });
+    expect(calls).toEqual([]);
+    expect(await envFile()).toBe(env);
+    expect(lines).toEqual([['info', `the music share stays on the direct layout: ${layoutReason('owner_direct')}`]]);
+  });
+
+  it('a read-only install never starts a helper', async () => {
+    const env = envOf({ mode: 'ro' });
+    await writeFile(join(dir, '.env'), env);
+    const { docker, calls } = moveDocker();
+    expect(await moveLayout({ installDir: dir, docker, image: IMAGE, log })).toEqual({ moved: false, why: 'read_only' });
+    expect(calls).toEqual([]);
+    expect(await envFile()).toBe(env);
+  });
+
+  it('a failed check writes nothing', async () => {
+    const env = envOf();
+    await writeFile(join(dir, '.env'), env);
+    await writeFile(join(dir, '.env.bak'), 'TAGAVE_VERSION=0.37.0\n');
+    const { docker, calls } = moveDocker({ host: { mountinfo: { code: 1, stderr: 'nsenter: cannot open' } } });
+    expect(await moveLayout({ installDir: dir, docker, image: IMAGE, log })).toEqual({ moved: false, why: 'no_facts' });
+    expect(await envFile()).toBe(env);
+    expect(await bakFile()).toBe('TAGAVE_VERSION=0.37.0\n');
+    expect(ups(calls)).toEqual([]);
+    expect(lines).toEqual([['info', `the music share stays on the direct layout: ${layoutReason('no_facts')}`]]);
+  });
+
+  it('it runs once: a second call changes nothing', async () => {
+    await writeFile(join(dir, '.env'), envOf());
+    const first = moveDocker();
+    await moveLayout({ installDir: dir, docker: first.docker, image: IMAGE, log });
+    const after = await envFile();
+    const bak = await bakFile();
+    lines = [];
+    const second = moveDocker();
+    expect(await moveLayout({ installDir: dir, docker: second.docker, image: IMAGE, log })).toEqual({ moved: false, why: null });
+    expect(second.calls).toEqual([]);
+    expect(lines).toEqual([]);
+    expect(await envFile()).toBe(after);
+    expect(await bakFile()).toBe(bak);
+  });
+
+  it('compose refusing the new settings puts .env back and says so', async () => {
+    const env = envOf();
+    await writeFile(join(dir, '.env'), env);
+    const { docker, calls } = moveDocker({ configFails: true });
+    await expect(moveLayout({ installDir: dir, docker, image: IMAGE, log })).rejects.toThrow(/docker compose rejects the new music share settings/);
+    expect(await envFile()).toBe(env);
+    expect(ups(calls)).toEqual([]);
+  });
+
+  it('no .env: an error, nothing run', async () => {
+    const { docker, calls } = moveDocker();
+    await expect(moveLayout({ installDir: dir, docker, image: IMAGE, log })).rejects.toThrow(/no \.env/);
+    expect(calls).toEqual([]);
+  });
+
+  it('the helpers run only for an install that may move', async () => {
+    await writeFile(join(dir, '.env'), envOf());
+    const { docker, calls } = moveDocker();
+    await moveLayout({ installDir: dir, docker, image: IMAGE, log });
+    expect(helpers(calls).map((c) => c[0])).toEqual(['info', 'run', 'run', 'run', 'run']);
   });
 });

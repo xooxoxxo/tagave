@@ -26,10 +26,12 @@
  * local folder. Each call has a 15 s limit, and any failure gives null.
  */
 import { randomBytes } from 'node:crypto';
-import { posix } from 'node:path';
-import { envGet, envSet } from './envFile.js';
+import { join, posix } from 'node:path';
+import { envGet, envSet, readText, writeFileAtomic } from './envFile.js';
 import { musicDirOf } from './music-heal.js';
 import { decodeMountPath } from './music-probe.js';
+import { Parts } from './parts.js';
+import { partName } from './progress.js';
 import type { CommandResult, Runner } from './runner.js';
 
 export interface HostFacts {
@@ -394,4 +396,123 @@ export async function readHostFacts(docker: Runner, image: string, installDir: s
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// The one-time move: the update's config step, Repair's start step and
+// `cli.js music-layout --apply` (install-tagave.sh update runs that one).
+
+/** The parts that bind the music share: the only ones started again after a move. */
+export const LAYOUT_PARTS = ['worker-files', 'player'] as const;
+
+export interface LayoutPlan {
+  /** The .env text to write: with the parent keys when it moves, else as it was. */
+  env: string;
+  moved: boolean;
+  /** Why it stays direct; null when it moves or already has the parent keys. */
+  why: LayoutRefusal | null;
+  /** The one line to log; null when the parent keys are there already. */
+  message: string | null;
+}
+
+const stays = (why: LayoutRefusal, noAnswer?: boolean) => `the music share stays on the direct layout: ${layoutReason(why, noAnswer)}`;
+
+/**
+ * The .env text a decision gives, pure: the update folds it into its own
+ * single .env write (so .env.bak stays the file from before the update, and
+ * a roll back puts the direct layout back), moveLayout writes it on its own.
+ */
+export function applyLayout(env: string, decision: LayoutDecision): LayoutPlan {
+  if (decision.layout === 'direct') return { env, moved: false, why: decision.why, message: stays(decision.why, decision.noAnswer) };
+  try {
+    const source = decision.keys['TAGAVE_MUSIC_BIND_SOURCE'] ?? '';
+    return {
+      env: withLayoutKeys(env, decision.keys),
+      moved: true,
+      why: null,
+      message: `the music share moves to the parent layout: tagave mounts ${source}, the folder above it, so the parts start while the share is off`,
+    };
+  } catch {
+    return { env, moved: false, why: 'unsafe_parent', message: stays('unsafe_parent') };
+  }
+}
+
+/** The parent keys are there already (TAGAVE_MUSIC_BIND_SOURCE set): an earlier move or the installer wrote them. */
+export const hasParentLayout = (env: string) => !!envGet(env, 'TAGAVE_MUSIC_BIND_SOURCE')?.trim();
+
+/**
+ * What the move would do to this .env, without writing anything: nothing
+ * when the parent keys are there; the cheap refusal without asking the host
+ * (`image` is not even looked up then); else readHostFacts and decideLayout.
+ * No image: nothing moves on a guess (`no_facts`). Never throws.
+ */
+export async function planLayout(deps: {
+  env: string;
+  docker: Runner;
+  image: string | null | (() => Promise<string | null>);
+  installDir: string;
+  name?: () => string;
+}): Promise<LayoutPlan> {
+  const { env } = deps;
+  if (hasParentLayout(env)) return { env, moved: false, why: null, message: null };
+  const cheap = cheapRefusal(env, deps.installDir);
+  if (cheap !== null) return applyLayout(env, { layout: 'direct', why: cheap });
+  const image = typeof deps.image === 'function' ? await deps.image().catch(() => null) : deps.image;
+  const facts = image ? await readHostFacts(deps.docker, image, deps.installDir, env, deps.name ? { name: deps.name } : {}) : null;
+  return applyLayout(env, decideLayout(env, facts));
+}
+
+export interface MoveDeps {
+  /** The install folder, the same path on the host and in this container. */
+  installDir: string;
+  docker: Runner;
+  /** The updater's own image for the helpers (selfImage), or how to find it. */
+  image: string | null | (() => Promise<string | null>);
+  log: (level: 'info' | 'warn', message: string) => void;
+  /**
+   * Starts the music parts on the new .env. Repair passes its own (its Parts,
+   * with the music prober, so a part stuck on a silent share waits as
+   * usual); the default is Parts.startParts without a prober.
+   */
+  start?: (services: string[]) => Promise<void>;
+  /** Test seam: the helper containers' names. */
+  name?: () => string;
+}
+
+/**
+ * The move on its own (Repair, cli.js): reads .env, does nothing when the
+ * parent keys are there, logs a refusal once and writes nothing; on the
+ * parent layout writes the keys (writeFileAtomic keeps .env.bak), checks
+ * compose takes them (else puts .env back and throws), then starts only the
+ * music parts this install has. Nothing in the music folder changes.
+ */
+export async function moveLayout(deps: MoveDeps): Promise<{ moved: boolean; why: LayoutRefusal | null }> {
+  const path = join(deps.installDir, '.env');
+  const env = await readText(path);
+  if (env === null) throw new Error(`there is no .env in ${deps.installDir}`);
+  const plan = await planLayout({ env, docker: deps.docker, image: deps.image, installDir: deps.installDir, ...(deps.name ? { name: deps.name } : {}) });
+  if (plan.message) deps.log('info', plan.message);
+  if (!plan.moved) return { moved: false, why: plan.why };
+
+  await writeFileAtomic(path, plan.env);
+  const run = safe(deps.docker);
+  const svc = await run(['compose', 'config', '--services'], { timeoutMs: 60_000 });
+  if (svc.code !== 0) {
+    // Without a backup: .env.bak already holds this same text.
+    await writeFileAtomic(path, env, false);
+    const said = svc.stderr.trim().split('\n').at(-1) ?? '';
+    throw new Error(`docker compose rejects the new music share settings, so .env is as it was${said ? `: ${said}` : ''}`);
+  }
+  const have = new Set(svc.stdout.split('\n').map((s) => s.trim()));
+  const services = LAYOUT_PARTS.filter((s) => have.has(s));
+  deps.log('info', `.env has the parent layout's settings (old file kept as .env.bak)${services.length ? `; starting ${services.map(partName).join(' and ')} on them` : ''}`);
+  if (services.length > 0) {
+    const start = deps.start ?? (async (wanted: string[]) => {
+      const parts = new Parts({ docker: run, music: null, now: Date.now, log: (l, m) => deps.log(l === 'error' ? 'warn' : l, m) });
+      const res = await parts.startParts(wanted);
+      for (const p of res.stuck) deps.log('warn', `${partName(p.service)} did not start on the new settings`);
+    });
+    await start(services);
+  }
+  return { moved: true, why: null };
 }

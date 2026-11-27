@@ -87,6 +87,7 @@ import {
   type Readings,
 } from './progress.js';
 import { MUSIC_BOUND, type MusicProber } from './music-probe.js';
+import { planLayout } from './music-layout.js';
 import { PART_LIMITS, Parts, readParts, type PartsResult, type StuckPart } from './parts.js';
 import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
 import { redact } from './redact.js';
@@ -1170,6 +1171,7 @@ export class Update {
     }
     env = envSet(env, 'TAGAVE_VERSION', this.run.target);
     if (this.deps.release) env = await this.pinRelease(env);
+    env = await this.musicLayout(env, image);
     await writeFileAtomic(this.envPath, env);
     this.log('info', `TAGAVE_VERSION=${this.run.target} in .env (was ${this.run.from}; old file kept as .env.bak)`);
     this.progress('checking the new configuration');
@@ -1181,6 +1183,26 @@ export class Update {
       this.log('info', this.playerImageChanges()
         ? `player image: ${this.playerImageBefore} -> ${this.playerImageAfter}`
         : `player image unchanged (${this.playerImageBefore})`);
+    }
+  }
+
+  /**
+   * The one-time move to the parent music layout (music-layout.ts), folded
+   * into config's single .env write: .env.bak stays the file from before the
+   * update, and a roll back (the in-memory originals) puts the direct layout
+   * back. Nothing restarts here; the restart step starts every part on the
+   * new .env. The helpers run from the target's updater image, which config
+   * just ran (`cat` of its compose files), so it is here. A failed check
+   * keeps .env as it is and never fails the update.
+   */
+  private async musicLayout(env: string, image: string): Promise<string> {
+    try {
+      const plan = await planLayout({ env, docker: this.deps.docker, image, installDir: this.deps.installDir });
+      if (plan.message) this.log('info', plan.message);
+      return plan.env;
+    } catch (err) {
+      this.log('warn', `the music share layout was not checked (${(err as Error)?.message ?? String(err)}); it stays as it is`);
+      return env;
     }
   }
 

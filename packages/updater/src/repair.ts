@@ -12,7 +12,9 @@
  *   music   a share that is not connected is connected again (the healer's
  *           remount); a silent share leaves its parts waiting, or in the
  *           parent layout with every part up ends repaired, folder offline.
- *   start   parts that do not run, one at a time; a part that crashed or ran
+ *   start   first the one-time move to the parent music layout (also with
+ *           every part up), which starts the music parts on it; then parts
+ *           that do not run, one at a time; a part that crashed or ran
  *           out of memory gets its one `--force-recreate`.
  *   verify  every part runs and the app answers, polled up to
  *           healthTimeoutMs; a crash after the recreate, a refused
@@ -33,6 +35,7 @@ import type { PartState, RepairCause, RepairRun, RepairStatus, RepairStepId, Upd
 import { envGet, readText } from './envFile.js';
 import { musicBindSourceOf, musicDirOf, type RemountResult } from './music-heal.js';
 import { MUSIC_BOUND, type MusicProber, type MusicReading } from './music-probe.js';
+import { cheapRefusal, moveLayout } from './music-layout.js';
 import { Parts, readParts, type PartsResult } from './parts.js';
 import { formatBytes, type StatfsLike } from './preflight-space.js';
 import { ENOSPC, INSPECT_FORMAT, PORT, appPhase, lastErrorLine, parseInspect, partName, postgresRecovering, type ContainerState } from './progress.js';
@@ -83,7 +86,16 @@ export interface RepairDeps {
    * tries again at its next probe). Absent: no lock.
    */
   lockParts?: () => Promise<(() => Promise<void>) | null>;
+  /**
+   * The updater's own image (selfImage), for the helpers of the one-time
+   * move to the parent music layout (music-layout.ts). Absent: the start
+   * step never tries the move.
+   */
+  layoutImage?: () => Promise<string | null>;
 }
+
+/** The action line behind "?" when the start step moved the install to the parent layout. */
+export const MOVED_LAYOUT = 'Mounted the folder above the music share, so tagave starts while the share is off.';
 
 export const REPAIR_STEP_LABELS: Record<RepairStepId, string> = {
   check: 'Check every part',
@@ -528,15 +540,17 @@ export class Repair {
     }
   }
 
-  /** Starts the parts that do not run; `only`: just these (the watcher's), else every part. */
+  /** Starts the parts that do not run; `only`: just these (the watcher's), else every part, after the one-time layout move. */
   private async start(only: string[] | null): Promise<void> {
+    const moved = only === null ? await this.moveLayout() : false;
     const parts = await this.readParts();
     const down = parts
       .filter((p) => (only ? only.includes(p.service) : true) && !this.waiting.has(p.service))
       .filter((p) => p.state === 'stopped' || p.state === 'missing' || p.state === 'stuck')
       .map((p) => p.service);
-    if (down.length === 0) return this.skip('start');
-    this.begin('start', `starting ${down.map(partName).join(', ')}`);
+    if (down.length === 0) return moved ? this.end('start', 'done') : this.skip('start');
+    if (moved) this.progress(`starting ${down.map(partName).join(', ')}`);
+    else this.begin('start', `starting ${down.map(partName).join(', ')}`);
     for (const s of down) {
       const st = this.seen.get(s)?.state;
       if (parts.find((p) => p.service === s)?.state === 'missing') this.note('missing', s);
@@ -557,6 +571,57 @@ export class Repair {
       this.stuckOnes(res, true);
     }
     this.end('start', 'done');
+  }
+
+  /**
+   * The one-time move to the parent music layout (music-layout.ts), tried by
+   * every Repair on the direct layout, also with every part up. On a move the
+   * music parts start on the new .env through this run's Parts: one that
+   * waited for a silent share no longer needs it, and with every part up the
+   * run ends repaired with the folder offline (Task 33's ending). One that
+   * still will not start on a silent share waits, as before. A failed move
+   * only logs: the rest of the step runs as it did.
+   */
+  private async moveLayout(): Promise<boolean> {
+    if (!this.deps.layoutImage || this.parentLayout) return false;
+    const env = (await readText(join(this.deps.installDir, '.env')).catch(() => null)) ?? '';
+    // Only when the host must be asked: the helpers take a few seconds, shown under this step.
+    if (cheapRefusal(env, this.deps.installDir) === null) this.begin('start', 'checking the music share layout');
+    let started: PartsResult | null = null;
+    try {
+      const res = await moveLayout({
+        installDir: this.deps.installDir,
+        docker: this.runner,
+        image: this.deps.layoutImage,
+        log: (l, m) => this.log(l, m),
+        start: async (services) => {
+          this.progress(`starting ${services.map(partName).join(', ')} on the new music share layout`);
+          started = await this.parts.startParts(services);
+        },
+      });
+      if (!res.moved) {
+        if (this.step('start').status === 'running') Object.assign(this.step('start'), { status: 'pending', startedAt: null });
+        return false;
+      }
+    } catch (err) {
+      this.log('warn', `the music share layout was not changed: ${(err as Error)?.message ?? String(err)}`);
+      if (this.step('start').status === 'running') Object.assign(this.step('start'), { status: 'pending', startedAt: null });
+      return false;
+    }
+    if (this.step('start').status !== 'running') this.begin('start', 'starting the music parts on the new music share layout');
+    this.parentLayout = true;
+    this.act(MOVED_LAYOUT);
+    const res = started as PartsResult | null;
+    for (const s of res?.done ?? []) this.waiting.delete(s);
+    if (res) this.stuckOnes(res, true);
+    if (this.cause === 'music_unreachable' && this.waiting.size === 0) {
+      // The parts run without the share now: healthy, its work waits until it is back.
+      this.musicOffline = true;
+      this.cause = null;
+      this.service = null;
+      this.server = null;
+    }
+    return true;
   }
 
   /** Polls until every part (but the waiting ones) runs and the app answers, up to healthTimeoutMs. */

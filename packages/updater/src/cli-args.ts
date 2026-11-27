@@ -1,11 +1,63 @@
-/** The pure parts of cli.js: its usage, the repair's arguments and exit codes (kept apart so tests import them without running the CLI). */
+/** The testable parts of cli.js: its usage, the repair's arguments and exit codes, the music-layout command (kept apart so tests import them without running the CLI). */
+import { join } from 'node:path';
 import type { RepairStatus } from '@tagave/shared/updater';
+import { readText } from './envFile.js';
+import { hasParentLayout, moveLayout, planLayout } from './music-layout.js';
 import type { Runner } from './runner.js';
 
 export const USAGE = [
   'usage: cli.js module enable|disable <id> [--delete-data [--delete-history]] [--manifest FILE --signature FILE]',
   '       cli.js repair [--wait MINUTES]',
+  '       cli.js music-layout [--apply]',
 ].join('\n');
+
+/** `music-layout [--apply]`: the arguments after `music-layout`. Anything else is a usage error (exit 2). */
+export function parseLayoutArgs(args: string[]): { ok: true; apply: boolean } | { ok: false } {
+  if (args.length === 0) return { ok: true, apply: false };
+  return args.length === 1 && args[0] === '--apply' ? { ok: true, apply: true } : { ok: false };
+}
+
+const ALREADY_PARENT = 'the music share already uses the parent layout: nothing to do';
+const DRY_RUN_END = 'Nothing was changed. Run it again with --apply to write these settings and start the music parts on them.';
+
+/**
+ * `cli.js music-layout [--apply]`. Without --apply: the decision and its
+ * reason, and the .env lines it would write; nothing is written or started
+ * (the host is read, as the move reads it). With --apply: moveLayout, its
+ * log lines printed. 0 when it moved, had nothing to do or was refused with
+ * a reason; 1 on an error.
+ */
+export async function layoutCommand(apply: boolean, deps: {
+  installDir: string;
+  docker: Runner;
+  image: () => Promise<string | null>;
+  out: (line: string) => void;
+  err: (line: string) => void;
+}): Promise<0 | 1> {
+  try {
+    const env = await readText(join(deps.installDir, '.env'));
+    if (env === null) throw new Error(`there is no .env in ${deps.installDir}`);
+    if (hasParentLayout(env)) {
+      deps.out(`  ${ALREADY_PARENT}`);
+      return 0;
+    }
+    if (apply) {
+      await moveLayout({ installDir: deps.installDir, docker: deps.docker, image: deps.image, log: (l, m) => (l === 'info' ? deps.out(`  ${m}`) : deps.err(`warn: ${m}`)) });
+      return 0;
+    }
+    const plan = await planLayout({ env, docker: deps.docker, image: deps.image, installDir: deps.installDir });
+    if (plan.message) deps.out(plan.message);
+    if (plan.moved) {
+      const before = new Set(env.split('\n'));
+      for (const line of plan.env.split('\n')) if (line !== '' && !before.has(line)) deps.out(`  ${line}`);
+      deps.out(DRY_RUN_END);
+    }
+    return 0;
+  } catch (err) {
+    deps.err((err as Error)?.message ?? String(err));
+    return 1;
+  }
+}
 
 /** The longest `--wait`, in minutes. */
 export const MAX_WAIT_MINUTES = 120;

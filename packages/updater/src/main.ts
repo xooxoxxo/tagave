@@ -19,12 +19,13 @@
  * POST /api/v1/internal/updater/repair {"status", "cause"}.
  */
 import { existsSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from './update.js';
 import { dockerRunner, httpAppProbe, httpRepairReport } from './runner.js';
 import { UpdaterService } from './server.js';
 import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
-import { MusicHealer, httpMusicApp } from './music-heal.js';
+import { MusicHealer, httpMusicApp, selfImage } from './music-heal.js';
 import { cachedProber, musicProber } from './music-probe.js';
 
 function num(name: string, fallback: number): number {
@@ -67,6 +68,8 @@ async function main(): Promise<void> {
     music,
     musicUnmounted: () => musicApp.unmounted(),
     report: httpRepairReport(appUrl, appSecret),
+    // Repair's one-time move to the parent music layout runs its helpers from this container's image.
+    layoutImage: () => selfImage(dockerRunner(installDir), hostname()),
   });
   // The healer's tick waits while anything moves containers, a repair too;
   // its remount is refused only during an update or a module run, so a
