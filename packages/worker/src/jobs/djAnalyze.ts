@@ -140,7 +140,7 @@ async function analyzeTrack(ctx: WorkerContext, localTrackId: string, force: boo
   }
 }
 
-/** The next tracks that need analysing, in the sweep's order (one library's only, for a test). */
+/** The next tracks that need analysing, in the sweep's order (one library's only, for a test); none in a music folder that is not online. */
 export async function djSweepCandidates(sql: WorkerContext['sql'], limit: number, libraryId: string | null = null): Promise<string[]> {
   const rows = await sql<Array<{ id: string }>>`
     with q as (
@@ -157,6 +157,8 @@ export async function djSweepCandidates(sql: WorkerContext['sql'], limit: number
     select lt.id::text as id
       from local_tracks lt
       join files f on f.id = lt.audio_file_id and f.status = 'present'
+      -- a music folder that is not online is skipped, quietly, until it is back
+      join scan_roots sr on sr.id = f.scan_root_id and sr.reach not in ('offline', 'unmounted')
       left join dj_track_analysis d on d.local_track_id = lt.id
       left join q on q.id = lt.id::text
       left join p on p.id = lt.id

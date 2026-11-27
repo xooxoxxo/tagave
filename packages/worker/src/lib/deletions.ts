@@ -246,7 +246,11 @@ export async function rootConnected(ctx: Pick<WorkerContext, 'sql'>, rootId: str
   }
 }
 
-async function rowsIn(ctx: Pick<WorkerContext, 'sql'>, libraryId: string | null, state: string, olderThanDays?: number): Promise<Row[]> {
+/** What one trash run takes up. `onlineOnly` (the daily sweep): no row of a root that is not online (offline or not connected). */
+interface RunScope { olderThanDays?: number; onlineOnly?: boolean }
+
+async function rowsIn(ctx: Pick<WorkerContext, 'sql'>, libraryId: string | null, state: string, scope: RunScope = {}): Promise<Row[]> {
+  const { olderThanDays } = scope;
   return (await ctx.sql`
     select fd.file_id::text as "fileId", fd.library_id::text as "libraryId", fd.scan_root_id::text as "rootId", sr.path as root,
            fd.rel_path as "relPath", fd.trash_rel_path as "trashRelPath", fd.trash_mount as "trashMount"
@@ -255,6 +259,7 @@ async function rowsIn(ctx: Pick<WorkerContext, 'sql'>, libraryId: string | null,
        and (${libraryId}::uuid is null or fd.library_id = ${libraryId}::uuid)
        and fd.purge_task_id is null
        and (${olderThanDays ?? null}::int is null or fd.trashed_at < now() - make_interval(days => ${olderThanDays ?? 0}))
+       and (not ${scope.onlineOnly === true}::boolean or sr.reach not in ('offline', 'unmounted'))
      order by fd.created_at`) as unknown as Row[];
 }
 
@@ -264,9 +269,11 @@ export type TrashCounts = { trashed: number; marked: number; dropped: number; pa
  * Every file waiting to go into the trash ('moving'). A music folder that is
  * offline keeps its rows waiting (`paused` counts them); with `throwOffline`
  * the first offline answer throws instead (an import's Replace waits for it).
+ * With `onlineOnly` (the daily sweep) a root that is not online is not even
+ * looked at: its rows wait, with no line in the log.
  */
-export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, now = new Date(), opts: { throwOffline?: boolean } = {}): Promise<TrashCounts> {
-  const rows = await rowsIn(ctx, libraryId, 'moving');
+export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, now = new Date(), opts: { throwOffline?: boolean; onlineOnly?: boolean } = {}): Promise<TrashCounts> {
+  const rows = await rowsIn(ctx, libraryId, 'moving', { onlineOnly: opts.onlineOnly ?? false });
   const day = trashDay(now);
   let trashed = 0;
   let marked = 0;
@@ -309,9 +316,12 @@ export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, 
   return { trashed, marked, dropped, ...(paused > 0 ? { paused } : {}) };
 }
 
-/** Every file waiting to come back ('restoring'): renamed to where it was, unless that place is taken. An offline folder keeps its rows waiting. */
-export async function restoreWaiting(ctx: WorkerContext, libraryId: string | null): Promise<{ restored: number; refused: number; dropped: number; paused?: number }> {
-  const rows = await rowsIn(ctx, libraryId, 'restoring');
+/**
+ * Every file waiting to come back ('restoring'): renamed to where it was, unless that place is taken. An offline folder keeps its rows waiting.
+ * With `onlineOnly` (the daily sweep) a root that is not online is not even looked at.
+ */
+export async function restoreWaiting(ctx: WorkerContext, libraryId: string | null, opts: { onlineOnly?: boolean } = {}): Promise<{ restored: number; refused: number; dropped: number; paused?: number }> {
+  const rows = await rowsIn(ctx, libraryId, 'restoring', { onlineOnly: opts.onlineOnly ?? false });
   let restored = 0;
   let refused = 0;
   let paused = 0;
@@ -427,9 +437,9 @@ async function cleanPurged(ctx: WorkerContext, libraryId: string | null): Promis
   return (await dropDeletedFiles(ctx, rows.map((row) => row.id))).dropped;
 }
 
-/** Scheduled cleanup locks an eligible row against Restore and a manual purge. */
-export async function emptyTrash(ctx: WorkerContext, libraryId: string | null, olderThanDays?: number): Promise<{ deleted: number; failed: number }> {
-  const rows = await rowsIn(ctx, libraryId, 'trashed', olderThanDays);
+/** Scheduled cleanup locks an eligible row against Restore and a manual purge. With `onlineOnly` a root that is not online is not looked at. */
+export async function emptyTrash(ctx: WorkerContext, libraryId: string | null, olderThanDays?: number, opts: { onlineOnly?: boolean } = {}): Promise<{ deleted: number; failed: number }> {
+  const rows = await rowsIn(ctx, libraryId, 'trashed', { ...(olderThanDays !== undefined ? { olderThanDays } : {}), onlineOnly: opts.onlineOnly ?? false });
   let failed = 0;
   const offline = new OfflineRoots();
   for (const r of rows) {
@@ -572,10 +582,11 @@ export async function filesTrashJob(ctx: WorkerContext, data: FilesTrashJobData)
       return {};
     }
     default: {
-      // the daily run also picks up a move or restore whose job was lost
-      const moved = await moveWaiting(ctx, lib);
-      const restored = await restoreWaiting(ctx, lib);
-      const expired = await emptyTrash(ctx, lib, TRASH_DAYS);
+      // the daily run also picks up a move or restore whose job was lost (ruling R23);
+      // a root that is not online is skipped quietly, its rows left for a run after its return
+      const moved = await moveWaiting(ctx, lib, new Date(), { onlineOnly: true });
+      const restored = await restoreWaiting(ctx, lib, { onlineOnly: true });
+      const expired = await emptyTrash(ctx, lib, TRASH_DAYS, { onlineOnly: true });
       return { moved, restored, expired };
     }
   }

@@ -30,7 +30,7 @@ import type { GateOp, HelperMessage, HelperRequest } from './fileGate.js';
 import {
   prepareEmbedSteps, prepareTaggedSteps, publishPrepared, safeEmbedSteps, safeWriteSteps,
   type WriteResult, type WriteStepHooks,
-} from './safeFileWriter.js';
+} from './writeSteps.js';
 import { MutagenTagWriter } from './tagWriter.js';
 import { OFFLINE_CODES } from './folderOffline.js';
 import { IoProgress } from './procIo.js';

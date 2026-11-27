@@ -124,7 +124,7 @@ describe.skipIf(!tools)('files.move on the file worker (db, real FLAC)', () => {
     ctx = { db: made.db, sql: made.client, boss: boss as any, logger: pino({ level: 'silent' }) };
     tags = new MutagenTagWriter();
     // the move's writer as the worker makes it: the root's, through the file gate
-    deps = { writer: new SafeFileWriter(null, rootId), now: () => day };
+    deps = { writer: new SafeFileWriter(rootId), now: () => day };
     await sql`insert into users (id, email, password_hash) values (${userId}, ${`move-${userId}@test.com`}, 'x')`;
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'Move', ${userId}, ${JSON.stringify({ tagWritesEnabled: true })}::jsonb)`;
     rootPath = await mkdtemp(path.join(tmpdir(), 'rr73test-move-'));

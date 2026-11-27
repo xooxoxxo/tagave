@@ -1,4 +1,3 @@
-import { access } from 'node:fs/promises';
 import { eq, and } from 'drizzle-orm';
 import { rootReach, scanRoots } from '@tagave/db';
 import { SCAN_ROOT_EMPTY_MESSAGE } from '@tagave/shared';
@@ -6,6 +5,7 @@ import type { WorkerContext } from '../lib/context.js';
 import { fileGate } from '../lib/fileGate.js';
 import type { DirPage } from '../lib/fileHelper.js';
 import { FolderOfflineError, isGateFailure } from '../lib/folderOffline.js';
+import { inContainer } from '../lib/localFiles.js';
 
 export interface RootsValidateJobData {
   scanRootId?: string;
@@ -111,14 +111,6 @@ export function hostPathFor(
     return hostDir + root.slice(mount.length);
   }
   return env.inContainer ? null : root;
-}
-
-let containerCache: boolean | null = null;
-async function inContainer(): Promise<boolean> {
-  if (containerCache === null) {
-    containerCache = await access('/.dockerenv').then(() => true, () => false);
-  }
-  return containerCache;
 }
 
 /** hostPathFor with this process's environment. */

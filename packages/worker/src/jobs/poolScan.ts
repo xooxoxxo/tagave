@@ -160,9 +160,11 @@ export async function poolScanJob(ctx: WorkerContext, data: PoolScanJobData = {}
 async function scanPool(ctx: WorkerContext, libraryId: string, data: PoolScanJobData, deps: PoolDeps): Promise<Record<string, unknown>> {
   const pool = await dropPoolOf(ctx, libraryId);
   if (!pool.enabled || !pool.scanRootId || !pool.dirPath) return { skipped: 'off' };
-  const [root] = (await ctx.sql`select path, writable from scan_roots where id = ${pool.scanRootId} and library_id = ${libraryId}`) as unknown as Array<{ path: string; writable: boolean }>;
+  const [root] = (await ctx.sql`select path, writable, reach from scan_roots where id = ${pool.scanRootId} and library_id = ${libraryId}`) as unknown as Array<{ path: string; writable: boolean; reach: string }>;
   if (!root) return { skipped: 'no music folder' };
   if (!root.writable) return { skipped: 'read-only' };
+  // not online (offline or not connected): skipped quietly, the status left as it was; the next run after the return looks again
+  if (root.reach === 'offline' || root.reach === 'unmounted') return { skipped: 'music folder offline' };
   const poolAbs = path.join(root.path, pool.dirPath);
   const prev = await dropPoolStatusOf(ctx, libraryId, pool.scanRootId, pool.dirPath);
   const report = async (state: DropPoolState, seenReady: boolean) => {

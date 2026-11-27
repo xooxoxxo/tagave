@@ -11,7 +11,8 @@ export interface FingerprintSweepJobData {
  * IDN-5 sweep: every 10 minutes, for each library that opted in and has an
  * AcoustID key, hand the next unidentified albums that were never
  * fingerprinted to fingerprint.album — the ones text search could not help
- * first (no tags, no candidates), weak candidates after.
+ * first (no tags, no candidates), weak candidates after. An album in a music
+ * folder that is not online (offline or not connected) is skipped until it is back.
  */
 export async function fingerprintSweepJob(ctx: WorkerContext, data: FingerprintSweepJobData): Promise<void> {
   // A parked provider (bad key, quota) means every lookup would fail: fingerprinting
@@ -33,8 +34,14 @@ export async function fingerprintSweepJob(ctx: WorkerContext, data: FingerprintS
       continue;
     }
     const rows = (await ctx.sql`
-      select id from local_albums
-      where library_id = ${libraryId} and state = 'unidentified' and fingerprinted_at is null
+      select la.id from local_albums la
+      where la.library_id = ${libraryId} and la.state = 'unidentified' and la.fingerprinted_at is null
+        -- an album with files in a music folder that is not online waits, quietly
+        and not exists (
+          select 1 from local_tracks lt
+            join files f on f.id = lt.audio_file_id
+            join scan_roots sr on sr.id = f.scan_root_id
+          where lt.local_album_id = la.id and sr.reach in ('offline', 'unmounted'))
       order by case identify_reason when 'no_tags' then 0 when 'no_candidates' then 1 when 'weak_candidates' then 2 else 3 end,
                identify_attempts, created_at
       limit ${data.limit ?? 30}`) as unknown as Array<{ id: string }>;

@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
 import type { IAudioMetadata } from 'music-metadata';
 import { and, eq, inArray, isNotNull, isNull, sql as dsql } from 'drizzle-orm';
 import {
@@ -10,6 +9,7 @@ import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { fileGate } from '../lib/fileGate.js';
 import { FolderOfflineError, isGateFailure } from '../lib/folderOffline.js';
+import { writeCacheFile } from '../lib/localFiles.js';
 import { runMaintenance } from '../lib/maintenance.js';
 import { relDirname } from '../lib/helpers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
@@ -365,11 +365,10 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, che
     return 'failed';
   }
 
-  const dir = path.join(CACHE_ROOT, 'covers', album.libraryId);
+  // the cache folder, never a music folder
+  const localPath = path.join(CACHE_ROOT, 'covers', album.libraryId, `${album.id}.jpg`);
   await checkClaim?.();
-  await mkdir(dir, { recursive: true });
-  const localPath = path.join(dir, `${album.id}.jpg`);
-  await writeFile(localPath, source);
+  await writeCacheFile(localPath, source);
 
   // The image row and its thumbnail land together (thumbnails live in
   // cover_thumbs since 0046; images.thumb_bytes is no longer written).
@@ -441,7 +440,8 @@ export async function settleCoverGap(ctx: WorkerContext, libraryId: string, albu
  * folder image; it runs every few minutes, so a first scan shows its local
  * covers without anyone pressing Fetch art. pg-boss drops a finished job
  * after its retention, so an album with no art anywhere is tried again then.
- * Without a library: every library.
+ * Without a library: every library. An album in a music folder that is not
+ * online (offline or not connected) is skipped until it is back.
  */
 export async function artSweepJob(ctx: WorkerContext, data: ArtSweepJobData): Promise<void> {
   const limit = data.limit ?? 2000;
@@ -455,6 +455,12 @@ export async function artSweepJob(ctx: WorkerContext, data: ArtSweepJobData): Pr
         select 1 from pgboss.job j
         where j.name = 'art.fetch' and j.singleton_key = 'art:' || la.id::text
           and j.created_on >= la.updated_at)
+      -- an album with files in a music folder that is not online waits, quietly
+      and not exists (
+        select 1 from local_tracks lt
+          join files f on f.id = lt.audio_file_id
+          join scan_roots sr on sr.id = f.scan_root_id
+        where lt.local_album_id = la.id and sr.reach in ('offline', 'unmounted'))
     order by la.state = 'matched' desc, la.created_at
     limit ${limit}`) as unknown as { id: string }[];
   for (const r of rows) {

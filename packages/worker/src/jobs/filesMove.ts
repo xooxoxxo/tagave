@@ -488,7 +488,7 @@ async function writeTags(ctx: WorkerContext, deps: MoveDeps, rootId: string, fil
   const fields = fieldsToWriteFrom(diff);
   if (Object.keys(fields).length === 0) return;
   // the gate's helper writes (a temp copy, the audio hash checked, the swap): nothing in this process touches the file
-  const writer = deps.writer ?? new SafeFileWriter(null, rootId);
+  const writer = deps.writer ?? new SafeFileWriter(rootId);
   if (deps.writer) deps.writer.sidecarRootId = rootId;
   const result = await writer.write(abs, fields as TagSet, { id3Version: '2.4', multiValueSeparator: '; ' });
   if (result.error) throw new MoveStop(result.code === 'hash_mismatch' ? `${path.basename(abs)}: the audio would change` : `${path.basename(abs)}: ${result.error}`);
@@ -812,7 +812,7 @@ async function putBack(ctx: WorkerContext, row: MoveRow, deps: MoveDeps, root: s
         const at = await onDisk(rootId, root, f.fromPath);
         if (!at) throw new MoveStop(`${path.basename(f.fromPath)} is gone`);
         // a write cut off by an outage may have left its temp copy beside the file (ruling R9)
-        await new SafeFileWriter(null, rootId).removeStaleTemps(at);
+        await new SafeFileWriter(rootId).removeStaleTemps(at);
         await writeTags(ctx, deps, rootId, f.fileId, at, undoDiff(f));
         f.tagged = false;
       }

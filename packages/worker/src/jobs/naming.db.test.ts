@@ -114,7 +114,8 @@ describe.skipIf(!tools)('naming rules and the drop pool (db, real FLAC)', () => 
     const boss = { send: async (name: string, data: unknown) => { sent.push({ name, data }); return randomUUID(); } };
     ctx = { db: made.db, sql: made.client, boss: boss as any, logger: pino({ level: 'silent' }) };
     tags = new MutagenTagWriter();
-    deps = { writer: new SafeFileWriter(tags), now: () => day };
+    // the move's writer as the worker makes it: the root's, through the file gate
+    deps = { writer: new SafeFileWriter(rootId), now: () => day };
     rootPath = await mkdtemp(path.join(tmpdir(), 'rr75test-naming-'));
     await sql`insert into users (id, email, password_hash) values (${userId}, ${`naming-${userId}@test.com`}, 'x')`;
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'Naming', ${userId}, ${JSON.stringify({

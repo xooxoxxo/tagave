@@ -21,13 +21,15 @@
  * rule is off for that tick: no root reads as having lost its mount point.
  *
  * Coming back from offline or not connected (`onlineAgain`) sends the
- * root's parked work again and queues a scan of the root.
+ * root's parked work again and queues a scan of the root; the player's scan
+ * goes once that scan ends.
  */
 import { databaseNow, dispatchMaintenanceTask, maintenanceSender, parkedSender, recordReach, releaseParkedRows, rootsToWatch, type RootToWatch } from '@tagave/db';
 import { musicMount, sharePort, validServer } from '@tagave/shared/mounts';
 import type { WorkerContext } from '../context.js';
 import { fileGate } from '../fileGate.js';
 import { isGateClosed } from '../folderOffline.js';
+import { holdForReturn } from '../playerScan.js';
 import { musicName, realRootPath } from './paths.js';
 import { inMountTable, readMountinfo } from './mountTable.js';
 import { portAnswers } from './port.js';
@@ -235,7 +237,9 @@ async function dispatchReleased(ctx: WorkerContext, tasks: string[]): Promise<vo
  * keeps it to one job); then exactly one scan of the root, singleton key
  * `scan:<root>`. Parked scan.root and scan.dir rows are not sent: the scan
  * covers them (ruling R14). It is full after not connected, or when a parked
- * scan.root asked for full; quick otherwise (files were not changing).
+ * scan.root asked for full; quick otherwise (files were not changing). The
+ * player's scan of the root is asked for and held until that scan ends
+ * (playerScan.ts holdForReturn, then afterReturn from scan.root).
  * `before`: only rows parked before the reading that saw the return started.
  */
 export function onlineAgain(ctx: WorkerContext): (rootId: string, after: 'offline' | 'unmounted', before?: Date) => Promise<void> {
@@ -252,6 +256,10 @@ export function onlineAgain(ctx: WorkerContext): (rootId: string, after: 'offlin
       failed = err; // the rows stay: the next reading of online sends them (stillOnline)
     }
     await dispatchReleased(ctx, tasks);
+    // the player server scans the root once, after the return scan (scan.root's end: afterReturn)
+    await holdForReturn(ctx, rootId).catch((err) =>
+      ctx.logger.warn({ err: (err as Error).message, scanRootId: rootId }, 'folder watch: could not ask the player to scan the music folder'),
+    );
     const mode = after === 'unmounted' || fullScan ? 'full' : 'quick';
     await ctx.boss.send('scan.root', { scanRootId: rootId, mode }, { singletonKey: `scan:${rootId}` });
     if (failed) throw failed;
