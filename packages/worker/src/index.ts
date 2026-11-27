@@ -11,6 +11,7 @@ import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
 import { scanDirJob, type ScanDirJobData } from './jobs/scanDir.js';
 import { scanSweepJob, type ScanSweepJobData } from './jobs/scanSweep.js';
 import { rootsValidateJob, type RootsValidateJobData } from './jobs/rootsValidate.js';
+import { startFolderWatch, type FolderWatch } from './lib/folderWatch/watch.js';
 import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
 import { filesBackfillDigestJob, type FilesBackfillDigestJobData } from './jobs/filesBackfillDigest.js';
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
@@ -133,6 +134,7 @@ async function main() {
     logger.warn({ err }, 'could not recover maintenance tasks at start');
   }
 
+  let folderWatch: FolderWatch | null = null;
   if (wants('scan.root')) {
     await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) {
@@ -152,6 +154,8 @@ async function main() {
     await boss.send('roots.validate', {}, { singletonKey: 'roots.validate:all' });
     // Every 10 minutes validate all roots (spec LIB-1)
     await boss.schedule('roots.validate', '*/10 * * * *', {}, {});
+    // Each music folder's status, every 30 s (vault "tagave - Offline Library Spec", "The folder watch").
+    folderWatch = startFolderWatch(ctx);
   }
 
   // One folder at a time (the album page's "Rescan this folder"); shares the
@@ -711,6 +715,7 @@ async function main() {
     logger.info('shutting down...');
     clearInterval(heartbeat);
     await watchdog.stop().catch(() => undefined);
+    folderWatch?.stop();
     try {
       await boss.stop({ graceful: true, timeout: 30_000 });
     } catch (err) {
