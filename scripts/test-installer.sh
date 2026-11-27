@@ -230,7 +230,9 @@ printf '%s\n' \
   '22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw' \
   '43 22 0:52 / /mnt/music rw,relatime shared:12 - nfs4 192.0.2.10:/export/music rw' \
   >"$work/mountinfo-default"
-TAGAVE_TEST_SHARE_WAIT=1 TAGAVE_TEST_MOUNTINFO="$work/mountinfo-default" traced --role all --dir "$work/defmusic" >"$work/defmusic.log" \
+# --music-direct: this case is about the default folder, and on Linux the real
+# /mnt would otherwise decide the layout.
+TAGAVE_TEST_SHARE_WAIT=1 TAGAVE_TEST_MOUNTINFO="$work/mountinfo-default" traced --role all --dir "$work/defmusic" --music-direct >"$work/defmusic.log" \
   || { cat "$work/defmusic.log" "$work/trace.log" >&2; fail "music default: a silent /mnt/music failed the install"; }
 grep -q -- '-d /mnt/music' "$work/trace.log" && fail "music default: looked at /mnt/music on a share that does not answer"
 [ "$(env_value MUSIC_DIR "$work/defmusic/.env")" = "/mnt/music" ] \
@@ -1332,6 +1334,186 @@ JSON
 else
   echo "test-installer: skip signed releases (this openssl cannot check Ed25519 signatures)"
 fi
+
+# --- the parent layout -------------------------------------------------------
+# pick_music_layout reads every host fact through a TAGAVE_TEST_* hook here,
+# so these cases run the same on macOS and on Linux: the system
+# (TAGAVE_TEST_UNAME_S), the kernel (_KERNEL), the mount table (_MOUNTINFO),
+# /etc/fstab (_FSTAB), the parent's propagation (_PROPAGATION), Docker's data
+# folder and security options (_DOCKER_ROOT, _DOCKER_SECURITY), the docker
+# program's path (_DOCKER_PATH), and a folder listed in place of the parent
+# (_PARENT_DIR). Every share is at 192.0.2.x, where nothing answers, so no
+# music folder is looked at; each case waits 1 s for it.
+esc_home="$(printf '%s' "$HOME" | sed 's/ /\\040/g')"
+printf '%s\n' \
+  '22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw' \
+  '60 22 0:60 / /mnt/music rw,relatime shared:20 - nfs4 192.0.2.10:/export/music rw,hard' \
+  '61 22 0:61 / /mnt/backup rw,relatime shared:21 - nfs4 192.0.2.11:/export/backup rw,hard' \
+  '62 22 0:62 / /music rw,relatime shared:22 - nfs4 192.0.2.10:/export/music rw,hard' \
+  "63 22 0:63 / $esc_home/music rw,relatime shared:23 - nfs4 192.0.2.10:/export/music rw,hard" \
+  '64 22 0:64 / /srv/media/music rw,relatime shared:24 - nfs4 192.0.2.10:/export/music rw,hard' \
+  '65 22 0:65 / /data/nas/music rw,relatime shared:25 - nfs4 192.0.2.10:/export/music rw,hard' \
+  '66 22 0:66 / /mnt/music+lossless rw,relatime shared:26 - nfs4 192.0.2.10:/export/music rw,hard' \
+  "67 22 0:67 / $esc_work/inst/music rw,relatime shared:27 - nfs4 192.0.2.10:/export/music rw,hard" \
+  >"$work/mountinfo-layout"
+: >"$work/fstab-none"
+printf '%s\n' '# /etc/fstab' "192.0.2.20:/export/tunes  /mnt/music  nfs4  hard,_netdev,vers=4.2  0 0" >"$work/fstab-nonofail"
+mkdir -p "$work/fsonly/music"
+printf '%s\n' "192.0.2.20:/export/tunes  $esc_work/fsonly/music  nfs4  hard,_netdev,nofail,x-systemd.automount  0 0" >"$work/fstab-good"
+# Folders listed in place of the parent: the music alone; the music next to a
+# plain folder and a file; the music next to /mnt/backup, a mount point.
+mkdir -p "$work/list-music/music" "$work/list-plain/music" "$work/list-plain/backup" "$work/list-mounts/music" "$work/list-mounts/backup"
+: >"$work/list-plain/photos"
+# layout_hooks: exports the host facts; L_* variables change one of them.
+layout_hooks() {
+  export TAGAVE_TEST_UNAME_S="${L_UNAME:-Linux}" TAGAVE_TEST_KERNEL="${L_KERNEL:-6.1.0-18-amd64}" \
+    TAGAVE_TEST_PROPAGATION="${L_PROP:-shared}" TAGAVE_TEST_MOUNTINFO="${L_MI:-$work/mountinfo-layout}" \
+    TAGAVE_TEST_FSTAB="${L_FSTAB:-$work/fstab-none}" TAGAVE_TEST_PARENT_DIR="${L_LIST:-$work/list-music}" \
+    TAGAVE_TEST_DOCKER_ROOT="${L_ROOT:-/var/lib/docker}" TAGAVE_TEST_DOCKER_SECURITY="${L_SEC:-name=seccomp,profile=builtin name=cgroupns}" \
+    TAGAVE_TEST_DOCKER_PATH="${L_DPATH:-/usr/bin/docker}" TAGAVE_TEST_SHARE_WAIT=1
+}
+# lay NAME ARGS...: the installer (--yes --no-start) with the hooks, into
+# $work/lay-NAME, its output in $work/lay-NAME.log.
+lay() (
+  layout_hooks
+  run --role all --dir "$work/lay-$1" "${@:2}" >"$work/lay-$1.log" 2>&1
+)
+# parent_keys ENV: the parent layout's lines of ENV, as written.
+parent_keys() {
+  local k
+  for k in TAGAVE_MUSIC_BIND_SOURCE TAGAVE_MUSIC_BIND_TARGET TAGAVE_PLAYER_BIND_TARGET TAGAVE_MUSIC_PROPAGATION TAGAVE_MUSIC_NAME TAGAVE_PLAYER_MUSIC_FOLDER; do
+    grep -E "^$k=" "$1" || true
+  done
+}
+# expect_parent NAME PARENT MUSIC: lay-NAME's .env has the six keys.
+expect_parent() {
+  local want
+  want="$(printf "TAGAVE_MUSIC_BIND_SOURCE='%s'\nTAGAVE_MUSIC_BIND_TARGET=/mnt/.host\nTAGAVE_PLAYER_BIND_TARGET=/host\nTAGAVE_MUSIC_PROPAGATION=rslave\nTAGAVE_MUSIC_NAME='%s'\nTAGAVE_PLAYER_MUSIC_FOLDER='/host/%s'" "$2" "$3" "$3")"
+  [ "$(parent_keys "$work/lay-$1/.env")" = "$want" ] \
+    || { cat "$work/lay-$1.log" >&2; fail "layout $1: .env lacks the parent keys for $2: $(parent_keys "$work/lay-$1/.env")"; }
+  grep -q 'Music folder mounted directly' "$work/lay-$1.log" && fail "layout $1: picked the parent but printed a reason to keep the music folder"
+  return 0
+}
+# expect_direct NAME REASON: no parent key in lay-NAME's .env, and exactly one
+# line, this one, says why.
+expect_direct() {
+  [ -z "$(parent_keys "$work/lay-$1/.env")" ] || fail "layout $1: wrote parent keys: $(parent_keys "$work/lay-$1/.env")"
+  [ "$(count 'Music folder mounted directly' "$work/lay-$1.log")" = 1 ] \
+    || { cat "$work/lay-$1.log" >&2; fail "layout $1: not one line on why the music folder stays"; }
+  grep -qxF "  Music folder mounted directly: $2." "$work/lay-$1.log" \
+    || { cat "$work/lay-$1.log" >&2; fail "layout $1: the reason is not: $2"; }
+}
+silent_line="Your music share isn't connected now. tagave starts anyway and picks it up when it's back."
+
+lay main --music /mnt/music || { cat "$work/lay-main.log" >&2; fail "layout: an NFS /mnt/music failed the install"; }
+expect_parent main /mnt music
+grep -qF "$silent_line" "$work/lay-main.log" || { cat "$work/lay-main.log" >&2; fail "layout: a silent share in the parent layout is not explained"; }
+grep -q "doesn't answer. Turn the NAS on" "$work/lay-main.log" && fail "layout: the parent layout still says the share stops the install"
+got="$(render "$work/lay-main" | python3 -c '
+import json, sys
+s = json.load(sys.stdin)["services"]["worker-files"]
+v = [v for v in s["volumes"] if v["type"] == "bind"][0]
+print(v["source"], v["target"], str(v.get("read_only", False)).lower(), v.get("bind", {}).get("propagation"), s["environment"].get("TAGAVE_MUSIC_NAME"))')"
+[ "$got" = "/mnt /mnt/.host true rslave music" ] || fail "layout: the installer's parent .env renders $got"
+pass "layout: an NFS /mnt/music on Linux with shared propagation gets the parent keys, and compose binds /mnt on /mnt/.host, rslave"
+
+# A re-run decides again: with private propagation the keys go.
+L_PROP=private lay main --music /mnt/music || fail "layout: private propagation failed the install"
+expect_direct main "mounts under /mnt do not reach the parts (its mount is private, not shared)"
+L_UNAME=Darwin lay mac --music /mnt/music || fail "layout: macOS failed the install"
+expect_direct mac "this computer is not Linux"
+pass "layout: a re-run decides again; private propagation and macOS keep the music folder, each with its reason"
+
+L_KERNEL=5.10.0-28-amd64 lay kernel --music /mnt/music || fail "layout: kernel 5.10 failed the install"
+expect_direct kernel "the kernel, 5.10.0-28-amd64, is older than 5.12, which a read-only music folder needs"
+L_KERNEL=5.10.0-28-amd64 lay kernel-rw --music /mnt/music --music-writable || fail "layout: kernel 5.10 rw failed the install"
+expect_parent kernel-rw /mnt music
+pass "layout: kernel 5.10 keeps a read-only install direct and lets a writable one take the parent"
+
+lay root --music /music || fail "layout: /music failed the install"
+expect_direct root "the folder above it, /, is too wide to share"
+lay root2 --music /music --music-parent / || fail "layout: --music-parent / failed the install"
+expect_direct root2 "the folder above it, /, is too wide to share"
+lay home --music "$HOME/music" --music-parent "$HOME" || fail "layout: --music-parent \$HOME failed the install"
+expect_direct home "the folder above it, $HOME, is your home folder"
+lay inst --music "$work/inst/music" --music-parent "$work/inst" --dir "$work/inst/tagave" || fail "layout: the install folder case failed"
+mv "$work/inst/tagave" "$work/lay-inst"
+expect_direct inst "the folder above it, $work/inst, holds the install folder"
+L_ROOT=/mnt/docker lay droot --music /mnt/music || fail "layout: Docker's data under /mnt failed the install"
+expect_direct droot "the folder above it, /mnt, holds Docker's data"
+lay odd --music /mnt/music+lossless || fail "layout: an odd name failed the install"
+expect_direct odd "the music folder's name, music+lossless, has characters tagave can't use there"
+pass "layout: /, the home folder, the install folder, Docker's data and an odd name keep the music folder"
+
+lay srv --music /srv/media/music --music-parent /srv/media || fail "layout: --music-parent /srv/media failed the install"
+expect_parent srv /srv/media music
+lay data --music /data/nas/music || fail "layout: /data/nas/music failed the install"
+expect_direct data "the folder above it, /data/nas, is not under /mnt, /media or /srv (name it with --music-parent)"
+lay data2 --music /data/nas/music --music-parent /data/nas || fail "layout: --music-parent /data/nas failed the install"
+expect_parent data2 /data/nas music
+lay nested --music /srv/media/music --music-parent /srv || fail "layout: --music-parent /srv failed the install"
+expect_direct nested "--music-parent /srv is not the folder right above /srv/media/music"
+lay forced --music /mnt/music --music-direct || fail "layout: --music-direct failed the install"
+expect_direct forced "you asked for it with --music-direct"
+if lay both --music /mnt/music --music-direct --music-parent /mnt; then fail "layout: took --music-direct with --music-parent"; fi
+pass "layout: --music-parent names the parent (the folder right above only); --music-direct writes no keys"
+
+lay plainfolder --music "$work/music" --music-parent "$work" || fail "layout: a plain folder failed the install"
+expect_direct plainfolder "the music folder $work/music is not a mount point or an fstab entry"
+L_FSTAB="$work/fstab-good" lay fsonly --music "$work/fsonly/music" --music-parent "$work/fsonly" || fail "layout: an fstab entry failed the install"
+expect_parent fsonly "$work/fsonly" music
+grep -q 'never edits fstab' "$work/lay-fsonly.log" && fail "layout: advised on an fstab line that has nofail and _netdev"
+L_SEC='name=seccomp,profile=builtin name=rootless name=cgroupns' lay rootless --music /mnt/music || fail "layout: rootless failed the install"
+expect_direct rootless "Docker runs rootless"
+L_DPATH=/snap/bin/docker lay snap --music /mnt/music || fail "layout: snap failed the install"
+expect_direct snap "Docker is the snap package, which only sees some folders"
+pass "layout: a plain folder, rootless and snap Docker keep the music folder; an fstab entry counts as a mount"
+
+listing="  The folder above your music, /mnt, also holds: backup, photos"
+L_LIST="$work/list-plain" lay plain --music /mnt/music || fail "layout: a parent with a plain folder failed the install"
+expect_direct plain "/mnt also holds folders that are not mounts, and there is no terminal to ask"
+grep -qxF "$listing" "$work/lay-plain.log" || { cat "$work/lay-plain.log" >&2; fail "layout: the other entries are not listed by name"; }
+L_LIST="$work/list-mounts" lay mounts --music /mnt/music || fail "layout: a parent with mount points failed the install"
+expect_parent mounts /mnt music
+grep -qxF "  The folder above your music, /mnt, also holds: backup" "$work/lay-mounts.log" || fail "layout: the mount point next to the music is not listed"
+# On a terminal: the list once, one question; y takes the parent, n keeps the music folder.
+lay_tty() (
+  layout_hooks
+  export TAGAVE_TEST_PARENT_DIR="$work/list-plain" TAGAVE_WITH_UPDATER=0 TAGAVE_WITH_PLAYER=0 TAGAVE_SKIP_IMAGE_CHECK=1
+  on_terminal "$1" "$work/lay-$2.log" "$installer" --no-start --version edge --timezone UTC --port 3100 \
+    --role all --dir "$work/lay-$2" --music /mnt/music
+)
+question="Let tagave see all of /mnt? (y/N)"
+lay_tty y tty-yes || { cat "$work/lay-tty-yes.log" >&2; fail "layout: the terminal yes failed the install"; }
+[ "$(count "$question" "$work/lay-tty-yes.log")" = 1 ] || { cat "$work/lay-tty-yes.log" >&2; fail "layout: the terminal was not asked once"; }
+[ "$(count "${listing#  }" "$work/lay-tty-yes.log")" = 1 ] || fail "layout: the terminal did not see the list once"
+grep -q '/mnt/backup\|/mnt/photos' "$work/lay-tty-yes.log" && fail "layout: the list shows paths, not names"
+expect_parent tty-yes /mnt music
+lay_tty n tty-no || { cat "$work/lay-tty-no.log" >&2; fail "layout: the terminal no failed the install"; }
+[ "$(count "$question" "$work/lay-tty-no.log")" = 1 ] || fail "layout: the terminal was not asked once before a no"
+[ -z "$(parent_keys "$work/lay-tty-no/.env")" ] || fail "layout: a no on the terminal wrote parent keys"
+grep -qF 'Music folder mounted directly: you chose not to share all of /mnt.' "$work/lay-tty-no.log" || fail "layout: a no on the terminal is not explained"
+pass "layout: the other entries of the parent are listed by name; a terminal is asked once, without one a plain folder keeps the music folder"
+
+L_FSTAB="$work/fstab-nonofail" lay advice --music /mnt/music || fail "layout: the fstab advice case failed the install"
+expect_parent advice /mnt music
+[ "$(count '192.0.2.10:/export/music  /mnt/music  nfs4  hard,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0 0' "$work/lay-advice.log")" = 1 ] \
+  || { cat "$work/lay-advice.log" >&2; fail "layout: an fstab line without nofail does not get the suggested line once"; }
+[ "$(count 'has no nofail, so this computer may wait or stop at boot while the NAS is off.' "$work/lay-advice.log")" = 1 ] || fail "layout: the advice does not say why"
+grep -q '192.0.2.20\|export/tunes\|vers=4.2' "$work/lay-advice.log" && fail "layout: the advice printed the owner's own fstab line"
+pass "layout: an fstab line without nofail gets the suggested line once, with 192.0.2.10"
+
+# Without --no-start: a silent share in the parent layout starts tagave anyway.
+: >"$work/docker.log"
+(
+  layout_hooks
+  TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --version 0.4.1 --timezone UTC --role all --dir "$work/lay-start" --music /mnt/music
+) >"$work/lay-start.log" 2>&1 || { cat "$work/lay-start.log" >&2; fail "layout: a silent share in the parent layout failed the install"; }
+expect_parent start /mnt music
+grep -qF "$silent_line" "$work/lay-start.log" || fail "layout: the start does not explain the silent share"
+grep -q 'tagave starts once the share answers' "$work/lay-start.log" && fail "layout: the parent layout waited for the share"
+[ -n "$(line_of 'compose up -d')" ] || { cat "$work/lay-start.log" >&2; fail "layout: the parent layout did not start tagave on a silent share"; }
+pass "layout: a silent share in the parent layout says so and the install goes on"
 
 # The two cases that wait the installer's full limits ran in the background.
 check_silent_share
