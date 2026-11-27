@@ -211,25 +211,18 @@ services:
       TAGAVE_MUSIC_NAME: ${TAGAVE_MUSIC_NAME:-}
     volumes:
       - cache:/cache
-      # The music, driven by .env. Without the TAGAVE_MUSIC_* keys this is
-      # MUSIC_DIR on /mnt/music, as before 0.38.0. The installer and the
-      # updater write them; nothing else derives them.
-      # Read-only unless TAGAVE_MUSIC_READ_ONLY=false, which the installer
-      # and the updater write for TAGAVE_MUSIC_MODE=rw (install-tagave.sh
-      # --music-writable): previews only read; applying a tag plan writes,
+      # The music, every part from .env. Without the TAGAVE_MUSIC_BIND_* and
+      # TAGAVE_MUSIC_PROPAGATION keys this is MUSIC_DIR on /mnt/music, as
+      # before 0.38.0. Those parent layout keys come from the installer (and
+      # later the updater); nothing else derives them.
+      # Read-only unless TAGAVE_MUSIC_MODE=rw (install-tagave.sh
+      # --music-writable), the key every earlier .env already has, so each
+      # one keeps its bind: previews only read; applying a tag plan writes,
       # with the mutagen tag writer this image ships.
       # The installer always sets MUSIC_DIR; ./music is only a placeholder so
       # the database computer of a split install does not need one.
-      # create_host_path: false makes a missing folder an error at create,
-      # not a silent empty one. bind.recursive is left out: Compose before
-      # 2.30 rejects the key, and tagave accepts Compose 2.20 and newer.
-      - type: bind
-        source: ${TAGAVE_MUSIC_BIND_SOURCE:-${MUSIC_DIR:-./music}}
-        target: ${TAGAVE_MUSIC_BIND_TARGET:-/mnt/music}
-        read_only: ${TAGAVE_MUSIC_READ_ONLY:-true}
-        bind:
-          propagation: ${TAGAVE_MUSIC_PROPAGATION:-rprivate}
-          create_host_path: false
+      # No bind.recursive: Compose before 2.30 has no such option.
+      - ${TAGAVE_MUSIC_BIND_SOURCE:-${MUSIC_DIR:-./music}}:${TAGAVE_MUSIC_BIND_TARGET:-/mnt/music}:${TAGAVE_MUSIC_MODE:-ro},${TAGAVE_MUSIC_PROPAGATION:-rprivate}
     restart: unless-stopped
     logging: *logging
     depends_on:
@@ -352,14 +345,8 @@ services:
       TZ: ${TZ:-UTC}
     volumes:
       - player-data:/data
-      # The music, read-only, from the same .env keys as worker-files.
-      - type: bind
-        source: ${TAGAVE_MUSIC_BIND_SOURCE:-${MUSIC_DIR:-./music}}
-        target: ${TAGAVE_PLAYER_BIND_TARGET:-/music}
-        read_only: true
-        bind:
-          propagation: ${TAGAVE_MUSIC_PROPAGATION:-rprivate}
-          create_host_path: false
+      # The music, always read-only, from the same .env keys as worker-files.
+      - ${TAGAVE_MUSIC_BIND_SOURCE:-${MUSIC_DIR:-./music}}:${TAGAVE_PLAYER_BIND_TARGET:-/music}:ro,${TAGAVE_MUSIC_PROPAGATION:-rprivate}
     ports:
       - "${TAGAVE_PLAYER_PORT:-4533}:4533"
     # A scan cannot starve Postgres on a small machine.

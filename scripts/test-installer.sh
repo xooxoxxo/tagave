@@ -47,9 +47,10 @@ services() { (cd "$1" && docker compose config --services | sort | tr '\n' ' ');
 mkdir -p "$work/music"
 
 # --- the music bind from .env --------------------------------------------------
-# compose.yml's long-syntax binds of worker-files and player: an old .env
-# renders exactly today's bind, the parent layout keys move it to the folder
-# above the share, and an rw install keeps a writable worker bind.
+# compose.yml's music binds of worker-files and player, every part from .env:
+# an old .env renders exactly today's bind, an old rw .env (only
+# TAGAVE_MUSIC_MODE=rw) keeps a writable worker bind, and the parent layout
+# keys move it to the folder above the share.
 cp "$repo/deploy/compose.yml" "$layout/compose.yml"
 # music_binds: the music bind of worker-files and of player, and their music settings, in one line each.
 music_binds() {
@@ -61,23 +62,22 @@ for name, env in (("worker-files", ["TAGAVE_MUSIC_NAME"]), ("player", ["ND_MUSIC
     v = [v for v in s["volumes"] if v["type"] == "bind"][0]
     b = v.get("bind", {})
     print(name, "source:", v["source"], "target:", v["target"], "read_only:", str(v.get("read_only", False)).lower(),
-          "propagation:", b.get("propagation"), "create_host_path:", str(b.get("create_host_path")).lower(),
-          *("%s=%s" % (k, s["environment"].get(k)) for k in env))'
+          "propagation:", b.get("propagation"), *("%s=%s" % (k, s["environment"].get(k)) for k in env))'
 }
 layout_env() {
   printf 'TAGAVE_VERSION=0.38.0\nAPP_SECRET=offlinetest-not-a-secret\nPOSTGRES_PASSWORD=offlinetest-not-a-password\nCOMPOSE_PROFILES=files,player\nMUSIC_DIR=/mnt/music\n%s' "$1" >"$layout/.env"
 }
 layout_env ''
 got="$(music_binds)"
-[ "$got" = "worker-files source: /mnt/music target: /mnt/music read_only: true propagation: rprivate create_host_path: false TAGAVE_MUSIC_NAME=
-player source: /mnt/music target: /music read_only: true propagation: rprivate create_host_path: false ND_MUSICFOLDER=/music ND_SCANNER_PURGEMISSING=never" ] \
+[ "$got" = "worker-files source: /mnt/music target: /mnt/music read_only: true propagation: rprivate TAGAVE_MUSIC_NAME=
+player source: /mnt/music target: /music read_only: true propagation: rprivate ND_MUSICFOLDER=/music ND_SCANNER_PURGEMISSING=never" ] \
   || fail "music bind: an old .env does not render today's bind: $got"
 layout_env 'TAGAVE_MUSIC_MODE=rw
-TAGAVE_MUSIC_READ_ONLY=false
 '
 got="$(music_binds)"
-case "$got" in "worker-files source: /mnt/music target: /mnt/music read_only: false "*) ;; *) fail "music bind: an rw .env does not render a writable worker bind: $got" ;; esac
-printf '%s\n' "$got" | grep -q '^player .* read_only: true ' || fail "music bind: the player must stay read-only on an rw install: $got"
+[ "$got" = "worker-files source: /mnt/music target: /mnt/music read_only: false propagation: rprivate TAGAVE_MUSIC_NAME=
+player source: /mnt/music target: /music read_only: true propagation: rprivate ND_MUSICFOLDER=/music ND_SCANNER_PURGEMISSING=never" ] \
+  || fail "music bind: an old rw .env does not keep a writable worker bind and a read-only player: $got"
 layout_env 'TAGAVE_MUSIC_BIND_SOURCE=/mnt
 TAGAVE_MUSIC_BIND_TARGET=/mnt/.host
 TAGAVE_PLAYER_BIND_TARGET=/host
@@ -86,11 +86,11 @@ TAGAVE_MUSIC_NAME=music
 TAGAVE_PLAYER_MUSIC_FOLDER=/host/music
 '
 got="$(music_binds)"
-[ "$got" = "worker-files source: /mnt target: /mnt/.host read_only: true propagation: rslave create_host_path: false TAGAVE_MUSIC_NAME=music
-player source: /mnt target: /host read_only: true propagation: rslave create_host_path: false ND_MUSICFOLDER=/host/music ND_SCANNER_PURGEMISSING=never" ] \
+[ "$got" = "worker-files source: /mnt target: /mnt/.host read_only: true propagation: rslave TAGAVE_MUSIC_NAME=music
+player source: /mnt target: /host read_only: true propagation: rslave ND_MUSICFOLDER=/host/music ND_SCANNER_PURGEMISSING=never" ] \
   || fail "music bind: the parent layout keys do not render the parent bind: $got"
 rm "$layout/compose.yml" "$layout/.env"
-pass "music bind: an old .env renders today's bind, the parent keys the parent bind, rw a writable worker bind"
+pass "music bind: an old .env renders today's bind, an old rw .env a writable worker bind, the parent keys the parent bind"
 
 # --- role all -----------------------------------------------------------------
 run --role all --dir "$work/all" --music "$work/music" >"$work/all.log" 2>&1 \
@@ -153,24 +153,15 @@ pass "role files"
 
 # --- writable music -----------------------------------------------------------
 [ "$(env_value TAGAVE_MUSIC_MODE "$work/all/.env")" = "ro" ] || fail "default music mode is not ro"
-grep -q '^TAGAVE_MUSIC_READ_ONLY=' "$work/all/.env" && fail "a read-only install wrote TAGAVE_MUSIC_READ_ONLY"
 render "$work/all" | grep -q '"read_only": true' || fail "a read-only install does not mount the music read-only"
 run --role all --music-writable --dir "$work/rw" --music "$work/music" >"$work/rw.log" 2>&1 \
   || { cat "$work/rw.log" >&2; fail "--music-writable"; }
 [ "$(env_value TAGAVE_MUSIC_MODE "$work/rw/.env")" = "rw" ] || fail "--music-writable: TAGAVE_MUSIC_MODE"
-[ "$(env_value TAGAVE_MUSIC_READ_ONLY "$work/rw/.env")" = "false" ] || fail "--music-writable: TAGAVE_MUSIC_READ_ONLY is not false"
 render "$work/rw" | grep -q '"read_only": true' && fail "--music-writable: the music mount is still read-only"
 run --role all --dir "$work/rw" --music "$work/music" >"$work/rw2.log" 2>&1 \
   || { cat "$work/rw2.log" >&2; fail "--music-writable, re-run"; }
 [ "$(env_value TAGAVE_MUSIC_MODE "$work/rw/.env")" = "rw" ] || fail "--music-writable: a re-run lost rw"
-[ "$(grep -c '^TAGAVE_MUSIC_READ_ONLY=false$' "$work/rw/.env")" = 1 ] || fail "--music-writable: a re-run does not keep exactly one TAGAVE_MUSIC_READ_ONLY=false"
 render "$work/rw" | grep -q '"read_only": true' && fail "--music-writable: a re-run mounts the music read-only"
-# An rw .env from before 0.38.0 (no TAGAVE_MUSIC_READ_ONLY) gets the key on a re-run.
-grep -v '^TAGAVE_MUSIC_READ_ONLY=' "$work/rw/.env" >"$work/rw-old.env"
-cp "$work/rw-old.env" "$work/rw/.env"
-run --role all --dir "$work/rw" --music "$work/music" >"$work/rw3.log" 2>&1 \
-  || { cat "$work/rw3.log" >&2; fail "--music-writable, re-run on an old .env"; }
-[ "$(env_value TAGAVE_MUSIC_READ_ONLY "$work/rw/.env")" = "false" ] || fail "--music-writable: a re-run on an rw .env from before 0.38.0 did not write TAGAVE_MUSIC_READ_ONLY=false"
 pass "--music-writable mounts the music read-write and keeps it on a re-run"
 
 # --- the music check on a share that does not answer -------------------------
@@ -592,14 +583,15 @@ mkdir -p "$work/upd/backups/pre-update-by-hand"
 printf 'PGDMP mine' >"$work/upd/backups/pre-update-by-hand/database.pgdump"
 printf 'PGDMP mine' >"$work/upd/backups/my-own.pgdump"
 
-# An rw install from before 0.38.0: TAGAVE_MUSIC_MODE=rw and no TAGAVE_MUSIC_READ_ONLY.
-sed 's/^TAGAVE_MUSIC_MODE=ro$/TAGAVE_MUSIC_MODE=rw/' "$work/upd/.env" | grep -v '^TAGAVE_MUSIC_READ_ONLY=' >"$work/upd-rw.env"
+# An rw install from before 0.38.0: TAGAVE_MUSIC_MODE=rw and nothing new.
+sed 's/^TAGAVE_MUSIC_MODE=ro$/TAGAVE_MUSIC_MODE=rw/' "$work/upd/.env" >"$work/upd-rw.env"
 cp "$work/upd-rw.env" "$work/upd/.env"
 
 : >"$work/docker.log"
 fake update --dir "$work/upd" --yes >"$work/update.log" 2>&1 || { cat "$work/update.log" >&2; fail "update"; }
 [ "$(env_value TAGAVE_VERSION "$work/upd/.env")" = "0.5.0" ] || fail "update: .env not moved to 0.5.0"
-[ "$(env_value TAGAVE_MUSIC_READ_ONLY "$work/upd/.env")" = "false" ] || fail "update: an rw install did not get TAGAVE_MUSIC_READ_ONLY=false"
+[ "$(env_value TAGAVE_MUSIC_MODE "$work/upd/.env")" = "rw" ] || fail "update: an rw install lost TAGAVE_MUSIC_MODE=rw"
+render "$work/upd" | grep -q '"read_only": true' && fail "update: an rw install from before 0.38.0 mounts the music read-only with the new compose.yml"
 backup="$(find "$work/upd/backups" -mindepth 1 -maxdepth 1 -type d -name 'pre-update-0.4.1-*' | head -n 1)"
 [ -n "$backup" ] || fail "update: no pre-update-0.4.1 backup folder"
 [ -s "$backup/database.pgdump" ] || fail "update: no database dump in $backup"
