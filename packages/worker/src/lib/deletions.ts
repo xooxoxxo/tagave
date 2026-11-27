@@ -19,14 +19,14 @@
  * as failed, and the next run (the daily one, or the owner's) takes them up.
  */
 import path from 'node:path';
-import { albumKeyLock, updateMaintenanceTask, type MaintenanceWork } from '@tagave/db';
+import { albumKeyLock, rootReach, updateMaintenanceTask, type MaintenanceWork } from '@tagave/db';
 import { TRASH_DAYS, TRASH_DIR } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { refreshAlbumCounters } from '../jobs/clusterDir.js';
 import { fileGate } from './fileGate.js';
 import { fileStat, insideRoot, mountIdentity } from './fileRecovery.js';
-import { isGateFailure, isOfflineError } from './folderOffline.js';
-import { gateDirEmpty, gateExists, gateOnDisk, gateStat } from './gatedPaths.js';
+import { FolderOfflineError, isAbsent, isGateFailure, isOfflineError } from './folderOffline.js';
+import { gateDirEmpty, gateExists, gateLstat, gateOnDisk, gateStat } from './gatedPaths.js';
 import { runMaintenance, type MaintenanceRun } from './maintenance.js';
 import { albumsChanged } from './albumCare.js';
 
@@ -169,7 +169,11 @@ export async function trashOne(rootId: string, root: string, relPath: string, da
   } catch (err) {
     if (unanswered(err)) throw err;
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') return { outcome: 'gone' };
+    // gone only when the file itself is: an ENOENT of another path (a realpath on the way) is no proof
+    if (code === 'ENOENT') {
+      if (!(await gateLstat(rootId, src))) return { outcome: 'gone' };
+      return { outcome: 'marked', error: (err as Error).message };
+    }
     return { outcome: 'marked', error: code === 'EXDEV' ? 'On another disk than its music folder' : code === 'EACCES' || code === 'EPERM' || code === 'EROFS' ? 'The music folder is read-only' : (err as Error).message };
   }
 }
@@ -197,6 +201,48 @@ class OfflineRoots {
   }
   get size(): number {
     return this.roots.size;
+  }
+  private readonly checked = new Map<string, boolean>();
+  /**
+   * Before a row may read "gone": the root is connected (rootConnected).
+   * Asked once per root and run. False, or an offline answer: the root's
+   * rows wait as they are, with no error, and nothing is dropped.
+   */
+  async connected(ctx: Pick<WorkerContext, 'sql' | 'logger'>, rootId: string, root: string): Promise<boolean> {
+    if (this.roots.has(rootId)) return false;
+    const known = this.checked.get(rootId);
+    if (known !== undefined) return known;
+    let ok: boolean;
+    try {
+      ok = await rootConnected(ctx, rootId, root);
+    } catch (err) {
+      if (!this.take(ctx, rootId, err, 'the check of the music folder')) throw err;
+      return false;
+    }
+    this.checked.set(rootId, ok);
+    if (!ok) {
+      this.roots.add(rootId);
+      ctx.logger.warn({ scanRootId: rootId }, 'files.trash: paused, the music folder is not connected');
+    }
+    return ok;
+  }
+}
+
+/**
+ * The root is there to answer for its files: its reach is not offline or
+ * not connected, and its folder is there and holds something. A share that
+ * is not connected leaves an empty folder (or none) where it was mounted,
+ * and every file in it would read as gone (PR1's not-connected rule).
+ * Offline and gate failures throw.
+ */
+export async function rootConnected(ctx: Pick<WorkerContext, 'sql'>, rootId: string, root: string): Promise<boolean> {
+  const { reach } = await rootReach(ctx.sql, rootId);
+  if (reach === 'offline' || reach === 'unmounted') return false;
+  try {
+    return !(await gateDirEmpty(rootId, root));
+  } catch (err) {
+    if (isAbsent(err)) return false;
+    throw err;
   }
 }
 
@@ -228,7 +274,15 @@ export async function moveWaiting(ctx: WorkerContext, libraryId: string | null, 
   const offline = new OfflineRoots();
   const gone: string[] = [];
   for (const r of rows) {
-    if (offline.has(r.rootId)) { paused++; continue; }
+    // a root not connected would read every file as gone: its rows wait
+    if (!(await offline.connected(ctx, r.rootId, r.root))) {
+      if (opts.throwOffline) {
+        await dropDeletedFiles(ctx, gone);
+        throw offline.first ?? new FolderOfflineError(r.rootId, 'not_mounted');
+      }
+      paused++;
+      continue;
+    }
     let out: Awaited<ReturnType<typeof trashOne>>;
     try {
       out = await trashOne(r.rootId, r.root, r.relPath, day);
@@ -266,7 +320,23 @@ export async function restoreWaiting(ctx: WorkerContext, libraryId: string | nul
   const libs = new Set<string>();
   const back: string[] = [];
   for (const r of rows) {
-    if (offline.has(r.rootId)) { paused++; continue; }
+    if (!(await offline.connected(ctx, r.rootId, r.root))) { paused++; continue; }
+    // the trash it went into is this mount's: another mount (or a share not connected) would read the copy as gone
+    if (r.trashMount) {
+      let mount: string | null;
+      try {
+        mount = await mountIdentity(r.rootId, r.root);
+      } catch (err) {
+        if (!unanswered(err)) ctx.logger.warn({ fileId: r.fileId, err: (err as Error).message }, 'files.trash: Restore waits, the music folder is unavailable');
+        else offline.take(ctx, r.rootId, err, 'Restore');
+        mount = null;
+      }
+      if (mount !== r.trashMount) {
+        if (mount !== null) ctx.logger.warn({ fileId: r.fileId }, 'files.trash: Restore waits, the trash is on another mount');
+        paused++;
+        continue;
+      }
+    }
     let src: string | null = null;
     const dest = path.join(r.root, r.relPath);
     try {

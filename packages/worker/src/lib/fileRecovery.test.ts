@@ -56,6 +56,9 @@ describe('file recovery checks through the file gate', () => {
     // a link out of the root, and a path that climbs out, are refused
     await expect(insideRoot(rootId, link, path.join(link, 'Away', 'x.flac'))).rejects.toThrow('The file path leaves its music folder');
     await expect(insideRoot(rootId, link, path.join(link, '..', 'elsewhere.flac'))).rejects.toThrow('The file path leaves its music folder');
+    // a `..` after a link that leads out would fold away before the link resolves: refused as it is
+    await expect(insideRoot(rootId, link, `${link}/Away/../A/b.flac`)).rejects.toThrow('The file path leaves its music folder');
+    await expect(insideRoot(rootId, link, `${link}/A/../A/b.flac`)).rejects.toThrow('The file path leaves its music folder');
   });
 
   it('stat and digest run in the helper; a file that is not there reads null', async () => {

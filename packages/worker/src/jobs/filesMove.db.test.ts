@@ -20,6 +20,7 @@ import { makeDb } from '@tagave/db';
 import type { MovePlan, TagSet } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { setFileGate } from '../lib/fileGate.js';
+import { onlineAgain } from '../lib/folderWatch/watch.js';
 import { SafeFileWriter } from '../lib/safeFileWriter.js';
 import { makeLab, type Lab } from '../testkit/moveLab.js';
 import { OutageGate } from '../testkit/outageGate.js';
@@ -397,9 +398,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('files.move and an offline music
     // nothing is scanned, missing or forgotten while the folder is away
     expect((await lab.sql`select count(*)::int as n from files where scan_root_id = ${root.id} and status <> 'present'`)[0].n).toBe(0);
 
-    // back: nothing resumes on its own; the owner's Undo puts the rest back
+    // back: the watch's return resumes nothing; the owner's Undo puts the rest back
     gate.up();
-    expect((await moveRow()).state).toBe('done');
+    await lab.sql`update scan_roots set reach = 'offline', reach_reason = 'timeout' where id = ${root.id}`;
+    lab.sent.length = 0;
+    await onlineAgain(lab.ctx)(root.id, 'offline');
+    expect(lab.sent.filter((s) => s.name === 'files.move')).toEqual([]);
+    expect(await moveRow()).toMatchObject({ state: 'done', error: 'Paused while the music folder is offline' });
+    for (const f of moving) {
+      const row = rows.get(f.fileId!)!;
+      expect(await onDiskNow(row.relPath)).toBe(true);
+      expect((await lab.sql`select rel_path as "relPath" from files where id = ${f.fileId}`)[0].relPath).toBe(row.relPath);
+    }
+    expect((await lab.sql`select count(*)::int as n from parked_jobs where scan_root_id = ${root.id}`)[0].n).toBe(0);
+    await lab.sql`update scan_roots set reach = 'online', reach_reason = null where id = ${root.id}`;
     await lab.sql`update album_moves set state = 'undoing' where id = ${move.id}`;
     const undone = await filesMoveJob(lab.ctx, { moveId: move.id, action: 'undo' }, { now: () => day });
     expect(undone).toMatchObject({ state: 'undone', problems: 0 });
