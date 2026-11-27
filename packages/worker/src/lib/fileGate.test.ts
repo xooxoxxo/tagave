@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FileGate, gateLimits } from './fileGate.js';
@@ -9,8 +9,8 @@ const FAKE = fileURLToPath(new URL('../testkit/fakeHelper.mjs', import.meta.url)
 let suspects: string[] = [];
 let made: FileGate[] = [];
 
-const gate = (limits: Partial<{ waitMs: number; idleMs: number; helpers: number; stuckMax: number }> = {}) => {
-  const g = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 1_500, helpers: 2, stuckMax: 2, ...limits }, onSuspect: (id) => suspects.push(id) });
+const gate = (limits: Partial<{ waitMs: number; idleMs: number; helpers: number; stuckMax: number }> = {}, kill?: () => void) => {
+  const g = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 1_500, helpers: 2, stuckMax: 2, ...limits }, onSuspect: (id) => suspects.push(id), ...(kill ? { kill } : {}) });
   made.push(g);
   return g;
 };
@@ -27,6 +27,21 @@ function fakeHelpers(): string[] {
     return []; // pgrep exits 1 when nothing matches
   }
 }
+
+/** Waits (at most 3 s) for a condition. */
+async function until(cond: () => boolean): Promise<void> {
+  for (let i = 0; i < 60 && !cond(); i++) await new Promise((r) => setTimeout(r, 50));
+  expect(cond()).toBe(true);
+}
+
+/** The kernel lets go: kills the fake helpers a no-op `kill` left running, and waits until they are gone. */
+async function kernelLetsGo(): Promise<void> {
+  for (const pid of fakeHelpers()) process.kill(Number(pid), 'SIGKILL');
+  await until(() => fakeHelpers().length === 0);
+}
+
+/** A no-op kill: a helper given up on stays, as one stuck in the kernel does. */
+const unkillable = () => undefined;
 
 beforeEach(() => {
   suspects = [];
@@ -63,17 +78,56 @@ describe('FileGate', () => {
     expect(g.stuckCount('r1')).toBe(1);
   });
 
-  it('stops sending a root work after too many stuck helpers, until it is clear', async () => {
-    const g = gate();
-    for (let i = 0; i < 2; i++) await g.run('r1', { op: 'stat', path: 'hang' }).catch(() => {});
+  it('stops sending a root work while too many stuck helpers are alive; clear does not reopen it, their exit does', async () => {
+    const g = gate({}, unkillable);
+    for (let i = 0; i < 2; i++) await g.run('r1', { op: 'stat', path: 'stuck' }).catch(() => {});
+    expect(g.stuckCount('r1')).toBe(2);
     const t = Date.now();
     await expect(g.run('r1', { op: 'stat', path: 'ok' })).rejects.toBeInstanceOf(FolderOfflineError);
     expect(Date.now() - t).toBeLessThan(50);
     // Another root is not held back.
     expect(await g.run('r2', { op: 'stat', path: 'ok' })).toBe('ok');
+    // The watch reads the root online: the children are still alive, so the root stays shut for jobs.
     g.clear('r1');
-    expect(g.stuckCount('r1')).toBe(0);
+    expect(g.stuckCount('r1')).toBe(2);
+    expect(g.refuses('r1')).toBe(true);
+    await expect(g.run('r1', { op: 'stat', path: 'ok' })).rejects.toMatchObject({ reason: 'timeout' });
+    // The watch's probe still passes (R3).
+    expect(await g.run('r1', { op: 'stat', path: 'ok' }, { probe: true })).toBe('ok');
+    // Once they exit, jobs run again.
+    await kernelLetsGo();
+    await until(() => g.stuckCount('r1') === 0);
     expect(await g.run('r1', { op: 'stat', path: 'ok' })).toBe('ok');
+  });
+
+  it('a hung helper counts stuck until its process exits, then not', async () => {
+    const g = gate({ stuckMax: 4 }, unkillable);
+    await expect(g.run('r1', { op: 'stat', path: 'stuck' })).rejects.toBeInstanceOf(FolderOfflineError);
+    expect(g.stuckCount('r1')).toBe(1);
+    g.clear('r1');
+    expect(g.stuckCount('r1')).toBe(1);
+    await kernelLetsGo();
+    await until(() => g.stuckCount('r1') === 0);
+  });
+
+  it('a stuck child tool counts until it exits; clear does not forget it', async () => {
+    const g = gate({ stuckMax: 1 });
+    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+    g.markStuck('r1', child);
+    expect(g.stuckCount('r1')).toBe(1);
+    g.clear('r1');
+    expect(g.refuses('r1')).toBe(true);
+    child.kill('SIGKILL');
+    await until(() => g.stuckCount('r1') === 0);
+    expect(g.refuses('r1')).toBe(false);
+    // one that already exited counts nothing; a promise counts until it settles
+    g.markStuck('r1', child);
+    expect(g.stuckCount('r1')).toBe(0);
+    let gone = () => {};
+    g.markStuck('r1', new Promise<void>((done) => { gone = done; }));
+    expect(g.stuckCount('r1')).toBe(1);
+    gone();
+    await until(() => g.stuckCount('r1') === 0);
   });
 
   it('an EIO answer is the folder going offline', async () => {
@@ -92,7 +146,8 @@ describe('FileGate', () => {
     expect(await next).toBe('b');
     await expect(g.run('r1', { op: 'stat', path: 'eio' })).rejects.toBeInstanceOf(FolderOfflineError);
     expect(() => g.markStuck('r1')).not.toThrow();
-    expect(g.stuckCount('r1')).toBe(2);
+    // the mark, plus the hung helper while it has not exited
+    expect(g.stuckCount('r1')).toBeGreaterThanOrEqual(1);
   });
 
   it('another fs error comes back as an Error with its code', async () => {
@@ -149,11 +204,12 @@ describe('FileGate', () => {
 
 describe('FileGate probes (the folder watch)', () => {
   it('a probe passes the stuck cap, so a root at the cap can still read online', async () => {
-    const g = gate({ stuckMax: 1 });
-    await expect(g.run('r1', { op: 'stat', path: 'hang' })).rejects.toBeInstanceOf(FolderOfflineError);
+    const g = gate({ stuckMax: 1 }, unkillable);
+    await expect(g.run('r1', { op: 'stat', path: 'stuck' })).rejects.toBeInstanceOf(FolderOfflineError);
     expect(g.refuses('r1')).toBe(true);
     await expect(g.run('r1', { op: 'stat', path: 'ok' })).rejects.toMatchObject({ reason: 'timeout' });
     expect(await g.run('r1', { op: 'stat', path: 'ok' }, { probe: true })).toBe('ok');
+    await kernelLetsGo();
   });
 
   it('an offline answer to a probe carries its code', async () => {
@@ -171,7 +227,7 @@ describe('FileGate probes (the folder watch)', () => {
     const t = Date.now();
     await expect(again).rejects.toMatchObject({ scanRootId: 'r1', reason: 'timeout' });
     expect(Date.now() - t).toBeLessThan(100);
-    expect(g.stuckCount('r1')).toBe(1); // the held helper is not counted twice
+    expect(g.stuckCount('r1')).toBeLessThanOrEqual(1); // the held helper is not counted twice
     // another root's probe is not held back
     expect(await g.run('r2', { op: 'stat', path: 'ok' }, { probe: true })).toBe('ok');
     // once that helper is gone, the next probe forks again

@@ -8,7 +8,7 @@
  * `rchar` in /proc/<pid>/io, procIo.ts), so a silent tool reading a big file
  * on a slow live share is not taken for a hung one. On a deadline: SIGKILL, unref the child and close its
  * pipes, never wait for it to exit, count it stuck for the root
- * (`fileGate().markStuck`, which also tells the watch) and throw
+ * (`fileGate().markStuck` until it exits, which also tells the watch) and throw
  * FolderOfflineError(rootId, 'timeout'). Spawning touches nothing on the
  * share: paths are only arguments.
  */
@@ -82,7 +82,7 @@ export function spawnGuarded(bin: string, args: readonly string[], opts: Guarded
     const giveUp = () => {
       if (!finish()) return;
       letGo(child);
-      fileGate().markStuck(opts.rootId);
+      fileGate().markStuck(opts.rootId, child);
       reject(new FolderOfflineError(opts.rootId, 'timeout'));
     };
     const stop = (err: unknown) => {

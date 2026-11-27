@@ -10,13 +10,23 @@ import pino from 'pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { files, libraries, makeDb, recordReach, rootsToWatch, scanRoots, users } from '@tagave/db';
 import type { WorkerContext } from '../context.js';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { FileGate } from '../fileGate.js';
+import { FileGate, setFileGate } from '../fileGate.js';
 import { gateProbe } from './probe.js';
 import type { ProbeOutcome } from './reach.js';
-import { FolderWatch } from './watch.js';
+import { FolderWatch, folderWatch, startFolderWatch } from './watch.js';
 
 const FAKE = fileURLToPath(new URL('../../testkit/fakeHelper.mjs', import.meta.url));
+
+/** This process's fake helpers still running. */
+function fakeHelperPids(): string[] {
+  try {
+    return execFileSync('pgrep', ['-P', String(process.pid), '-f', 'fakeHelper.mjs'], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
 const TAG = `offlinetest-${randomBytes(3).toString('hex')}`;
 const ENV = { TAGAVE_MUSIC_NAME: 'music' };
@@ -278,18 +288,41 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('folder watch (db)', () => {
 
   it('probes through the gate past its stuck cap: a deadline reads offline, the next answer online', async () => {
     // The gate's own rule (fileGate.test.ts): while the root's last probe helper is stuck, a probe reads a deadline and forks nothing.
-    const gate = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 1_500, helpers: 2, stuckMax: 1 } });
+    // kill: a no-op, so the helper given up on stays, as one stuck in the kernel does, until the test kills it
+    const gate = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 1_500, helpers: 2, stuckMax: 1 }, kill: () => undefined });
     let dead = true;
-    const probe = vi.fn((id: string, dir: string, known: string[]) => gateProbe(gate, id, dir === REAL_A && dead ? 'hang' : 'ok', known.map(() => 'ok')));
+    const probe = vi.fn((id: string, dir: string, known: string[]) => gateProbe(gate, id, dir === REAL_A && dead ? 'stuck' : 'ok', known.map(() => 'ok')));
     const w = new FolderWatch({ ctx, env: ENV, readMountinfo: async () => LOCAL_INFO, probe, now: clock });
     try {
       expect((await w.tick()).get(rootId)).toEqual({ reach: 'offline', reason: 'timeout' });
       expect(gate.refuses(rootId)).toBe(true); // at the cap: the gate takes no other work for the root
       dead = false;
-      await flush(); // the killed helper exits
+      // the kernel lets the stuck helper go
+      for (const pid of fakeHelperPids()) process.kill(Number(pid), 'SIGKILL');
+      await flush();
       now = T2;
       expect((await w.tick()).get(rootId)).toEqual({ reach: 'online', reason: null });
     } finally {
+      await gate.close();
+    }
+  });
+
+  it('a gate deadline in a job tells the running watch, for that root; a stopped watch hears nothing', async () => {
+    const gate = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 1_500, helpers: 2, stuckMax: 4 } });
+    setFileGate(gate);
+    try {
+      const w = startFolderWatch(ctx, { roots: async () => [] });
+      const heard = vi.spyOn(w, 'suspect').mockImplementation(() => undefined);
+      // a job's file call on a dead share, through the process's gate
+      await expect(gate.run(rootId, { op: 'stat', path: 'hang' })).rejects.toMatchObject({ scanRootId: rootId, reason: 'timeout' });
+      expect(heard).toHaveBeenCalledWith(rootId);
+      expect(heard).toHaveBeenCalledTimes(1);
+      w.stop();
+      expect(folderWatch()).toBeNull();
+      await expect(gate.run(rootId, { op: 'stat', path: 'eio' })).rejects.toMatchObject({ reason: 'io_error' });
+      expect(heard).toHaveBeenCalledTimes(1);
+    } finally {
+      setFileGate(null);
       await gate.close();
     }
   });

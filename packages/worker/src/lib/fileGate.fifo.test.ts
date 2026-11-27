@@ -74,11 +74,15 @@ describe('a dead share', () => {
   it('through the gate: the same four opens leave this process free and the job offline', async () => {
     const dead = await deadFolder();
     // readSmall is a long op: its idle deadline is the one that gives up here.
-    const g = new FileGate({ limits: { waitMs: 300, idleMs: 300, helpers: 2, stuckMax: 8 } });
+    // Each deadline counts one stuck helper as it happens; a helper killed on a FIFO open does exit,
+    // so the live count (R16) falls again once the kernel lets it go.
+    const counted: number[] = [];
+    const g: FileGate = new FileGate({ limits: { waitMs: 300, idleMs: 300, helpers: 2, stuckMax: 8 }, onSuspect: (id) => counted.push(g.stuckCount(id)) });
     const calls = Array.from({ length: 4 }, () => g.run('r', { op: 'readSmall', path: dead.fifo }).catch((e) => e));
     expect(await Promise.race([readFile(__filename).then(() => 'read'), sleep(1_000).then(() => 'stuck')])).toBe('read');
     for (const e of await Promise.all(calls)) expect(e).toBeInstanceOf(FolderOfflineError);
-    expect(g.stuckCount('r')).toBe(4);
+    expect(counted).toHaveLength(4);
+    expect(Math.min(...counted)).toBeGreaterThanOrEqual(1);
     await unblock(dead);
     await g.close();
     await dead.cleanup();
