@@ -105,6 +105,8 @@ const isOutside = (base: string, target: string): boolean => {
  * inside itself, and a link inside the root that leads out is refused.
  */
 export async function gateInsideRoot(rootId: string, root: string, file: string): Promise<void> {
+  // `..` would fold away before the links on the way resolve (root/Away/../x with Away leading out): never taken
+  if (file.split(/[\\/]+/).includes('..')) throw new Error('The file path leaves its music folder');
   const target = path.resolve(file);
   const top = path.resolve(root);
   const base = await fileGate().run<string>(rootId, { op: 'realpath', path: top });

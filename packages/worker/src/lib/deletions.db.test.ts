@@ -222,6 +222,59 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('deletions on the file worker (d
     expect((await sql`select count(*)::int as n from local_albums where id = ${a.albumId}`)[0].n).toBe(0);
   });
 
+  it('a music folder not connected (empty, gone, or read unmounted) never reads its files as gone', async () => {
+    // a second root: the share's mount point, left as an empty folder
+    const otherId = randomUUID();
+    const otherPath = await mkdtemp(path.join(tmpdir(), 'tagave-deletions-unmounted-'));
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status, writable, probe_writable)
+              values (${otherId}, ${libraryId}, ${otherPath}, 'share', 'ok', true, true)`;
+    try {
+      const mk = async (rel: string, state: 'moving' | 'restoring', trashMount: string | null = null) => {
+        const [f] = await sql`insert into files (library_id, scan_root_id, rel_path, size_bytes, mtime, status, handler)
+                              values (${libraryId}, ${otherId}, ${rel}, 10, 1, 'present', 'audio') returning id::text as id`;
+        await sql`insert into file_deletions (file_id, library_id, scan_root_id, kind, state, rel_path, trash_rel_path, trash_mount, created_by)
+                  values (${f.id}, ${libraryId}, ${otherId}, 'trash', ${state}, ${rel},
+                          ${state === 'restoring' ? `.tagave-trash/2026-11-02/${rel}` : null}, ${trashMount}, ${userId})`;
+        return f.id as string;
+      };
+      const moving = await mk('Share/Album/01 A.flac', 'moving');
+      const restoring = await mk('Share/Album/02 B.flac', 'restoring');
+      const kept = async () => {
+        expect(await row(moving)).toMatchObject({ state: 'moving', kind: 'trash', error: null });
+        expect(await row(restoring)).toMatchObject({ state: 'restoring', error: null });
+        expect((await sql`select count(*)::int as n from files where id = any(${[moving, restoring]}::uuid[])`)[0].n).toBe(2);
+      };
+      // the empty mount point (reach not read yet)
+      expect(await moveWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
+      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
+      await kept();
+      // the folder itself gone
+      await rm(otherPath, { recursive: true, force: true });
+      expect(await moveWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
+      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
+      await kept();
+      // the watch reads it not connected, though something is in the folder
+      await mkdir(path.join(otherPath, 'stray'), { recursive: true });
+      await sql`update scan_roots set reach = 'unmounted', reach_reason = 'not_mounted' where id = ${otherId}`;
+      expect(await moveWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
+      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
+      await kept();
+      // connected again, but the trash copy was made on another mount: Restore waits, nothing dropped
+      await sql`update scan_roots set reach = 'online', reach_reason = null where id = ${otherId}`;
+      await sql`update file_deletions set trash_mount = ${JSON.stringify(['/srv/tagave/other', 1, 2])} where file_id = ${restoring}`;
+      expect(await restoreWaiting(ctx, libraryId)).toMatchObject({ dropped: 0, paused: 1 });
+      expect(await row(restoring)).toMatchObject({ state: 'restoring', error: null });
+      // with the root connected and its own mount, a file that is really gone is dropped (as before)
+      expect(await moveWaiting(ctx, libraryId)).toMatchObject({ dropped: 1 });
+      expect(await row(moving)).toBeUndefined();
+    } finally {
+      await sql`delete from file_deletions where scan_root_id = ${otherId}`;
+      await sql`delete from files where scan_root_id = ${otherId}`;
+      await sql`delete from scan_roots where id = ${otherId}`;
+      await rm(otherPath, { recursive: true, force: true });
+    }
+  });
+
   it('an offline music folder leaves every row waiting: nothing marked, dropped or failed', async () => {
     const a = await album('Artist/Outage', ['01 Wait.flac', '02 Wait.flac']);
     await deleteFiles('trash', [a.files['01 Wait.flac']!]);
