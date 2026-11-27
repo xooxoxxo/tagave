@@ -65,4 +65,5 @@ export * from './lidarr.js';
 export * from './musicFolder.js';
 export * from './repairAudit.js';
 export * from './maintenance.js';
+export * from './parking.js';
 export * from './flacUpgrade.js';

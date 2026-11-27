@@ -18,13 +18,14 @@
  * Without a mount table (not Linux, or procfs unreadable) the mount-point
  * rule is off for that tick: no root reads as having lost its mount point.
  *
- * Coming back from offline or not connected queues a scan of the root (PR1);
- * the parked jobs' re-send comes with the park rule.
+ * Coming back from offline or not connected (`onlineAgain`) sends the
+ * root's parked work again and queues a scan of the root.
  */
 import { readFile } from 'node:fs/promises';
-import { recordReach, rootsToWatch, type RootToWatch } from '@tagave/db';
+import { dispatchMaintenanceTask, maintenanceSender, parkedSender, recordReach, releaseParked, rootsToWatch, type RootToWatch } from '@tagave/db';
 import { mountPoints, musicMount, sharePort, validServer } from '@tagave/shared/mounts';
 import type { WorkerContext } from '../context.js';
+import { fileGate } from '../fileGate.js';
 import { musicName, realRootPath } from './paths.js';
 import { portAnswers } from './port.js';
 import { probeOnce } from './probeOnce.js';
@@ -86,11 +87,7 @@ export class FolderWatch {
       roots: deps.roots ?? rootsToWatch,
       port: deps.port ?? portAnswers,
       now: deps.now ?? (() => new Date()),
-      onlineAgain:
-        deps.onlineAgain ??
-        (async (rootId, after) => {
-          await ctx.boss.send('scan.root', { scanRootId: rootId, mode: after === 'offline' ? 'quick' : 'full' }, { singletonKey: `scan:${rootId}` });
-        }),
+      onlineAgain: deps.onlineAgain ?? onlineAgain(ctx),
     };
     this.everyMs = opts.everyMs ?? EVERY_MS;
     this.name = musicName(deps.env ?? process.env);
@@ -198,7 +195,7 @@ export class FolderWatch {
       this.log(root, state.reach, reason);
       if (state.reach === 'online' && (prev.reach === 'offline' || prev.reach === 'unmounted')) {
         await this.deps.onlineAgain(root.id, prev.reach).catch((err) =>
-          this.deps.ctx.logger.warn({ err: (err as Error).message, scanRootId: root.id }, 'folder watch: could not queue the scan of a music folder back online'),
+          this.deps.ctx.logger.warn({ err: (err as Error).message, scanRootId: root.id }, 'folder watch: could not send the work of a music folder back online'),
         );
       }
     }
@@ -212,6 +209,37 @@ export class FolderWatch {
     if (reach === 'online') this.deps.ctx.logger.info(fields, msg);
     else this.deps.ctx.logger.warn(fields, msg);
   }
+}
+
+/**
+ * A root is back online (vault "tagave - Offline Library Spec", section 4
+ * "Back online"): the gate takes work for it again, every parked job of the
+ * root is sent again in one transaction with the deletes (parked maintenance
+ * tasks released, then dispatched right after the commit; the app's dispatch
+ * loop would send them too, and the attempt id keeps it to one job), then a
+ * scan of the root: quick after offline (files were not changing), full
+ * after not connected. A parked scan.root and this one share the singleton
+ * key `scan:<root>`, so one scan runs.
+ */
+export function onlineAgain(ctx: WorkerContext): (rootId: string, after: 'offline' | 'unmounted') => Promise<void> {
+  return async (rootId, after) => {
+    fileGate().clear(rootId);
+    const tasks: string[] = [];
+    let failed: unknown = null;
+    try {
+      const sent = await releaseParked(ctx.sql, rootId, parkedSender(ctx.boss), (id) => tasks.push(id));
+      if (sent > 0) ctx.logger.info({ scanRootId: rootId, sent }, 'parked work sent again: music folder back online');
+    } catch (err) {
+      failed = err; // the rows stay; the scan below still goes
+    }
+    for (const id of tasks) {
+      await dispatchMaintenanceTask(ctx.sql, maintenanceSender(ctx.boss), id).catch((err) =>
+        ctx.logger.warn({ err: (err as Error).message, taskId: id }, 'folder watch: parked task left to the dispatch loop'),
+      );
+    }
+    await ctx.boss.send('scan.root', { scanRootId: rootId, mode: after === 'offline' ? 'quick' : 'full' }, { singletonKey: `scan:${rootId}` });
+    if (failed) throw failed;
+  };
 }
 
 let current: FolderWatch | null = null;
