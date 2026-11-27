@@ -417,6 +417,11 @@
   white-space: nowrap;
 }
 
+/* "Files offline" right after the title; it keeps its width, the title and artist give way */
+.listOffline {
+  flex: none;
+}
+
 .listArtist {
   flex: 2 1 0;
   min-width: 0;
