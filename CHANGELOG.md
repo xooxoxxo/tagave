@@ -2,7 +2,34 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.35.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.35.0)
+## [v0.36.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.36.0)
+
+**Minor release (0.35 → 0.36).** A dead music share no longer freezes tagave's file work. Work that needs an offline music folder waits and comes back on its own, and nothing is marked missing while a folder is away.
+
+### Before you update
+
+- Nothing to do before this update.
+
+### New
+
+- **Every file call on the music folder has a deadline.** tagave runs it in a helper and gives up when the share stops answering, then starts a fresh helper and checks that folder at once. Audio tools and the tag writer get the same deadlines. A tool that keeps reading or writing is never cut off. ([b979d4f](https://github.com/xooxoxxo/tagave/commit/b979d4f), [7018dda](https://github.com/xooxoxxo/tagave/commit/7018dda), [6ae98e5](https://github.com/xooxoxxo/tagave/commit/6ae98e5), [144545f](https://github.com/xooxoxxo/tagave/commit/144545f), [4c51536](https://github.com/xooxoxxo/tagave/commit/4c51536), [3d8157c](https://github.com/xooxoxxo/tagave/commit/3d8157c), [42053cc](https://github.com/xooxoxxo/tagave/commit/42053cc))
+- **Work waits for the music folder.** Tag writes, cover embeds and art fetches wait while the folder is offline and go on their own once it is back. A cut-off tag write is checked before it is tried again, so nothing is written twice. A paused or cancelled plan stays that way. ([fdf428f](https://github.com/xooxoxxo/tagave/commit/fdf428f), [15ab428](https://github.com/xooxoxxo/tagave/commit/15ab428), [f5d327e](https://github.com/xooxoxxo/tagave/commit/f5d327e), [0602e25](https://github.com/xooxoxxo/tagave/commit/0602e25))
+- **Splits, moves, upgrades and Empty Trash pause** with "Paused while the music folder is offline" and wait for Continue. Move to Trash and Restore go on by themselves in the daily sweep. ([a9b5ef2](https://github.com/xooxoxxo/tagave/commit/a9b5ef2), [e29acb4](https://github.com/xooxoxxo/tagave/commit/e29acb4))
+- **Scans skip offline folders** and never mark files missing or deleted while a folder is away. ([1c4ab6c](https://github.com/xooxoxxo/tagave/commit/1c4ab6c), [141db51](https://github.com/xooxoxxo/tagave/commit/141db51))
+
+### Fixed
+
+- **Trash is kept while a folder is not connected.** Its rows are never dropped, and Restore still works after an ordinary remount. ([1258e10](https://github.com/xooxoxxo/tagave/commit/1258e10), [70b8f10](https://github.com/xooxoxxo/tagave/commit/70b8f10))
+- **One file that hangs on a working share** gets its own error after a few tries instead of holding up the rest. ([0c5ef3a](https://github.com/xooxoxxo/tagave/commit/0c5ef3a), [09a9f1f](https://github.com/xooxoxxo/tagave/commit/09a9f1f))
+- **A player scan asked for while a folder is away** says it is waiting, and goes once the folder is back or once that folder is turned off or removed. ([ac1a10e](https://github.com/xooxoxxo/tagave/commit/ac1a10e))
+
+### For self-hosters
+
+- No migration and no new settings. The parked jobs table from 0.35 is now used.
+
+**All changes:** [v0.35.0...v0.36.0](https://github.com/xooxoxxo/tagave/compare/v0.35.0...v0.36.0)
+
+## [v0.35.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.35.0) (2026-11-27)
 
 **Minor release (0.34 → 0.35).** tagave knows whether it can reach each music folder. The banner says since when a folder is offline, and a dead share can no longer freeze the file worker. Repair runs one at a time.
 
