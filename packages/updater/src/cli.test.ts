@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RepairStatus } from '@tagave/shared/updater';
 import { assertAllowed } from './argv-guard.testkit.js';
-import { ALREADY_RUNNING, USAGE, layoutCommand, parseLayoutArgs, printedHeadline, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import { ALREADY_RUNNING, REPAIR_UNDER_WAY, USAGE, layoutCommand, parseLayoutArgs, printedHeadline, parseRepairArgs, repairExitCode, updaterServiceRuns } from './cli-args.js';
+import { RepairLock } from './repair-lock.js';
 import { repairHeadline } from './repair.js';
 import { STOPPED_REPAIR } from './server.js';
 import type { CommandResult, Runner } from './runner.js';
@@ -165,7 +166,7 @@ describe('cli.js music-layout', () => {
     expect(await run(false)).toBe(0);
     expect(await envText()).toBe(ENV);
     expect(calls.some((c) => c[0] === 'compose' && c[1] === 'up')).toBe(false);
-    expect(out[0]).toMatch(/^the music share moves to the parent layout: /);
+    expect(out[0]).toMatch(/^ {2}the music share moves to the parent layout: /);
     expect(out).toContain('  TAGAVE_MUSIC_BIND_SOURCE=/mnt');
     expect(out.at(-1)).toBe('Nothing was changed. Run it again with --apply to write these settings and start the music parts on them.');
     for (const l of out) expect(l.includes(String.fromCharCode(0x2014))).toBe(false);
@@ -192,6 +193,47 @@ describe('cli.js music-layout', () => {
       expect(out.join('\n')).toContain('the music share stays on the direct layout: ');
     }
     expect(await envText()).toBe(ro);
+    expect(calls).toEqual([]);
+  });
+
+  it('--apply while a repair or a self-heal holds the lock: says so, exit 0, nothing changes', async () => {
+    await writeFile(join(dir, '.env'), ENV);
+    for (const holder of ['repair', 'heal'] as const) {
+      const held = await new RepairLock({ installDir: dir }).acquire(holder);
+      expect(held.ok).toBe(true);
+      out = [];
+      expect(await run(true)).toBe(0);
+      expect(out).toEqual([`  ${REPAIR_UNDER_WAY}`]);
+      expect(REPAIR_UNDER_WAY).toBe('another repair is under way; run it again later');
+      expect(await envText()).toBe(ENV);
+      expect(calls).toEqual([]);
+      if (held.ok) await held.release();
+    }
+    // the dry run takes no lock
+    const held = await new RepairLock({ installDir: dir }).acquire('repair');
+    out = [];
+    expect(await run(false)).toBe(0);
+    expect(out.at(-1)).toMatch(/^Nothing was changed\./);
+    if (held.ok) await held.release();
+  });
+
+  it('--apply takes the lock and lets it go: a second run finds it free', async () => {
+    await writeFile(join(dir, '.env'), ENV);
+    expect(await run(true)).toBe(0);
+    const after = await new RepairLock({ installDir: dir }).acquire('repair');
+    expect(after.ok).toBe(true);
+    if (after.ok) await after.release();
+  });
+
+  it('an app computer: says why nothing moves, in both modes', async () => {
+    const app = 'COMPOSE_PROJECT_NAME=tagave\nTAGAVE_ROLE=app\n';
+    await writeFile(join(dir, '.env'), app);
+    for (const apply of [false, true]) {
+      out = [];
+      expect(await run(apply)).toBe(0);
+      expect(out).toEqual(['  the music share stays on the direct layout: this computer has no music folder in its settings']);
+    }
+    expect(await envText()).toBe(app);
     expect(calls).toEqual([]);
   });
 

@@ -2,7 +2,8 @@
 import { join } from 'node:path';
 import type { RepairStatus } from '@tagave/shared/updater';
 import { readText } from './envFile.js';
-import { hasParentLayout, moveLayout, planLayout } from './music-layout.js';
+import { hasParentLayout, layoutReason, moveLayout, planLayout } from './music-layout.js';
+import { RepairLock } from './repair-lock.js';
 import type { Runner } from './runner.js';
 
 export const USAGE = [
@@ -19,13 +20,18 @@ export function parseLayoutArgs(args: string[]): { ok: true; apply: boolean } | 
 
 const ALREADY_PARENT = 'the music share already uses the parent layout: nothing to do';
 const DRY_RUN_END = 'Nothing was changed. Run it again with --apply to write these settings and start the music parts on them.';
+/** --apply while the repair lock is held (cli.js repair, the Repair button or a self-heal). */
+export const REPAIR_UNDER_WAY = 'another repair is under way; run it again later';
+const STAYS_NO_MUSIC = `the music share stays on the direct layout: ${layoutReason('no_music_dir')}`;
 
 /**
  * `cli.js music-layout [--apply]`. Without --apply: the decision and its
  * reason, and the .env lines it would write; nothing is written or started
- * (the host is read, as the move reads it). With --apply: moveLayout, its
- * log lines printed. 0 when it moved, had nothing to do or was refused with
- * a reason; 1 on an error.
+ * (the host is read, as the move reads it); no lock is taken. With --apply:
+ * the repair lock (holder 'repair', as cli.js repair takes it), then
+ * moveLayout, its log lines printed; when the lock is held, it says so and
+ * changes nothing. 0 when it moved, had nothing to do, was refused with a
+ * reason or found a repair under way; 1 on an error.
  */
 export async function layoutCommand(apply: boolean, deps: {
   installDir: string;
@@ -42,11 +48,24 @@ export async function layoutCommand(apply: boolean, deps: {
       return 0;
     }
     if (apply) {
-      await moveLayout({ installDir: deps.installDir, docker: deps.docker, image: deps.image, log: (l, m) => (l === 'info' ? deps.out(`  ${m}`) : deps.err(`warn: ${m}`)) });
+      // The move changes .env and starts parts: never while a repair or a self-heal runs (cli.js repair takes the same lock).
+      const lock = await new RepairLock({ installDir: deps.installDir }).acquire('repair');
+      if (!lock.ok && lock.holder !== null) {
+        deps.out(`  ${REPAIR_UNDER_WAY}`);
+        return 0;
+      }
+      try {
+        const res = await moveLayout({ installDir: deps.installDir, docker: deps.docker, image: deps.image, log: (l, m) => (l === 'info' ? deps.out(`  ${m}`) : deps.err(`warn: ${m}`)) });
+        // planLayout logs no line for an app computer; the command still says why nothing moved.
+        if (res.why === 'no_music_dir') deps.out(`  ${STAYS_NO_MUSIC}`);
+      } finally {
+        if (lock.ok) await lock.release();
+      }
       return 0;
     }
     const plan = await planLayout({ env, docker: deps.docker, image: deps.image, installDir: deps.installDir });
-    if (plan.message) deps.out(plan.message);
+    if (plan.message) deps.out(`  ${plan.message}`);
+    else if (plan.why === 'no_music_dir') deps.out(`  ${STAYS_NO_MUSIC}`);
     if (plan.moved) {
       const before = new Set(env.split('\n'));
       for (const line of plan.env.split('\n')) if (line !== '' && !before.has(line)) deps.out(`  ${line}`);
