@@ -39,17 +39,20 @@ type FolderCheck = { text: string; problem: boolean; help?: string | undefined }
 /**
  * The folder's Check: what the folder watch last saw (reach) first, then what
  * the worker found there. An API older than 0097 sends no reach, and the
- * worker's findings alone decide.
+ * worker's findings alone decide. So do they for a folder with Scanning off:
+ * the folder watch reads only folders that scan, so its reach is stale.
  */
 export function folderCheck(root: ScanRoot, now: Date = new Date()): FolderCheck {
+  if (!root.enabled) return workerCheck(root);
   const since = (state: string) => (root.reachSince ? `${state} since ${sinceLabel(root.reachSince, now)}` : state);
   switch (root.reach) {
     case 'offline': return { text: since('Offline'), problem: true, help: OFFLINE_HELP };
     case 'unmounted': return { text: since('Not connected'), problem: true, help: UNMOUNTED_HELP };
     case 'unknown': return { text: 'Checking', problem: false };
     case 'online': {
-      // online, but the worker may still have found something wrong there
-      const found = workerCheck(root);
+      // online, but the worker may still have found something wrong there; a
+      // scan the outage cut off ('aborted') is over now that the folder is back
+      const found = workerCheck(root, { ignoreAborted: true });
       return found.problem ? found : { text: 'Online', problem: false };
     }
     default: return workerCheck(root);
@@ -57,7 +60,7 @@ export function folderCheck(root: ScanRoot, now: Date = new Date()): FolderCheck
 }
 
 /** What the worker found at the folder, as a word, whether it is a problem, and the worker's own words for it. */
-function workerCheck(root: ScanRoot): FolderCheck {
+function workerCheck(root: ScanRoot, opts: { ignoreAborted?: boolean } = {}): FolderCheck {
   const help = root.validationMessage || undefined;
   switch (root.validationStatus) {
     case 'pending': return { text: 'Pending', problem: false };
@@ -67,7 +70,7 @@ function workerCheck(root: ScanRoot): FolderCheck {
     default: break;
   }
   if (root.validationMessage === SCAN_ROOT_EMPTY_MESSAGE) return { text: 'Empty', problem: true };
-  if (root.lastStatus === 'aborted') return { text: 'Unreachable', problem: true };
+  if (root.lastStatus === 'aborted' && !opts.ignoreAborted) return { text: 'Unreachable', problem: true };
   // the probe warning: writes are allowed but the worker sees a read-only mount
   if (root.probeWritable === false) return root.writable ? { text: 'Mount is read-only', problem: true } : { text: 'Read-only mount', problem: false };
   return { text: 'OK', problem: false };
