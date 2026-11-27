@@ -3,7 +3,7 @@ import { flacUpgradeSource, latestMaintenanceTask, lidarrEnabled, lidarrStoredSe
 import type { FlacUpgradeView } from '@tagave/shared';
 import { LidarrClient, flacProfileIssue, lidarrConnectionOf } from '@tagave/core/lidarr';
 import { getSql } from '../db.js';
-import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from '../lib/maintenance.js';
+import { dispatchMaintenance, liveMaintenanceView } from '../lib/maintenance.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 const base = '/libraries/:libraryId/albums/:albumId/flac-upgrade';
@@ -35,7 +35,7 @@ export async function createFlacUpgradeRoutes(app: FastifyInstance) {
     const active = task && !['done', 'cancelled'].includes(task.state);
     return {
       eligible: !active && await available(libraryId) && !!await flacUpgradeSource(sql, libraryId, albumId),
-      task: task ? maintenanceView(task, await liveMaintenanceQueues()) : null,
+      task: task ? await liveMaintenanceView(task) : null,
     };
   });
 
@@ -44,7 +44,7 @@ export async function createFlacUpgradeRoutes(app: FastifyInstance) {
     const sql = getSql();
     const existing = await latestMaintenanceTask(sql, libraryId, 'flac-upgrade', albumId);
     if (existing && !['done', 'cancelled'].includes(existing.state)) {
-      return reply.status(202).send(maintenanceView(existing, await liveMaintenanceQueues()));
+      return reply.status(202).send(await liveMaintenanceView(existing));
     }
     if (!await available(libraryId)) throw new ApiError(409, 'Conflict', 'Connect Lidarr to the drop pool first.');
     const source = await flacUpgradeSource(sql, libraryId, albumId);
@@ -68,6 +68,6 @@ export async function createFlacUpgradeRoutes(app: FastifyInstance) {
       stage: 'FLAC upgrade queued',
     });
     await dispatchMaintenance(task.id, request.log);
-    return reply.status(202).send(maintenanceView(task, await liveMaintenanceQueues()));
+    return reply.status(202).send(await liveMaintenanceView(task));
   });
 }

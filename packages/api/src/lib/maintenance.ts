@@ -1,4 +1,4 @@
-import { dispatchMaintenanceTask, maintenanceSender, reconcileMaintenanceTasks, undispatchedMaintenanceTasks, type MaintenanceRow } from '@tagave/db';
+import { dispatchMaintenanceTask, maintenanceSender, notOnlineRoots, reconcileMaintenanceTasks, undispatchedMaintenanceTasks, type MaintenanceRow } from '@tagave/db';
 import { workerServesQueue } from '@tagave/core';
 import type { MaintenanceTaskView } from '@tagave/shared';
 import type { FastifyBaseLogger } from 'fastify';
@@ -42,8 +42,35 @@ export async function liveMaintenanceQueues(): Promise<string[]> {
   return rows.flatMap(({ queues }) => Array.isArray(queues) ? queues.map(String) : ['*']);
 }
 
-export function maintenanceView(row: MaintenanceRow, queues: readonly string[]): MaintenanceTaskView {
+/** The music folder a task paused for (the worker's checkpoint.offlineRootId), or null. */
+function pausedFor(row: MaintenanceRow): string | null {
+  const id = row.checkpoint?.offlineRootId;
+  return typeof id === 'string' ? id : null;
+}
+
+/**
+ * The music folders some of these tasks paused for that are still offline or
+ * not connected (enabled roots only: a folder removed or turned off is not
+ * waited for). No query when no task paused for a folder.
+ */
+export async function foldersAway(rows: readonly MaintenanceRow[]): Promise<ReadonlySet<string>> {
+  if (!rows.some((row) => pausedFor(row) !== null)) return new Set();
+  return new Set((await notOnlineRoots(getSql())).keys());
+}
+
+/** One task's view with the live worker queues and its music folder. */
+export async function liveMaintenanceView(row: MaintenanceRow): Promise<MaintenanceTaskView> {
+  const [queues, away] = await Promise.all([liveMaintenanceQueues(), foldersAway([row])]);
+  return maintenanceView(row, queues, away);
+}
+
+/**
+ * `away` (foldersAway): with it, a task that paused for a music folder says
+ * whether it still waits for it (`waitsForFolder`); without it the field is left out.
+ */
+export function maintenanceView(row: MaintenanceRow, queues: readonly string[], away?: ReadonlySet<string>): MaintenanceTaskView {
   const workerAvailable = workerServesQueue(queues, row.queue);
+  const folder = pausedFor(row);
   const actions: MaintenanceTaskView['actions'] = [];
   if (workerAvailable && ['interrupted', 'failed', 'review'].includes(row.state)) {
     actions.push(row.checkpoint ? 'continue' : 'retry');
@@ -63,5 +90,6 @@ export function maintenanceView(row: MaintenanceRow, queues: readonly string[]):
       : row.stage,
     progress: row.progress, error: row.error, attempt: row.attempt, updatedAt: new Date(row.updated_at).toISOString(),
     cancelRequested: row.cancel_requested, workerAvailable, actions,
+    ...(folder !== null && away ? { waitsForFolder: away.has(folder) && ['interrupted', 'failed', 'review'].includes(row.state) } : {}),
   };
 }

@@ -98,8 +98,48 @@ export function jobLabel(type: string, subjectName?: string | null): string {
     case 'decider.train': return 'Decider training';
     case 'artists.resolve': return 'Link artists';
     case 'tags.preview': return 'Preview a tag plan';
+    // work that can wait for an offline music folder (parked_jobs)
+    case 'tags.apply': return 'Write tags';
+    case 'tags.revert': return 'Revert tags';
+    case 'files.embedCover': return 'Embed cover art';
+    case 'art.fetch': return 'Cover art lookup';
+    case 'files.move': return 'Move songs';
     default: return 'Background task';
   }
+}
+
+/** A parked_jobs row as the route loads it: the job held while its music folder is offline. */
+export interface ParkedRow {
+  id: string;
+  queue: string;
+  /** for a parked maintenance task (queue 'maintenance'): the task's own queue */
+  taskQueue: string | null;
+  rootName: string | null;
+  parkedAt: Date | string;
+}
+
+/** Work held for an offline music folder: Waiting, "Music folder offline". It starts again on its own. */
+export function parkedJobView(row: ParkedRow): JobView {
+  const at = toIso(row.parkedAt) ?? new Date().toISOString();
+  const type = row.queue === 'maintenance' ? row.taskQueue ?? row.queue : row.queue;
+  return {
+    id: row.id,
+    type,
+    label: jobLabel(type, row.rootName),
+    status: 'waiting',
+    summary: 'Music folder offline',
+    error: null,
+    progress: null,
+    startedAt: null,
+    finishedAt: null,
+    createdAt: at,
+    at,
+    routine: false,
+    retryable: false,
+    resolvedAt: null,
+    retrying: false,
+    needsAttention: false,
+  };
 }
 
 /** Scan result, e.g. "quick: 241516 seen, 0 added, 0 changed, 0 missing, 72502/72502 dirs skipped, 285s". */

@@ -15,7 +15,19 @@ export const maintenanceTaskSchema = z.object({
   cancelRequested: z.boolean(),
   workerAvailable: z.boolean(),
   actions: z.array(z.enum(['retry', 'continue', 'cancel', 'restore-original'])),
+  /**
+   * Paused for a music folder (checkpoint.offlineRootId): true while that
+   * folder is offline or not connected, and Continue is refused; false once
+   * it is back (or was removed). Absent for a task that never paused for one.
+   */
+  waitsForFolder: z.boolean().optional(),
 }).strict();
+
+/**
+ * The stage of a maintenance task (a split) and the error of an album move
+ * cut off by an offline music folder: the worker writes it, the web keys on it.
+ */
+export const PAUSED_OFFLINE_STAGE = 'Paused while the music folder is offline';
 
 export type MaintenanceTaskView = z.infer<typeof maintenanceTaskSchema>;
 export type MaintenanceState = MaintenanceTaskView['state'];

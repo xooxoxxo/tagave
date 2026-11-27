@@ -13,7 +13,7 @@ import { latestMaintenanceTask, oneFileAlbums, restartMaintenanceTask, saveMaint
 import { lowCuts, type AlbumSplitState, type MaintenanceTaskView, type PlanSplit, type SplitPlan } from '@tagave/shared';
 import type postgres from 'postgres';
 import type { FastifyBaseLogger } from 'fastify';
-import { dispatchMaintenance, liveMaintenanceQueues, maintenanceView } from './maintenance.js';
+import { dispatchMaintenance, foldersAway, liveMaintenanceQueues, liveMaintenanceView, maintenanceView } from './maintenance.js';
 import { workerServesQueue } from '@tagave/core';
 
 type Sql = postgres.Sql<any> | postgres.TransactionSql<any>;
@@ -32,7 +32,7 @@ export async function analysisStatus(sql: Sql, libraryId: string, row: { id: str
   const current = { state: row.state, error: row.error };
   if (row.plan && (row.state === 'splitting' || row.state === 'failed' || row.state === 'done')) {
     const task = await latestMaintenanceTask(sql, libraryId, 'split', `${row.id}:split`);
-    if (task && task.state !== 'done') return { ...current, task: maintenanceView(task, await liveMaintenanceQueues()) };
+    if (task && task.state !== 'done') return { ...current, task: await liveMaintenanceView(task) };
   }
   if (row.plan || (row.state !== 'analyzing' && row.state !== 'failed')) return current;
   const [task, queues] = await Promise.all([
@@ -40,7 +40,7 @@ export async function analysisStatus(sql: Sql, libraryId: string, row: { id: str
     liveMaintenanceQueues(),
   ]);
   if (task) {
-    const view = maintenanceView(task, queues);
+    const view = maintenanceView(task, queues, await foldersAway([task]));
     const stopped = task.state === 'failed' || task.state === 'interrupted' || task.state === 'review';
     return { ...current, state: (stopped ? 'failed' : 'analyzing') as AlbumSplitState, error: view.error, task: view };
   }
