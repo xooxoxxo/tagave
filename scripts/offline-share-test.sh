@@ -496,9 +496,13 @@ check "the folder is online again once the rule is removed" wait_until 240 folde
 step "3. NAS off while running"
 
 t_scan=$(psql_q "select now()")
-check "a scan starts" start_scan
+# The share goes away first: three small fixtures scan in a few milliseconds,
+# so a scan started before the drop finishes before the rule is in place. The
+# folder still reads online here, so the scan reaches the dead share.
 drop_nfs
-note "latest scan at the drop: $(latest_scan_status)"
+check "a scan starts" start_scan
+sleep 2
+note "latest scan after the drop: $(latest_scan_status)"
 heartbeat_age() { psql_q "select coalesce(min(extract(epoch from now() - seen_at))::int, 9999) from worker_heartbeats where info -> 'queues' ? 'scan.root'"; }
 fresh=1
 for _ in 1 2 3; do
