@@ -9,12 +9,14 @@
  * a tag plan wrote them already.
  */
 import { constants as fsConstants } from 'node:fs';
-import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { albumPaths, currentFieldsFrom, samePath } from '@tagave/core';
 import type { MovePlan, MovePlanFile } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
-import { exists, onDisk } from '../lib/deletions.js';
+import { onDisk } from '../lib/deletions.js';
+import { fileGate } from '../lib/fileGate.js';
+import { gateExists, gateOnDisk } from '../lib/gatedPaths.js';
+import { isGateFailure, isOfflineError } from '../lib/folderOffline.js';
 import { discDirNumber } from '../lib/helpers.js';
 import { albumDirOf, companionFiles, namingRulesFor } from '../lib/naming.js';
 
@@ -121,12 +123,22 @@ const albumKey = (f: Record<string, unknown>) => {
   return `${s(f['albumartist']) || s(f['artist'])}\n${s(f['album'])}`;
 };
 
-/** Writable: the folder, or the nearest one of its parents that exists, takes new entries. */
-async function canWrite(root: string, dir: string): Promise<boolean> {
+/**
+ * Writable: the folder, or the nearest one of its parents that exists, takes
+ * new entries. Through the file gate (the tag plan preview): an offline
+ * folder throws FolderOfflineError, never reads as unwritable.
+ */
+async function canWrite(rootId: string, root: string, dir: string): Promise<boolean> {
   for (let d = dir; ; d = path.posix.dirname(d)) {
     const abs = path.join(root, d === '.' ? '' : d);
-    if (await exists(abs)) {
-      try { await access(abs, fsConstants.W_OK); return true; } catch { return false; }
+    if (await gateExists(rootId, abs)) {
+      try {
+        await fileGate().run(rootId, { op: 'access', path: abs, mode: fsConstants.W_OK });
+        return true;
+      } catch (err) {
+        if (isOfflineError(err) || isGateFailure(err)) throw err;
+        return false;
+      }
     }
     if (d === '.' || d === '') return false;
   }
@@ -159,7 +171,8 @@ export async function previewPaths(ctx: WorkerContext, libraryId: string, files:
     else groups.set(k, [f]);
   }
   for (const g of groups.values()) {
-    const root = roots.get(g[0]!.scanRootId);
+    const rootId = g[0]!.scanRootId;
+    const root = roots.get(rootId);
     if (!root) continue;
     const planned = albumPaths(rules, g.map((f) => ({ relPath: f.relPath, fields: f.fields as Record<string, string | string[] | null> })), {
       soundtrack: g.some((f) => soundtrack.has(f.audioFileId)),
@@ -168,10 +181,10 @@ export async function previewPaths(ctx: WorkerContext, libraryId: string, files:
     const ours = new Set(g.map((f) => fold(f.relPath)));
     const names = new Map<string, number>();
     for (const p of planned.files) names.set(fold(p.toPath), (names.get(fold(p.toPath)) ?? 0) + 1);
-    const writable = await canWrite(root, planned.dir);
+    const writable = await canWrite(rootId, root, planned.dir);
     for (const [i, p] of planned.files.entries()) {
       if (samePath(p.toPath, p.relPath)) continue;
-      const clash = names.get(fold(p.toPath))! > 1 || (!ours.has(fold(p.toPath)) && !!(await onDisk(root, p.toPath)));
+      const clash = names.get(fold(p.toPath))! > 1 || (!ours.has(fold(p.toPath)) && !!(await gateOnDisk(rootId, root, p.toPath)));
       out.set(g[i]!.audioFileId, { toPath: p.toPath, state: clash ? 'clash' : writable ? null : 'unwritable' });
     }
   }

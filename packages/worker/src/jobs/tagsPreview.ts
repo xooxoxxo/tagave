@@ -43,6 +43,8 @@ import { linkAlbumTracks, ensureTrackMbids } from '../lib/trackLinks.js';
 import { reportProgress, type ProgressUpdate } from './progress.js';
 import { namingRulesFor } from '../lib/naming.js';
 import { previewPaths, type PreviewFile, type PreviewPath } from './organize.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
+import { WAITING_STAGE } from '../lib/parking.js';
 
 export { currentFieldsFrom };
 
@@ -246,6 +248,8 @@ function previewProgress(ctx: WorkerContext, libraryId: string, planId: string, 
     /** The plan changed mid-run; the preview queued by that change replaces this one. */
     superseded: () => write({ state: 'completed', message: 'Stopped early: the plan changed, so a newer check replaces this one' }),
     fail: (err: unknown) => write({ state: 'failed', error: errorMessage(err) }),
+    /** The music folder is offline: not a failure, the preview runs again when it is back. */
+    waiting: () => write({ state: 'cancelled', message: WAITING_STAGE }),
   };
 }
 type PreviewProgress = ReturnType<typeof previewProgress>;
@@ -257,6 +261,11 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string, opts: {
   try {
     await runPreview(ctx, plan, progress);
   } catch (err) {
+    if (err instanceof FolderOfflineError) {
+      // the preview waits for the music folder (the job parks); the plan and its items stay as they were
+      await progress.waiting();
+      throw err;
+    }
     await progress.fail(err);
     throw err;
   }
@@ -280,9 +289,6 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
     await progress.done(0);
     return;
   }
-
-  // One row per (plan, file): drop the previous preview's pending rows first.
-  await db.delete(tagPlanItems).where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));
 
   const fileIds = await enumerateFilesForScope(ctx, libraryId, scope);
   const writableRoots = new Set(
@@ -448,6 +454,10 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
       ...p.pairing,
     }];
   });
+  // One row per (plan, file): the previous preview's pending rows go first.
+  // Only now, after the paths (the one step that reads the music folder): a
+  // preview that parks on an offline folder leaves the plan's items as they were.
+  await db.delete(tagPlanItems).where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));
   for (let i = 0; i < rows.length; i += 500) await db.insert(tagPlanItems).values(rows.slice(i, i + 500));
   // the paths (0081 columns, written with SQL: they are not in the drizzle schema)
   const moved = pending.filter((p) => paths.has(p.audioFileId));

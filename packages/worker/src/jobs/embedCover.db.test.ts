@@ -11,6 +11,9 @@ import { hashAudioStream } from '@tagave/core';
 import { makeDb, restartMaintenanceTask, saveMaintenanceTask } from '@tagave/db';
 import { embedCoverJob } from './embedCover.js';
 import { resolvePythonInterpreter } from '../lib/tagWriter.js';
+import { FileGate, setFileGate } from '../lib/fileGate.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
+import { WAITING_STAGE } from '../lib/parking.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const canWrite = spawnSync('ffmpeg', ['-version']).status === 0 &&
@@ -74,5 +77,31 @@ describe.skipIf(!databaseUrl || !canWrite)('local cover embedding', () => {
     expect(await hashAudioStream(file, 'flac')).toBe(before);
     expect(await sql`select has_embedded_art from files where id = ${fileId}`).toEqual([{ has_embedded_art: true }]);
     expect(await sql`select state from gaps where subject_id = ${albumId}`).toEqual([{ state: 'resolved' }]);
+  });
+
+  it('an offline music folder parks the task: it waits, the file untouched', async () => {
+    const sql = connection.client;
+    const ctx = { sql, db: connection.db, logger: pino({ level: 'silent' }), boss: { send: async () => null } as never };
+    const before = await hashAudioStream(file, 'flac');
+    const input = { albumId, fileIds: [fileId] };
+    const task = await saveMaintenanceTask(sql, {
+      libraryId, kind: 'embed-cover', scope: `${albumId}:offline`, subjectId: albumId, queue: 'files.embedCover', input, stage: 'Queued',
+    });
+    class OfflineGate extends FileGate {
+      override run<T>(root: string): Promise<T> {
+        return Promise.reject(new FolderOfflineError(root, 'io_error', 'EIO'));
+      }
+    }
+    setFileGate(new OfflineGate());
+    try {
+      await embedCoverJob(ctx, { ...input, maintenance: { taskId: task.id, attemptId: task.attempt_id } });
+    } finally {
+      setFileGate(null);
+    }
+    expect(await sql`select state, stage from maintenance_tasks where id = ${task.id}`)
+      .toEqual([{ state: 'waiting', stage: WAITING_STAGE }]);
+    expect(await sql`select queue, reason from parked_jobs where scan_root_id = ${rootId}`)
+      .toEqual([{ queue: 'maintenance', reason: 'io_error' }]);
+    expect(await hashAudioStream(file, 'flac')).toBe(before);
   });
 });

@@ -14,16 +14,20 @@ import {
   libraries,
   gaps,
 } from '@tagave/db';
-import { hashAudioStream } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { errorMessage } from '../lib/dbErrors.js';
 import { SafeFileWriter } from '../lib/safeFileWriter.js';
 import { MutagenTagWriter } from '../lib/tagWriter.js';
-import { parseFile } from 'music-metadata';
-import { promises as fs } from 'node:fs';
+import type { IAudioMetadata } from 'music-metadata';
 import path from 'node:path';
 import type { TagDiffEntry } from '@tagave/shared';
 import { audioHandler, tagSnapshotOf } from '@tagave/core/files';
+import { currentFieldsFrom } from '@tagave/core';
+import { fileGate } from '../lib/fileGate.js';
+import type { GateStat } from '../lib/gatedPaths.js';
+import { FolderOfflineError, isGateClosed } from '../lib/folderOffline.js';
+import { requireOnline, rootOfPlan } from '../lib/parking.js';
+import { valueKey } from './tagsPreview.js';
 import { localTracks } from '@tagave/db';
 import { clusterSingletonKey, relDirname, tagsDigest } from '../lib/helpers.js';
 import { requestPlayerRescan } from '../lib/playerScan.js';
@@ -94,7 +98,7 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, d
     await runMaintenance(ctx, data.maintenance, async (claim) => {
       const [before] = await ctx.sql<{ status: string }[]>`select status from tag_plans where id = ${data.planId}`;
       if (before?.status === 'applied') return { state: 'done', stage: 'Tag Plan applied' };
-      if (!before || !['previewed', 'paused', 'applying'].includes(before.status)) {
+      if (!before || !['previewed', 'paused', 'applying', 'waiting'].includes(before.status)) {
         return { state: 'cancelled', stage: 'Tag Plan closed' };
       }
       await claim.update({ stage: 'Applying Tag Plan', checkpoint: { planId: data.planId } });
@@ -110,6 +114,15 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, d
   try {
     await applyPlan(ctx, data, deps);
   } catch (error) {
+    if (error instanceof FolderOfflineError) {
+      // The music folder went offline: the plan waits for it (never failed or
+      // paused, its last error kept) and the error parks the job or the task.
+      // The item cut off goes back to pending; its journal is checked on return.
+      ctx.logger.warn({ planId: data.planId, scanRootId: error.scanRootId, reason: error.reason }, 'tags.apply: music folder offline; plan waiting');
+      await deps.claim?.current();
+      await waitPlan(ctx, data.planId);
+      throw error;
+    }
     // A failure outside the per-item handler (a DB constraint, a missing
     // sidecar, a lost connection) used to leave the plan in 'applying' with
     // nothing written and no way forward (seen live 2026-09-08). Park it as
@@ -122,7 +135,7 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, d
   }
 }
 
-async function parkPlan(ctx: WorkerContext, planId: string, message: string) {
+async function parkPlan(ctx: WorkerContext, planId: string, message: string | null) {
   // Whatever was written before the failure is re-clustered like a finished
   // apply, so a plan cancelled from 'paused' still shows its real albums.
   try {
@@ -137,14 +150,22 @@ async function parkPlan(ctx: WorkerContext, planId: string, message: string) {
       .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applying')));
     await ctx.db
       .update(tagPlans)
-      .set({
-        status: 'paused',
-        stats: sql`coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('lastError', ${message}::text)`,
-      })
-      .where(and(eq(tagPlans.id, planId), eq(tagPlans.status, 'applying')));
+      .set(message === null
+        // offline: waiting, the last error as it was
+        ? { status: 'waiting' }
+        : {
+          status: 'paused',
+          stats: sql`coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('lastError', ${message}::text)`,
+        })
+      .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, message === null ? ['applying', 'previewed', 'paused'] : ['applying'])));
   } catch (parkError) {
     ctx.logger.error({ planId, error: String(parkError) }, 'tags.apply: could not park the plan');
   }
+}
+
+/** The plan's music folder went offline: its applying items back to pending, the plan 'waiting'. */
+async function waitPlan(ctx: WorkerContext, planId: string) {
+  await parkPlan(ctx, planId, null);
 }
 
 /**
@@ -163,7 +184,7 @@ async function splitsFirst(ctx: WorkerContext, planId: string, policy: TagPolici
     throw new Error('Tag writes are off for this library');
   }
   // the page shows the plan at work while the tracks are written
-  await ctx.sql`update tag_plans set status = 'applying' where id = ${planId} and status in ('previewed', 'paused')`;
+  await ctx.sql`update tag_plans set status = 'applying' where id = ${planId} and status in ('previewed', 'paused', 'waiting')`;
   const check = {
     beforeWrite: deps.claim?.current ?? deps.split?.beforeWrite ?? (async () => undefined),
     checkpoint: deps.claim
@@ -218,6 +239,10 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
   // Note: Per-item gate checks happen before safeWriter.write() (finding 3)
   // to catch flips that occur between job start and item processing
 
+  // A music folder the watch reads offline: the plan waits at once, without a gate deadline.
+  const planRoot = await rootOfPlan(ctx, planId);
+  if (planRoot) await requireOnline(ctx, planRoot);
+
   // 0089: split first, then tag: an album in one file becomes its tracks
   // (already carrying the plan's values) before any item is written
   const splits = await splitsFirst(ctx, planId, plan.policy as TagPolicies, libraryId, deps);
@@ -261,6 +286,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
     .where(inArray(scanRoots.id, scanRootIds));
 
   const rootMap = new Map(roots.map((r) => [r.id, r]));
+  for (const r of roots) if (r.id !== planRoot) await requireOnline(ctx, r.id);
 
   // Note: Scan root writable flag will be checked per-item before writing (finding 3)
 
@@ -281,7 +307,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
   await db
     .update(tagPlans)
     .set({
-      status: 'applying',
+      status: 'applying', // a waiting plan too: its music folder is back
       stats: sql`case when coalesce(${tagPlans.stats}, '{}'::jsonb)->'albumsBefore' is not null then ${tagPlans.stats}
                  else coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('albumsBefore', ${albumsBefore}::int) end`,
     })
@@ -296,9 +322,15 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
     .set({ status: 'applying' })
     .where(inArray(tagPlanItems.id, itemsToProcess.map((item) => item.id)));
 
-  // Process items with concurrency 2
-  const tagWriter = new MutagenTagWriter();
-  const safeWriter = new SafeFileWriter(tagWriter);
+  // Process items with concurrency 2. Every file call goes through the file
+  // gate, with one writer per music folder: a write that hangs counts stuck
+  // against the folder of its own file.
+  const writers = new Map<string, SafeFileWriter>();
+  const writerFor = (rootId: string) => {
+    let w = writers.get(rootId);
+    if (!w) writers.set(rootId, (w = new SafeFileWriter(null, rootId)));
+    return w;
+  };
 
   const concurrency = 2;
   let hashMismatchEncountered = false;
@@ -390,14 +422,41 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
             return { success: true };
           }
 
+          const gate = fileGate();
+          const writer = writerFor(scanRoot.id);
+
           // Compute audio-stream hash before writing
           let hashBefore: string;
           try {
-            const ext = path.extname(fullPath).toLowerCase().slice(1);
-            hashBefore = await hashAudioStream(fullPath, ext);
+            hashBefore = await gate.run<string>(scanRoot.id, { op: 'contentHash', handlerId: audioHandler.id, path: fullPath });
           } catch (hashError) {
+            if (hashError instanceof FolderOfflineError || isGateClosed(hashError)) throw hashError;
             const message = hashError instanceof Error ? hashError.message : String(hashError);
             throw new Error(`hash_before_failed: ${message}`);
+          }
+
+          // A write the gate gave up on (its journal: the hash before, no hash
+          // after) counts as not done: the audio must still be the journal's,
+          // its temp copy goes, and a file that holds the new tags already is
+          // marked applied without writing again.
+          if (item.audioHashBefore && !item.audioHashAfter) {
+            if (hashBefore !== item.audioHashBefore) {
+              hashMismatchEncountered = true;
+              await db
+                .update(tagPlanItems)
+                .set({ status: 'failed', error: 'Audio-stream hash mismatch after a cut-off write' })
+                .where(eq(tagPlanItems.id, item.id));
+              logger.warn({ itemId: item.id }, 'Tag apply: hash mismatch on a cut-off write (P0 defect)');
+              return { success: false, hashMismatch: true };
+            }
+            const removed = await writer.removeStaleTemps(fullPath);
+            if (removed > 0) logger.info({ itemId: item.id, removed }, 'Tag apply: removed the temp copy of a cut-off write');
+            const now = await gate.run<IAudioMetadata>(scanRoot.id, { op: 'parseAudio', path: fullPath });
+            if (holdsDiffs(now, diffs as TagDiffEntry[])) {
+              await recordApplied(ctx, item.id, item.audioFileId, scanRoot.id, fullPath, afterTags, hashBefore, now);
+              logger.info({ itemId: item.id, audioFileId: item.audioFileId }, 'Tag apply: a cut-off write had finished; marked applied');
+              return { success: true };
+            }
           }
 
           // Write tags using SafeFileWriter
@@ -406,9 +465,13 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
             multiValueSeparator: (plan.policy as any)?.multiValueSeparator || '; ',
           };
 
-          // Two items run at once on one writer: on a stuck sidecar the root is that of the item set last.
-          safeWriter.rootId = scanRoot.id;
-          const writeResult = await safeWriter.write(fullPath, fieldsToWrite as typeof afterTags, writeOpts);
+          // The journal of this attempt: should the gate give up on the write,
+          // the return checks the file against it before writing again.
+          await db
+            .update(tagPlanItems)
+            .set({ audioHashBefore: hashBefore, audioHashAfter: null })
+            .where(eq(tagPlanItems.id, item.id));
+          const writeResult = await writer.write(fullPath, fieldsToWrite as typeof afterTags, writeOpts);
 
           if (writeResult.error) {
             // Check for hash mismatch
@@ -451,37 +514,15 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
 
           // Success: update item with journal and audio file metadata
           // Re-read the file to get final metadata
-          const metadata = await parseFile(fullPath);
-          // bigint: 64-bit inode numbers lose precision as a JS number (as the walk stats)
-          const stats = await fs.stat(fullPath, { bigint: true });
-
-          // Same snapshot shape scan.parse stores; a bare common block here
-          // made preview, identify and the lint read the file as untagged.
-          const rawTags = tagSnapshotOf(metadata);
-
-          // Update tag_plan_items with all journal fields
-          await db
-            .update(tagPlanItems)
-            .set({
-              status: 'applied',
-              after: afterTags, // Store the complete after-tag set
-              audioHashBefore: hashBefore,
-              audioHashAfter: hashBefore, // Hash unchanged per spec (verified by SafeFileWriter)
-              sizeAfter: Number(stats.size),
-              mtimeAfter: stats.mtime?.getTime(),
-              appliedAt: new Date(),
-            })
-            .where(eq(tagPlanItems.id, item.id));
-
-          // Update files in the walk's units, with fresh digests
-          await db
-            .update(files)
-            .set(fileStateAfterWrite({ size: stats.size, mtimeMs: Number(stats.mtimeMs), dev: stats.dev, ino: stats.ino }, rawTags, hashBefore))
-            .where(eq(files.id, item.audioFileId));
+          const metadata = await gate.run<IAudioMetadata>(scanRoot.id, { op: 'parseAudio', path: fullPath });
+          await recordApplied(ctx, item.id, item.audioFileId, scanRoot.id, fullPath, afterTags, hashBefore, metadata);
 
           logger.info({ itemId: item.id, audioFileId: item.audioFileId }, 'Tag apply: success');
           return { success: true };
         } catch (error) {
+          // offline: not this item's failure; the plan waits (the batch rethrows it).
+          // The gate closed (the worker is stopping): not the item's failure either.
+          if (error instanceof FolderOfflineError || isGateClosed(error)) throw error;
           const message = error instanceof Error ? error.message : String(error);
           await db
             .update(tagPlanItems)
@@ -496,6 +537,12 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
         }
       })
     );
+
+    // A music folder offline: the items written stay applied, the rest wait.
+    const offline = results.find((r): r is PromiseRejectedResult => r.status === 'rejected' && r.reason instanceof FolderOfflineError);
+    if (offline) throw offline.reason;
+    const closed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected' && isGateClosed(r.reason));
+    if (closed) throw closed.reason;
 
     // Check for hash mismatch and stop processing if found
     for (const result of results) {
@@ -596,6 +643,47 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
   }
 
   await relintTouchedAlbums(ctx, libraryId, fileIds);
+}
+
+/**
+ * True when the file's tags (read through the gate) already hold every value
+ * the diffs write: a write the gate gave up on had finished. A diff whose
+ * value is blank removes the tag, so the tag must be gone.
+ */
+export function holdsDiffs(metadata: IAudioMetadata, diffs: TagDiffEntry[]): boolean {
+  const written = diffs.filter((d) => d.reason === 'policy:fill' || d.reason === 'policy:overwrite' || d.reason === 'revert');
+  if (written.length === 0) return false;
+  const now = currentFieldsFrom(tagSnapshotOf(metadata)) as Record<string, string | string[] | null | undefined>;
+  return written.every((d) => valueKey(now[d.field] ?? null) === valueKey(d.after));
+}
+
+/** The item applied with its journal, and the file's row as the walk would read it now (stat through the gate). */
+async function recordApplied(
+  ctx: WorkerContext, itemId: string, audioFileId: string, rootId: string, fullPath: string,
+  afterTags: Record<string, unknown>, audioHash: string, metadata: IAudioMetadata,
+): Promise<void> {
+  // bigint: 64-bit inode numbers lose precision as a JS number (as the walk stats)
+  const stats = await fileGate().run<GateStat>(rootId, { op: 'stat', path: fullPath, bigint: true });
+  // Same snapshot shape scan.parse stores; a bare common block here
+  // made preview, identify and the lint read the file as untagged.
+  const rawTags = tagSnapshotOf(metadata);
+  await ctx.db
+    .update(tagPlanItems)
+    .set({
+      status: 'applied',
+      after: afterTags, // Store the complete after-tag set
+      audioHashBefore: audioHash,
+      audioHashAfter: audioHash, // Hash unchanged per spec (verified by SafeFileWriter)
+      sizeAfter: Number(stats.size),
+      mtimeAfter: Math.trunc(Number(stats.mtimeMs)),
+      appliedAt: new Date(),
+    })
+    .where(eq(tagPlanItems.id, itemId));
+  // Update files in the walk's units, with fresh digests
+  await ctx.db
+    .update(files)
+    .set(fileStateAfterWrite({ size: stats.size, mtimeMs: Number(stats.mtimeMs), dev: stats.dev, ino: stats.ino }, rawTags, audioHash))
+    .where(eq(files.id, audioFileId));
 }
 
 /**

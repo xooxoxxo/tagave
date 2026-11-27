@@ -25,7 +25,7 @@ import { lstat, mkdir, open, opendir, realpath, rename, rmdir, stat, statfs, unl
 import { parseFile } from 'music-metadata';
 import { fileTypeHandler, type FileTypeHandler } from '@tagave/core/files';
 import type { GateOp, HelperMessage, HelperRequest } from './fileGate.js';
-import { safeWriteSteps, type WriteStepHooks } from './safeFileWriter.js';
+import { safeEmbedSteps, safeWriteSteps, type WriteResult, type WriteStepHooks } from './safeFileWriter.js';
 import { MutagenTagWriter } from './tagWriter.js';
 import { OFFLINE_CODES } from './folderOffline.js';
 import { IoProgress } from './procIo.js';
@@ -35,7 +35,7 @@ const READ_SMALL_MAX = 32 * 1024 * 1024;
 const PAGE_LIMIT = 500;
 /** lstats in flight at once for a page's untyped entries. */
 const LSTAT_AT_ONCE = 16;
-const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged']);
+const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover']);
 
 type EntryType = 'file' | 'dir' | 'link' | 'other';
 export interface DirPage {
@@ -158,6 +158,26 @@ function writeHooks(): WriteStepHooks {
   return {};
 }
 
+/**
+ * A safe write with the helper's own tag writer: a sidecar stuck on the
+ * share is replaced (never reused) and the gate counts it.
+ */
+async function safeWrite(rootId: string | undefined, steps: (writer: MutagenTagWriter) => Promise<WriteResult>): Promise<WriteResult> {
+  const ms = sidecarMs();
+  tagWriter ??= new MutagenTagWriter({ ...(ms ? { responseMs: ms } : {}), onStuck: (_root, gone) => {
+    const token = nextStuckToken++;
+    sidecarStuck = token;
+    void gone.then(() => send({ stuckGone: token }));
+  } });
+  tagWriter.rootId = rootId;
+  sidecarStuck = null;
+  const result = await steps(tagWriter);
+  if (sidecarStuck !== null) throw Object.assign(opError('ETIMEDOUT', 'The tag writer did not answer'), { stuck: true, stuckToken: sidecarStuck });
+  // A step that failed on an offline share is the share's answer, not the write's.
+  if (result.errno && OFFLINE_CODES.has(result.errno)) throw opError(result.errno, result.error ?? 'The write failed');
+  return result;
+}
+
 async function runOp(op: GateOp, rootId: string | undefined): Promise<unknown> {
   if (op === null || typeof op !== 'object') throw opError('EINVAL', 'The request has no op');
   const o = op as Record<string, unknown>;
@@ -219,20 +239,14 @@ async function runOp(op: GateOp, rootId: string | undefined): Promise<unknown> {
       const h = handlerOf(op.handlerId);
       const path = str(o.path, 'path');
       if (op.values === null || typeof op.values !== 'object') throw opError('EINVAL', 'The op needs values');
-      // The helper's own writer: a sidecar stuck on the share is replaced (never reused) and the gate counts it.
-      const ms = sidecarMs();
-      tagWriter ??= new MutagenTagWriter({ ...(ms ? { responseMs: ms } : {}), onStuck: (_root, gone) => {
-        const token = nextStuckToken++;
-        sidecarStuck = token;
-        void gone.then(() => send({ stuckGone: token }));
-      } });
-      tagWriter.rootId = rootId;
-      sidecarStuck = null;
-      const result = await safeWriteSteps(path, h, op.values, tagWriter, op.options, writeHooks());
-      if (sidecarStuck !== null) throw Object.assign(opError('ETIMEDOUT', 'The tag writer did not answer'), { stuck: true, stuckToken: sidecarStuck });
-      // A step that failed on an offline share is the share's answer, not the write's.
-      if (result.errno && OFFLINE_CODES.has(result.errno)) throw opError(result.errno, result.error ?? 'The write failed');
-      return result;
+      const values = op.values;
+      return safeWrite(rootId, (writer) => safeWriteSteps(path, h, values, writer, op.options, writeHooks()));
+    }
+    case 'embedCover': {
+      const path = str(o.path, 'path');
+      if (!(op.image instanceof Uint8Array) || op.image.length === 0) throw opError('EINVAL', 'The op needs an image');
+      const image = Buffer.from(op.image);
+      return safeWrite(rootId, (writer) => safeEmbedSteps(path, image, writer, writeHooks()));
     }
     default:
       throw opError('EINVAL', `Unknown op "${String((op as { op?: unknown }).op)}"`);

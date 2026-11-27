@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { access, mkdir, writeFile } from 'node:fs/promises';
-import { parseFile } from 'music-metadata';
+import { mkdir, writeFile } from 'node:fs/promises';
+import type { IAudioMetadata } from 'music-metadata';
 import { and, eq, inArray, isNotNull, isNull, sql as dsql } from 'drizzle-orm';
 import {
   files, images, imageSources, localAlbums, localTracks, releases, scanRoots, sidecarFiles, type MaintenanceWork,
@@ -8,6 +8,8 @@ import {
 import { storeThumb, toThumb } from '../lib/coverThumbs.js';
 import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
+import { fileGate } from '../lib/fileGate.js';
+import { FolderOfflineError } from '../lib/folderOffline.js';
 import { runMaintenance } from '../lib/maintenance.js';
 import { relDirname } from '../lib/helpers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
@@ -60,12 +62,19 @@ async function upsertImageSource(ctx: WorkerContext, releaseId: string, provider
   return rows[0]!.id;
 }
 
-async function openVariant(p: string): Promise<string | null> {
+/**
+ * The spelling (as stored, NFD, NFC) the share has, through the file gate.
+ * An offline folder throws FolderOfflineError: it never reads as "not there".
+ */
+async function openVariant(rootId: string, p: string): Promise<string | null> {
   for (const cand of [p, p.normalize('NFD'), p.normalize('NFC')]) {
     try {
-      await access(cand);
+      await fileGate().run(rootId, { op: 'access', path: cand });
       return cand;
-    } catch { /* next */ }
+    } catch (err) {
+      if (err instanceof FolderOfflineError) throw err;
+      /* next */
+    }
   }
   return null;
 }
@@ -169,27 +178,41 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, che
     }
   }
 
+  // The local sources read the music folder through the file gate. An offline
+  // folder skips them for this run (never read as "no local cover") and the
+  // online sources go on; with nothing found online the error rethrows, so
+  // the lookup parks and runs again when the folder is back.
+  let localOffline: FolderOfflineError | null = null;
+
   // 1. embedded artwork (largest picture of the first art-bearing file)
   const withArt = fileRows.find((f) => f.hasArt);
   if (!source && withArt) {
-    const abs = await openVariant(path.join(rootPath.get(withArt.scanRootId) ?? '', withArt.relPath));
-    if (abs) {
-      try {
-        const meta = await parseFile(abs, { skipPostHeaders: false });
-        const pics = meta.common.picture ?? [];
-        const best = pics.sort((a, b) => (b.data?.length ?? 0) - (a.data?.length ?? 0))[0];
-        if (best?.data?.length) {
-          source = Buffer.from(best.data);
-          origin = 'embedded';
-          license = 'embedded in owned file';
-          audioFileId = withArt.id;
+    try {
+      const abs = await openVariant(withArt.scanRootId, path.join(rootPath.get(withArt.scanRootId) ?? '', withArt.relPath));
+      if (abs) {
+        try {
+          const meta = await fileGate().run<IAudioMetadata>(withArt.scanRootId, { op: 'parseAudio', path: abs });
+          const pics = meta.common.picture ?? [];
+          const best = pics.sort((a, b) => (b.data?.length ?? 0) - (a.data?.length ?? 0))[0];
+          if (best?.data?.length) {
+            source = Buffer.from(best.data);
+            origin = 'embedded';
+            license = 'embedded in owned file';
+            audioFileId = withArt.id;
+          }
+        } catch (err) {
+          if (err instanceof FolderOfflineError) throw err;
+          /* fall through */
         }
-      } catch { /* fall through */ }
+      }
+    } catch (err) {
+      if (!(err instanceof FolderOfflineError)) throw err;
+      localOffline = err;
     }
   }
 
   // 2. sidecar image in any of the album's directories
-  if (!source) {
+  if (!source && !localOffline) {
     const anyFile = fileRows[0];
     if (anyFile) {
       const dirs = [...new Set(fileRows.map((f) => relDirname(f.relPath)))];
@@ -209,15 +232,22 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, che
         });
       const pick = inDirs[0];
       if (pick) {
-        const abs = await openVariant(path.join(rootPath.get(pick.scanRootId) ?? '', pick.relPath));
-        if (abs) {
-          try {
-            const { readFile } = await import('node:fs/promises');
-            source = await readFile(abs);
-            origin = 'sidecar';
-            license = 'sidecar file in owned folder';
-            sidecarFileId = pick.id;
-          } catch { /* fall through */ }
+        try {
+          const abs = await openVariant(pick.scanRootId, path.join(rootPath.get(pick.scanRootId) ?? '', pick.relPath));
+          if (abs) {
+            try {
+              source = Buffer.from(await fileGate().run<Uint8Array>(pick.scanRootId, { op: 'readSmall', path: abs }));
+              origin = 'sidecar';
+              license = 'sidecar file in owned folder';
+              sidecarFileId = pick.id;
+            } catch (err) {
+              if (err instanceof FolderOfflineError) throw err;
+              /* fall through */
+            }
+          }
+        } catch (err) {
+          if (!(err instanceof FolderOfflineError)) throw err;
+          localOffline = err;
         }
       }
     }
@@ -308,6 +338,8 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData, che
   }
 
   if (!source) {
+    // the local sources were not read: no answer yet, the lookup waits for the folder
+    if (localOffline) throw localOffline;
     if (data.reselect && refreshId && existing[0]?.origin === 'provider') {
       // its thumbnail goes with it (cover_thumbs cascades)
       await ctx.db.delete(images).where(and(eq(images.id, refreshId), eq(images.origin, 'provider')));

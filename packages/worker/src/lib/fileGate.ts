@@ -47,7 +47,9 @@ export type GateOp =
   | { op: 'parse' | 'contentHash'; handlerId: string; path: string }
   | { op: 'cover'; handlerId: string; path: string; metadata: unknown }
   | { op: 'parseAudio'; path: string; options?: { duration?: boolean; skipCovers?: boolean } }
-  | { op: 'writeTagged'; path: string; handlerId: string; values: TagSet; options?: WriteOptions };
+  | { op: 'writeTagged'; path: string; handlerId: string; values: TagSet; options?: WriteOptions }
+  /** SafeFileWriter's steps with the image embedded as the front cover (files.embedCover). */
+  | { op: 'embedCover'; path: string; image: Uint8Array };
 
 export interface GateLimits {
   /** The deadline for a metadata op. */
@@ -84,7 +86,7 @@ export type HelperMessage =
   | { stuckGone: number };
 
 /** Ops that read or write a whole file: they use the idle deadline, reset by progress. */
-const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged']);
+const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover']);
 
 function positiveInt(raw: string | undefined, fallback: number): number {
   const n = Number(raw);

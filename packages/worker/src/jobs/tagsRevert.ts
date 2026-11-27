@@ -10,6 +10,7 @@ import {
   tagPlanItems,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { requireOnline, rootOfPlan } from '../lib/parking.js';
 import { undoMovesOfPlan } from './filesMove.js';
 import { undoSplitsOfPlan } from './planSplits.js';
 import { CanonicalField, type TagDiffEntry, type TagPlanStats, type TagPolicies } from '@tagave/shared';
@@ -85,6 +86,12 @@ export async function tagsRevertJob(ctx: WorkerContext, data: TagsRevertJobData)
   }
 
   const originalPlan = plans[0]!;
+
+  // The undo of the plan's moves and splits works on the music folder: one
+  // the watch reads offline parks the revert at once (a dead share is never
+  // touched), and it comes back on its own.
+  const root = await rootOfPlan(ctx, planId);
+  if (root) await requireOnline(ctx, root);
 
   // 0081: the files the plan moved to their rule paths go back first (the
   // moves' own Undo, from their journals), so the revert writes them where

@@ -11,6 +11,10 @@
  * that same row; until then the cover shows the placeholder. A cache that
  * looks wrong (unmounted, empty, a fresh volume, another computer's) sends
  * nothing: see the proportion check in artThumbSweepJob.
+ *
+ * Every path here is under the worker's own cache folder, never a music
+ * folder, so none of it goes through the file gate: an offline music share
+ * does not stop a thumbnail rebuild.
  */
 import path from 'node:path';
 import { opendir, readFile, stat } from 'node:fs/promises';
