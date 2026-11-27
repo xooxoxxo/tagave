@@ -38,11 +38,17 @@ import type { SplitDeps } from './filesSplit.js';
 import { FlacTools } from '../lib/flacTools.js';
 import type { TagPolicies } from '@tagave/shared';
 import type { MaintenanceWork } from '@tagave/db';
-import { runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
+import { PAUSED_OFFLINE_STAGE, runMaintenance, type MaintenanceRun } from '../lib/maintenance.js';
 
 export interface TagsApplyJobData {
   planId: string;
   maintenance?: MaintenanceWork;
+  /**
+   * Set on the job's data when it parked on an offline music folder (the
+   * parked row keeps it): the re-send applies only a plan still waiting or
+   * applying, never one the owner paused or cancelled meanwhile.
+   */
+  waited?: true;
 }
 
 /** What the apply needs from outside; tests pass the split's tools and tag writer. */
@@ -91,9 +97,10 @@ export function fieldsToWriteFrom(diffs: TagDiffEntry[]): Record<string, string 
 
 /**
  * Apply a tag plan: write tags to files in pending status, update journal,
- * pause on hash mismatch, continue on other errors.
+ * pause on hash mismatch, continue on other errors. Answers the offline
+ * music folder's id when a split met it and the plan paused, else nothing.
  */
-export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsApplyDeps = {}) {
+export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsApplyDeps = {}): Promise<string | undefined> {
   if (data.maintenance && !deps.claim) {
     await runMaintenance(ctx, data.maintenance, async (claim) => {
       const [before] = await ctx.sql<{ status: string }[]>`select status from tag_plans where id = ${data.planId}`;
@@ -102,18 +109,38 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, d
         return { state: 'cancelled', stage: 'Tag Plan closed' };
       }
       await claim.update({ stage: 'Applying Tag Plan', checkpoint: { planId: data.planId } });
-      await tagsApplyJob(ctx, data, { ...deps, claim });
+      const offlineRoot = await tagsApplyJob(ctx, data, { ...deps, claim });
       const [plan] = await ctx.sql<{ status: string; error: string | null }[]>`
         select status, stats->>'lastError' as error from tag_plans where id = ${data.planId}
       `;
+      if (plan?.status === 'paused' && offlineRoot) {
+        // a split met an offline folder: the owner's Continue, as for any split (Decision 2)
+        return { state: 'interrupted', stage: PAUSED_OFFLINE_STAGE, error: plan.error, checkpoint: { planId: data.planId, offlineRootId: offlineRoot } };
+      }
       if (plan?.status === 'paused') return { state: 'interrupted', stage: 'Tag Plan paused', error: plan.error };
       return { state: 'done', stage: plan?.status === 'partially_failed' ? 'Tag Plan finished with errors' : 'Tag Plan applied' };
     });
     return;
   }
+  if (data.waited && !deps.claim) {
+    // a parked job sent again: only a plan still waiting (or applying) goes on
+    const [now] = await ctx.sql<{ status: string }[]>`select status from tag_plans where id = ${data.planId}`;
+    if (!now || !['waiting', 'applying'].includes(now.status)) {
+      ctx.logger.info({ planId: data.planId, status: now?.status ?? null }, 'tags.apply: the plan no longer waits for its music folder; nothing written');
+      return;
+    }
+  }
   try {
     await applyPlan(ctx, data, deps);
   } catch (error) {
+    if (error instanceof SplitOfflineError) {
+      // A split met an offline folder: the plan pauses for the owner's Resume
+      // and the job completes (no park, so nothing resumes on its own).
+      ctx.logger.warn({ planId: data.planId, scanRootId: error.offline.scanRootId }, 'tags.apply: music folder offline during a split; plan paused');
+      await deps.claim?.current();
+      await parkPlan(ctx, data.planId, PAUSED_OFFLINE_STAGE, ['previewed', 'applying', 'waiting']);
+      return error.offline.scanRootId;
+    }
     if (error instanceof FolderOfflineError) {
       // The music folder went offline: the plan waits for it (never failed or
       // paused, its last error kept) and the error parks the job or the task.
@@ -121,6 +148,17 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, d
       ctx.logger.warn({ planId: data.planId, scanRootId: error.scanRootId, reason: error.reason }, 'tags.apply: music folder offline; plan waiting');
       await deps.claim?.current();
       await waitPlan(ctx, data.planId);
+      // the parked row keeps the job's data: its re-send checks the plan still waits
+      if (!data.maintenance) data.waited = true;
+      throw error;
+    }
+    if (isGateClosed(error)) {
+      // The worker is stopping: the plan stays applying, its items back to
+      // pending, and the job runs again (the journal check makes a cut-off write safe).
+      await ctx.db
+        .update(tagPlanItems)
+        .set({ status: 'pending' })
+        .where(and(eq(tagPlanItems.tagPlanId, data.planId), eq(tagPlanItems.status, 'applying')));
       throw error;
     }
     // A failure outside the per-item handler (a DB constraint, a missing
@@ -130,12 +168,18 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData, d
     const message = errorMessage(error);
     ctx.logger.error({ planId: data.planId, error: message }, 'tags.apply failed; plan paused');
     await deps.claim?.current();
-    await parkPlan(ctx, data.planId, message);
+    await parkPlan(ctx, data.planId, message, ['applying']);
     throw error;
   }
 }
 
-async function parkPlan(ctx: WorkerContext, planId: string, message: string | null) {
+/**
+ * Stops the plan: its applying items back to pending, the plan paused with
+ * `message` as its last error, or (message null, offline) waiting with its
+ * last error as it was. Only from the statuses in `from`: a plan the owner
+ * paused or cancelled meanwhile stays as the owner left it.
+ */
+async function parkPlan(ctx: WorkerContext, planId: string, message: string | null, from: string[]) {
   // Whatever was written before the failure is re-clustered like a finished
   // apply, so a plan cancelled from 'paused' still shows its real albums.
   try {
@@ -157,15 +201,15 @@ async function parkPlan(ctx: WorkerContext, planId: string, message: string | nu
           status: 'paused',
           stats: sql`coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('lastError', ${message}::text)`,
         })
-      .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, message === null ? ['applying', 'previewed', 'paused'] : ['applying'])));
+      .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, from)));
   } catch (parkError) {
     ctx.logger.error({ planId, error: String(parkError) }, 'tags.apply: could not park the plan');
   }
 }
 
-/** The plan's music folder went offline: its applying items back to pending, the plan 'waiting'. */
+/** The plan's music folder went offline: its applying items back to pending, an applying plan 'waiting'. */
 async function waitPlan(ctx: WorkerContext, planId: string) {
-  await parkPlan(ctx, planId, null);
+  await parkPlan(ctx, planId, null, ['applying']);
 }
 
 /**
@@ -173,10 +217,22 @@ async function waitPlan(ctx: WorkerContext, planId: string) {
  * tagged with the plan's values), with the same tag-writes gate as every
  * item. The split's own sidecar is closed after.
  */
+/** The plan's splits still to run (or to finish). */
+async function splitsWaiting(ctx: WorkerContext, planId: string): Promise<number> {
+  const [waiting] = (await ctx.sql`select count(*)::int as n from album_splits where tag_plan_id = ${planId} and (state = 'splitting' or (state = 'done' and write_checkpoint is not null))`) as unknown as Array<{ n: number }>;
+  return waiting?.n ?? 0;
+}
+
+/** The music folder went offline while the plan still had splits to run. */
+class SplitOfflineError extends Error {
+  constructor(readonly offline: FolderOfflineError) {
+    super(PAUSED_OFFLINE_STAGE);
+  }
+}
+
 async function splitsFirst(ctx: WorkerContext, planId: string, policy: TagPolicies, libraryId: string, deps: TagsApplyDeps): Promise<PlanSplitOutcome> {
   const none: PlanSplitOutcome = { done: 0, failed: 0, tracks: 0, error: null };
-  const [waiting] = (await ctx.sql`select count(*)::int as n from album_splits where tag_plan_id = ${planId} and (state = 'splitting' or (state = 'done' and write_checkpoint is not null))`) as unknown as Array<{ n: number }>;
-  if (!waiting || waiting.n === 0) return none;
+  if ((await splitsWaiting(ctx, planId)) === 0) return none;
   const [lib] = (await ctx.sql`select settings from libraries where id = ${libraryId}`) as unknown as Array<{ settings: { tagWritesEnabled?: boolean } | null }>;
   if (lib?.settings?.tagWritesEnabled !== true) {
     // nothing ran: the splits wait for the next Apply
@@ -240,12 +296,32 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
   // to catch flips that occur between job start and item processing
 
   // A music folder the watch reads offline: the plan waits at once, without a gate deadline.
+  // While the plan still has splits to run, an offline folder pauses it for the
+  // owner instead (Decision 2, ruling R22): a split never resumes on its own.
   const planRoot = await rootOfPlan(ctx, planId);
-  if (planRoot) await requireOnline(ctx, planRoot);
-
-  // 0089: split first, then tag: an album in one file becomes its tracks
-  // (already carrying the plan's values) before any item is written
-  const splits = await splitsFirst(ctx, planId, plan.policy as TagPolicies, libraryId, deps);
+  const splitting = (await splitsWaiting(ctx, planId)) > 0;
+  let splits: PlanSplitOutcome;
+  try {
+    if (planRoot) {
+      try {
+        await requireOnline(ctx, planRoot);
+      } catch (error) {
+        // Offline before anything ran: the Apply (or Resume) this job is for
+        // makes the plan applying, so it shows as waiting for its folder. A
+        // re-sent parked job finds its plan waiting already.
+        if (error instanceof FolderOfflineError && !data.waited && !splitting) {
+          await ctx.sql`update tag_plans set status = 'applying' where id = ${planId} and status in ('previewed', 'paused')`;
+        }
+        throw error;
+      }
+    }
+    // 0089: split first, then tag: an album in one file becomes its tracks
+    // (already carrying the plan's values) before any item is written
+    splits = await splitsFirst(ctx, planId, plan.policy as TagPolicies, libraryId, deps);
+  } catch (error) {
+    if (splitting && error instanceof FolderOfflineError) throw new SplitOfflineError(error);
+    throw error;
+  }
   await recordSplits(ctx, planId, splits);
 
   // Get pending and applying items
@@ -442,10 +518,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
           if (item.audioHashBefore && !item.audioHashAfter) {
             if (hashBefore !== item.audioHashBefore) {
               hashMismatchEncountered = true;
-              await db
-                .update(tagPlanItems)
-                .set({ status: 'failed', error: 'Audio-stream hash mismatch after a cut-off write' })
-                .where(eq(tagPlanItems.id, item.id));
+              await failItem(ctx, item.id, 'Audio-stream hash mismatch after a cut-off write');
               logger.warn({ itemId: item.id }, 'Tag apply: hash mismatch on a cut-off write (P0 defect)');
               return { success: false, hashMismatch: true };
             }
@@ -479,13 +552,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
               hashMismatchEncountered = true;
 
               // Mark item as failed
-              await db
-                .update(tagPlanItems)
-                .set({
-                  status: 'failed',
-                  error: writeResult.error,
-                })
-                .where(eq(tagPlanItems.id, item.id));
+              await failItem(ctx, item.id, writeResult.error);
 
               logger.warn(
                 { itemId: item.id, error: writeResult.error },
@@ -495,13 +562,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
               return { success: false, hashMismatch: true };
             } else {
               // Other error: mark as failed, plan continues
-              await db
-                .update(tagPlanItems)
-                .set({
-                  status: 'failed',
-                  error: writeResult.error,
-                })
-                .where(eq(tagPlanItems.id, item.id));
+              await failItem(ctx, item.id, writeResult.error);
 
               logger.warn(
                 { itemId: item.id, error: writeResult.error },
@@ -524,13 +585,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
           // The gate closed (the worker is stopping): not the item's failure either.
           if (error instanceof FolderOfflineError || isGateClosed(error)) throw error;
           const message = error instanceof Error ? error.message : String(error);
-          await db
-            .update(tagPlanItems)
-            .set({
-              status: 'failed',
-              error: message,
-            })
-            .where(eq(tagPlanItems.id, item.id));
+          await failItem(ctx, item.id, message);
 
           logger.error({ itemId: item.id, error: message }, 'Tag apply: unexpected error');
           return { success: false };
@@ -655,6 +710,20 @@ export function holdsDiffs(metadata: IAudioMetadata, diffs: TagDiffEntry[]): boo
   if (written.length === 0) return false;
   const now = currentFieldsFrom(tagSnapshotOf(metadata)) as Record<string, string | string[] | null | undefined>;
   return written.every((d) => valueKey(now[d.field] ?? null) === valueKey(d.after));
+}
+
+/**
+ * A failed item, for a reason that is not an offline folder: its error, and
+ * no journal of a cut-off write left (before set, after empty), so a later
+ * retry never reads a file replaced since as a P0 hash mismatch. A revert
+ * item's born journal (both set) stays.
+ */
+async function failItem(ctx: WorkerContext, itemId: string, message: string): Promise<void> {
+  await ctx.sql`
+    update tag_plan_items
+       set status = 'failed', error = ${message},
+           audio_hash_before = case when audio_hash_after is null then null else audio_hash_before end
+     where id = ${itemId}`;
 }
 
 /** The item applied with its journal, and the file's row as the walk would read it now (stat through the gate). */

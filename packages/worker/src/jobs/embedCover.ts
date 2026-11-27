@@ -81,11 +81,20 @@ export async function embedCoverJob(ctx: WorkerContext, data: EmbedCoverJobData)
     if (rows.some((row) => !row.writable)) throw new Error('Enable tag writes and check that the music folders are writable.');
     // a folder the watch reads offline parks at once, without waiting for a deadline
     for (const rootId of new Set(rows.map((row) => row.root_id))) await requireOnline(ctx, rootId);
+    // one writer per music folder: the gate counts a write that hangs against that folder
+    const writers = new Map<string, SafeFileWriter>();
+    const writerFor = (rootId: string) => {
+      let w = writers.get(rootId);
+      if (!w) writers.set(rootId, (w = new SafeFileWriter(null, rootId)));
+      return w;
+    };
     const sources: Array<typeof rows[number] & { file: string; hasCover: boolean; mount: string }> = [];
     for (const row of rows) {
       const file = await gateOnDisk(row.root_id, row.root, row.rel_path);
       if (!file || !(await gateLstat(row.root_id, file))?.isFile) throw new Error(`Missing audio file: ${path.basename(row.rel_path)}`);
       await gateInsideRoot(row.root_id, row.root, file);
+      // the temp copy a cut-off embed left beside the file (its helper was killed) goes first (ruling R9)
+      await writerFor(row.root_id).removeStaleTemps(file);
       const meta = await fileGate().run<IAudioMetadata>(row.root_id, { op: 'parseAudio', path: file });
       const hasCover = !!meta.common.picture?.length;
       if (!hasCover && !SUPPORTED.has(path.extname(file).toLowerCase())) {
@@ -106,13 +115,6 @@ export async function embedCoverJob(ctx: WorkerContext, data: EmbedCoverJobData)
     let done = 0;
     const stage = 'Embedding cover in audio files';
     await task.update({ stage, progress: { done, total: sources.length } });
-    // one writer per music folder: the gate counts a write that hangs against that folder
-    const writers = new Map<string, SafeFileWriter>();
-    const writerFor = (rootId: string) => {
-      let w = writers.get(rootId);
-      if (!w) writers.set(rootId, (w = new SafeFileWriter(null, rootId)));
-      return w;
-    };
     for (const source of sources) {
       const stillWritable = async () => {
         await task.current();
@@ -126,11 +128,12 @@ export async function embedCoverJob(ctx: WorkerContext, data: EmbedCoverJobData)
         if (!current || await gateMountIdentity(source.root_id, source.root) !== source.mount) throw new Error('The music folder changed or is read-only.');
         await gateInsideRoot(source.root_id, source.root, source.file);
       };
-      // Checked right before the write: the write runs in the gate's helper, which
-      // renames only when the file itself did not change meanwhile.
+      // Checked before the write, and again right before the rename: the helper
+      // prepares the temp copy, the worker checks, then the helper publishes it
+      // (only while the file itself is the one it copied).
       await stillWritable();
       if (!source.hasCover && cover) {
-        const result = await writerFor(source.root_id).embedCover(source.file, cover);
+        const result = await writerFor(source.root_id).embedCover(source.file, cover, stillWritable);
         if (result.error) throw new Error(`${path.basename(source.file)}: ${result.error}`);
       }
       const updated = await fileGate().run<GateStat>(source.root_id, { op: 'stat', path: source.file });

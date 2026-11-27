@@ -290,6 +290,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('a failed helper is never read as "no local cover": the lookup stops and stores nothing', async () => {
+    const albumId = await albumWithFlag('O/Offline/2012 - Helper', { sidecar: true });
+    await client`update files set has_embedded_art = true where id in (select audio_file_id from local_tracks where local_album_id = ${albumId})`;
+    class BrokenGate extends FileGate {
+      override run<T>(): Promise<T> {
+        return Promise.reject(Object.assign(new Error('The file helper stopped without an answer'), { code: 'EHELPER' }));
+      }
+    }
+    setFileGate(new BrokenGate());
+    try {
+      await expect(artFetchJob(ctx, { localAlbumId: albumId })).rejects.toMatchObject({ code: 'EHELPER' });
+    } finally {
+      setFileGate(null);
+    }
+    expect(await db.select().from(images).where(eq(images.localAlbumId, albumId))).toHaveLength(0);
+    expect((await flagState(albumId))?.state).toBe('open');
+  });
+
   it('no art anywhere: the flag stays open', async () => {
     send.mockClear();
     const albumId = await albumWithFlag('N/Nothing/1999 - Bare');

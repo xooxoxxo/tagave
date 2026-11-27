@@ -35,6 +35,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { WriteOptions } from '@tagave/core';
 import type { TagSet } from '@tagave/shared';
+import type { PreparedWrite } from './safeFileWriter.js';
 import { classify } from './folderWatch/reach.js';
 import { FolderOfflineError, OFFLINE_CODES } from './folderOffline.js';
 
@@ -60,7 +61,16 @@ export type GateOp =
   | { op: 'parseAudio'; path: string; options?: { duration?: boolean; skipCovers?: boolean } }
   | { op: 'writeTagged'; path: string; handlerId: string; values: TagSet; options?: WriteOptions }
   /** SafeFileWriter's steps with the image embedded as the front cover (files.embedCover). */
-  | { op: 'embedCover'; path: string; image: Uint8Array };
+  | { op: 'embedCover'; path: string; image: Uint8Array }
+  /**
+   * The same two writes in two calls, so the worker can check right before
+   * the rename: prepare answers a PrepareResult (the temp copy written,
+   * verified and synced), publishPrepared renames it when the original is
+   * still the one it was copied from.
+   */
+  | { op: 'prepareTagged'; path: string; handlerId: string; values: TagSet; options?: WriteOptions }
+  | { op: 'prepareCover'; path: string; image: Uint8Array }
+  | { op: 'publishPrepared'; path: string; prepared: PreparedWrite };
 
 export interface GateLimits {
   /** The deadline for a metadata op. */
@@ -97,7 +107,7 @@ export type HelperMessage =
   | { stuckGone: number };
 
 /** Ops that read or write a whole file: they use the idle deadline, reset by progress. */
-const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover', 'digest', 'copyFile']);
+const IDLE_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover', 'prepareTagged', 'prepareCover', 'digest', 'copyFile']);
 
 function positiveInt(raw: string | undefined, fallback: number): number {
   const n = Number(raw);

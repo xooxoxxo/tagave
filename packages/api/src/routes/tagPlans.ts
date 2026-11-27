@@ -137,7 +137,16 @@ async function scopeLabels(db: ReturnType<typeof getDb>, scopes: TagPlanScope[])
 const OPEN_PLAN_STATUSES: string[] = ['draft', 'previewed'];
 const PLAN_CLOSED = 'This plan has already been applied or is being applied. Start a new plan instead.';
 /** Statuses a plan can have after writing at least one file. */
-const WROTE_STATUSES: string[] = ['applying', 'paused', 'applied', 'partially_failed', 'cancelled', 'reverted'];
+const WROTE_STATUSES: string[] = ['applying', 'paused', 'waiting', 'applied', 'partially_failed', 'cancelled', 'reverted'];
+
+/**
+ * The plan's apply job parked for its offline music folder (parked_jobs,
+ * singleton key `tags.apply:<plan>`): gone when the owner pauses or cancels
+ * the plan, so it never comes back on its own when the folder does.
+ */
+async function dropParkedApply(sqlClient: ReturnType<typeof getSql>, planId: string): Promise<void> {
+  await sqlClient`delete from parked_jobs where queue = 'tags.apply' and singleton_key = ${`tags.apply:${planId}`}`;
+}
 
 /**
  * Why a plan cannot be deleted, or null when it can. A plan that wrote files
@@ -1130,7 +1139,8 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       const plan = plans[0]!;
 
-      if (plan.status !== 'applying') {
+      // 'waiting': the plan's music folder is offline; a pause holds it for the owner's Resume
+      if (!['applying', 'waiting'].includes(plan.status as string)) {
         throw new ApiError(400, 'Bad Request', `Cannot pause plan in status '${plan.status}'`);
       }
 
@@ -1144,6 +1154,8 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .update(tagPlans)
         .set({ status: 'paused' })
         .where(eq(tagPlans.id, planId));
+      // the apply parked for its music folder does not come back on its own now
+      await dropParkedApply(getSql(), planId);
 
       reply.send({ status: 'paused', message: 'Plan paused' });
     }
@@ -1264,7 +1276,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       const plan = plans[0]!;
 
-      if (!['applying', 'paused'].includes(plan.status as string)) {
+      if (!['applying', 'paused', 'waiting'].includes(plan.status as string)) {
         throw new ApiError(400, 'Bad Request', `Cannot cancel plan in status '${plan.status}'`);
       }
 
@@ -1278,6 +1290,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .update(tagPlans)
         .set({ status: 'cancelled' })
         .where(eq(tagPlans.id, planId));
+      await dropParkedApply(getSql(), planId);
 
       // Files written before the stop regroup by their new tags, as they do
       // when an apply finishes; the results then show the albums they form.

@@ -27,7 +27,10 @@ import { copyFile, link, lstat, mkdir, open, opendir, realpath, rename, rm, rmdi
 import { parseFile } from 'music-metadata';
 import { fileTypeHandler, type FileTypeHandler } from '@tagave/core/files';
 import type { GateOp, HelperMessage, HelperRequest } from './fileGate.js';
-import { safeEmbedSteps, safeWriteSteps, type WriteResult, type WriteStepHooks } from './safeFileWriter.js';
+import {
+  prepareEmbedSteps, prepareTaggedSteps, publishPrepared, safeEmbedSteps, safeWriteSteps,
+  type WriteResult, type WriteStepHooks,
+} from './safeFileWriter.js';
 import { MutagenTagWriter } from './tagWriter.js';
 import { OFFLINE_CODES } from './folderOffline.js';
 import { IoProgress } from './procIo.js';
@@ -37,7 +40,7 @@ const READ_SMALL_MAX = 32 * 1024 * 1024;
 const PAGE_LIMIT = 500;
 /** lstats in flight at once for a page's untyped entries. */
 const LSTAT_AT_ONCE = 16;
-const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover', 'digest', 'copyFile']);
+const LONG_OPS = new Set<GateOp['op']>(['parse', 'contentHash', 'cover', 'parseAudio', 'readSmall', 'writeTagged', 'embedCover', 'prepareTagged', 'prepareCover', 'digest', 'copyFile']);
 
 type EntryType = 'file' | 'dir' | 'link' | 'other';
 export interface DirPage {
@@ -261,18 +264,33 @@ async function runOp(op: GateOp, rootId: string | undefined): Promise<unknown> {
       if (typeof op.options?.skipCovers === 'boolean') options.skipCovers = op.options.skipCovers;
       return parseFile(str(o.path, 'path'), options);
     }
-    case 'writeTagged': {
+    case 'writeTagged':
+    case 'prepareTagged': {
       const h = handlerOf(op.handlerId);
       const path = str(o.path, 'path');
       if (op.values === null || typeof op.values !== 'object') throw opError('EINVAL', 'The op needs values');
       const values = op.values;
-      return safeWrite(rootId, (writer) => safeWriteSteps(path, h, values, writer, op.options, writeHooks()));
+      const steps = op.op === 'writeTagged' ? safeWriteSteps : prepareTaggedSteps;
+      return safeWrite(rootId, (writer) => steps(path, h, values, writer, op.options, writeHooks()));
     }
-    case 'embedCover': {
+    case 'embedCover':
+    case 'prepareCover': {
       const path = str(o.path, 'path');
       if (!(op.image instanceof Uint8Array) || op.image.length === 0) throw opError('EINVAL', 'The op needs an image');
       const image = Buffer.from(op.image);
-      return safeWrite(rootId, (writer) => safeEmbedSteps(path, image, writer, writeHooks()));
+      const steps = op.op === 'embedCover' ? safeEmbedSteps : prepareEmbedSteps;
+      return safeWrite(rootId, (writer) => steps(path, image, writer, writeHooks()));
+    }
+    case 'publishPrepared': {
+      const path = str(o.path, 'path');
+      const prepared = op.prepared;
+      if (prepared === null || typeof prepared !== 'object' || typeof prepared.temp !== 'string' || prepared.original === null || typeof prepared.original !== 'object') {
+        throw opError('EINVAL', 'The op needs the prepared write');
+      }
+      const result = await publishPrepared(path, prepared);
+      // A rename that failed on an offline share is the share's answer, not the write's.
+      if (result.errno && OFFLINE_CODES.has(result.errno)) throw opError(result.errno, result.error ?? 'The rename failed');
+      return result;
     }
     default:
       throw opError('EINVAL', `Unknown op "${String((op as { op?: unknown }).op)}"`);
