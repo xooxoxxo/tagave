@@ -4,11 +4,10 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
+import type { AlbumRescanResponse } from '@tagave/shared';
 import { invalidateAlbumCare } from './useGaps';
 
-export interface RescanResponse {
-  queued: Array<{ scanRootId: string; dirPath: string; jobId: string | null }>;
-}
+export type RescanResponse = AlbumRescanResponse;
 
 export interface SplitResponse {
   newAlbumId: string;

@@ -9,6 +9,9 @@ import { PAUSED_OFFLINE_STAGE, type AlbumMoveView } from '@tagave/shared';
 
 export const PAUSED_OFFLINE_HELP = 'Press Continue when the folder is back.';
 
+/** A scan queued while its music folder is offline (spec §7, "Scan button while offline"): Scan, and an album's Rescan folder. */
+export const SCAN_QUEUED = 'Scan queued. It runs when the folder is back.';
+
 /** The album page's toast after a move: "2 songs · Moved", or paused when the folder went offline mid-move. */
 export function movedToast(moved: number, error: string | null | undefined): string {
   if (error === PAUSED_OFFLINE_STAGE) return PAUSED_OFFLINE_STAGE;

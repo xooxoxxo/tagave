@@ -176,4 +176,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums: files offline (db)', ()
     expect(artist.get(album.some)).toMatchObject({ filesOffline: 'some', offlineSince: since });
     expect(artist.get(album.online)).toMatchObject({ filesOffline: null, offlineSince: null });
   });
+
+  describe('Rescan folder (spec §5: a file action still answers 202, with waiting: true)', () => {
+    const rescan = async (albumId: string) => {
+      const res = await app.inject({ method: 'POST', url: `/api/v1/libraries/${lib}/albums/${albumId}/rescan`, headers: { 'x-test-user': userId }, payload: {} });
+      expect(res.statusCode, res.body).toBe(202);
+      return res.json();
+    };
+
+    it('says it waits when a folder it queues is on an offline or unconnected root', async () => {
+      const some = await rescan(album.some);
+      expect(some).toMatchObject({ waiting: true });
+      expect(some.queued).toHaveLength(2);
+      await setReach(offRoot, 'unmounted', since);
+      expect(await rescan(album.all)).toMatchObject({ waiting: true });
+    });
+
+    it('carries no waiting key when every folder it queues is online', async () => {
+      expect(await rescan(album.online)).not.toHaveProperty('waiting');
+      await setReach(offRoot, 'online', null);
+      expect(await rescan(album.all)).not.toHaveProperty('waiting');
+    });
+
+    it('a turned-off root does not count as not online', async () => {
+      await client`update scan_roots set enabled = false where id = ${offRoot}`;
+      try {
+        expect(await rescan(album.some)).not.toHaveProperty('waiting');
+      } finally {
+        await client`update scan_roots set enabled = true where id = ${offRoot}`;
+      }
+    });
+  });
 });
