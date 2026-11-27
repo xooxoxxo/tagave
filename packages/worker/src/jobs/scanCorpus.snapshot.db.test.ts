@@ -82,7 +82,6 @@ describe.skipIf(!url)('scan snapshot over the fixture corpus (integration)', () 
   it('writes the rows and sends the jobs in the golden file', async () => {
     const cacheDir = await mkdtemp(path.join(tmpdir(), 'tagave-corpus-cache-'));
     process.env.CACHE_DIR = cacheDir;
-    // after CACHE_DIR: art.fetch reads it when the module loads
     const { artFetchJob } = await import('./artFetch.js');
     const made = await makeDb(url!);
     const sql: any = made.client;

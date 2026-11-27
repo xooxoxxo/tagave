@@ -12,12 +12,18 @@ export class FolderOfflineError extends Error {
   readonly reason: ReachReason;
   /** The share's error code (EIO, ESTALE, ...) when the share answered with one; none on a deadline. */
   readonly code?: string;
+  /**
+   * The gate refused the call untried (the root's stuck cap, or its probe
+   * helper still stuck): nothing is known about the file this call was for.
+   */
+  readonly refused?: true;
 
-  constructor(scanRootId: string, reason: ReachReason, code?: string) {
+  constructor(scanRootId: string, reason: ReachReason, code?: string, opts: { refused?: boolean } = {}) {
     super(`The music folder is offline (${reason})`);
     this.scanRootId = scanRootId;
     this.reason = reason;
     if (code !== undefined) this.code = code;
+    if (opts.refused) this.refused = true;
   }
 }
 

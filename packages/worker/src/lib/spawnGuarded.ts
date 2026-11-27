@@ -58,7 +58,7 @@ function letGo(child: ChildProcess): void {
 
 export function spawnGuarded(bin: string, args: readonly string[], opts: GuardedOptions): Promise<GuardedResult> {
   // A root at its stuck cap gets no more work, as in the gate: no more children to pile up in the kernel.
-  if (fileGate().refuses(opts.rootId)) return Promise.reject(new FolderOfflineError(opts.rootId, 'timeout'));
+  if (fileGate().refuses(opts.rootId)) return Promise.reject(new FolderOfflineError(opts.rootId, 'timeout', undefined, { refused: true }));
   return new Promise<GuardedResult>((resolve, reject) => {
     const child = spawn(bin, [...args], { stdio: [opts.input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     const idleMs = opts.idleMs ?? (opts.waitMs === undefined ? gateLimits().idleMs : undefined);

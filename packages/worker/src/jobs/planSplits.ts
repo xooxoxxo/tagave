@@ -10,6 +10,7 @@ import path from 'node:path';
 import type { TagPolicies } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { exists, makeDirs, markLibraryDirty, onDisk, renamePath, restoreWaiting, trashDay, trashOne } from '../lib/deletions.js';
+import { isGateFailure, isOfflineError } from '../lib/folderOffline.js';
 import { relDirname } from '../lib/helpers.js';
 import { finishSplit, runSplit, type SplitDeps, type SplitRow } from './filesSplit.js';
 
@@ -116,11 +117,22 @@ export async function undoSplitsOfPlan(ctx: WorkerContext, planId: string, now =
     // the source back where it was (restoreWaiting refuses a taken place)
     await ctx.sql`update file_deletions set state = 'restoring', error = null where file_id = ${r.fileId} and state = 'trashed'`;
     await restoreWaiting(ctx, r.libraryId);
-    const back = await exists(src.scanRootId, path.join(src.root, src.relPath));
+    let back: boolean;
+    let checkError: string | null = null;
+    try {
+      back = await exists(src.scanRootId, path.join(src.root, src.relPath));
+    } catch (err) {
+      // an offline share or a failed gate: out of here, as before (tags.revert parks)
+      if (isOfflineError(err) || isGateFailure(err)) throw err;
+      // anything else (EACCES): the source's place could not be checked, so it
+      // reads as not back and the tracks come out of the trash (R40)
+      back = false;
+      checkError = `${(err as { code?: string }).code ?? (err as Error).name}: ${(err as Error).message}`;
+    }
     if (!back) {
       // the tracks stay where the owner can hear them: put them back
       for (const t of trashed) await untrash(ctx, src.root, src.scanRootId, t.rel, t.trashRel);
-      ctx.logger.warn({ splitId: r.id }, 'tags.revert: the source could not come back; the split stays');
+      ctx.logger.warn({ splitId: r.id, ...(checkError ? { error: checkError } : {}) }, 'tags.revert: the source could not come back; the split stays');
       continue;
     }
     await ctx.sql.begin(async (tx) => {

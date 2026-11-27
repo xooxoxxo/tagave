@@ -75,9 +75,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse and one file that ha
   const send = vi.fn(async () => null);
 
   const setReach = (reach: string) => sql`update scan_roots set reach = ${reach}, reach_since = now() where id = ${rootId}`;
-  const file = async (rel: string) => {
-    const [row] = await sql`insert into files (library_id, scan_root_id, rel_path, size_bytes, mtime, handler, status)
-                            values (${libraryId}, ${rootId}, ${rel}, 1, 1, 'audio', 'present') returning id::text as id`;
+  const file = async (rel: string, id: string = randomUUID()) => {
+    const [row] = await sql`insert into files (id, library_id, scan_root_id, rel_path, size_bytes, mtime, handler, status)
+                            values (${id}, ${libraryId}, ${rootId}, ${rel}, 1, 1, 'audio', 'present') returning id::text as id`;
     return row.id as string;
   };
   const state = async (id: string) =>
@@ -100,7 +100,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse and one file that ha
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'Hung', ${userId}, '{}')`;
     rootPath = await mkdtemp(path.join(tmpdir(), 'offlinetest-hung-'));
     await mkdir(path.join(rootPath, 'Album'));
-    for (const name of ['02 Good.wav', '03 Bad.wav', '04 Good.wav', '05 Bad.wav', '06 Good.wav']) {
+    for (const name of ['02 Good.wav', '03 Bad.wav', '04 Good.wav', '05 Bad.wav', '06 Good.wav', '07 Bad.wav', '08 Bad.wav', '09 Good.wav', '10 Good.wav', '11 Bad.wav', '12 Good.wav', '13 Bad.wav']) {
       await writeFile(path.join(rootPath, 'Album', name), wav());
     }
     await sql`insert into scan_roots (id, library_id, path, display_name, validation_status, reach, reach_since)
@@ -122,7 +122,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse and one file that ha
     await rm(rootPath, { recursive: true, force: true });
   });
 
-  /** Parks once and HUNG_REPARKS_MAX times more, the bad file and the good one untouched; the next run marks the bad one and parses the rest. */
+  /** An id that sorts before any random one: a batch is read in id order. */
+  const firstId = () => `00000000${randomUUID().slice(8)}`;
+
+  /** Parks once and HUNG_REPARKS_MAX times more, the bad file (read first) and the good one untouched; the next run marks the bad one and parses the rest. */
   async function parksThenMarks(bad: string, good: string): Promise<void> {
     let data: ScanParseJobData = { audioFileIds: [bad, good] };
     for (let park = 1; park <= HUNG_REPARKS_MAX + 1; park++) {
@@ -142,13 +145,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse and one file that ha
     gate = new OneBadFileGate({ limits: { waitMs: 1_000, idleMs: 1_000, helpers: 2, stuckMax: 4 } });
     setFileGate(gate);
     execFileSync('mkfifo', [path.join(rootPath, 'Album', '01 Pipe.wav')]);
-    await parksThenMarks(await file('Album/01 Pipe.wav'), await file('Album/02 Good.wav'));
+    await parksThenMarks(await file('Album/01 Pipe.wav', firstId()), await file('Album/02 Good.wav'));
   }, 60_000);
 
   it('a file that answers EIO on a live share: the same', async () => {
     gate = new OneBadFileGate({ limits: { waitMs: 5_000, idleMs: 5_000, helpers: 2, stuckMax: 4 } });
     setFileGate(gate);
-    await parksThenMarks(await file('Album/03 Bad.wav'), await file('Album/04 Good.wav'));
+    await parksThenMarks(await file('Album/03 Bad.wav', firstId()), await file('Album/04 Good.wav'));
   }, 60_000);
 
   it('a root that reads offline (or goes away and comes back) across many re-parks never stamps an error', async () => {
@@ -167,5 +170,77 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse and one file that ha
       expect(data.hung?.parks ?? 0).toBeLessThanOrEqual(1);
     }
     expect(await state(bad)).toMatchObject({ status: 'present', parse_error: null });
+  }, 60_000);
+
+  it('a good file refused at the stuck cap is never counted as hung: the batch parks, the file keeps its row', async () => {
+    gate = new OneBadFileGate({ limits: { waitMs: 5_000, idleMs: 5_000, helpers: 2, stuckMax: 4 } });
+    setFileGate(gate);
+    // unkillable children of another file hold the cap: every call for the root is refused untried
+    const atCap = () => {
+      for (let i = 0; i < 4; i++) gate.markStuck(rootId);
+    };
+    const good = await file('Album/10 Good.wav');
+    let data: ScanParseJobData = { audioFileIds: [good] };
+    atCap();
+    for (let i = 0; i < HUNG_REPARKS_MAX + 3; i++) {
+      expect(await run(data)).toEqual({ parked: true });
+      expect(await state(good)).toMatchObject({ status: 'present', parse_error: null, read: false });
+      data = await resend();
+      expect(data.hung).toBeUndefined();
+      atCap();
+    }
+    // the stuck children are gone: the file is read
+    gate.clear(rootId);
+    expect(await run(data)).toBeUndefined();
+    expect(await state(good)).toMatchObject({ status: 'present', parse_error: null, read: true });
+  }, 60_000);
+
+  it('two hung files in one batch: each in turn gets its error (lowest id first), the rest is parsed', async () => {
+    gate = new OneBadFileGate({ limits: { waitMs: 5_000, idleMs: 5_000, helpers: 2, stuckMax: 4 } });
+    setFileGate(gate);
+    // the higher id is written first, so the table's own order is not the id order
+    const high = await file('Album/07 Bad.wav', `ffffffff${randomUUID().slice(8)}`);
+    const low = await file('Album/08 Bad.wav', firstId());
+    const good = await file('Album/09 Good.wav');
+    let data: ScanParseJobData = { audioFileIds: [high, low, good] };
+    for (let park = 1; park <= HUNG_REPARKS_MAX + 1; park++) {
+      expect(await run(data)).toEqual({ parked: true });
+      data = await resend();
+      expect(data.hung).toMatchObject({ fileId: low, parks: park });
+    }
+    // the low one gets its error; the high one hangs next and parks the batch
+    expect(await run(data)).toEqual({ parked: true });
+    expect(await state(low)).toMatchObject({ status: 'error', parse_error: HUNG_FILE_ERROR });
+    data = await resend();
+    expect(data.hung).toMatchObject({ fileId: high, parks: 1 });
+    for (let park = 2; park <= HUNG_REPARKS_MAX + 1; park++) {
+      expect(await run(data)).toEqual({ parked: true });
+      data = await resend();
+      expect(data.hung).toMatchObject({ fileId: high, parks: park });
+    }
+    expect(await run(data)).toBeUndefined();
+    expect(await state(high)).toMatchObject({ status: 'error', parse_error: HUNG_FILE_ERROR });
+    expect(await state(good)).toMatchObject({ status: 'present', parse_error: null, read: true });
+  }, 60_000);
+
+  it('the watch\'s clock apart from the database\'s: reach_since is compared with itself, never with now()', async () => {
+    gate = new OneBadFileGate({ limits: { waitMs: 5_000, idleMs: 5_000, helpers: 2, stuckMax: 4 } });
+    setFileGate(gate);
+    // the worker's clock runs ahead: its reach_since is later than any database time of a park
+    await sql`update scan_roots set reach = 'online', reach_since = now() + interval '10 minutes' where id = ${rootId}`;
+    await parksThenMarks(await file('Album/11 Bad.wav', firstId()), await file('Album/12 Good.wav'));
+    // the worker's clock runs behind: a real outage between parks, its reach_since earlier than the last park
+    const bad = await file('Album/13 Bad.wav');
+    let data: ScanParseJobData = { audioFileIds: [bad] };
+    expect(await run(data)).toEqual({ parked: true });
+    data = await resend();
+    expect(await run(data)).toEqual({ parked: true });
+    data = await resend();
+    expect(data.hung).toMatchObject({ fileId: bad, parks: 2 });
+    await sql`update scan_roots set reach = 'offline', reach_since = now() - interval '20 minutes' where id = ${rootId}`;
+    await sql`update scan_roots set reach = 'online', reach_since = now() - interval '10 minutes' where id = ${rootId}`;
+    expect(await run(data)).toEqual({ parked: true });
+    data = await resend();
+    expect(data.hung).toMatchObject({ fileId: bad, parks: 1 });
   }, 60_000);
 });

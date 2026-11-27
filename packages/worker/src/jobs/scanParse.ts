@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { eq, inArray } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import { files, scanRoots } from '@tagave/db';
 import { fileTypeHandler, noNul, type ParsedFile } from '@tagave/core/files';
 import type { WorkerContext } from '../lib/context.js';
@@ -20,11 +20,12 @@ export interface ScanParseJobData {
  * Ruling R34: one file that hangs (a FIFO indexed as a track) or answers EIO
  * on a live share parks its batch, the watch reads the root online and sends
  * it again, and it hangs again, for good. `parks` counts the parks on this
- * file while the root read online throughout; `at` is the database's time of
- * the last one. A reading of offline or not connected since then (the root's
- * reach_since moved) is a real outage: the count starts again.
+ * file while the root read online throughout; `since` is the root's
+ * reach_since at the last one, as stored (the watch's clock, never compared
+ * with the database's: R35). A reading of offline or not connected since
+ * then (reach_since moved) is a real outage: the count starts again.
  */
-export interface HungFile { fileId: string; parks: number; at: string }
+export interface HungFile { fileId: string; parks: number; since: string | null }
 
 /**
  * Re-parks on one file (parks after the first), its root online throughout,
@@ -36,16 +37,18 @@ export const HUNG_FILE_ERROR = 'The file did not answer while its music folder w
 
 /**
  * The root's reading: `online` now (unknown counts online), `stayed` online
- * with no change of reading since `at` (the last park), and the database's time.
+ * with reach_since unchanged from `prev` (the one stored at the last park),
+ * and reach_since as stored now. Only stored values are compared: the watch
+ * writes reach_since from the worker's clock (R35).
  */
-async function rootReading(ctx: Pick<WorkerContext, 'sql'>, rootId: string, at: string | null): Promise<{ online: boolean; stayed: boolean; now: string }> {
-  const [row] = await ctx.sql<{ online: boolean; stayed: boolean; now: string }[]>`
+async function rootReading(ctx: Pick<WorkerContext, 'sql'>, rootId: string, prev: HungFile | null): Promise<{ online: boolean; stayed: boolean; since: string | null }> {
+  const [row] = await ctx.sql<{ online: boolean; stayed: boolean; since: string | null }[]>`
     select reach not in ('offline', 'unmounted') as online,
-           (reach not in ('offline', 'unmounted') and ${at}::timestamptz is not null
-            and (reach_since is null or reach_since <= ${at}::timestamptz)) as stayed,
-           now()::text as now
+           (reach not in ('offline', 'unmounted') and ${prev !== null}::boolean
+            and reach_since is not distinct from ${prev?.since ?? null}::timestamptz) as stayed,
+           reach_since::text as since
       from scan_roots where id = ${rootId}`;
-  return { online: row?.online === true, stayed: row?.stayed === true, now: row?.now ?? new Date().toISOString() };
+  return { online: row?.online === true, stayed: row?.stayed === true, since: row?.since ?? null };
 }
 
 /**
@@ -57,12 +60,12 @@ async function rootReading(ctx: Pick<WorkerContext, 'sql'>, rootId: string, at: 
  */
 async function hungFile(ctx: WorkerContext, data: ScanParseJobData, fileId: string, rootId: string): Promise<boolean> {
   const prev = data.hung?.fileId === fileId ? data.hung : null;
-  const { online, stayed, now } = await rootReading(ctx, rootId, prev?.at ?? null);
+  const { online, stayed, since } = await rootReading(ctx, rootId, prev);
   if (prev && stayed && prev.parks > HUNG_REPARKS_MAX) {
     delete data.hung;
     return true;
   }
-  data.hung = { fileId, parks: !online ? 0 : prev && stayed ? prev.parks + 1 : 1, at: now };
+  data.hung = { fileId, parks: !online ? 0 : prev && stayed ? prev.parks + 1 : 1, since };
   return false;
 }
 
@@ -106,7 +109,9 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
       handler: files.handler,
     })
     .from(files)
-    .where(inArray(files.id, data.audioFileIds));
+    .where(inArray(files.id, data.audioFileIds))
+    // the same order every run: a second hung file cannot reset the first one's count
+    .orderBy(asc(files.id));
   if (rows.length === 0) return;
 
   const rootIds = [...new Set(rows.map((r) => r.scanRootId))];
@@ -138,11 +143,16 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
 
     // An offline answer for this file while its root reads online (R34): after
     // HUNG_REPARKS_MAX re-parks the file gets its error and the rest of the batch goes on.
+    // Only a deadline or an offline errno of this file's own call counts: a call
+    // the gate refused untried (the root's stuck cap) says nothing of this file,
+    // so the batch parks and data.hung is left as it was.
     const hungHere = async (err: unknown): Promise<boolean> => {
-      if (!(err instanceof FolderOfflineError) || err.scanRootId !== row.scanRootId) return false;
+      if (!(err instanceof FolderOfflineError) || err.scanRootId !== row.scanRootId || err.refused) return false;
       if (!(await hungFile(ctx, data, row.id, row.scanRootId))) return false;
       ctx.logger.warn({ fileId: row.id, scanRootId: row.scanRootId }, 'scan.parse: one file did not answer on a live music folder; marked with an error');
       await failed(row.id, HUNG_FILE_ERROR);
+      // out of the batch: a re-sent batch (another hung file parks it) never tries it again
+      data.audioFileIds = data.audioFileIds.filter((id) => id !== row.id);
       touch(row);
       return true;
     };
