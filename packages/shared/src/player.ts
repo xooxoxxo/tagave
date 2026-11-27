@@ -66,8 +66,9 @@ export type SavePlayerServer = z.infer<typeof savePlayerServerSchema>;
  *  - not_scanned  the server has not seen the file yet (tagave asked it to scan)
  *  - no_file      the file is missing or unreadable in tagave's own scan
  *  - cue          a track inside a CUE image (one file, many tracks): not supported yet
+ *  - offline      the album's music folder is offline or not connected (scan_roots.reach)
  */
-export const unplayableReasonSchema = z.enum(['not_scanned', 'no_file', 'cue']);
+export const unplayableReasonSchema = z.enum(['not_scanned', 'no_file', 'cue', 'offline']);
 export type UnplayableReason = z.infer<typeof unplayableReasonSchema>;
 
 /** One entry of an album's play queue. */
@@ -108,6 +109,8 @@ export interface PlayerQueueView {
   scanRequested: boolean;
   /** the server's scan, when some tracks are not on it yet (absent from an older API) */
   scan?: PlayerScanStatus | null;
+  /** tracks left out of `tracks` because their music folder is offline */
+  skippedOffline: number;
 }
 
 /**
@@ -141,6 +144,8 @@ export interface PlayerAlbumAvailability {
   reason: UnplayableReason | null;
   /** the server's scan, when some tracks are not on it yet */
   scan: PlayerScanStatus | null;
+  /** with reason 'offline': since when the album's music folder is not online (ISO 8601) */
+  since?: string | null;
 }
 
 /** Stream formats. `original` passes the file through untouched (seekable with HTTP ranges). */
