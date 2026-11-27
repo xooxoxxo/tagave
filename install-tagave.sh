@@ -194,10 +194,10 @@ Usage: install-tagave.sh [install|update|status|repair|enable-updater|
                            in its place, so tagave starts while the music
                            share is off (default: the folder above a share
                            under /mnt, /media or /srv, when that is safe;
-                           roles all, files)
+                           writable installs only; roles all, files)
   --music-direct           mount the music folder itself, never the folder
-                           above it
-  --port N                web app port on this computer (default: 3100)
+                           above it, on later runs too (until --music-parent)
+  --port N                 web app port on this computer (default: 3100)
   --version TAG            release to run, e.g. 0.5.0 (default: the newest
                            release, written to .env as its number)
   --timezone ZONE          e.g. Europe/Berlin (default: this computer's, or UTC)
@@ -1125,27 +1125,37 @@ keep_direct() {
 }
 
 # pick_music_layout: picks the parent layout only when every check passes:
-# Linux; MUSIC_DIR a mount point, or an fstab or automount target; a name the
-# worker can link to; a safe parent (the folder right above, under /mnt,
-# /media or /srv, or named with --music-parent; never /, /home, the home
-# folder, the install folder or one above it, or Docker's data); the parent's
-# mount passes new mounts on (shared); kernel 5.12 or later for a read-only
-# install; Docker neither rootless nor the snap. Last, it lists what else the
-# parent holds and asks once on a terminal; without one it goes on only when
-# all of it is mount points. Anything else keeps the direct layout, with one
-# line why. It reads the mount table, fstab and the parent folder, never
-# MUSIC_DIR, which may sit on a share that does not answer, and each command
-# it runs has a short limit. TAGAVE_TEST_UNAME_S, TAGAVE_TEST_KERNEL,
-# TAGAVE_TEST_PROPAGATION, TAGAVE_TEST_DOCKER_ROOT, TAGAVE_TEST_DOCKER_SECURITY,
-# TAGAVE_TEST_DOCKER_PATH and TAGAVE_TEST_PARENT_DIR (a folder listed in place
-# of the parent) stand in for the host's answers in tests.
+# Linux; MUSIC_DIR a mount point, or an fstab or automount target; a writable
+# install; a name the worker can link to; a safe parent (the folder right
+# above, under /mnt, /media or /srv, or named with --music-parent; never /,
+# /home, the home folder, the install folder or one above it, or Docker's
+# data); the parent's mount passes new mounts on (shared); Docker neither
+# rootless nor the snap. Last, it lists what else the parent holds and asks
+# once on a terminal; without one it goes on only when all of it is mount
+# points. Anything else keeps the direct layout, with one line why. It reads
+# the mount table, fstab and the parent folder, never MUSIC_DIR, which may sit
+# on a share that does not answer, and each command it runs has a short
+# limit. TAGAVE_TEST_UNAME_S, TAGAVE_TEST_PROPAGATION, TAGAVE_TEST_DOCKER_ROOT,
+# TAGAVE_TEST_DOCKER_SECURITY, TAGAVE_TEST_DOCKER_PATH and
+# TAGAVE_TEST_PARENT_DIR (a folder listed in place of the parent) stand in for
+# the host's answers in tests.
+#
+# --music-direct, or TAGAVE_MUSIC_LAYOUT=direct in the .env an earlier
+# --music-direct wrote, keeps the direct layout for good (MUSIC_KEEP_DIRECT,
+# and write_env writes the key again). A run with --music-parent undoes it:
+# it is a new choice, so the checks run and the key is not written.
+MUSIC_KEEP_DIRECT=0
 pick_music_layout() {
-  MUSIC_LAYOUT=direct; LAYOUT_PARENT=""; LAYOUT_NAME=""
+  MUSIC_LAYOUT=direct; LAYOUT_PARENT=""; LAYOUT_NAME=""; MUSIC_KEEP_DIRECT=0
   [ "$ROLE" != "app" ] || return 0
-  local dir="$MUSIC_DIR" parent name named points system propagation kernel info="" root security
+  local dir="$MUSIC_DIR" parent name named points system propagation info="" root security
   local docker_path resolved="" entries entry others="" plain=0 share_all=""
-  local name_re='^[A-Za-z0-9._ -]+$' kernel_re='^([0-9]+)\.([0-9]+)'
-  if [ "$MUSIC_DIRECT" = 1 ]; then keep_direct "you asked for it with --music-direct"; return 0; fi
+  local name_re='^[A-Za-z0-9._ -]+$'
+  if [ "$MUSIC_DIRECT" = 1 ] \
+     || { [ -z "$MUSIC_PARENT" ] && [ "$(env_get TAGAVE_MUSIC_LAYOUT "$INSTALL_DIR/.env")" = direct ]; }; then
+    MUSIC_KEEP_DIRECT=1
+    keep_direct "you asked for it with --music-direct"; return 0
+  fi
 
   system="$(host_fact TAGAVE_TEST_UNAME_S 5 uname -s)" || system=""
   if [ "$system" != Linux ]; then keep_direct "this computer is not Linux"; return 0; fi
@@ -1154,6 +1164,12 @@ pick_music_layout() {
   points="$(mount_points)"
   if ! grep -qxF -- "$dir" <<<"$points" && [ -z "$(fstab_entry "$dir")" ]; then
     keep_direct "the music folder $dir is not a mount point or an fstab entry"; return 0
+  fi
+  # A share mounted on the host after the parts started comes into the parent
+  # mount writable, even when that mount is read-only. So a read-only install
+  # keeps the share itself as its mount, which stays read-only.
+  if [ "$MUSIC_WRITABLE" != 1 ]; then
+    keep_direct "a read-only music folder stays read-only only when it is mounted directly"; return 0
   fi
 
   parent="${dir%/*}"
@@ -1199,18 +1215,6 @@ pick_music_layout() {
     ,,) keep_direct "tagave can't tell whether mounts under $parent reach the parts (findmnt gave no answer)"; return 0 ;;
     *) keep_direct "mounts under $parent do not reach the parts (its mount is $propagation, not shared)"; return 0 ;;
   esac
-
-  # A read-only mount keeps the share inside it read-only only from 5.12 on.
-  if [ "$MUSIC_WRITABLE" != 1 ]; then
-    kernel="$(host_fact TAGAVE_TEST_KERNEL 5 uname -r)" || kernel=""
-    kernel="${kernel%%$'\n'*}"
-    if ! [[ $kernel =~ $kernel_re ]]; then
-      keep_direct "tagave can't tell the kernel version, and a read-only music folder needs 5.12 or later"; return 0
-    fi
-    if [ "${BASH_REMATCH[1]}" -lt 5 ] || { [ "${BASH_REMATCH[1]}" -eq 5 ] && [ "${BASH_REMATCH[2]}" -lt 12 ]; }; then
-      keep_direct "the kernel, $kernel, is older than 5.12, which a read-only music folder needs"; return 0
-    fi
-  fi
 
   if [ -z "${TAGAVE_TEST_DOCKER_ROOT:-}" ] || [ -z "${TAGAVE_TEST_DOCKER_SECURITY:-}" ]; then
     info="$(run_limited "$DOCKER_WAIT" docker info --format '{{.DockerRootDir}}{{"\n"}}{{range .SecurityOptions}}{{.}} {{end}}' 2>/dev/null)" || info=""
@@ -1269,24 +1273,32 @@ pick_music_layout() {
 
 # advise_mount_options: when MUSIC_DIR is an fstab entry without nofail (or,
 # for an NFS or SMB share, without _netdev), prints the line tagave suggests,
-# once. The example keeps the server 192.0.2.10: nothing of the owner's own
-# line is printed, as its options can hold a user name. It never edits fstab.
+# once. A noauto line is not mounted at boot, so it gets none. The example
+# keeps the server 192.0.2.10: nothing of the owner's own line is printed, as
+# its options can hold a user name. It never edits fstab.
 advise_mount_options() {
   [ "$ROLE" != "app" ] || return 0
-  local dir="$MUSIC_DIR" entry fstype options missing=""
+  local dir="$MUSIC_DIR" entry fstype options shown
   while [ "${#dir}" -gt 1 ] && [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
   entry="$(fstab_entry "$dir")"
   [ -n "$entry" ] || return 0
   fstype="${entry%% *}"
   options=",${entry#* },"
-  case "$options" in *,nofail,*) ;; *) missing="nofail" ;; esac
-  case "$fstype" in
-    nfs|nfs4|cifs|smb3) case "$options" in *,_netdev,*) ;; *) missing="${missing:+$missing or }_netdev" ;; esac ;;
+  case "$options" in *,noauto,*) return 0 ;; esac
+  case "$options" in
+    *,nofail,*)
+      case "$fstype" in nfs|nfs4|cifs|smb3) ;; *) return 0 ;; esac
+      case "$options" in *,_netdev,*) return 0 ;; esac
+      warn "The line for $dir in /etc/fstab has no _netdev, so the share may be mounted before the network is up." ;;
+    *)
+      warn "The line for $dir in /etc/fstab has no nofail, so this computer may wait or stop at boot while the NAS is off." ;;
   esac
-  [ -n "$missing" ] || return 0
-  warn "The line for $dir in /etc/fstab has no $missing, so this computer may wait or stop at boot while the NAS is off."
+  # fstab writes a space in a path as \040. sed, not ${dir// /...}: bash 5.2
+  # reads & and \ in that replacement (patsub_replacement), and bash 3.2 keeps
+  # quotes around one literally.
+  shown="$(printf '%s' "$dir" | sed 's/ /\\040/g')"
   say "  tagave suggests a line like this one, with your own server and export (tagave never edits fstab):"
-  say "    192.0.2.10:/export/music  ${dir// /\\040}  nfs4  hard,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0 0"
+  say "    192.0.2.10:/export/music  $shown  nfs4  hard,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30  0 0"
 }
 
 check_music_dir() {
@@ -1736,6 +1748,8 @@ EOF
       if [ "$MUSIC_LAYOUT" = parent ]; then
         printf "\n# the folder above the music share is mounted (the parent layout), so tagave\n# starts while the share is off; /mnt/music links to the share inside it\nTAGAVE_MUSIC_BIND_SOURCE='%s'\nTAGAVE_MUSIC_BIND_TARGET=/mnt/.host\nTAGAVE_PLAYER_BIND_TARGET=/host\nTAGAVE_MUSIC_PROPAGATION=rslave\nTAGAVE_MUSIC_NAME='%s'\nTAGAVE_PLAYER_MUSIC_FOLDER='/host/%s'\n" \
           "$LAYOUT_PARENT" "$LAYOUT_NAME" "$LAYOUT_NAME"
+      elif [ "$MUSIC_KEEP_DIRECT" = 1 ]; then
+        printf '\n# --music-direct: always mount the music folder itself (a run with\n# --music-parent, or deleting this line, lets tagave pick again)\nTAGAVE_MUSIC_LAYOUT=direct\n'
       fi
     fi
     carry_over_settings "$env_file"

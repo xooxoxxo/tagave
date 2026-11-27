@@ -214,7 +214,9 @@ services:
       # The music, every part from .env. Without the TAGAVE_MUSIC_BIND_* and
       # TAGAVE_MUSIC_PROPAGATION keys this is MUSIC_DIR on /mnt/music, as
       # before 0.38.0. Those parent layout keys come from the installer (and
-      # later the updater); nothing else derives them.
+      # later the updater), only for writable installs: a share mounted after
+      # the start comes into the parent mount writable even when it is ro.
+      # Nothing else derives them.
       # Read-only unless TAGAVE_MUSIC_MODE=rw (install-tagave.sh
       # --music-writable), the key every earlier .env already has, so each
       # one keeps its bind: previews only read; applying a tag plan writes,
@@ -277,7 +279,7 @@ services:
   # http://player:4533 with the admin account below; phone apps log in to it
   # directly on the published port.
   #
-  # It reads the music read-only, always (even with --music-writable), and
+  # Its music bind is read-only, always (even with --music-writable), and it
   # keeps its own database in the "player-data" volume. That is SQLite: keep
   # it on a local Docker volume, never on NFS. The file watcher is off
   # (inotify does not work over NFS); tagave asks for a scan after it writes
@@ -345,7 +347,9 @@ services:
       TZ: ${TZ:-UTC}
     volumes:
       - player-data:/data
-      # The music, always read-only, from the same .env keys as worker-files.
+      # The music, mounted read-only, from the same .env keys as worker-files.
+      # In the parent layout (writable installs only) a share mounted after
+      # the player started comes in writable; Navidrome does not write music.
       - ${TAGAVE_MUSIC_BIND_SOURCE:-${MUSIC_DIR:-./music}}:${TAGAVE_PLAYER_BIND_TARGET:-/music}:ro,${TAGAVE_MUSIC_PROPAGATION:-rprivate}
     ports:
       - "${TAGAVE_PLAYER_PORT:-4533}:4533"
