@@ -13,6 +13,9 @@
  * and a tick never waits on a check an earlier tick started, so one hung
  * share holds up neither the other roots nor the next tick.
  *
+ * Without a mount table (not Linux, or procfs unreadable) the mount-point
+ * rule is off for that tick: no root reads as having lost its mount point.
+ *
  * Coming back from offline or not connected queues a scan of the root (PR1);
  * the parked jobs' re-send comes with the park rule.
  */
@@ -108,14 +111,14 @@ export class FolderWatch {
 
   /** One pass over every root (or the one given); returns the readings (tests). */
   async tick(only?: string): Promise<Map<string, Reading>> {
+    const readings = new Map<string, Reading>();
     const roots = await rootsToWatch(this.deps.ctx.sql);
+    const mountinfo = await this.mountinfo();
     const seen = new Set(roots.map((r) => r.id));
     if (only === undefined) {
       for (const id of this.states.keys()) if (!seen.has(id)) this.states.delete(id);
       for (const id of this.wasMount) if (!seen.has(id)) this.wasMount.delete(id);
     }
-    const mountinfo = await this.mountinfo();
-    const readings = new Map<string, Reading>();
     const checks: Promise<void>[] = [];
     // No await between the in-flight test and the mark: a tick running beside this one sees it.
     for (const root of roots) {
@@ -133,22 +136,27 @@ export class FolderWatch {
     return readings;
   }
 
-  /** The mount table, or none where there is no procfs (macOS dev, tests): every root is then probed as a local folder. */
-  private async mountinfo(): Promise<string> {
+  /**
+   * The mount table, or null where it cannot be read (no procfs: macOS dev,
+   * tests): every root is then probed as a local folder, and the mount-point
+   * rule is off for the tick.
+   */
+  private async mountinfo(): Promise<string | null> {
     try {
       return await this.deps.readMountinfo();
     } catch {
-      return '';
+      return null;
     }
   }
 
-  private async look(root: RootToWatch, real: string, mountinfo: string): Promise<ProbeOutcome> {
-    const mount = musicMount(mountinfo, real);
+  private async look(root: RootToWatch, real: string, mountinfo: string | null): Promise<ProbeOutcome> {
+    const mount = musicMount(mountinfo ?? '', real);
     const server = mount.kind === 'network' && mount.server !== null ? validServer(mount.server) : null;
     const port = mount.fstype !== null ? sharePort(mount.fstype) : null;
     if (server !== null && port !== null && !(await this.deps.port(server, port))) return { kind: 'server_silent' };
-    const isMountPoint = mountPoints(mountinfo).has(bare(real));
-    const wasMountPoint = this.wasMount.has(root.id);
+    // No mount table: no lost mount point (not "not a mount point"), and what was seen before is kept.
+    const isMountPoint = mountinfo !== null && mountPoints(mountinfo).has(bare(real));
+    const wasMountPoint = mountinfo !== null && this.wasMount.has(root.id);
     if (isMountPoint) this.wasMount.add(root.id);
     if (this.stuck.has(root.id)) return { kind: 'deadline' };
     const outcome = await this.deps.probe(real, root.known, {
@@ -160,7 +168,7 @@ export class FolderWatch {
     return outcome.kind === 'listing' ? { ...outcome, isMountPoint, wasMountPoint } : outcome;
   }
 
-  private async check(root: RootToWatch, mountinfo: string): Promise<Reading> {
+  private async check(root: RootToWatch, mountinfo: string | null): Promise<Reading> {
     const real = realRootPath(root.path, this.name);
     const reading = classify(await this.look(root, real, mountinfo));
     const prev = this.states.get(root.id) ?? { reach: root.reach, since: root.reachSince, pendingOffline: null };
