@@ -63,6 +63,14 @@ export interface AlbumRescanResponse {
 export const SCAN_ROOT_EMPTY_MESSAGE = 'folder is empty';
 
 /**
+ * A scan the music folder's going offline cut short marks and matches nothing
+ * (vault "tagave - Offline Library Spec"). The worker writes it as the
+ * cancelled job run's error and parks the job; the Jobs list shows the parked
+ * row alone (Waiting, "Music folder offline"), so it leaves such runs out.
+ */
+export const SCAN_OFFLINE_SKIP = 'the music folder went offline during the scan, so nothing was marked missing';
+
+/**
  * Create scan root request
  */
 export const createScanRootSchema = z.object({

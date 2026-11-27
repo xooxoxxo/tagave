@@ -6,6 +6,7 @@
  * saw it and was last seen before the walk began, by the database's clock: a
  * row a concurrent scan.dir re-pointed is never marked missing (its last_seen_at is new).
  */
+import { SCAN_OFFLINE_SKIP } from '@tagave/shared';
 import { escapeLike, relDirname, sqlDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
@@ -273,8 +274,8 @@ function missingFolders(marked: Array<{ relPath: string; handler: string }>): Pi
 /** The only reason Tier 1 is skipped: a root that looks unmounted marks and matches nothing. */
 export const UNMOUNTED_SKIP = 'the root looks unmounted, so moved files are not matched in this scan';
 
-/** A walk the music folder's going offline cut short marks and matches nothing (vault "tagave - Offline Library Spec"). */
-export const OFFLINE_SKIP = 'the music folder went offline during the scan, so nothing was marked missing';
+/** A walk the music folder's going offline cut short marks and matches nothing (vault "tagave - Offline Library Spec"). Shared: the api's Jobs list knows it. */
+export const OFFLINE_SKIP = SCAN_OFFLINE_SKIP;
 
 export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult, opts: FinishOptions = {}): Promise<FinishResult> {
   const empty: FinishResult = {
