@@ -572,4 +572,76 @@ describe('musicContainers', () => {
     expect(await musicContainers(docker, 'tagave', '/mnt/other')).toEqual([]);
     expect(await musicContainers(fakeDocker(() => ({ code: 1 })).docker, 'tagave', '/mnt/music')).toBeNull();
   });
+
+  it('matches a parent bind source', async () => {
+    const answer = (args: string[]): Partial<CommandResult> => {
+      if (args[0] === 'ps') return { stdout: 'c-app\nc-files\nc-player\nc-pg\nc-direct\n' };
+      if (args[0] === 'inspect') {
+        return {
+          stdout: [
+            'c-app\tapp\t/srv/tagave/cache\x1f/mnt\x1f',
+            'c-files\tworker-files\t/mnt/\x1f',
+            'c-player\tplayer\t/mnt\x1f',
+            'c-pg\tpostgres\t/mnt\x1f',
+            'c-direct\tapp\t/mnt/music\x1f',
+          ].join('\n'),
+        };
+      }
+      return {};
+    };
+    const { docker } = fakeDocker(answer);
+    expect(await musicContainers(docker, 'tagave', '/mnt/music', '/mnt')).toEqual(['c-app', 'c-files', 'c-player', 'c-direct']);
+    expect(await musicContainers(docker, 'tagave', '/mnt/music', '/mnt/')).toEqual(['c-app', 'c-files', 'c-player', 'c-direct']);
+    expect(await musicContainers(docker, 'tagave', '/mnt/music')).toEqual(['c-direct']);
+    expect(await musicContainers(docker, 'tagave', '/mnt/music', null)).toEqual(['c-direct']);
+  });
+});
+
+describe('the parent layout (TAGAVE_MUSIC_BIND_SOURCE in .env)', () => {
+  const PARENT_ENV = "MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_BIND_SOURCE='/mnt'\nTAGAVE_MUSIC_BIND_TARGET=/mnt/.host\n";
+
+  it('skips the restart in the parent layout', async () => {
+    const installDir = await installWith(PARENT_ENV);
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app, reports } = fakeApp(true);
+    const healer = new MusicHealer({ installDir, docker, app, busy: () => false, self: 's' });
+    expect(await healer.tick()).toBe('mounted');
+    // the mount step still runs in full
+    expect(calls.map(helperCmd).filter(Boolean).map((c) => c![0])).toEqual(['systemd-escape', 'systemctl', 'systemctl', 'mountpoint', 'find']);
+    expect(calls.filter((c) => c[0] === 'restart')).toEqual([]);
+    expect(reports).toEqual([{ phase: 'start' }, { phase: 'done', ok: true, reason: 'mounted' }]);
+  });
+
+  it('skips the restart when the share is already mounted and answers, on a tick and a remount', async () => {
+    const installDir = await installWith(PARENT_ENV);
+    const { docker, calls } = fakeDocker(hostAnswers());
+    const { app, reports } = fakeApp(true);
+    const { music } = fakeProber(() => networkReading('answers'));
+    let now = 1e9;
+    const healer = new MusicHealer({ installDir, docker, app, music, busy: () => false, self: 's', now: () => now });
+    expect(await healer.tick()).toBe('mounted');
+    now += 10 * 60_000;
+    expect(await healer.remount('/mnt/music', 'tagave')).toBe('mounted');
+    expect(calls.filter((c) => c[0] === 'restart')).toEqual([]);
+    expect(reports.filter((r) => r.phase === 'done')).toEqual([
+      { phase: 'done', ok: true, reason: 'mounted' },
+      { phase: 'done', ok: true, reason: 'mounted' },
+    ]);
+  });
+
+  it('the direct layout is unchanged: the music parts restart', async () => {
+    // no key, an explicit direct layout, and a bind source that is not a clean absolute path
+    for (const env of [
+      'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\n',
+      'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_LAYOUT=direct\n',
+      'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_BIND_SOURCE=./music\n',
+      'MUSIC_DIR=/mnt/music\nCOMPOSE_PROJECT_NAME=tagave\nTAGAVE_MUSIC_BIND_SOURCE=\n',
+    ]) {
+      const installDir = await installWith(env);
+      const { docker, calls } = fakeDocker(hostAnswers());
+      const { app } = fakeApp(true);
+      expect(await new MusicHealer({ installDir, docker, app, busy: () => false, self: 's' }).tick()).toBe('mounted');
+      expect(calls.filter((c) => c[0] === 'restart')).toEqual([['restart', 'c-app', 'c-files', 'c-player']]);
+    }
+  });
 });

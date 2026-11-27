@@ -24,8 +24,11 @@ Description=tagave file worker (scan, cluster, art, tags, facets)
 Documentation=https://github.com/xooxoxxo/tagave
 After=network-online.target remote-fs.target
 Wants=network-online.target
-# the music folders are NFS/SMB mounts: start only once they are up
-RequiresMountsFor=/mnt/music
+# The worker does not wait for the music share (NFS/SMB): it starts with the
+# share down and reports the folder offline until the share comes back. If you
+# want the share mounted first, add Wants= on its mount unit, named by the
+# systemd-escape of the mount path (systemd-escape -p --suffix=mount /mnt/music):
+#   Wants=mnt-music.mount
 
 [Service]
 Type=simple
