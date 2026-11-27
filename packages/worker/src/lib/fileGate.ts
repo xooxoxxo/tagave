@@ -11,7 +11,9 @@
  * `{ progress }` message the helper sends. On a deadline the gate sends
  * SIGKILL, unrefs the helper and closes its IPC channel without waiting for
  * it to exit, counts it stuck for the op's root, forks a fresh helper, tells
- * the watch (`onSuspect`) and throws FolderOfflineError(root, 'timeout'). A
+ * the watch (`onSuspect`) and throws FolderOfflineError(root, 'timeout'). An
+ * offline error code from the share also tells the watch, without counting
+ * the helper stuck. A
  * root with `stuckMax` stuck helpers gets no more work until `clear(root)`.
  */
 import { fork, type ChildProcess } from 'node:child_process';
@@ -158,7 +160,16 @@ export class FileGate {
   /** A child process for this root got stuck outside the gate (spawnGuarded): it counts like a stuck helper. */
   markStuck(rootId: string): void {
     this.stuck.set(rootId, this.stuckCount(rootId) + 1);
-    this.onSuspect(rootId);
+    this.suspect(rootId);
+  }
+
+  /** Tells the watch the root may be offline. A throwing listener must not break the gate. */
+  private suspect(rootId: string): void {
+    try {
+      this.onSuspect(rootId);
+    } catch {
+      // The watch's trouble, not the caller's: the call already settled.
+    }
   }
 
   /** Lets go of every helper, fails the work in flight and queued, and refuses new work. */
@@ -261,7 +272,9 @@ export class FileGate {
       const code = typeof m.code === 'string' && m.code !== '' ? m.code : undefined;
       if (code && OFFLINE_CODES.has(code)) {
         const reason = classify({ kind: 'error', code }).reason ?? 'io_error';
-        return this.settle(h, () => job.reject(new FolderOfflineError(job.rootId, reason)));
+        // The share answered, so the helper is not stuck; the watch should still look.
+        this.settle(h, () => job.reject(new FolderOfflineError(job.rootId, reason)));
+        return this.suspect(job.rootId);
       }
       const message = typeof m.message === 'string' && m.message !== '' ? m.message : `${job.op.op} failed`;
       const err = code ? Object.assign(new Error(message), { code }) : new Error(message);
@@ -306,9 +319,9 @@ export class FileGate {
     this.stuck.set(job.rootId, this.stuckCount(job.rootId) + 1);
     // A fresh helper in its place, ready for the next call.
     if (!this.closed && this.helpers.size < this.limits.helpers) this.spawn();
-    this.onSuspect(job.rootId);
     job.reject(new FolderOfflineError(job.rootId, 'timeout'));
     this.pump();
+    this.suspect(job.rootId);
   }
 
   /** Removes the helper from the pool and lets go of it, never waiting. Returns the job it had. */

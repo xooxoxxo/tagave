@@ -77,7 +77,22 @@ describe('FileGate', () => {
   });
 
   it('an EIO answer is the folder going offline', async () => {
-    await expect(gate().run('r1', { op: 'stat', path: 'eio' })).rejects.toMatchObject({ scanRootId: 'r1', reason: 'io_error' });
+    const g = gate();
+    await expect(g.run('r1', { op: 'stat', path: 'eio' })).rejects.toMatchObject({ scanRootId: 'r1', reason: 'io_error' });
+    // The watch hears of it, but the helper answered, so it is not stuck.
+    expect(suspects).toEqual(['r1']);
+    expect(g.stuckCount('r1')).toBe(0);
+  });
+
+  it('a throwing onSuspect never leaves a call unsettled or stalls the queue', async () => {
+    const g = new FileGate({ helperPath: FAKE, limits: { waitMs: 300, idleMs: 1_500, helpers: 1, stuckMax: 4 }, onSuspect: () => { throw new Error('watch broke'); } });
+    made.push(g);
+    const next = g.run('r2', { op: 'stat', path: 'b' });
+    await expect(g.run('r1', { op: 'stat', path: 'hang' })).rejects.toBeInstanceOf(FolderOfflineError);
+    expect(await next).toBe('b');
+    await expect(g.run('r1', { op: 'stat', path: 'eio' })).rejects.toBeInstanceOf(FolderOfflineError);
+    expect(() => g.markStuck('r1')).not.toThrow();
+    expect(g.stuckCount('r1')).toBe(2);
   });
 
   it('another fs error comes back as an Error with its code', async () => {
@@ -122,7 +137,7 @@ describe('FileGate', () => {
     const hung = g.run('r1', { op: 'readSmall', path: 'hang' }).catch((e: unknown) => e);
     expect(await g.run('r2', { op: 'stat', path: 'ok' })).toBe('ok');
     await g.close();
-    expect(await hung).toBeInstanceOf(Error);
+    expect(await hung).toMatchObject({ message: expect.stringMatching(/closed/) });
     await expect(g.run('r1', { op: 'stat', path: 'ok' })).rejects.toThrow(/closed/);
     expect(fakeHelpers()).toEqual([]);
   });
