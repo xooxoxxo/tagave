@@ -81,6 +81,15 @@ export class SafeFileWriter {
   constructor(private tagWriter: TagWriter) {}
 
   /**
+   * The scan root of the files written next, handed to a tag writer that
+   * takes one (MutagenTagWriter: a sidecar that stops answering then counts
+   * stuck for that root).
+   */
+  set rootId(rootId: string | undefined) {
+    if ('rootId' in this.tagWriter) (this.tagWriter as { rootId?: string | undefined }).rootId = rootId;
+  }
+
+  /**
    * Safely write tags to an audio file.
    * Flow: hash before → temp copy → sidecar write → re-read → hash compare → rename → fsync
    * Returns {error, code} on any failure without touching original.

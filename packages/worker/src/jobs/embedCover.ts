@@ -46,8 +46,8 @@ export async function embedCoverJob(ctx: WorkerContext, data: EmbedCoverJobData)
     const libraryId = task.row.library_id;
     const { albumId, fileIds } = data;
     await task.update({ stage: 'Checking the album files' });
-    const rows = await ctx.sql<{ id: string; rel_path: string; root: string; writable: boolean }[]>`
-      select distinct f.id, f.rel_path, r.path as root,
+    const rows = await ctx.sql<{ id: string; rel_path: string; root: string; root_id: string; writable: boolean }[]>`
+      select distinct f.id, f.rel_path, r.path as root, r.id::text as root_id,
              (r.enabled and r.writable and coalesce(r.probe_writable, true)
                and coalesce(l.settings->'tagWritesEnabled' = 'true'::jsonb, false)) as writable
         from local_tracks t join files f on f.id = t.audio_file_id
@@ -100,6 +100,7 @@ export async function embedCoverJob(ctx: WorkerContext, data: EmbedCoverJobData)
           await insideRoot(source.root, source.file);
         };
         await stillWritable();
+        writer.rootId = source.root_id;
         if (!source.hasCover && cover) {
           const image = cover;
           const result = await safe.writeVerified(

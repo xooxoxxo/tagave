@@ -551,6 +551,54 @@ describe('MutagenTagWriter response deadline', () => {
     fileGate().clear('root-sidecar');
   });
 
+  /** A stand-in sidecar in node: `script` gets each request and the line writer. */
+  function nodeSidecar(name: string, script: string): string {
+    const p = path.join(dir, name);
+    fs.writeFileSync(p, `#!/usr/bin/env node
+process.stderr.write('tagwriter sidecar started\\n');
+const rl = require('readline').createInterface({ input: process.stdin });
+const fs = require('fs');
+rl.on('line', (line) => { const req = JSON.parse(line); (${script})(req, (s) => process.stdout.write(s)); });
+`, { mode: 0o755 });
+    return p;
+  }
+
+  async function withPython<T>(interp: string, run: () => Promise<T>): Promise<T> {
+    const before = process.env.TAGAVE_TAGWRITER_PYTHON;
+    process.env.TAGAVE_TAGWRITER_PYTHON = interp;
+    try {
+      return await run();
+    } finally {
+      process.env.TAGAVE_TAGWRITER_PYTHON = before;
+    }
+  }
+
+  it('reads a response line that comes split across pipe chunks', async () => {
+    const fake = nodeSidecar('split.js', `(req, out) => { out('{"id":' + req.id + ','); setTimeout(() => out('"success":true}\\n'), 100); }`);
+    const writer = await withPython(fake, async () => new MutagenTagWriter({ rootId: 'root-split', responseMs: 2000 }));
+    writers.push(writer);
+    await expect(writer.write('/mnt/music/Robin/a.flac', { title: 'A' })).resolves.toBeUndefined();
+    await expect(writer.write('/mnt/music/Robin/b.flac', { title: 'B' })).resolves.toBeUndefined();
+  });
+
+  // Linux only: the sidecar's reads and writes come from /proc/<pid>/io.
+  it.skipIf(!fs.existsSync('/proc/self/io'))('waits on past the response deadline while the sidecar keeps moving bytes', async () => {
+    const data = path.join(dir, 'slow.bin');
+    fs.writeFileSync(data, Buffer.alloc(4 * 1024 * 1024));
+    // Reads 128 KiB every 100 ms (about 3 s in all), then answers: past responseMs 1000 with no answer meanwhile.
+    const fake = nodeSidecar('slow.js', `(req, out) => {
+      const fd = fs.openSync(${JSON.stringify(data)}, 'r'); const buf = Buffer.alloc(131072); let n = 0;
+      const t = setInterval(() => { fs.readSync(fd, buf, 0, buf.length, (n % 30) * buf.length); if (++n >= 30) { clearInterval(t); fs.closeSync(fd); out(JSON.stringify({ id: req.id, success: true }) + '\\n'); } }, 100);
+    }`);
+    const writer = await withPython(fake, async () => new MutagenTagWriter({ rootId: 'root-slow', responseMs: 1000 }));
+    writers.push(writer);
+    await new Promise((r) => setTimeout(r, 50));
+    const pid = writer.pid;
+    await expect(writer.write('/mnt/music/Robin/a.flac', { title: 'A' })).resolves.toBeUndefined();
+    expect(writer.pid).toBe(pid);
+    expect(fileGate().stuckCount('root-slow')).toBe(0);
+  }, 15_000);
+
   it('without a root, a deadline is a plain ETIMEDOUT error and still replaces the sidecar', async () => {
     const writer = new MutagenTagWriter({ responseMs: 300 });
     writers.push(writer);

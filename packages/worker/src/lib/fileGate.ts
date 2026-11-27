@@ -161,6 +161,11 @@ export class FileGate {
     return total;
   }
 
+  /** True when work for this root is refused now (its stuck cap): spawnGuarded asks before it spawns. */
+  refuses(rootId: string): boolean {
+    return this.refusal(rootId) !== null;
+  }
+
   /** A child process for this root got stuck outside the gate (spawnGuarded): it counts like a stuck helper. */
   markStuck(rootId: string): void {
     this.stuck.set(rootId, this.stuckCount(rootId) + 1);

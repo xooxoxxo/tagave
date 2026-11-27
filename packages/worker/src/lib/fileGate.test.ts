@@ -124,11 +124,15 @@ describe('FileGate', () => {
     g.markStuck('r1');
     expect(suspects).toEqual(['r1']);
     expect(g.stuckCount('r1')).toBe(1);
+    expect(g.refuses('r1')).toBe(false);
     g.markStuck('r1');
+    expect(g.refuses('r1')).toBe(true);
+    expect(g.refuses('r2')).toBe(false);
     await expect(g.run('r1', { op: 'stat', path: 'ok' })).rejects.toMatchObject({ scanRootId: 'r1', reason: 'timeout' });
     expect(g.stuckCount()).toBe(2);
     g.clear('r1');
     expect(g.stuckCount()).toBe(0);
+    expect(g.refuses('r1')).toBe(false);
     expect(await g.run('r1', { op: 'stat', path: 'ok' })).toBe('ok');
   });
 

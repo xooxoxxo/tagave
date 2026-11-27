@@ -119,7 +119,7 @@ export async function stageUpgrade(ctx: WorkerContext, claim: MaintenanceRun, so
   const files: SwapFile[] = [];
   const finals = new Set<string>();
   const tools = new FlacTools().forRoot(scanRootId);
-  const writer = new MutagenTagWriter();
+  const writer = new MutagenTagWriter({ rootId: scanRootId });
   try {
     await claim.current();
     await mkdir(staging, { recursive: true });

@@ -4,7 +4,9 @@
  * file on a dead hard NFS share blocks in the kernel; this gives up on it.
  *
  * `waitMs` is a deadline for the whole run; `idleMs` is reset by any bytes on
- * stdout or stderr. On a deadline: SIGKILL, unref the child and close its
+ * stdout or stderr, and on Linux by the child's own reads (64 KiB more
+ * `rchar` in /proc/<pid>/io, procIo.ts), so a silent tool reading a big file
+ * on a slow live share is not taken for a hung one. On a deadline: SIGKILL, unref the child and close its
  * pipes, never wait for it to exit, count it stuck for the root
  * (`fileGate().markStuck`, which also tells the watch) and throw
  * FolderOfflineError(rootId, 'timeout'). Spawning touches nothing on the
@@ -13,6 +15,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { setPriority } from 'node:os';
 import { fileGate, gateLimits } from './fileGate.js';
+import { IoProgress, sampleMs } from './procIo.js';
 import { FolderOfflineError } from './folderOffline.js';
 
 export interface GuardedResult {
@@ -55,7 +58,7 @@ function letGo(child: ChildProcess): void {
 
 export function spawnGuarded(bin: string, args: readonly string[], opts: GuardedOptions): Promise<GuardedResult> {
   // A root at its stuck cap gets no more work, as in the gate: no more children to pile up in the kernel.
-  if (fileGate().stuckCount(opts.rootId) >= gateLimits().stuckMax) return Promise.reject(new FolderOfflineError(opts.rootId, 'timeout'));
+  if (fileGate().refuses(opts.rootId)) return Promise.reject(new FolderOfflineError(opts.rootId, 'timeout'));
   return new Promise<GuardedResult>((resolve, reject) => {
     const child = spawn(bin, [...args], { stdio: [opts.input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     const idleMs = opts.idleMs ?? (opts.waitMs === undefined ? gateLimits().idleMs : undefined);
@@ -66,12 +69,14 @@ export function spawnGuarded(bin: string, args: readonly string[], opts: Guarded
     let done = false;
     let idleTimer: NodeJS.Timeout | null = null;
     let waitTimer: NodeJS.Timeout | null = null;
+    let ioTimer: NodeJS.Timeout | null = null;
 
     const finish = (): boolean => {
       if (done) return false;
       done = true;
       if (idleTimer) clearTimeout(idleTimer);
       if (waitTimer) clearTimeout(waitTimer);
+      if (ioTimer) clearInterval(ioTimer);
       return true;
     };
     const giveUp = () => {
@@ -92,6 +97,16 @@ export function spawnGuarded(bin: string, args: readonly string[], opts: Guarded
     };
     if (opts.waitMs !== undefined) waitTimer = setTimeout(giveUp, opts.waitMs);
     armIdle();
+
+    // A tool reading a big file may write nothing until it is done (ffmpeg's hash, flac -t):
+    // its own reads on the share, from /proc/<pid>/io, are progress too.
+    if (idleMs !== undefined && child.pid) {
+      const io = new IoProgress(child.pid);
+      if (io.available) {
+        ioTimer = setInterval(() => { if (io.grew()) armIdle(); }, sampleMs(idleMs));
+        ioTimer.unref();
+      }
+    }
 
     if (opts.nice !== undefined && child.pid) {
       try {

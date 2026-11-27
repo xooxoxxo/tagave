@@ -406,6 +406,8 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData, deps: TagsA
             multiValueSeparator: (plan.policy as any)?.multiValueSeparator || '; ',
           };
 
+          // Two items run at once on one writer: on a stuck sidecar the root is that of the item set last.
+          safeWriter.rootId = scanRoot.id;
           const writeResult = await safeWriter.write(fullPath, fieldsToWrite as typeof afterTags, writeOpts);
 
           if (writeResult.error) {

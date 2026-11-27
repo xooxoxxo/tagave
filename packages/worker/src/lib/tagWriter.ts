@@ -12,6 +12,7 @@ import type { TagWriter, WriteOptions } from '@tagave/core';
 import { tagaveEnv } from '@tagave/shared/env';
 import { fileGate } from './fileGate.js';
 import { FolderOfflineError } from './folderOffline.js';
+import { IoProgress, sampleMs } from './procIo.js';
 
 /**
  * Response from the sidecar
@@ -46,6 +47,14 @@ interface Pending {
   timer: NodeJS.Timeout;
 }
 
+/** The sidecar's real I/O while requests wait: when it last moved bytes, and the sampler. */
+interface SidecarIo {
+  pid: number;
+  io: IoProgress;
+  lastAt: number;
+  timer: NodeJS.Timeout | null;
+}
+
 /**
  * Mutagen tag writer implementation via sidecar subprocess
  * Creates one long-lived process per instance, reused for all read/write calls.
@@ -72,6 +81,9 @@ export class MutagenTagWriter implements TagWriter {
   private readonly onStuck: (rootId: string | undefined) => void;
   private subprocess: ChildProcess | null = null;
   private pending: Map<number, Pending> = new Map();
+  private sidecarIo: SidecarIo | null = null;
+  /** The part of a response line not yet ended by a newline. */
+  private stdoutCarry = '';
   private nextRequestId = 0;
   private initPromise: Promise<void>;
 
@@ -117,6 +129,8 @@ export class MutagenTagWriter implements TagWriter {
         this.subprocess = child;
         this.exitCode = undefined;
         this.stderrTail = '';
+        this.stdoutCarry = '';
+        this.stopIo();
         const current = () => this.subprocess === child;
 
         // Handle stdout (responses)
@@ -165,6 +179,37 @@ export class MutagenTagWriter implements TagWriter {
     });
   }
 
+  /**
+   * While requests wait, samples the sidecar's /proc/<pid>/io. Reads and
+   * writes both count (rchar + wchar): mutagen reads the temp copy on the
+   * share and writes it back in place, and a rewrite without enough padding
+   * moves the whole file both ways; a write alone, after the tags are read,
+   * is also real share I/O. Pipe traffic counts too but is small (one request
+   * line, a cover's base64 once). No /proc (macOS): a plain deadline.
+   */
+  private watchIo(child: ChildProcess): void {
+    const pid = child.pid;
+    if (pid === undefined) return;
+    if (this.sidecarIo?.pid !== pid) {
+      this.stopIo();
+      const io = new IoProgress(pid, ['rchar', 'wchar']);
+      if (!io.available) return;
+      this.sidecarIo = { pid, io, lastAt: 0, timer: null };
+    }
+    const w = this.sidecarIo!;
+    if (w.timer) return;
+    w.timer = setInterval(() => {
+      if (this.pending.size === 0 || this.subprocess !== child) return this.stopIo();
+      if (w.io.grew()) w.lastAt = Date.now();
+    }, sampleMs(this.responseMs));
+    w.timer.unref();
+  }
+
+  private stopIo(): void {
+    if (this.sidecarIo?.timer) clearInterval(this.sidecarIo.timer);
+    if (this.sidecarIo) this.sidecarIo.timer = null;
+  }
+
   /** Fails every request in flight. */
   private failPending(err: () => unknown): void {
     const all = [...this.pending.values()];
@@ -184,6 +229,8 @@ export class MutagenTagWriter implements TagWriter {
     const child = this.subprocess;
     const rootId = this.rootId;
     this.subprocess = null;
+    this.stopIo();
+    this.sidecarIo = null;
     if (child) {
       child.on('error', () => undefined);
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
@@ -210,7 +257,9 @@ export class MutagenTagWriter implements TagWriter {
    * Handle data from subprocess stdout
    */
   private handleStdoutData(data: Buffer): void {
-    const lines = data.toString().split('\n');
+    // A response line can come split across pipe chunks: keep the unfinished end for the next one.
+    const lines = (this.stdoutCarry + data.toString()).split('\n');
+    this.stdoutCarry = lines.pop() ?? '';
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -272,11 +321,23 @@ export class MutagenTagWriter implements TagWriter {
         cmdObj = { id: requestId, __raw: command };
       }
 
-      // The response deadline: past it the sidecar is taken to be stuck and replaced.
-      const timer = setTimeout(() => {
-        if (this.pending.has(requestId) && this.subprocess === child) this.giveUp();
-      }, this.responseMs);
-      this.pending.set(requestId, { resolve, reject, timer });
+      // The response deadline: past it with no real I/O by the sidecar, it is taken to be stuck and replaced.
+      const startedAt = Date.now();
+      const check = () => {
+        const p = this.pending.get(requestId);
+        if (!p || this.subprocess !== child) return;
+        // A rewrite of a large file on a slow live share keeps moving bytes: wait on while it does.
+        const io = this.sidecarIo;
+        const since = Math.max(startedAt, io && io.pid === child.pid ? io.lastAt : 0);
+        const left = since + this.responseMs - Date.now();
+        if (left > 0) {
+          p.timer = setTimeout(check, left);
+          return;
+        }
+        this.giveUp();
+      };
+      this.pending.set(requestId, { resolve, reject, timer: setTimeout(check, this.responseMs) });
+      this.watchIo(child);
 
       child.stdin!.write(JSON.stringify(cmdObj) + '\n', (error) => {
         const p = this.pending.get(requestId);
