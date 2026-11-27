@@ -4,12 +4,15 @@
  * offline"). The worker opens a job run and marks it cancelled with the
  * offline-skip text, and parks the job; the list shows only the parked row.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { jobRuns, libraries, scanRoots, users } from '@tagave/db';
 import { SCAN_OFFLINE_SKIP, type JobsListResponse } from '@tagave/shared';
+
+// Retry enqueues through pg-boss: stood in, as in jobsRetry.test.ts
+vi.mock('../boss.js', () => ({ getBoss: async () => ({ createQueue: async () => undefined, send: async () => 'boss-job-1' }) }));
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('GET .../jobs while a music folder is offline (db)', () => {
   let app: FastifyInstance;
@@ -86,5 +89,28 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('GET .../jobs while a music fold
     const res = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/jobs?job=${ids.scanSkipped}` });
     const body = res.json() as JobsListResponse;
     expect([...body.attention, ...body.data].map((v) => v.id)).not.toContain(ids.scanSkipped);
+  });
+
+  it('a failed scan stays retryable after a cut-off run: the retry route ignores the hidden run as the list does', async () => {
+    const failed = randomUUID();
+    const cutOff = randomUUID();
+    const scan = { libraryId, type: 'scan.root', subjectType: 'scan_root', subjectId: rootId };
+    await db.insert(jobRuns).values([
+      { ...scan, id: failed, state: 'failed', error: 'walk failed: EIO', startedAt: ago(30), finishedAt: ago(29), createdAt: ago(30) },
+      { ...scan, id: cutOff, state: 'cancelled', error: SCAN_OFFLINE_SKIP, startedAt: ago(1), finishedAt: ago(1), createdAt: ago(1) },
+    ]);
+    const made: string[] = [failed, cutOff];
+    try {
+      const list = (await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/jobs` })).json() as JobsListResponse;
+      expect(list.attention.find((v) => v.id === failed)).toMatchObject({ status: 'failed', retryable: true, resolvedAt: null, retrying: false });
+      const one = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/jobs/${failed}` });
+      expect(one.json()).toMatchObject({ status: 'failed', retryable: true, needsAttention: true });
+      const res = await app.inject({ method: 'POST', url: `/api/v1/libraries/${libraryId}/jobs/${failed}/retry` });
+      expect(res.statusCode, res.body).toBe(202);
+      const jobId = (res.json() as { jobId?: string }).jobId;
+      if (jobId) made.push(jobId);
+    } finally {
+      await db.delete(jobRuns).where(inArray(jobRuns.id, made));
+    }
   });
 });
