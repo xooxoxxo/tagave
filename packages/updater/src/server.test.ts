@@ -26,7 +26,8 @@ const release = (version: string) => {
 const SECRET = 'a'.repeat(44);
 const SERVICES = ['postgres', 'app', 'worker-files'];
 const cid = (svc: string) => Buffer.from(svc).toString('hex').padEnd(12, '0');
-const serviceOf = (id: string) => SERVICES.find((s) => cid(s) === id)!;
+// player is listed only where a test adds it (the layout move after a hand-over)
+const serviceOf = (id: string) => [...SERVICES, 'player'].find((s) => cid(s) === id)!;
 
 /**
  * A small install: each part's container status, a share that answers or
@@ -1578,6 +1579,8 @@ describe('updater HTTP API', () => {
     beforeEach(async () => {
       helpers = [];
       consoleLines = [];
+      fake.configList = [...SERVICES, 'player'];
+      fake.status.set('player', 'running');
       await writeFile(join(dir, '.env'), WRITABLE, { mode: 0o600 });
     });
 
@@ -1587,7 +1590,8 @@ describe('updater HTTP API', () => {
       const env = await envText();
       expect(env).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
       expect(await readFile(join(dir, '.env.bak'), 'utf8')).toBe(WRITABLE);
-      expect(ups()).toEqual([['compose', 'up', '-d', '--no-deps', 'worker-files']]);
+      // the music parts, and nothing else (postgres and app are listed too)
+      expect(ups().map((c) => c.join(' ')).sort()).toEqual(['compose up -d --no-deps player', 'compose up -d --no-deps worker-files']);
       expect(helpers.filter((c) => c[0] === 'run').every((c) => c.includes(IMAGE))).toBe(true);
       const log = await runLog();
       expect(log.some((m) => m.startsWith('the music share moves to the parent layout'))).toBe(true);
@@ -1697,6 +1701,75 @@ describe('updater HTTP API', () => {
       expect(await envText()).toBe(WRITABLE);
       const log = await runLog();
       expect(log.some((m) => m.startsWith('the music share layout was not changed: docker compose rejects'))).toBe(true);
+    });
+
+    it('a hand-over from 0.38.0 runs it; one from 0.39.0 or later does not (its update already tried)', async () => {
+      const from = (fromVersion: string) => ({ expectedVersion: '0.7.0', fromVersion, runId: 'r1', since: new Date().toISOString() });
+      await handedOver(from('0.39.0'));
+      await startUp();
+      expect(helpers).toEqual([]);
+      expect(await envText()).toBe(WRITABLE);
+      await handedOver(from('0.40.1'));
+      await startUp();
+      expect(helpers).toEqual([]);
+      await handedOver(from('0.38.0'));
+      await startUp();
+      expect(await envText()).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+    });
+
+    it('an unknown fromVersion still runs it', async () => {
+      await handedOver({ expectedVersion: '0.7.0', runId: 'r1', since: new Date().toISOString() });
+      await startUp();
+      expect(await envText()).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+    });
+
+    it('while it runs, a Repair or an update is refused with what it does', async () => {
+      await handedOver();
+      const s = make({ docker: host, layoutImage: async () => IMAGE, log: () => {}, handoverLayoutRetry: { tries: 1, gapMs: 5 } });
+      await s.load();
+      await s.idle();
+      let open!: () => void;
+      fake.configGate = new Promise((r) => { open = r; });
+      const reads = fake.configReads();
+      const moving = s.layoutAfterHandover();
+      // the move waits on compose taking the new .env
+      await vi.waitFor(() => expect(fake.configReads()).toBeGreaterThan(reads));
+      const refused = await s.startRepair('owner');
+      expect(refused).toEqual({ ok: false, status: 409, error: 'tagave is checking the music share layout after the update; try again in a minute' });
+      fake.configGate = null;
+      open();
+      await moving;
+      expect(await envText()).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+    });
+
+    it('an update claimed in this process between tries: refused each time, one console line, nothing in the new run', async () => {
+      await handedOver();
+      const s = make({ docker: host, layoutImage: async () => IMAGE, log: (l, m) => { consoleLines.push(`${l}: ${m}`); }, handoverLayoutRetry: { tries: 2, gapMs: 5 } });
+      await s.load();
+      await s.idle();
+      const next = { ...newRun('r2', '0.7.0', '0.8.0', new Date()), status: 'running' as const };
+      s['run'] = next;
+      s['claimed'] = 'update';
+      try {
+        await s.layoutAfterHandover();
+      } finally {
+        s['claimed'] = null;
+      }
+      expect(helpers).toEqual([]);
+      expect(await envText()).toBe(WRITABLE);
+      expect(consoleLines.filter((l) => l.includes('the music share layout was not checked after the update'))).toHaveLength(1);
+      expect(next.log.some((l) => l.message.includes('music share'))).toBe(false);
+    });
+
+    it('a done note that cannot be written is logged as that, not as a failed move', async () => {
+      // a folder where the note goes: it can be neither read nor replaced
+      await mkdir(join(dir, STATE_DIR, 'layout-after-handover.json', 'x'), { recursive: true });
+      await handedOver();
+      await startUp();
+      expect(await envText()).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+      const log = await runLog();
+      expect(log.some((m) => m.startsWith('could not note the layout move as done: '))).toBe(true);
+      expect(log.some((m) => m.startsWith('the music share layout was not changed'))).toBe(false);
     });
   });
 });
