@@ -107,7 +107,7 @@ interface SelfReplaceGateOptions {
    * done. Called before the marker is cleared, so what it records survives a
    * crash right after the clear. A throw is ignored.
    */
-  handedOver?: (version: string) => Promise<void>;
+  handedOver?: (version: string, marker: SelfReplaceMarker) => Promise<void>;
   now?: () => Date;
   staleMs?: number;
   log?: SelfReplaceLog;
@@ -167,7 +167,7 @@ export class SelfReplaceGate implements SelfReplaceHooks {
     } else {
       this.log('warn', `the updater was to restart on ${found.expectedVersion} but runs ${v}. Cleared the restart marker: updates can start again`, fields);
     }
-    if (finished) await this.opts.handedOver?.(v).catch(() => undefined);
+    if (finished) await this.opts.handedOver?.(v, found).catch(() => undefined);
     this.marker = null;
     await this.save();
     return finished;

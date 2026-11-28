@@ -100,6 +100,23 @@ export const STOPPED_REPAIR = 'The repair stopped. Press Repair again.';
 export const HANDOVER_LAYOUT_FILE = `${STATE_DIR}/layout-after-handover.json`;
 /** While a repair, an update, a module run or a self-heal attempt runs: this many tries, this far apart (10 minutes in all). */
 const HANDOVER_LAYOUT_RETRY = { tries: 10, gapMs: 60_000 };
+/** The refusal while that move holds the run slot. */
+export const LAYOUT_CHECKING = 'tagave is checking the music share layout after the update; try again in a minute';
+/** The first updater whose update runs the move itself (its config step). */
+const LAYOUT_IN_UPDATE_FROM = [0, 39, 0] as const;
+
+/**
+ * Whether the updater that handed over left the move to this one: true
+ * unless `fromVersion` is a release at or above 0.39.0 (an unknown or
+ * unreadable version still owes it).
+ */
+export function oweLayoutAfter(fromVersion: string | undefined): boolean {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(fromVersion ?? '');
+  if (!m) return true;
+  const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+  for (let i = 0; i < 3; i++) if (v[i] !== LAYOUT_IN_UPDATE_FROM[i]) return v[i]! < LAYOUT_IN_UPDATE_FROM[i]!;
+  return false;
+}
 /** The one line when every try found something else running. */
 const HANDOVER_LAYOUT_SKIPPED = 'the music share layout was not checked after the update: a repair or another run kept going. The next Repair or update checks it';
 
@@ -240,6 +257,8 @@ export class UpdaterService {
   private bootRead: Promise<string | null> | null = null;
   /** This process took over from the updater that handed over (load()): it owes the one layout move. */
   private tookOver = false;
+  /** The move after a hand-over holds the repair claim now. */
+  private checkingLayout = false;
 
   constructor(private readonly opts: UpdaterOptions) {
     this.verifier = new SignatureVerifier(opts.appSecret);
@@ -252,7 +271,9 @@ export class UpdaterService {
     this.selfReplace = new SelfReplaceGate({
       version: opts.version,
       persist: () => this.writeState(),
-      handedOver: async (version) => {
+      handedOver: async (version, marker) => {
+        // From 0.39.0 on the update's own config step already tried the move.
+        if (!oweLayoutAfter(marker.fromVersion)) return;
         this.tookOver = true;
         await this.noteHandoverLayout(version, false);
       },
@@ -589,6 +610,7 @@ export class UpdaterService {
 
   private claimedRefusal(kind: Claim): RefusedStart {
     if (kind === 'update') return { ok: false, status: 409, error: 'an update is already running' };
+    if (kind === 'repair' && this.checkingLayout && this.claimed === 'repair') return { ok: false, status: 409, error: LAYOUT_CHECKING };
     if (kind === 'repair') return { ok: false, status: 409, error: 'a repair is running' };
     return { ok: false, status: 409, error: `${this.moduleRun?.moduleName ?? 'a module'} is being turned ${this.moduleRun?.action === 'disable' ? 'off' : 'on'}` };
   }
@@ -877,7 +899,9 @@ export class UpdaterService {
    * decision R5: the update to 0.39.0 runs the 0.38 updater, so this is
    * where 0.39.0 moves eligible installs). main.ts calls it in the
    * background once the server listens. It runs when load() found the
-   * marker of a finished hand-over to this version, or when
+   * marker of a finished hand-over to this version from an updater older
+   * than 0.39.0 (oweLayoutAfter; from 0.39.0 on the update's config step
+   * already tried the move), or when
    * HANDOVER_LAYOUT_FILE still says the move is owed for it (this process
    * died between clearing the marker and the move); never a second time.
    *
@@ -892,16 +916,21 @@ export class UpdaterService {
    * brought this version. Never throws.
    */
   async layoutAfterHandover(): Promise<void> {
+    const version = this.opts.version;
+    // readHandoverLayout never throws.
+    const noted = await this.readHandoverLayout();
+    const owed = noted && noted.version === version ? !noted.done : this.tookOver;
+    if (!owed) return;
     try {
-      const version = this.opts.version;
-      const noted = await this.readHandoverLayout();
-      const owed = noted && noted.version === version ? !noted.done : this.tookOver;
-      if (!owed) return;
       // No image: no move, as for Repair.
       if (this.opts.layoutImage) await this.moveAfterHandover();
-      await this.noteHandoverLayout(version, true);
     } catch (err) {
       this.layoutLog('warn', `the music share layout was not changed: ${(err as Error)?.message ?? String(err)}`);
+    }
+    try {
+      await this.noteHandoverLayout(version, true);
+    } catch (err) {
+      this.layoutLog('warn', `could not note the layout move as done: ${(err as Error)?.message ?? String(err)}`);
     }
     await this.writing;
   }
@@ -922,6 +951,7 @@ export class UpdaterService {
   private async moveLayoutNow(): Promise<true> {
     const log = (level: 'info' | 'warn', message: string) => this.layoutLog(level, message);
     const envPath = join(this.opts.installDir, '.env');
+    this.checkingLayout = true;
     try {
       await moveLayout({
         installDir: this.opts.installDir,
@@ -940,6 +970,7 @@ export class UpdaterService {
       if (hasParentLayout(after)) log('warn', `.env has the parent layout's settings, but the music parts were not started on them: ${why}`);
       else log('warn', `the music share layout was not changed: ${why}`);
     } finally {
+      this.checkingLayout = false;
       this.partsChanged();
     }
     return true;
