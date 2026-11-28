@@ -95,6 +95,8 @@ async function main(): Promise<void> {
   service.followRepairFile();
   const server = service.listen(port);
   healer.start();
+  // After a hand-over to this version, the one move to the parent music layout, in the background (it never throws).
+  void service.layoutAfterHandover();
   console.log(JSON.stringify({ msg: 'updater ready', port, installDir, releaseKeys: keys.map((k) => k.id) }));
   const stop = () => { healer.stop(); service.stop(); server.close(() => process.exit(0)); };
   process.on('SIGTERM', stop);

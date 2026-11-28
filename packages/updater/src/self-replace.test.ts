@@ -68,6 +68,56 @@ describe('self-replace gate', () => {
     expect(logs).toEqual([{ level: 'info', message: 'the updater restarted on 0.9.0 as planned' }]);
   });
 
+  describe('a finished hand-over', () => {
+    function noting(version: string, over: Partial<ConstructorParameters<typeof SelfReplaceGate>[0]> = {}, clock = { now: T0 }) {
+      const events: string[] = [];
+      const g = new SelfReplaceGate({
+        version,
+        persist: async () => { events.push('persist'); },
+        handedOver: async (v) => { events.push(`handedOver ${v}`); },
+        now: () => new Date(clock.now),
+        log: () => {},
+        ...over,
+      });
+      return { g, events };
+    }
+
+    it('the replacement on the expected version says so, and notes it before the marker is cleared', async () => {
+      const { g, events } = noting('0.9.0');
+      expect(await g.adopt(marker())).toBe(true);
+      expect(events).toEqual(['handedOver 0.9.0', 'persist']);
+    });
+
+    it('recognises the marker the 0.38 updater writes', async () => {
+      const { g, events } = noting('0.39.0');
+      const written = serializeState(newRun('run-38', '0.38.0', '0.39.0', new Date(T0)), { expectedVersion: '0.39.0', fromVersion: '0.38.0', runId: 'run-38', since: new Date(T0).toISOString() });
+      expect(await g.adopt(parseState(written).marker)).toBe(true);
+      expect(events[0]).toBe('handedOver 0.39.0');
+    });
+
+    it('no hand-over: no marker, another version, a stale marker, the old updater waiting', async () => {
+      for (const [version, found, now] of [
+        ['0.9.0', null, T0],
+        ['0.8.1', marker(), T0],
+        ['0.9.0', marker(), T0 + SELF_REPLACE_STALE_MS + 1],
+      ] as const) {
+        const { g, events } = noting(version, {}, { now });
+        expect(await g.adopt(found)).toBe(false);
+        expect(events.filter((e) => e.startsWith('handedOver'))).toEqual([]);
+      }
+      const { g, events } = noting('0.8.0', { handoverRunning: async () => true });
+      expect(await g.adopt(marker())).toBe(false);
+      expect(events).toEqual([]);
+    });
+
+    it('a failed note still clears the marker', async () => {
+      const { g, events } = noting('0.9.0', { handedOver: async () => { throw new Error('EROFS'); } });
+      expect(await g.adopt(marker())).toBe(true);
+      expect(g.current).toBeNull();
+      expect(events).toEqual(['persist']);
+    });
+  });
+
   it('a new updater on another version clears the marker with a warning', async () => {
     const { g, logs } = gate('0.8.1');
     await g.adopt(marker());

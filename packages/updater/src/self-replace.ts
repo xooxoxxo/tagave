@@ -8,7 +8,9 @@
  * ("replacing self, expecting version X") and from then on refuses
  * POST /v1/update with 409. The replacement clears the marker when it starts:
  *
- *   its version is X                  done; logged as info
+ *   its version is X                  done; logged as info, and the
+ *                                     music share layout move runs once
+ *                                     (server.ts, layoutAfterHandover)
  *   another version                   cleared with a warning (the hand-over
  *                                     went wrong, or someone restarted the
  *                                     old image); runs are accepted again
@@ -100,6 +102,12 @@ interface SelfReplaceGateOptions {
   handoverRunning?: () => Promise<boolean | null>;
   /** Writes state.json with the current run and marker. */
   persist: () => Promise<void>;
+  /**
+   * This process is the replacement the marker expected: the hand-over is
+   * done. Called before the marker is cleared, so what it records survives a
+   * crash right after the clear. A throw is ignored.
+   */
+  handedOver?: (version: string) => Promise<void>;
   now?: () => Date;
   staleMs?: number;
   log?: SelfReplaceLog;
@@ -129,10 +137,13 @@ export class SelfReplaceGate implements SelfReplaceHooks {
    * On start, with the marker found in state.json. A process that starts is
    * never the one that handed over; it clears the marker, except when it may
    * be that old updater restarted by Docker before the hand-over finished.
+   * True when this process is the replacement the marker expected (a
+   * finished hand-over); a stale marker never counts.
    */
-  async adopt(found: SelfReplaceMarker | null): Promise<void> {
-    if (!found) return;
+  async adopt(found: SelfReplaceMarker | null): Promise<boolean> {
+    if (!found) return false;
     const v = this.opts.version;
+    let finished = false;
     const fields = { expectedVersion: found.expectedVersion, fromVersion: found.fromVersion, since: found.since, version: v };
     if (isStale(found, this.now(), this.staleMs)) {
       this.log('warn', `found a restart onto ${found.expectedVersion} from ${found.since} that never finished; this updater runs ${v}. Cleared it: updates can start again`, fields);
@@ -142,17 +153,24 @@ export class SelfReplaceGate implements SelfReplaceHooks {
         this.log('warn', `restarted on ${v} while the hand-over to ${found.expectedVersion} ${running ? 'still runs' : 'may still run'}; refusing updates until it is done`, fields);
         this.marker = found;
         this.waitingOnHandover = true;
-        return;
+        return false;
       }
-      if (found.expectedVersion === v) this.log('info', `the updater restarted on ${v} as planned`, fields);
-      else this.log('warn', `the hand-over to ${found.expectedVersion} ended without replacing this updater (${v}). Cleared the restart marker: updates can start again`, fields);
+      if (found.expectedVersion === v) {
+        this.log('info', `the updater restarted on ${v} as planned`, fields);
+        finished = true;
+      } else {
+        this.log('warn', `the hand-over to ${found.expectedVersion} ended without replacing this updater (${v}). Cleared the restart marker: updates can start again`, fields);
+      }
     } else if (found.expectedVersion === v) {
       this.log('info', `the updater restarted on ${v} as planned`, fields);
+      finished = true;
     } else {
       this.log('warn', `the updater was to restart on ${found.expectedVersion} but runs ${v}. Cleared the restart marker: updates can start again`, fields);
     }
+    if (finished) await this.opts.handedOver?.(v).catch(() => undefined);
     this.marker = null;
     await this.save();
+    return finished;
   }
 
   private async handoverRunning(): Promise<boolean | null> {
