@@ -9,6 +9,7 @@ import { assertAllowed } from './argv-guard.testkit.js';
 import { musicVerdict, type MusicProber, type ServerAnswer } from './music-probe.js';
 import { INSPECT_FORMAT } from './progress.js';
 import { REPAIR_STATE_FILE, newRepairRun } from './repair.js';
+import { RepairLock } from './repair-lock.js';
 import type { CommandResult, Runner } from './runner.js';
 import { SignatureVerifier, signRequest, SIGNATURE_HEADER, TIME_HEADER } from './token.js';
 import { UpdaterService, STATE_DIR, type RepairHealer, type UpdaterOptions } from './server.js';
@@ -1526,6 +1527,176 @@ describe('updater HTTP API', () => {
       const { logs } = await startWith('0.6.0', new Date(now.getTime() - 11 * 60_000), now);
       expect(logs[0]).toMatch(/^warn: found a restart onto 0\.7\.0 .* that never finished/);
       expect((await readState())['selfReplace']).toBeUndefined();
+    });
+  });
+
+  describe('the music share layout move after a hand-over', () => {
+    const IMAGE = `sha256:${'c'.repeat(64)}`;
+    const WRITABLE = 'COMPOSE_PROJECT_NAME=tagave\nTAGAVE_ROLE=all\nTAGAVE_VERSION=0.7.0\nMUSIC_DIR=/mnt/music\nTAGAVE_MUSIC_MODE=rw\n';
+    const STAYS = 'the music share stays on the direct layout: ';
+    let helpers: string[][];
+    let consoleLines: string[];
+
+    /** The fake plus a host where /mnt/music is an NFS mount in a shared /mnt that holds nothing else. */
+    const host: Runner = async (args, opts) => {
+      assertAllowed(args);
+      const ok = (stdout: string): CommandResult => ({ code: 0, stdout, stderr: '' });
+      if (args[0] === 'info') {
+        helpers.push(args);
+        return ok('linux\nUbuntu 24.04.1 LTS\n/var/lib/docker\nname=seccomp,profile=builtin \n');
+      }
+      if (args[0] === 'run' && args.includes('nsenter')) {
+        helpers.push(args);
+        const command = args.slice(args.indexOf('--') + 1).join(' ');
+        if (command === 'cat /proc/self/mountinfo') return ok('22 1 8:1 / / rw shared:1 - ext4 /dev/sda1 rw\n60 22 0:60 / /mnt/music rw shared:60 - nfs4 192.0.2.10:/export/music rw,hard\n');
+        if (command === 'cat /etc/fstab') return ok('');
+        if (command.startsWith('findmnt')) return ok('shared\n');
+        if (command.startsWith('sh -c')) return ok('music\n');
+      }
+      return fake.docker(args, opts);
+    };
+
+    const statePath = () => join(dir, STATE_DIR, 'state.json');
+    const envText = () => readFile(join(dir, '.env'), 'utf8');
+    const runLog = async () => ((JSON.parse(await readFile(statePath(), 'utf8')) as UpdateRun).log).map((l) => l.message);
+    /** state.json as the updater that handed over left it: a finished run to 0.7.0, and its marker unless `marker` is null. */
+    const handedOver = async (marker: Record<string, unknown> | null = { expectedVersion: '0.7.0', fromVersion: '0.6.0', runId: 'r1', since: new Date().toISOString() }) => {
+      await mkdir(join(dir, STATE_DIR), { recursive: true });
+      const run = { ...newRun('r1', '0.6.0', '0.7.0', new Date()), status: 'succeeded', finishedAt: new Date().toISOString() };
+      await writeFile(statePath(), JSON.stringify(marker ? { ...run, selfReplace: marker } : run));
+    };
+    /** A fresh updater process on 0.7.0: it loads, listens (not needed here) and runs the move in the background. */
+    const startUp = async (over: Partial<UpdaterOptions> = {}) => {
+      const s = make({ docker: host, layoutImage: async () => IMAGE, log: (l, m) => { consoleLines.push(`${l}: ${m}`); }, handoverLayoutRetry: { tries: 3, gapMs: 5 }, ...over });
+      await s.load();
+      await s.idle();
+      await s.layoutAfterHandover();
+      return s;
+    };
+    const ups = () => fake.calls.filter((c) => c[0] === 'compose' && c[1] === 'up');
+
+    beforeEach(async () => {
+      helpers = [];
+      consoleLines = [];
+      await writeFile(join(dir, '.env'), WRITABLE, { mode: 0o600 });
+    });
+
+    it('moves once after the hand-over: one atomic .env write with .env.bak, only the music parts started, the lines in the run log', async () => {
+      await handedOver();
+      await startUp();
+      const env = await envText();
+      expect(env).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+      expect(await readFile(join(dir, '.env.bak'), 'utf8')).toBe(WRITABLE);
+      expect(ups()).toEqual([['compose', 'up', '-d', '--no-deps', 'worker-files']]);
+      expect(helpers.filter((c) => c[0] === 'run').every((c) => c.includes(IMAGE))).toBe(true);
+      const log = await runLog();
+      expect(log.some((m) => m.startsWith('the music share moves to the parent layout'))).toBe(true);
+      expect(log.some((m) => m.startsWith(".env has the parent layout's settings"))).toBe(true);
+      expect(await readFile(join(dir, STATE_DIR, 'layout-after-handover.json'), 'utf8')).toContain('"done": true');
+    });
+
+    it('a second start of the same version does not run it again', async () => {
+      await handedOver();
+      await startUp();
+      await writeFile(join(dir, '.env'), WRITABLE, { mode: 0o600 });
+      helpers = [];
+      fake.calls = [];
+      await startUp();
+      expect(helpers).toEqual([]);
+      expect(await envText()).toBe(WRITABLE);
+    });
+
+    it('a crash between clearing the marker and the move: the next start still runs it', async () => {
+      await handedOver();
+      const first = make({ docker: host, layoutImage: async () => IMAGE });
+      await first.load();
+      await first.idle();
+      // no layoutAfterHandover: the process died here
+      expect(JSON.parse(await readFile(statePath(), 'utf8'))['selfReplace']).toBeUndefined();
+      await startUp();
+      expect(await envText()).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+    });
+
+    it('no hand-over, no run', async () => {
+      await handedOver(null);
+      await startUp();
+      expect(helpers).toEqual([]);
+      expect(await envText()).toBe(WRITABLE);
+      expect(consoleLines).toEqual([]);
+    });
+
+    it('a marker for another version (a failed hand-over) does not run it', async () => {
+      await handedOver({ expectedVersion: '0.8.0', fromVersion: '0.6.0', runId: 'r1', since: new Date().toISOString() });
+      await startUp();
+      expect(helpers).toEqual([]);
+      expect(await envText()).toBe(WRITABLE);
+    });
+
+    it('a refusal writes nothing and logs one line', async () => {
+      const readOnly = WRITABLE.replace('TAGAVE_MUSIC_MODE=rw\n', '');
+      await writeFile(join(dir, '.env'), readOnly, { mode: 0o600 });
+      await handedOver();
+      await startUp();
+      expect(await envText()).toBe(readOnly);
+      await expect(readFile(join(dir, '.env.bak'), 'utf8')).rejects.toThrow();
+      expect(ups()).toEqual([]);
+      const log = await runLog();
+      expect(log.filter((m) => m.startsWith(STAYS))).toHaveLength(1);
+    });
+
+    it('TAGAVE_MUSIC_LAYOUT=direct is respected', async () => {
+      await writeFile(join(dir, '.env'), `${WRITABLE}TAGAVE_MUSIC_LAYOUT=direct\n`, { mode: 0o600 });
+      await handedOver();
+      await startUp();
+      expect(helpers).toEqual([]);
+      expect(await envText()).toBe(`${WRITABLE}TAGAVE_MUSIC_LAYOUT=direct\n`);
+    });
+
+    it('an app computer does nothing and logs nothing', async () => {
+      const app = 'COMPOSE_PROJECT_NAME=tagave\nTAGAVE_ROLE=app\nTAGAVE_VERSION=0.7.0\n';
+      await writeFile(join(dir, '.env'), app, { mode: 0o600 });
+      await handedOver();
+      const before = await runLog();
+      await startUp();
+      expect(await envText()).toBe(app);
+      expect(await runLog()).toEqual(before);
+      // only the hand-over's own line
+      expect(consoleLines).toEqual(['info: the updater restarted on 0.7.0 as planned']);
+      expect(await readFile(join(dir, STATE_DIR, 'layout-after-handover.json'), 'utf8')).toContain('"done": true');
+    });
+
+    it('while the repair lock is held it waits, and moves once the lock is free', async () => {
+      await handedOver();
+      const held = await new RepairLock({ installDir: dir }).acquire('repair');
+      expect(held.ok).toBe(true);
+      const s = make({ docker: host, layoutImage: async () => IMAGE, handoverLayoutRetry: { tries: 20, gapMs: 20 } });
+      await s.load();
+      const moving = s.layoutAfterHandover();
+      await new Promise((r) => setTimeout(r, 30));
+      expect(await envText()).toBe(WRITABLE);
+      if (held.ok) await held.release();
+      await moving;
+      expect(await envText()).toContain('TAGAVE_MUSIC_BIND_SOURCE=/mnt\n');
+    });
+
+    it('while the repair lock stays held it gives up after its tries with one line, and writes nothing', async () => {
+      await handedOver();
+      const held = await new RepairLock({ installDir: dir }).acquire('repair');
+      await startUp();
+      expect(await envText()).toBe(WRITABLE);
+      expect(helpers).toEqual([]);
+      const log = await runLog();
+      expect(log.filter((m) => m.includes('the music share layout was not checked after the update'))).toHaveLength(1);
+      if (held.ok) await held.release();
+    });
+
+    it('a throw is only logged', async () => {
+      await handedOver();
+      fake.configList = null;
+      await expect(startUp()).resolves.toBeDefined();
+      expect(await envText()).toBe(WRITABLE);
+      const log = await runLog();
+      expect(log.some((m) => m.startsWith('the music share layout was not changed: docker compose rejects'))).toBe(true);
     });
   });
 });

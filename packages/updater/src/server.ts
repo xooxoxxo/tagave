@@ -53,8 +53,9 @@ import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER } from './token.js';
 import { RELEASE_FLOOR_FILE, Update, newRun, type UpdateConfig } from './update.js';
 import type { MusicProber } from './music-probe.js';
 import type { RemountResult } from './music-heal.js';
-import { readParts } from './parts.js';
-import { musicBootOf, musicBootWanted, readFstab } from './music-layout.js';
+import { Parts, readParts } from './parts.js';
+import { hasParentLayout, moveLayout, musicBootOf, musicBootWanted, readFstab } from './music-layout.js';
+import { partName } from './progress.js';
 import { DEFAULT_REPAIR_CONFIG, REPAIR_STATE_FILE, Repair, newRepairRun, type RepairConfig, type RepairDeps } from './repair.js';
 import { RepairLock, type LockHolder, type Release } from './repair-lock.js';
 
@@ -90,6 +91,17 @@ const REPAIR_FILE_POLL_MS = 60_000;
 const RESTARTED_DURING_REPAIR = 'The updater restarted during the repair. Press Repair again.';
 /** A repair that ended without an end: stale (R29), or stopped by SIGINT or SIGTERM in cli.js. */
 export const STOPPED_REPAIR = 'The repair stopped. Press Repair again.';
+/**
+ * The one music share layout move after a hand-over (layoutAfterHandover):
+ * {"version", "done"}. Written with done false before the restart marker is
+ * cleared, and done true once the move was tried, so a restart neither runs
+ * it twice nor skips it.
+ */
+export const HANDOVER_LAYOUT_FILE = `${STATE_DIR}/layout-after-handover.json`;
+/** While a repair, an update, a module run or a self-heal attempt runs: this many tries, this far apart (10 minutes in all). */
+const HANDOVER_LAYOUT_RETRY = { tries: 10, gapMs: 60_000 };
+/** The one line when every try found something else running. */
+const HANDOVER_LAYOUT_SKIPPED = 'the music share layout was not checked after the update: a repair or another run kept going. The next Repair or update checks it';
 
 /** What `p` gives if it answers before `end` (a Date.now() time), else `late()`; `p` goes on in the background. */
 async function beforeEnd<T>(end: number, p: Promise<T>, late: () => T): Promise<T> {
@@ -144,6 +156,8 @@ export interface UpdaterOptions {
   reportWaitMs?: number;
   /** The lock that keeps repairs and self-heal attempts of separate processes apart (default: .updater/repair.lock); null: none. */
   lock?: RepairLock | null;
+  /** How often the move after a hand-over tries while something else runs, and the pause between tries (default 10, 60 s). */
+  handoverLayoutRetry?: { tries: number; gapMs: number };
 }
 
 /** What the service needs of the music healer (music-heal.ts). */
@@ -224,6 +238,8 @@ export class UpdaterService {
   private bootFstab: { at: number; fstab: string | null } | null = null;
   /** The fstab read in flight: one at a time. */
   private bootRead: Promise<string | null> | null = null;
+  /** This process took over from the updater that handed over (load()): it owes the one layout move. */
+  private tookOver = false;
 
   constructor(private readonly opts: UpdaterOptions) {
     this.verifier = new SignatureVerifier(opts.appSecret);
@@ -236,6 +252,10 @@ export class UpdaterService {
     this.selfReplace = new SelfReplaceGate({
       version: opts.version,
       persist: () => this.writeState(),
+      handedOver: async (version) => {
+        this.tookOver = true;
+        await this.noteHandoverLayout(version, false);
+      },
       handoverRunning: async () => {
         const res = await opts.docker(['ps', '-q', '--filter', `label=${HANDOVER_LABEL}`], { timeoutMs: 15_000 });
         return res.code === 0 ? res.stdout.trim() !== '' : null;
@@ -847,6 +867,113 @@ export class UpdaterService {
     if (this.repairTimer) clearInterval(this.repairTimer);
     this.repairTimer = null;
     if (this.repair?.run.status === 'waiting') this.repair.cancel();
+  }
+
+  // -- the music share layout after a hand-over -----------------------------------
+
+  /**
+   * The one-time move to the parent music layout (music-layout.ts), once
+   * after this updater took over from the one that ran the update (owner
+   * decision R5: the update to 0.39.0 runs the 0.38 updater, so this is
+   * where 0.39.0 moves eligible installs). main.ts calls it in the
+   * background once the server listens. It runs when load() found the
+   * marker of a finished hand-over to this version, or when
+   * HANDOVER_LAYOUT_FILE still says the move is owed for it (this process
+   * died between clearing the marker and the move); never a second time.
+   *
+   * It runs under a repair's claim (the run slot and .updater/repair.lock,
+   * as cli.js music-layout --apply), so never during an update, a module
+   * run, a repair or a self-heal attempt: while one runs it tries again,
+   * up to 10 times a minute apart, then gives up with one line (the next
+   * Repair or update tries the move anyway). The move is moveLayout, as
+   * Repair and cli.js run it; only the music parts start, through Parts
+   * with the music prober. Its lines go to the finished update's run log
+   * (state.json), or to the console when that run is not the one that
+   * brought this version. Never throws.
+   */
+  async layoutAfterHandover(): Promise<void> {
+    try {
+      const version = this.opts.version;
+      const noted = await this.readHandoverLayout();
+      const owed = noted && noted.version === version ? !noted.done : this.tookOver;
+      if (!owed) return;
+      // No image: no move, as for Repair.
+      if (this.opts.layoutImage) await this.moveAfterHandover();
+      await this.noteHandoverLayout(version, true);
+    } catch (err) {
+      this.layoutLog('warn', `the music share layout was not changed: ${(err as Error)?.message ?? String(err)}`);
+    }
+    await this.writing;
+  }
+
+  private async moveAfterHandover(): Promise<void> {
+    const { tries, gapMs } = this.opts.handoverLayoutRetry ?? HANDOVER_LAYOUT_RETRY;
+    for (let i = 0; i < tries; i++) {
+      if (i > 0) await new Promise<void>((resolve) => { setTimeout(resolve, gapMs).unref?.(); });
+      // load()'s repair of an update left with stuck parts goes first.
+      await this.resuming;
+      const res = await this.withClaim('repair', () => this.moveLayoutNow());
+      if (res === true) return;
+    }
+    this.layoutLog('warn', HANDOVER_LAYOUT_SKIPPED);
+  }
+
+  /** The move itself, under the claim. A throw is logged here, as Repair logs it. */
+  private async moveLayoutNow(): Promise<true> {
+    const log = (level: 'info' | 'warn', message: string) => this.layoutLog(level, message);
+    const envPath = join(this.opts.installDir, '.env');
+    try {
+      await moveLayout({
+        installDir: this.opts.installDir,
+        docker: this.opts.docker,
+        image: this.opts.layoutImage!,
+        log,
+        start: async (services) => {
+          const parts = new Parts({ docker: this.opts.docker, music: this.opts.music ?? null, now: () => this.now().getTime(), log: (l, m) => log(l === 'error' ? 'warn' : l, m) });
+          const res = await parts.startParts(services);
+          for (const p of res.stuck) log('warn', `${partName(p.service)} did not start on the new settings`);
+        },
+      });
+    } catch (err) {
+      const why = (err as Error)?.message ?? String(err);
+      const after = (await readText(envPath).catch(() => null)) ?? '';
+      if (hasParentLayout(after)) log('warn', `.env has the parent layout's settings, but the music parts were not started on them: ${why}`);
+      else log('warn', `the music share layout was not changed: ${why}`);
+    } finally {
+      this.partsChanged();
+    }
+    return true;
+  }
+
+  /**
+   * One line of the move: into the run that brought this version (finished,
+   * and no update runs now) as the update's own lines are, else the console.
+   */
+  private layoutLog(level: 'info' | 'warn', message: string): void {
+    const run = this.run;
+    if (run && run.target === this.opts.version && run.status !== 'running' && !this.active) {
+      run.log.push({ at: this.now().toISOString(), level, message });
+      void this.save(run).catch(() => undefined);
+      return;
+    }
+    if (level === 'warn') this.warn(message, {});
+    else if (this.opts.log) this.opts.log('info', message, {});
+    else console.log(JSON.stringify({ msg: message, level }));
+  }
+
+  private async readHandoverLayout(): Promise<{ version: string; done: boolean } | null> {
+    try {
+      const text = await readText(join(this.opts.installDir, HANDOVER_LAYOUT_FILE));
+      const raw = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+      return raw && typeof raw['version'] === 'string' ? { version: raw['version'], done: raw['done'] === true } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async noteHandoverLayout(version: string, done: boolean): Promise<void> {
+    await mkdirKeepingOwner(join(this.opts.installDir, STATE_DIR), 0o700);
+    await writeFileAtomic(join(this.opts.installDir, HANDOVER_LAYOUT_FILE), `${JSON.stringify({ version, done, at: this.now().toISOString() }, null, 2)}\n`, false);
   }
 
   /** An update that ended held hands its stuck parts to a repair (Decision 3: the music case). Never throws. */
